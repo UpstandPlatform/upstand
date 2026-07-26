@@ -1,0 +1,1 @@
+CREATE INDEX "ai_conversation_org_user_idx" ON "ai_conversation" USING btree ("organization_id","user_id","updated_at");

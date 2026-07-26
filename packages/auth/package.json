@@ -1,0 +1,27 @@
+{
+  "name": "@upstand/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test src",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "@better-auth/api-key": "catalog:",
+    "@better-auth/sso": "1.6.23",
+    "@upstand/domain": "workspace:*",
+    "better-auth": "catalog:"
+  },
+  "devDependencies": {
+    "@upstand/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,27 @@
+name: Validate GitHub Actions
+
+on:
+  pull_request:
+    branches: [master, canary]
+    paths:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+  push:
+    branches: [master, canary]
+    paths:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Lint workflows
+        uses: raven-actions/actionlint@v2

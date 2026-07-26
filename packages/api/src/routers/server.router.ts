@@ -1,0 +1,391 @@
+import { TRPCError } from "@trpc/server";
+import {
+  ControlDockerContainerInputSchema,
+  ControlDockerResourceInputSchema,
+  CreateServerInputSchema,
+  DeleteServerInputSchema,
+  GetDockerInventoryInputSchema,
+  GetServerCountInputSchema,
+  GetServerHistoricalMetricsInputSchema,
+  GetServerInputSchema,
+  GetServerMonitoringStatusInputSchema,
+  GetServerRuntimeStatsInputSchema,
+  GetServersInputSchema,
+  ScanServerHostKeyInputSchema,
+  SetupServerInputSchema,
+  UpdateMonitoringSettingsInputSchema,
+  UpdateServerInputSchema,
+} from "@upstand/usecases";
+import {
+  CreateServerUseCaseToken,
+  DeleteServerUseCaseToken,
+  GetDockerInventoryUseCaseToken,
+  GetServerCountUseCaseToken,
+  GetServerHistoricalMetricsUseCaseToken,
+  GetServerMonitoringStatusUseCaseToken,
+  GetServerRuntimeStatsUseCaseToken,
+  GetServersUseCaseToken,
+  GetServerUseCaseToken,
+  ScanServerHostKeyUseCaseToken,
+  SetupServerUseCaseToken,
+  UnitOfWorkToken,
+  UpdateMonitoringSettingsUseCaseToken,
+  UpdateServerUseCaseToken,
+} from "@upstand/usecases/tokens";
+import { z } from "zod";
+import { handleUseCaseError } from "../errors";
+import { router, twoFactorVerifiedProcedure } from "../index";
+import { checkPermission } from "../permissions";
+import { authorizeServerAccess } from "../trpc/server-authorization.helper";
+
+export const serverRouter = router({
+  count: twoFactorVerifiedProcedure
+    .input(GetServerCountInputSchema)
+    .query(async ({ ctx, input }) => {
+      await authorizeServerAccess(ctx, input.organizationId, "server:view");
+      try {
+        return await ctx.scope
+          .resolve(GetServerCountUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  one: twoFactorVerifiedProcedure
+    .input(GetServerInputSchema)
+    .query(async ({ ctx, input }) => {
+      await authorizeServerAccess(ctx, input.organizationId, "server:view");
+      try {
+        return await ctx.scope.resolve(GetServerUseCaseToken).execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  controlContainer: twoFactorVerifiedProcedure
+    .input(ControlDockerContainerInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await authorizeServerAccess(ctx, input.organizationId, "server:update");
+      const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
+      try {
+        return await useCase.controlContainer(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  controlResource: twoFactorVerifiedProcedure
+    .input(ControlDockerResourceInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await authorizeServerAccess(ctx, input.organizationId, "server:update");
+      const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
+      try {
+        return await useCase.controlResource(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  validate: twoFactorVerifiedProcedure
+    .input(
+      GetDockerInventoryInputSchema.pick({
+        organizationId: true,
+        serverId: true,
+      }).extend({
+        serverId: GetDockerInventoryInputSchema.shape.serverId.unwrap(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
+      try {
+        return await useCase.execute({
+          organizationId: input.organizationId,
+          serverId: input.serverId,
+          kind: "info",
+          tail: 150,
+        });
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  time: twoFactorVerifiedProcedure
+    .input(
+      GetDockerInventoryInputSchema.pick({
+        organizationId: true,
+        serverId: true,
+      }).extend({
+        serverId: GetDockerInventoryInputSchema.shape.serverId.unwrap(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
+      try {
+        return await useCase.getHostTime(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  inventory: twoFactorVerifiedProcedure
+    .input(GetDockerInventoryInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
+      try {
+        return await useCase.execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  runtimeStats: twoFactorVerifiedProcedure
+    .input(GetServerRuntimeStatsInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+
+      const useCase = ctx.scope.resolve(GetServerRuntimeStatsUseCaseToken);
+      try {
+        return await useCase.execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  monitoringSettings: twoFactorVerifiedProcedure
+    .input(
+      z.object({
+        organizationId: z.string().min(1),
+        serverId: z.string().min(1),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      if (input.serverId !== "local") {
+        const server = await uow.serverRepository.findById(input.serverId);
+        if (!server || server.organizationId !== input.organizationId) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Server not found",
+          });
+        }
+      }
+
+      const settings = await uow.monitoringSettingsRepository.findByServerId(
+        input.serverId,
+      );
+      return {
+        serverId: input.serverId,
+        isConfigured: Boolean(settings),
+        cpuThreshold: settings?.cpuThreshold ?? 90,
+        memoryThreshold: settings?.memoryThreshold ?? 90,
+      };
+    }),
+
+  create: twoFactorVerifiedProcedure
+    .input(CreateServerInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:create",
+      );
+
+      const useCase = ctx.scope.resolve(CreateServerUseCaseToken);
+      try {
+        return await useCase.execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  list: twoFactorVerifiedProcedure
+    .input(GetServersInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+
+      const useCase = ctx.scope.resolve(GetServersUseCaseToken);
+      try {
+        return await useCase.execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  delete: twoFactorVerifiedProcedure
+    .input(DeleteServerInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      const server = await uow.serverRepository.findById(input.id);
+      if (!server) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Server not found",
+        });
+      }
+
+      await checkPermission(
+        ctx.session.user.id,
+        server.organizationId,
+        "server:delete",
+      );
+
+      const useCase = ctx.scope.resolve(DeleteServerUseCaseToken);
+      try {
+        return await useCase.execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  setup: twoFactorVerifiedProcedure
+    .input(SetupServerInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      const server = await uow.serverRepository.findById(input.id);
+      if (!server) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Server not found",
+        });
+      }
+
+      await checkPermission(
+        ctx.session.user.id,
+        server.organizationId,
+        "server:create",
+      );
+
+      const useCase = ctx.scope.resolve(SetupServerUseCaseToken);
+      try {
+        return await useCase.execute(input);
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error.message,
+            cause: error,
+          });
+        }
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  scanHostKey: twoFactorVerifiedProcedure
+    .input(ScanServerHostKeyInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:create",
+      );
+      const useCase = ctx.scope.resolve(ScanServerHostKeyUseCaseToken);
+      try {
+        return await useCase.execute(input);
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error.message,
+            cause: error,
+          });
+        }
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  update: twoFactorVerifiedProcedure
+    .input(UpdateServerInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope.resolve(UpdateServerUseCaseToken).execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  updateMonitoringSettings: twoFactorVerifiedProcedure
+    .input(UpdateMonitoringSettingsInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(UpdateMonitoringSettingsUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  historicalMetrics: twoFactorVerifiedProcedure
+    .input(GetServerHistoricalMetricsInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+
+      const useCase = ctx.scope.resolve(GetServerHistoricalMetricsUseCaseToken);
+      try {
+        return await useCase.execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  monitoringStatus: twoFactorVerifiedProcedure
+    .input(GetServerMonitoringStatusInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      try {
+        return await ctx.scope
+          .resolve(GetServerMonitoringStatusUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+});

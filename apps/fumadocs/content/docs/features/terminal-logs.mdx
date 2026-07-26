@@ -1,0 +1,47 @@
+---
+title: Interactive Terminals, Editors & Logs
+description: Learn how to monitor container logs, edit configurations, and access terminal shells.
+---
+
+Upstand consolidates terminal access, configuration editing, and log monitoring into highly responsive, theme-aware dashboard panels.
+
+---
+
+## 1. Owner-Only SSH Terminal
+
+The dashboard includes a full-featured web-based SSH terminal emulator for executing commands directly on servers.
+
+- **Security Constraint**: SSH terminals are strictly owner-only. Standard organization administrators and members are denied terminal access.
+- **WebSocket Broker**: Real-time terminal streams run over secure WebSockets managed by the Hono API server, proxying inputs to the target server's SSH daemon.
+- **Credential Safety**: Connection credentials use short-lived tokens and do not expose passwords or SSH private keys to the client browser.
+
+![Web SSH Terminal - Light Mode](/images/terminal_view.svg)
+
+> [!TIP]
+> **Getting Real Screenshots:** Capture a screenshot of the SSH Terminal or container logs in light mode and save it to `apps/fumadocs/public/images/terminal_view.svg` to show the real terminal!
+
+---
+
+## 2. Unified Code Editor
+
+Upstand standardizes configuration editing using **CodeMirror**:
+
+- **Languages Supported**: Syntax highlighting for YAML (Docker Compose), JSON (advanced settings), CSS, shell scripts, and Caddyfiles.
+- **Features**: theme-aware display (automatically switches to light/dark themes), line numbering, line folding, text search/replace, line wrapping, and smart autocomplete for Docker Compose files.
+- **Visual Consistency**: Read-only previews (such as compiled Caddyfiles) render in the exact same format and font as editable configurations, facilitating side-by-side reviews.
+
+---
+
+## 3. Advanced Log Reviewer
+
+Log review surfaces for applications, databases, remote servers, and the reverse proxy share an advanced log-viewer component:
+
+- **Buffering Controls**: Pause incoming log streams to freeze output for inspection; resume to catch up with buffered lines.
+- **Filters**: Filter log messages instantly by log level (`Info`, `Success`, `Warning`, `Debug`, `Error`).
+- **Time Ranges & Limits**: Constrain queries to specific historical windows or tail a set number of lines.
+- **Auto-Scroll Anchoring**: Logs automatically scroll to the bottom unless you manually scroll up to inspect previous lines.
+- **Search & Highlighting**: Highlights matches dynamically as you type in the search bar.
+- **Actions**: Copy raw logs or download them as `.txt` files directly.
+
+> [!NOTE]
+> **Log Retention:** Upstand log views reflect real-time output stream tails from the Docker daemon. They are not intended as durable long-term audit archives.

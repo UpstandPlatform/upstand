@@ -1,0 +1,258 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://upstand.dev/upstand.schema.json",
+  "title": "Upstand Configuration Schema",
+  "description": "Configuration schema for auto-discovery in upstand.json files",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON schema URL for validation and editor autocompletion."
+    },
+    "build": {
+      "type": "object",
+      "description": "Build & framework configuration settings.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "dockerfile",
+            "railpack",
+            "nixpacks",
+            "heroku-buildpacks",
+            "paketo-buildpacks",
+            "static"
+          ],
+          "default": "dockerfile",
+          "description": "Build engine or framework builder type."
+        },
+        "buildPath": {
+          "type": "string",
+          "pattern": "^(?![\\\\/])(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+",
+          "default": ".",
+          "description": "Relative directory path where build commands should execute."
+        },
+        "dockerfilePath": {
+          "type": "string",
+          "pattern": "^(?![\\\\/])(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+",
+          "default": "Dockerfile",
+          "description": "Relative path to the Dockerfile."
+        },
+        "dockerContextPath": {
+          "type": "string",
+          "pattern": "^(?![\\\\/])(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+",
+          "default": ".",
+          "description": "Relative path to the Docker build context."
+        },
+        "publishDirectory": {
+          "type": "string",
+          "pattern": "^(?![\\\\/])(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+",
+          "description": "Relative directory where static artifacts are published."
+        },
+        "dockerBuildStage": {
+          "type": "string",
+          "description": "Target stage for multi-stage Docker builds."
+        },
+        "dockerBuildArgs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Key-value map of build arguments passed to Docker build."
+        },
+        "dockerNoCache": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable layer caching during Docker build."
+        },
+        "watchPaths": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "Glob patterns to watch for commit triggers (useful for monorepos)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtime": {
+      "$ref": "#/definitions/runtimeConfig"
+    },
+    "resources": {
+      "$ref": "#/definitions/runtimeConfig"
+    },
+    "crons": {
+      "type": "array",
+      "description": "Scheduled cron jobs and tasks.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the schedule."
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the scheduled task."
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/",
+            "description": "HTTP route endpoint for HTTP cron jobs (must start with '/')."
+          },
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST"],
+            "default": "GET",
+            "description": "HTTP method for HTTP cron requests."
+          },
+          "secretEnvVar": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "Name of the encrypted resource environment variable containing the HTTP Authorization bearer token."
+          },
+          "command": {
+            "type": "string",
+            "description": "CLI script command to execute inside the container."
+          },
+          "shellType": {
+            "type": "string",
+            "enum": ["bash", "sh"],
+            "default": "bash",
+            "description": "Shell environment to execute command schedules."
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "Target service name for script schedule execution."
+          },
+          "schedule": {
+            "type": "string",
+            "description": "Cron expression schedule (5 or 6 fields, e.g. '0 0 * * *')."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "UTC",
+            "description": "IANA timezone identifier for the schedule."
+          }
+        },
+        "required": ["schedule"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "definitions": {
+    "runtimeConfig": {
+      "type": "object",
+      "description": "Container runtime & resource allocation limits.",
+      "properties": {
+        "command": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "Container entrypoint command override."
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Command line arguments passed to entrypoint."
+        },
+        "workingDir": {
+          "type": "string",
+          "description": "Working directory inside the runtime container."
+        },
+        "cpuLimit": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 1024,
+          "description": "Maximum CPU limit in cores."
+        },
+        "cpuReservation": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 1024,
+          "description": "Guaranteed CPU reservation in cores."
+        },
+        "memoryLimitMb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576,
+          "description": "Maximum memory limit in megabytes (MB)."
+        },
+        "memoryReservationMb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576,
+          "description": "Guaranteed memory reservation in megabytes (MB)."
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Number of active container instances."
+        },
+        "restartPolicy": {
+          "type": "object",
+          "description": "Container restart policy settings.",
+          "properties": {
+            "condition": {
+              "type": "string",
+              "enum": ["none", "on-failure", "any"],
+              "default": "any",
+              "description": "Restart trigger condition."
+            },
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000,
+              "description": "Maximum restart attempts before failing."
+            },
+            "delaySeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400,
+              "description": "Delay between restart attempts in seconds."
+            }
+          },
+          "additionalProperties": false
+        },
+        "updateConfig": {
+          "type": "object",
+          "description": "Rolling update deployment configuration.",
+          "properties": {
+            "parallelism": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000,
+              "description": "Number of tasks updated simultaneously."
+            },
+            "order": {
+              "type": "string",
+              "enum": ["stop-first", "start-first"],
+              "description": "Order of operations during container update."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

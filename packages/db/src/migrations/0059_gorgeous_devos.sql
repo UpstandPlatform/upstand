@@ -1,0 +1,1 @@
+ALTER TABLE "web_server_settings" ADD COLUMN "cloudflare_api_token" text;

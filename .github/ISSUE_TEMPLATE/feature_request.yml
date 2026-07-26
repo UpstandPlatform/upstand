@@ -1,0 +1,84 @@
+name: Feature request
+description: Propose a focused capability or workflow improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Upstand favors focused, well-tested changes that preserve clean architecture boundaries and safe self-hosted operation. Explain the user problem before proposing implementation details.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I searched existing issues and pull requests for similar proposals.
+          required: true
+        - label: I reviewed the documentation to confirm this capability does not already exist.
+          required: true
+        - label: This request does not contain a vulnerability disclosure or secret.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Dashboard experience
+        - Authentication / organizations / access control
+        - Application deployment
+        - Database lifecycle / backups
+        - Docker / Swarm / remote servers
+        - Caddy / domains / TLS
+        - Git providers / registries / CI webhooks
+        - Monitoring / notifications / audit logs
+        - API / MCP / UpGal
+        - Installer / updates / release engineering
+        - Documentation / contributor experience
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Who needs this, what are they trying to accomplish, and what blocks them today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior and user value without prescribing unnecessary implementation details.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Optional technical or UX proposal, including affected packages or services when known.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds considered
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and operational considerations
+      description: Note permission boundaries, secret handling, network exposure, migration compatibility, rollback, multi-node behavior, or abuse controls that may be affected.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Suggested acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+        - [ ] Tests cover ...
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to help design or implement this feature.

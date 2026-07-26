@@ -1,0 +1,72 @@
+@import "@upstand/ui/globals.css";
+
+@keyframes upgal-spotlight {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+  35%,
+  70% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 55%, transparent);
+  }
+}
+
+.upgal-spotlight {
+  position: relative;
+  z-index: 61;
+  animation: upgal-spotlight 2.6s ease-in-out;
+}
+
+.upgal-spotlight-frame {
+  position: fixed;
+  z-index: 55;
+  pointer-events: none;
+  border: 2px solid color-mix(in srgb, var(--primary) 80%, transparent);
+  border-radius: 0.75rem;
+  box-shadow:
+    0 0 0 100vmax color-mix(in srgb, var(--foreground) 24%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent),
+    0 0 24px color-mix(in srgb, var(--primary) 32%, transparent);
+  transition:
+    top 180ms ease,
+    left 180ms ease,
+    width 180ms ease,
+    height 180ms ease;
+}
+
+@keyframes topology-status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent);
+  }
+}
+
+.topology-status-pulse {
+  color: color-mix(in srgb, currentColor 100%, transparent);
+  animation: topology-status-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upgal-spotlight,
+  .upgal-spotlight-frame,
+  .topology-status-pulse {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Target Chromium-based browsers (Chrome, Edge, Safari, Opera) */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Target Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield; /* Future-proofing standard property */
+}

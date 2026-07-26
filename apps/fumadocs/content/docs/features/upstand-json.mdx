@@ -1,0 +1,173 @@
+---
+title: upstand.json Configuration
+description: Declarative in-repository configuration for build settings, container runtime resource limits, monorepo watch paths, and scheduled cron jobs.
+---
+
+Upstand supports **declarative auto-discovery** through an `upstand.json` file placed in the root of your source repository.
+
+When your repository is deployed, Upstand automatically parses `upstand.json` right after cloning, synchronizing your build engine, container resource limits, entrypoint commands, monorepo watch paths, and cron jobs directly into your resource.
+
+---
+
+## 1. Editor Autocompletion & `$schema`
+
+To enable real-time validation and autocompletion in code editors such as **VS Code**, **WebStorm**, or Cursor, include the `$schema` key at the top of your `upstand.json` file:
+
+```json
+{
+  "$schema": "https://upstand.dev/upstand.schema.json"
+}
+```
+
+---
+
+## 2. Configuration Reference
+
+An `upstand.json` file can contain three primary configuration blocks: `build`, `runtime` (or `resources`), and `crons`.
+
+### A. Build & Framework Settings (`build`)
+
+Configure build engines, Dockerfile locations, build arguments, and monorepo trigger filters.
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `type` | `string` | `"dockerfile"` | Engine type: `"dockerfile"`, `"railpack"`, `"nixpacks"`, `"heroku-buildpacks"`, `"paketo-buildpacks"`, or `"static"`. |
+| `buildPath` | `string` | `"."` | Relative path where the build executes. |
+| `dockerfilePath` | `string` | `"Dockerfile"` | Relative path to the Dockerfile (when `type` is `"dockerfile"`). |
+| `dockerContextPath` | `string` | `"."` | Relative path to the Docker build context directory. |
+| `publishDirectory` | `string` | — | Relative output directory for static site generators or Nixpacks. |
+| `dockerBuildStage` | `string` | — | Target build stage for multi-stage Docker builds. |
+| `dockerBuildArgs` | `object` | `{}` | Key-value map of build arguments passed during build time. |
+| `dockerNoCache` | `boolean` | `false` | Disable layer caching during Docker builds. |
+| `watchPaths` | `string \| array` | `[]` | Glob patterns to watch for commit triggers (e.g. `["apps/web/**", "packages/**"]`). |
+
+#### Build Settings Example
+```json
+{
+  "build": {
+    "type": "dockerfile",
+    "buildPath": "./apps/web",
+    "dockerfilePath": "Dockerfile.production",
+    "dockerBuildStage": "runner",
+    "dockerBuildArgs": {
+      "NODE_ENV": "production"
+    },
+    "watchPaths": ["apps/web/**", "packages/**"]
+  }
+}
+```
+
+---
+
+### B. Container Runtime & Resource Limits (`runtime` / `resources`)
+
+Define container resource limits, entrypoint commands, replica scaling, and restart policies.
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `command` | `string \| array` | — | Override default container command (e.g., `["npm", "run", "start"]`). |
+| `args` | `array` | `[]` | Command arguments passed to the container entrypoint. |
+| `workingDir` | `string` | — | Working directory inside the runtime container. |
+| `cpuLimit` | `number` | — | Maximum CPU limit in cores (e.g., `1.5` for 1.5 cores). |
+| `cpuReservation` | `number` | — | Guaranteed CPU reservation in cores. |
+| `memoryLimitMb` | `integer` | — | Maximum RAM memory limit in megabytes (e.g., `1024`). |
+| `memoryReservationMb` | `integer` | — | Guaranteed RAM memory reservation in megabytes. |
+| `replicas` | `integer` | `1` | Desired active container instance replicas. |
+| `restartPolicy` | `object` | `{ "condition": "any" }` | Restart policy settings (`condition`, `maxAttempts`, `delaySeconds`). |
+| `updateConfig` | `object` | `{}` | Rolling update deployment configuration (`parallelism`, `order`). |
+
+#### Runtime & Resource Limits Example
+```json
+{
+  "runtime": {
+    "command": ["npm", "run", "start"],
+    "cpuLimit": 2,
+    "memoryLimitMb": 1024,
+    "replicas": 2,
+    "restartPolicy": {
+      "condition": "on-failure",
+      "maxAttempts": 5,
+      "delaySeconds": 10
+    },
+    "updateConfig": {
+      "parallelism": 1,
+      "order": "start-first"
+    }
+  }
+}
+```
+
+---
+
+### C. Scheduled Cron Jobs (`crons`)
+
+HTTP cron authentication is intentionally indirect: set the named variable in
+the resource's encrypted Environment configuration, then reference only its
+name with `secretEnvVar`. Upstand never accepts or stores a bearer-token value
+from `upstand.json`; a missing or empty referenced variable causes the run to
+fail instead of sending an unauthenticated request.
+
+Declare recurring HTTP route cron jobs or in-container script schedules.
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `schedule` | `string` | **(Required)** | Cron expression schedule (e.g. `0 0 * * *` for daily at midnight). |
+| `path` | `string` | — | HTTP route endpoint path for HTTP cron jobs (must start with `/`). |
+| `method` | `string` | `"GET"` | HTTP method (`GET` or `POST`). |
+| `secretEnvVar` | `string` | — | Name of the encrypted resource environment variable containing the bearer token. Never put the secret value in `upstand.json`. |
+| `command` | `string` | — | In-container script command to execute. |
+| `shellType` | `string` | `"bash"` | Shell type (`"bash"` or `"sh"`). |
+| `timezone` | `string` | `"UTC"` | IANA timezone identifier (e.g. `"UTC"`, `"America/New_York"`). |
+
+#### Cron Jobs Example
+```json
+{
+  "crons": [
+    {
+      "name": "Daily Cleanup",
+      "path": "/api/cron/cleanup",
+      "method": "POST",
+      "secretEnvVar": "CRON_SECRET",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "name": "Database Vacuum",
+      "command": "npm run db:vacuum",
+      "schedule": "0 3 * * 0",
+      "shellType": "bash"
+    }
+  ]
+}
+```
+
+---
+
+## 3. Full Example `upstand.json`
+
+```json
+{
+  "$schema": "https://upstand.dev/upstand.schema.json",
+  "build": {
+    "type": "dockerfile",
+    "dockerfilePath": "Dockerfile",
+    "dockerBuildStage": "runner",
+    "watchPaths": ["src/**", "package.json"]
+  },
+  "runtime": {
+    "cpuLimit": 1.5,
+    "memoryLimitMb": 1024,
+    "replicas": 2,
+    "restartPolicy": {
+      "condition": "on-failure",
+      "maxAttempts": 5
+    }
+  },
+  "crons": [
+    {
+      "name": "Nightly Sync",
+      "path": "/api/cron/sync",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}
+```

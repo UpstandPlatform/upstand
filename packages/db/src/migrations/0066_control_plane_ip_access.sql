@@ -1,0 +1,1 @@
+ALTER TABLE "web_server_settings" ADD COLUMN "ip_access_enabled" boolean DEFAULT true NOT NULL;

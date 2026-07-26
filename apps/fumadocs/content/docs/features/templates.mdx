@@ -1,0 +1,41 @@
+---
+title: Template catalog
+description: Use Upstand's organization templates and the complete built-in open-source template catalog.
+---
+
+Upstand has two complementary template sources:
+
+- **Organization templates** are private, editable Compose templates stored in your organization.
+- **Built-in catalog** contains 476 imported open-source templates, including Ackee, Adminer, AList, Authorizer, Zipline, and hundreds more.
+
+## Find a template
+
+The catalog is searchable by name, description, and tag. Results are paginated server-side so the dashboard remains fast as the catalog grows. Each card loads its repository logo from the catalog source and shows a GitHub link when the entry provides one.
+
+## Deploy a catalog template
+
+1. Open **Templates** and search by name, description, or tag.
+2. Select **Deploy** on a built-in template.
+3. Choose the project, environment, resource name, app name, and server.
+4. Keep **Randomize names** enabled when deploying multiple copies of the same stack.
+5. Review the deployment summary and submit it. Upstand fetches the template, renders its generated variables, validates the Compose document, creates the resource, and queues the deployment.
+
+The catalog is bundled with the Upstand application. Metadata and Compose assets are available without a database import, and deployment reads the selected template through the same internal catalog interface used by future native template packs.
+
+## Safety and compatibility
+
+Built-in templates can use generated values such as `${password:16}`, `${base64:32}`, `${hash:8}`, `${uuid}`, and references to other variables. Upstand renders those values once per deployment and preserves service-to-service references.
+
+Repository-relative data mounts used by some templates are converted to isolated named volumes. Host namespaces, privileged mode, Docker socket mounts, devices, and added capabilities remain blocked by the same Compose safety validator used for user-created and UpGal-generated templates.
+
+If a template requires host-level access, Upstand will refuse the deployment with an actionable validation error. Use an organization template with an explicitly reviewed, platform-compatible Compose definition instead of weakening the global safety policy.
+
+## Create and generate templates
+
+Use **New template** to create a private template, **Import YAML** to bring in an existing Compose file, or ask UpGal for a draft. UpGal returns YAML only, uses named volumes and private service networking by default, avoids host access and secrets, and always requires manual review before saving or deploying.
+
+Every saved template is validated on the server. Existing resources are independent copies: editing or deleting a template does not change resources that were already deployed from it.
+
+## Adding more native templates
+
+Native templates are data, not hard-coded UI cases. Add a validated entry to the catalog pack with an id, display metadata, Compose document, and optional generated-variable map. The API, dashboard search, deployment dialog, safety validator, and documentation continue to work without feature code changes. Keep imported assets versioned in the repository so upgrades are reviewable and reproducible.

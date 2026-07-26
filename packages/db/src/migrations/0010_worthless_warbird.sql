@@ -1,0 +1,1 @@
+ALTER TABLE "web_server_settings" ADD COLUMN "caddy_snippets" text DEFAULT '' NOT NULL;

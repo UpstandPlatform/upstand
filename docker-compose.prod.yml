@@ -1,0 +1,428 @@
+# Production Docker Swarm stack. Every image variable is pinned to an immutable
+# digest by the installer, including the default Postgres and Redis images.
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c}
+    environment:
+      POSTGRES_DB: upstand
+      POSTGRES_USER: upstand
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      upstand-network:
+        aliases:
+          - postgres
+          - upstand_postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U upstand -d upstand"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+        failure_action: rollback
+        monitor: 30s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        failure_action: pause
+        monitor: 30s
+      resources:
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2}
+    command:
+      [
+        "sh",
+        "-ec",
+        'exec redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction --requirepass "$$(cat /run/secrets/redis_password)"',
+      ]
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      upstand-network:
+        aliases:
+          - redis
+          - upstand_redis
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'redis-cli --no-auth-warning -a "$$(cat /run/secrets/redis_password)" ping | grep -q PONG',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+        failure_action: rollback
+        monitor: 30s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        failure_action: pause
+        monitor: 30s
+      resources:
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+        limits:
+          cpus: "0.75"
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  server:
+    image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
+    init: true
+    stop_grace_period: 5m
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: postgres
+      DATABASE_NAME: upstand
+      DATABASE_USER: upstand
+      REDIS_HOST: redis
+      BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
+      SSH_KEY_ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
+      UPSTAND_DASHBOARD_HOST: ${UPSTAND_DASHBOARD_HOST:-}
+      UPSTAND_API_HOST: ${UPSTAND_API_HOST:-}
+      UPSTAND_DOCS_HOST: ${UPSTAND_DOCS_HOST:-}
+      UPSTAND_SERVER_IMAGE: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
+      UPSTAND_MONITORING_IMAGE: ${UPSTAND_MONITORING_IMAGE:?UPSTAND_MONITORING_IMAGE is required}
+      UPSTAND_VERSION: ${UPSTAND_VERSION:-}
+      UPSTAND_AUTO_UPDATE: ${UPSTAND_AUTO_UPDATE:-false}
+      IS_CLOUD: ${IS_CLOUD:-false}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_NETWORK: upstand-network
+    secrets:
+      - postgres_password
+      - redis_password
+      - better_auth_secret
+      - encryption_key
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      upstand-network:
+        aliases:
+          - server
+          - upstand_server
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:3000/health/ready >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+        failure_action: rollback
+        monitor: 45s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        failure_action: pause
+        monitor: 45s
+      resources:
+        reservations:
+          # Keep the default compatible with a single-CPU Swarm manager. The
+          # remaining services reserve 0.70 CPUs in total, so 0.25 leaves
+          # scheduler headroom while still giving the API a useful minimum.
+          cpus: "0.25"
+          memory: 512M
+        limits:
+          cpus: "1.0"
+          memory: 2G
+    ports:
+      - target: 3000
+        published: ${UPSTAND_SERVER_PORT:-3000}
+        protocol: tcp
+        mode: host
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  schedules:
+    image: ${UPSTAND_SCHEDULES_IMAGE:-${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}}
+    init: true
+    stop_grace_period: 2m
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: postgres
+      DATABASE_NAME: upstand
+      DATABASE_USER: upstand
+      REDIS_HOST: redis
+      BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
+      SSH_KEY_ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_NETWORK: upstand-network
+      SCHEDULES_PORT: 3002
+    secrets:
+      - postgres_password
+      - redis_password
+      - better_auth_secret
+      - encryption_key
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      upstand-network:
+        aliases:
+          - schedules
+          - upstand_schedules
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:3002/health/ready >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+        failure_action: rollback
+        monitor: 45s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        failure_action: pause
+        monitor: 45s
+      resources:
+        reservations:
+          cpus: "0.15"
+          memory: 256M
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    ports:
+      - target: 3002
+        published: ${UPSTAND_SCHEDULES_PORT:-3002}
+        protocol: tcp
+        mode: host
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+
+  web:
+    image: ${UPSTAND_WEB_IMAGE:?UPSTAND_WEB_IMAGE is required}
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:?NEXT_PUBLIC_SERVER_URL is required}
+    networks:
+      upstand-network:
+        aliases:
+          - web
+          - upstand_web
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:3001/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+        failure_action: rollback
+        monitor: 45s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        failure_action: pause
+        monitor: 45s
+      resources:
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    ports:
+      - ${UPSTAND_WEB_PORT:-3001}:3001
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  fumadocs:
+    image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
+    environment:
+      NODE_ENV: production
+    networks:
+      upstand-network:
+        aliases:
+          - fumadocs
+          - upstand_fumadocs
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:4000/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+        failure_action: rollback
+        monitor: 45s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        failure_action: pause
+        monitor: 45s
+      resources:
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+        limits:
+          cpus: "0.50"
+          memory: 512M
+    ports:
+      - ${UPSTAND_DOCS_PORT:-4000}:4000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+secrets:
+  postgres_password:
+    file: /etc/upstand/secrets/postgres_password
+  redis_password:
+    file: /etc/upstand/secrets/redis_password
+  better_auth_secret:
+    file: /etc/upstand/secrets/better_auth_secret
+  encryption_key:
+    file: /etc/upstand/secrets/encryption_key
+
+networks:
+  upstand-network:
+    external: true
+    name: ${DOCKER_NETWORK:-upstand-network}

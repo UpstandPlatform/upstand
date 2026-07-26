@@ -1,0 +1,152 @@
+---
+title: Domains, Caddy & Automatic HTTPS
+description: Learn how to manage public routing, SSL certificates, headers, and reverse proxies using Caddy.
+---
+
+Upstand orchestrates a central **Caddy Web Server** container to serve as the entry point for all public domain routing.
+
+---
+
+## 1. Domain Configuration
+
+You can assign public domains to Applications, Compose services, and Databases in the resource's **Domains** tab.
+
+A domain mapping consists of:
+- **Hostname**: A fully-qualified public domain name (e.g. `api.example.com`). Upstand normalizes hostnames and rejects raw IP addresses, wildcards, and ports.
+- **Paths**: A public path prefix (e.g., `/v1`) and an optional internal rewrite destination.
+- **Port Mapping**: The target container port (e.g., `3000`).
+- **Snippets**: Reusable Caddy configuration snippets imported by name.
+- **Path Stripping**: If enabled, strips the prefix before forwarding traffic.
+
+---
+
+## 2. HTTPS & SSL Strategies
+
+Upstand configures and reloads certificates dynamically. You can choose between four certificate strategies:
+
+### Let's Encrypt (Production Default)
+- Automatically completes ACME HTTP-01 or TLS-ALPN-01 challenges.
+- Optional ACME contact email for certificate expiration alerts and account registration.
+- Caddy caches certificates, private keys, and renewal statuses in a persistent volume.
+- **Prerequisites**: DNS must resolve to the server IP and TCP ports **80** and **443** must be open publicly.
+
+### ZeroSSL
+- Issues certificates via ZeroSSL ACME endpoints with ACME contact email registration.
+- Useful when Let's Encrypt rate limits or policy restrictions apply.
+
+### Caddy Internal CA (Self-Signed)
+- Generates locally-trusted certificates using Caddy's built-in Certificate Authority.
+- Best for staging, local development, or isolated private network deployments.
+- *Note: Browsers and clients must manually import the Caddy root certificate to avoid untrusted warning screens.*
+
+### Custom SSL Certificates
+- Upload custom SSL certificates and matching private keys under **Infrastructure → Certificates**.
+- Select the uploaded certificate directly on domain mappings or main web server domain configurations for enterprise or wildcard TLS management.
+
+---
+
+## 3. Security Headers & Redirects
+
+Configure advanced proxy settings directly inside the domain mapping card:
+
+- **Redirects**: Terminate incoming requests and issue HTTP `301/302/307/308` redirects.
+- **Security Headers**: Inject standard headers to secure client connections:
+  - `Strict-Transport-Security` (HSTS)
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY`
+  - `Referrer-Policy: no-referrer-when-downgrade`
+
+---
+
+## 4. Web Application Firewall (WAF) & Rate-Limiting Snippets
+
+Operators can define reusable Caddy configuration snippets under **Web Server → Caddy Snippets** to enforce ingress WAF protection:
+
+```nginx
+# Definition: rate_limit_suite (Saved under Web Server Snippets)
+(rate_limit_suite) {
+    rate_limit {
+        zone dynamic_ip {
+            key {remote_host}
+            events 100
+            window 1m
+        }
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+    }
+}
+```
+
+- **IP Allowlisting & Geo-Blocking**: Block or restrict route access based on client IP CIDR ranges or Cloudflare country headers (`{http.request.header.CF-IPCountry}`).
+- **Snippet Import**: Import any defined snippet directly on domain mapping cards by selecting it from the **Caddy Snippets** dropdown menu.
+
+---
+
+## 5. Authentication Middleware
+
+Secure public routes before they hit your applications using Caddy-native authentication filters:
+
+### Basic Authentication
+- Prompt visitors for a username and password.
+- Upstand accepts and persists **only Caddy-compatible password hashes** (e.g. bcrypt hashes). Plaintext passwords are never stored in the database.
+
+### Forward Authentication
+- Delegate access control to a central authentication gateway (e.g. `https://auth.example.com`).
+- Caddy makes an out-of-band request to the authorization service prior to proxying.
+- If verified, Caddy injects identity headers (such as `X-User-Id` or `X-User-Email`) into the upstream request.
+
+---
+
+## 5. Web Server Configuration Editor
+
+The global Web Server settings page exposes a CodeMirror editor for:
+1. **Global Caddy Settings**: Modify load balancing, timeouts, TLS settings, or logging parameters.
+2. **Caddy Snippets**: Define named configuration blocks (e.g., rate limit configurations or IP blocks) that can be imported by resource domains.
+3. **Configuration Previews**: Displays the compiled read-only Caddyfile for visual audit.
+
+---
+
+## 6. Dynamic SSL & Caddy Ingress Architecture
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Browser Client
+    participant Caddy as Caddy Reverse Proxy
+    participant ACME as Let's Encrypt / ACME CA
+    participant Swarm as Docker Swarm Overlay Network
+    participant App as Target Service Container
+
+    Client->>Caddy: HTTPS Request (api.example.com)
+    alt Certificate Exists & Valid
+        Caddy->>Caddy: Terminate TLS (AES-GCM / ChaCha20)
+    else Certificate Missing / Expired
+        Caddy->>ACME: HTTP-01 / TLS-ALPN-01 ACME Challenge
+        ACME-->>Caddy: Issued Valid TLS Certificate
+        Caddy->>Caddy: Cache Cert in /etc/caddy/data
+    end
+    Caddy->>Swarm: Forward HTTP Request to Overlay Network (port 3000)
+    Swarm->>App: Deliver Request to Target Replica Container
+    App-->>Client: Stream Response Headers & Body
+```
+
+---
+
+## 7. Atomic Validation & Reload Safety
+
+To prevent web server downtime, Upstand validates all compiled Caddy configurations before applying them:
+
+```mermaid
+flowchart TD
+    User[Update Route / Domain Mapping] --> Compile[Compile Caddyfile Config]
+    Compile --> Validate[Format & Dry-Run Validate Caddyfile]
+    Validate -->|Pass| Reload[Zero-Downtime Reload Caddy Proxy]
+    Validate -->|Fail| Restore[Restore Previous Working Caddyfile]
+    Restore --> Error[Report Validation Error to User]
+```
+
+If Caddy rejects the formatted configuration, the reload is aborted, the previous working configuration remains active, and the operation is safely rolled back.

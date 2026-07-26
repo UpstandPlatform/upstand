@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": [
+    ".agents/**",
+    "**/.next/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.source/**",
+    "apps/web/src/components/ai-elements/**",
+    "apps/web/src/components/huge-icons.tsx"
+  ],
+  "ignoreDependencies": [
+    "@upstand/config",
+    "@radix-ui/react-use-controllable-state",
+    "@rive-app/react-webgl2",
+    "@xyflow/react",
+    "ansi-to-react",
+    "media-chrome",
+    "motion",
+    "react-jsx-parser",
+    "ssh2",
+    "tokenlens"
+  ],
+  "ignoreExportsUsedInFile": true
+}

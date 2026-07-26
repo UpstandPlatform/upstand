@@ -1,0 +1,114 @@
+---
+title: Welcome to Upstand
+description: The self-hostable container-first control plane for Docker Swarm, applications, and databases.
+---
+
+Welcome to **Upstand**, a modern, container-first self-hosted Platform-as-a-Service (PaaS) designed to manage, deploy, and scale application workloads, multi-container Compose stacks, and persistent databases across single-node or multi-node Docker Swarm clusters.
+
+Upstand consolidates server management, SSL termination, Git build queues, backups, monitoring, and user authentication into a unified, secure dashboard, backed by **UpGal**, your AI operations assistant.
+
+---
+
+## Architectural Layout
+
+Upstand is engineered following a clean package-based architecture. A high-performance Hono/TypeScript control plane communicates with deployment workers via BullMQ queues, orchestrating Docker Swarm through the host or remote Docker sockets.
+
+```mermaid
+flowchart TD
+    Admin([Platform Administrator]) -->|HTTPS / tRPC| Web[Next.js Dashboard UI]
+    Web --> Server[Hono API / tRPC Controller]
+    Web --> UpGal[UpGal AI Assistant Engine]
+    UpGal -->|Tool Loop / MCP| Server
+    Server --> DB[(PostgreSQL System DB)]
+    Server --> Queue[(Redis / BullMQ Queue)]
+    Queue --> Worker[Deployment & Backup Workers]
+    Worker -->|Docker API / SSH| Engine[Docker Swarm Engine]
+    Worker -->|Dynamic Config Reloads| Caddy[Caddy Reverse Proxy]
+    Engine -->|Overlay Network| Containers["App & Database Containers"]
+```
+
+---
+
+## 5-Minute Quickstart
+
+Follow these steps to spin up Upstand on a fresh Linux server:
+
+### Step 1: Install Docker & Docker Swarm
+Execute the official Docker installation script and initialize a Swarm cluster on your server:
+
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+docker swarm init
+```
+
+### Step 2: Launch Upstand via Docker Compose
+Create a `docker-compose.yml` file for Upstand:
+
+```yaml
+version: '3.8'
+services:
+  upstand:
+    image: ghcr.io/upstandplatform/upstand-server:latest
+    restart: always
+    ports:
+      - "3000:3000"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - upstand_data:/app/data
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://upstand:upstand@postgres:5432/upstand
+      - REDIS_URL=redis://redis:6379
+
+volumes:
+  upstand_data:
+```
+
+Launch the services:
+
+```bash
+docker compose up -d
+```
+
+### Step 3: Complete Initial Setup
+Open `http://<your-server-ip>:3000` in your browser, create your root administrator account, and configure your first Organization and Project.
+
+---
+
+## Key Features
+
+<Cards>
+  <Card title="Application & DB Deployments" href="/docs/features/deployments">
+    Build from Git, Nixpacks, Railpacks, or Dockerfiles. Deploy PostgreSQL, Redis, MongoDB, MySQL, and MariaDB.
+  </Card>
+  <Card title="Domains & Automatic HTTPS" href="/docs/features/routing">
+    Automatic Let's Encrypt certificates managed dynamically via an integrated Caddy reverse proxy.
+  </Card>
+  <Card title="Remote Server Management" href="/docs/features/servers">
+    Manage independent Docker hosts securely over SSH without exposing Docker sockets to the public internet.
+  </Card>
+  <Card title="Monitoring and Audit" href="/docs/features/monitoring">
+    Inspect live and historical health data, then correlate incidents with searchable audit events.
+  </Card>
+  <Card title="Templates" href="/docs/features/templates">
+    Search, review, create, and deploy organization or built-in Compose templates.
+  </Card>
+  <Card title="UpGal AI Assistant" href="/docs/operations/upgal">
+    Control, inspect, and deploy your infrastructure using natural language with built-in UI approvals.
+  </Card>
+</Cards>
+
+---
+
+## Core Technologies
+
+Upstand leverages state-of-the-art technologies to ensure stability, speed, and safety:
+
+- **Next.js & Hono**: Ultra-fast dashboard UI and API routing with complete type safety over tRPC.
+- **Drizzle ORM & PostgreSQL**: Structured data persistence with robust transactional schemas.
+- **BullMQ & Redis**: High-performance, distributed job queuing to serialize builds and monitor tasks.
+- **Docker Swarm**: Built-in container clustering, overlay networking, service replica rollouts, and rolling updates.
+- **Better Auth**: Multi-tenant authentication, including email/password login, 2FA, API Keys, OIDC/SAML SSO, and SCIM provisioning.

@@ -1,0 +1,30 @@
+---
+title: Organization administration
+description: Manage members, invitations, custom roles, workspace settings, sessions, API keys, and protected actions.
+---
+
+## Members and roles
+
+The organization membership roles are `owner`, `admin`, and `member`. Authorization is capability-based: the role supplies a default capability set, and custom roles can hold a bounded set of delegable capabilities. A custom role cannot grant a permission its creator does not hold.
+
+The Members panel supports invitations, role changes, custom-role selection, and member lifecycle management. SCIM-managed memberships also carry an active/inactive state; an inactive SCIM membership cannot use the organization.
+
+Do not document a role as “read-only” without checking its capability set. Deployment, resource, server, and organization-management permissions are independent capabilities and should be granted deliberately.
+
+## Settings
+
+User settings cover profile, active sessions, and Security & 2FA. Workspace settings cover organization details, members, API keys, and UpGal. About shows application information and version metadata.
+
+## API keys
+
+Create API keys from Workspace Settings. The secret is shown at creation time; store it immediately. Keys can have an expiration from 1 to 365 days or no expiration, and can be updated or revoked. API-key authorization is organization-bound and capability-scoped.
+
+API keys are intentionally not equivalent to an interactive browser session. Session-only flows, including interactive terminals and some step-up operations, must not be assumed to work with a key. MCP use additionally requires MCP tool permissions.
+
+## Protected actions
+
+Routes that use `twoFactorVerifiedProcedure` require a current step-up verification when the user has 2FA enabled. This includes sensitive credential, backup, certificate, server, resource, and key-management operations. A 2FA prompt is a request for a short-lived verification of the current session, not a replacement for the underlying capability check.
+
+## Auditability
+
+Protected routers record organization-scoped audit events. Use the audit log to answer who changed what, when, and against which project, environment, resource, server, or integration. Keep the active organization and object IDs with operational records so similarly named objects are not confused.

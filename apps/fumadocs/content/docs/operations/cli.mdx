@@ -1,0 +1,51 @@
+---
+title: Administrative CLI Tools
+description: Emergency recovery commands and CLI utilities for system operators.
+---
+
+Upstand ships with an administrative command-line interface (`cli.mjs`) bundled inside the control-plane container. Operators can use the CLI for emergency account recovery and maintenance directly from host terminals.
+
+---
+
+## 1. Resetting Two-Factor Authentication (`reset-2fa`)
+
+If an administrator or team member loses access to their TOTP authenticator app or backup codes, use the `reset-2fa` CLI command to clear their 2FA state.
+
+### Interactive Recovery Mode
+
+Execute the CLI tool interactively inside the running `upstand_server` container:
+
+```bash
+# 1. Identify the running server container ID
+docker ps | grep upstand_server
+
+# 2. Run the interactive 2FA reset tool
+docker exec -it <container-id> bun apps/server/dist/cli.mjs reset-2fa
+```
+
+The CLI tool will display a numbered list of all users with active Two-Factor Authentication:
+
+```text
+Users with Two-Factor Authentication enabled:
+  [1] Admin User (admin@example.com)
+  [2] Jane Doe (jane@example.com)
+
+Enter the number or email of the user to reset 2FA: 1
+```
+
+Enter the user's index number or email address. The tool will immediately disable 2FA for that user, allowing them to sign in using their primary credentials and re-bind a new authenticator device.
+
+### Non-Interactive CLI Mode
+
+To run the command in automated or non-interactive scripts, pass the `--email` parameter directly:
+
+```bash
+docker exec -it <container-id> bun apps/server/dist/cli.mjs reset-2fa --email=operator@example.com
+```
+
+---
+
+## 2. Security Requirements
+
+- **Host Access Required**: CLI commands must be executed via `docker exec` on the Swarm manager host.
+- **Audit Tracking**: Administrative CLI actions bypass browser sessions but log event operations to system stderr for auditability.

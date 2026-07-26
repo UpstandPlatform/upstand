@@ -1,0 +1,78 @@
+# Configuration for actions/labeler
+
+web:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/web/**/*'
+
+server:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/server/**/*'
+
+fumadocs:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/fumadocs/**/*'
+
+monitoring:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/monitoring/**/*'
+
+api:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/api/**/*'
+
+auth:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/auth/**/*'
+
+config:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/config/**/*'
+
+db:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/db/**/*'
+
+domain:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/domain/**/*'
+
+env:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/env/**/*'
+
+infrastructure:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/infrastructure/**/*'
+
+platform:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/platform/**/*'
+
+redis:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/redis/**/*'
+
+repositories:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/repositories/**/*'
+
+ui:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/ui/**/*'
+
+usecases:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/usecases/**/*'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'apps/fumadocs/content/**/*'
+          - '*.md'
+
+ci/cd:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**/*'
+          - 'turbo.json'
+          - 'biome.json'

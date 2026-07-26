@@ -1,0 +1,1 @@
+ALTER TABLE "member" ADD COLUMN "scim_display_name" text;

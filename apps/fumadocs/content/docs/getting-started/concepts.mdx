@@ -1,0 +1,110 @@
+---
+title: Upstand concepts
+description: Understand the boundaries between organizations, projects, environments, resources, servers, and integrations.
+---
+
+Upstand is an organization-scoped control plane for deploying and operating containerized workloads. The most reliable way to use it is to understand where each piece of configuration lives and how system entities interact.
+
+## The Resource Hierarchy
+
+```mermaid
+graph TD
+    Org["Organization Scope (Ownership & Security Boundary)"]
+    Proj1["Project: E-Commerce"]
+    Proj2["Project: Analytics Engine"]
+    EnvProd["Environment: Production (Protected)"]
+    EnvStag["Environment: Staging"]
+    App1["Application: Web Frontend (Next.js / Node)"]
+    App2["Application: API Gateway (Hono)"]
+    Db1["Database: PostgreSQL Cluster"]
+    Stack1["Compose Stack: Redis + Worker Queue"]
+
+    Org --> Proj1
+    Org --> Proj2
+    Proj1 --> EnvProd
+    Proj1 --> EnvStag
+    EnvProd --> App1
+    EnvProd --> App2
+    EnvProd --> Db1
+    EnvStag --> Stack1
+```
+
+### Organization
+An organization is the top-level authorization and security boundary. All infrastructure servers, projects, environments, resources, domains, SSL certificates, credentials, Git providers, container registries, storage destinations (S3), tags, notification channels, and audit records belong to an active organization. Switching organizations in the dashboard or API updates the scope of all operations.
+
+### Project
+A project groups related delivery targets (e.g. `Main Product`, `Customer Portal`). It owns one or more environments. Projects can be created, updated, duplicated, or deleted from **Workloads → Projects**. Deleting a project is a destructive operation that cascades to all environments and resources within it.
+
+### Environment
+An environment is a deployable stage within a project, such as `production`, `staging`, or `preview-pr-42`. 
+- **Properties**: Slugs, descriptions, protected status flags, parent environment links, and shared environment variables.
+- **Inheritance**: Environments can inherit environment variables from a parent environment when inheritance is toggled on, allowing global configuration (like API endpoint URLs) to propagate down.
+
+### Resource
+Resources are the containerized workloads Upstand deploys and operates. The control plane manages three core resource types:
+
+| Type | Purpose | Git Build | Custom Domains | Cron Tasks | Backups |
+| --- | --- | --- | --- | --- | --- |
+| **Application** | Standalone web service or worker container | Yes (Docker / Nixpacks / Compose) | Yes | Yes | N/A |
+| **Compose / Stack** | Multi-service Compose definitions | Optional | Yes | Yes | N/A |
+| **Database** | Managed database engine (PostgreSQL, MySQL, Redis, MongoDB, MariaDB) | No (Pre-built images) | No | No | Automated S3 / Local |
+
+Every resource exposes runtime state, live metrics, container inspection, deployment history, streaming logs, environment variable secrets, and tag management.
+
+---
+
+## Server Roles & Workload Placement
+
+Upstand separates control plane management from compute workload execution across registered servers:
+
+```mermaid
+graph LR
+    subgraph ControlPlane["Upstand Control Plane Node"]
+        API["Hono Server API"]
+        DB["PostgreSQL Meta DB"]
+        RedisQueue["Redis Task Queue"]
+        Workers["Background Workers"]
+    end
+
+    subgraph BuildNodes["Dedicated Build Cluster"]
+        BuildServer["Build Server (Docker BuildKit Engine)"]
+    end
+
+    subgraph DeployNodes["Swarm Compute Cluster"]
+        DeployServer1["Manager Node (Caddy Ingress + Swarm)"]
+        DeployServer2["Worker Node (Application & Stack Workloads)"]
+    end
+
+    subgraph DbNodes["Dedicated Database Cluster"]
+        DbServer["Database Server (Isolated Volumes)"]
+    end
+
+    API --> BuildServer
+    API --> DeployServer1
+    DeployServer1 <--> DeployServer2
+    API --> DbServer
+```
+
+Servers are registered at organization scope and assigned specialized operational roles:
+
+1. **Deploy Server**: Runs Docker Swarm workloads, Caddy reverse proxy ingress, overlay networking, and health metrics collection.
+2. **Build Server**: Offloads heavy Docker image compilations (BuildKit) away from production deployment nodes.
+3. **Database Server**: Dedicated compute node isolated for database engines with high I/O persistent disk volume mounts. Cannot host application or Compose stack resources.
+
+---
+
+## Step-by-Step Production Setup Workflow
+
+Follow this step-by-step workflow to structure a production environment:
+
+1. **Create Organization**: Navigate to **Organization Settings** and verify your active organization.
+2. **Connect Infrastructure**: Navigate to **Servers → Add Server**. Generate an SSH key pair or attach an existing SSH credential, enter the server IP, and assign the `Deploy` role.
+3. **Configure Integrations**: Attach Git providers (GitHub, GitLab, Bitbucket, Gitea) and container registries under **Organization → Integrations**.
+4. **Build Project & Environment Hierarchy**:
+   - Go to **Workloads → Projects → Create Project**.
+   - Add environments (`production`, `staging`). Mark `production` as **Protected** to require explicit confirmation for destructive actions.
+5. **Deploy Resources**:
+   - Add an **Application** resource, select the Git repository, branch, and build method.
+   - Configure Environment Variables (using `${{env.VAR}}` references or direct keys).
+   - Assign custom domains, configure health checks, and click **Deploy**.
+6. **Verify Runtime**: Monitor deployment logs, inspect live container metrics, and configure backup schedules for databases.

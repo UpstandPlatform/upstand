@@ -1,0 +1,108 @@
+---
+title: Releases, Updates & Rollbacks
+description: Learn how to manage updates, subscribe to stable or canary channels, and roll back safely.
+---
+
+Upstand provides multiple options to apply updates, from automated background upgrades to controlled manual rollouts.
+
+---
+
+## Update & Migration Lifecycle Pipeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Admin as Admin / Auto-Update Worker
+    participant API as Upstand Control Plane
+    participant GH as GitHub Release Registry
+    participant DB as PostgreSQL Database
+    participant Swarm as Docker Swarm Cluster
+
+    Admin->>API: Trigger Update Check / Polling Job
+    API->>GH: Query Latest Image Digests & Release Tags
+    GH-->>API: Return Release Manifest (v0.1.133)
+    API->>DB: Execute Drizzle Migration Check (runDatabaseMigrations)
+    DB-->>API: Migrations Applied (Idempotent Schema Check)
+    API->>Swarm: Trigger Rolling Stack Update (docker stack deploy)
+    Swarm->>Swarm: Spin up New Container Replicas
+    Swarm->>Swarm: Health Check Passes (/health/ready)
+    Swarm->>Swarm: Terminate Legacy Containers (Zero Downtime)
+    API-->>Admin: Update Completed Successfully
+```
+
+---
+
+## Update Channels
+
+Upstand has two main distribution channels:
+
+| Channel | Branch | Recommendations |
+| --- | --- | --- |
+| **Stable** | `master` / Tags (`vX.Y.Z`) | Production environments. Uses versioned image tags. |
+| **Canary** | `canary` | Test/staging environments. Rolling updates with the latest commits. |
+
+> [!WARNING]
+> **Mutable Tags**: Never use mutable tags like `latest` or `canary` directly in production stacks. Always resolve tags to their immutable SHA-256 digests in `/etc/upstand/.env`.
+
+---
+
+## Safe Manual Update Procedure
+
+To update your production instance to a newer version manually:
+
+1. **Back up your database**: Export your current Postgres database and configuration.
+2. **Retrieve release details**: Review the changelog and fetch the new image digests.
+3. **Edit variables**: Modify the following variables in `/etc/upstand/.env`:
+   ```bash
+   UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<new-digest>
+   UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<new-digest>
+   UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<new-digest>
+   UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<new-digest>
+   UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<new-digest>
+   UPSTAND_VERSION=v1.6.70 # Update matching release version
+   ```
+4. **Rerun the installer**: Execute `sudo bash ./install.sh`. The installer will perform a zero-downtime rolling update on your Docker Swarm.
+5. **Confirm state**: Check `docker stack services upstand` and `/health/ready` to ensure services have fully restarted.
+
+---
+
+## Automatic Updates
+
+Automatic updates are opt-in and check for new tags every 30 minutes:
+
+- **Enabling**: Add `UPSTAND_AUTO_UPDATE=true` to your `/etc/upstand/.env` and re-run the installer.
+- **Behavior**: The server monitors GitHub releases on your active channel, applies tags matching your channel, and roll out the stack rolling updates.
+- **Exclusion**: Source builds are never updated automatically to prevent overriding local changes.
+
+---
+
+## Checking Update Status
+
+You can trigger a manual check for updates from:
+- **Web Server → Check for updates**
+- **Settings → Check for updates**
+
+## Cloud and Remote Servers
+
+Cloud control planes are updated by Upstand's managed rollout. The dashboard
+therefore exposes the current version and channel but does not allow a tenant
+to mutate the platform services.
+
+Remote servers are separate Docker hosts. A control-plane release does not
+silently replace workloads on those hosts. After a self-hosted control-plane
+update, use **Remote Servers → Set up again** for each affected remote server;
+the idempotent provisioning flow pulls the release-pinned monitoring image,
+recreates the monitoring agent, and preserves the server's Docker workloads.
+This explicit action avoids taking remote application traffic down as a side
+effect of a platform update.
+
+Both interfaces read from a cached state that queries the GitHub releases API. Clicking either forces a fresh HTTP request to GitHub, bypassing the 30-minute cache.
+
+---
+
+## Safe Rollback
+
+If a release introduces issues, roll back by modifying the image digests in `/etc/upstand/.env` to the previous known-good values, and run the installer again. Docker Swarm will redeploy the services to their prior specifications.
+
+> [!IMPORTANT]
+> **Keep Credentials Intact**: Do not modify or rotate Docker secret keys under `/etc/upstand/secrets/` during an image rollback, as the database scheme remains backward compatible.

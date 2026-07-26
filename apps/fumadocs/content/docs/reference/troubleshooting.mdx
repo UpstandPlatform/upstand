@@ -1,0 +1,126 @@
+---
+title: Diagnostics & Troubleshooting
+description: Diagnostic guides and CLI commands for resolving routing, deployment, and cluster issues.
+---
+
+Use these reference charts and commands to diagnose and recover from common Upstand control plane or node issues.
+
+---
+
+## Diagnostic & Troubleshooting Decision Tree
+
+```mermaid
+flowchart TD
+    Issue[Encountered Issue / Incident] --> Category{Identify Incident Category}
+
+    Category -->|Sign In / Cookie Issues| AuthTree[1. Login Redirect Loops]
+    AuthTree --> CookieFix[Verify Sibling Subdomains & BETTER_AUTH_URL]
+
+    Category -->|Container Startup Failure| ServiceTree[2. Service Startup Failures]
+    ServiceTree --> LogCheck[Run: docker service ps upstand_server]
+
+    Category -->|SSL / HTTPS Certificate Error| CertTree[3. Caddy Certificate Failures]
+    CertTree --> PortCheck[Check Ports 80 & 443 with ss -ltnp]
+
+    Category -->|Build Job Pending / Stuck| QueueTree[4. Stuck Build Queues]
+    QueueTree --> QueueCheck[Inspect Redis Queue & docker node ls]
+
+    Category -->|Lost Admin 2FA Token| TwoFATree[6. Reset 2FA CLI]
+    TwoFATree --> ResetCLI[Run CLI: docker exec ... reset-2fa]
+```
+
+---
+
+## 1. Login Redirect Loops
+
+**Symptom**: Signing in successfully redirects you back to the sign-in page immediately, or session cookies are rejected.
+
+- **Root Cause**: Next.js and Hono must run as sibling subdomains under the same root domain (e.g. `app.example.com` and `api.example.com`) for session cookies to be accepted across origins.
+- **Fix**:
+  1. Verify the cookie domain settings in Better Auth.
+  2. Clear old browser cookies matching `upstand`.
+  3. Ensure `BETTER_AUTH_URL` and `CORS_ORIGIN` are set to sibling domains.
+
+---
+
+## 2. Service Startup Failures
+
+**Symptom**: The installer reports that services are not ready or are failing their health checks.
+
+- **Check Logs**: Run these commands on your Swarm Manager node:
+  ```bash
+  # List all stack services and replica counts
+  docker stack services upstand
+  
+  # Inspect task histories and errors
+  docker service ps upstand_server --no-trunc
+  
+  # Fetch the last 100 lines of server logs
+  docker service logs upstand_server --tail 100
+  ```
+- *Note: Do not delete Docker volumes (`upstand_postgres_data` or `upstand_redis_data`) during diagnosis, as they contain the control plane database state.*
+
+---
+
+## 3. Caddy Certificate Issuance Failures
+
+**Symptom**: Host domains route successfully over HTTP but fail to resolve over HTTPS with TLS errors.
+
+- **DNS Check**: Run `dig +short yourdomain.com` to confirm it points to the manager node IP.
+- **Port Conflict Check**: Ensure ports **80** and **443** are not bound by host-level processes:
+  ```bash
+  sudo ss -ltnp '( sport = :80 or sport = :443 )'
+  ```
+- **Inspect ACME Logs**: View Caddy's certificate logs:
+  ```bash
+  docker service logs upstand_caddy --tail 100
+  ```
+
+---
+
+## 4. Stuck Build Queues
+
+**Symptom**: Deployments are showing as `queued` or `building` indefinitely.
+
+- **Diagnostics**:
+  1. Inspect the deployment log panel in the dashboard to find the failing build stage.
+  2. Verify if the target node is online: `docker node ls`.
+  3. Inspect worker service logs: `docker service logs upstand_worker`.
+- **Force Clearing**: If a build worker crashes, you can manually clear the queue using the **Queue Cleanup** action on the Web Server page, but verify no legitimate builds are running first.
+
+---
+
+## 5. Database Schema Generation on Windows
+
+**Symptom**: Running database schema updates on a Windows development machine throws path or variable errors.
+
+- **Fix**:
+  - Run the following command from the repository root:
+    ```bash
+    bun db:generate
+    ```
+  - The script automatically provisions local mock environment variables for Better Auth. If overridden, manually supply valid `BETTER_AUTH_URL`, `CORS_ORIGIN`, `BETTER_AUTH_SECRET`, and `DATABASE_URL` values to the command context.
+
+---
+
+## 6. Resetting Two-Factor Authentication (2FA)
+
+**Symptom**: An administrator or user has lost access to their TOTP authenticator application or backup codes and cannot complete sign-in.
+
+- **Fix**: Execute the administrative CLI tool inside the running server container to disable 2FA for the target user.
+
+  1. Locate the running `upstand_server` container on your Swarm manager:
+     ```bash
+     docker ps | grep upstand_server
+     ```
+
+  2. Run the CLI tool interactively to select the user and reset their 2FA state:
+     ```bash
+     docker exec -it <container-id> bun apps/server/dist/cli.mjs reset-2fa
+     ```
+     *The tool will display a numbered list of all users with active Two-Factor Authentication. Enter the number corresponding to the target user.*
+
+  3. Alternatively, bypass the interactive prompt by passing the user's email directly:
+     ```bash
+     docker exec -it <container-id> bun apps/server/dist/cli.mjs reset-2fa --email=operator@example.com
+     ```

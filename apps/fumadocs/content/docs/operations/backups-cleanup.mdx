@@ -1,0 +1,67 @@
+---
+title: Backups, File Uploads & Pruning
+description: Learn how to automate database and volume backups, upload files securely, and schedule Docker pruning.
+---
+
+Upstand provides native mechanisms to handle disaster recovery, secure file transfers, and routine host cleanup.
+
+---
+
+## 1. S3 Backup Destinations
+
+Upstand leverages **rclone** internally to stream backup archives directly to S3-compatible object storage (AWS S3, Cloudflare R2, Backblaze B2, MinIO):
+
+- **Encryption**: Storage credentials are encrypted at rest using `aes-256-gcm`.
+- **Manual Verification**: To test connection credentials from your CLI host, use the following `rclone` syntax:
+  ```bash
+  rclone ls :s3:<bucket-name> \
+    --s3-provider="AWS" \
+    --s3-access-key-id="<access-key>" \
+    --s3-secret-access-key="<secret-key>" \
+    --s3-endpoint="<endpoint>"
+  ```
+- **Backup Types**:
+  - **Database Backups**: Streams engine-specific dumps directly to S3.
+  - **Volume Backups**: Packages Docker volumes into compressed `.tar.gz` streams before exporting.
+
+---
+
+## 2. Web-Server Control Plane Backups
+
+Manage full control-plane backups from the **Web Server** configuration page:
+
+- **Backup Content**: A control-plane backup packages the Upstand PostgreSQL system database along with Caddy's three runtime volumes (`caddy_data`, `caddy_config`, and custom certificates).
+- **Secure Restores**: Restoring the web server is a highly privileged operation requiring:
+  1. A verified 2FA token.
+  2. The `RESTORE_WEB_SERVER` administrative permission.
+  3. Typing the exact `RESTORE_WEB_SERVER` validation string.
+- The system terminates active database connections, applies the SQL dump, restores Caddy volumes, and restarts Caddy.
+- *Note: The system encryption key (`ENCRYPTION_KEY_V1`) is never included in the backup file and must be recorded separately.*
+
+---
+
+## 3. Secure File Uploads
+
+Upload files directly into Docker volumes or active containers from the **Docker Inventory** dashboard:
+
+### Volume Uploads
+- **File Constraints**: Accepts uncompressed `.tar` archives up to **50 MB**.
+- **Security Check**: Path traversals, absolute paths, and symlinks are strictly rejected.
+- **Verification**: Requires a verified 2FA token and active server-write permissions.
+- **Execution**: The archive transfers to the target host and extracts within a short-lived, sandboxed helper container.
+
+### Container Uploads
+- Select a tracked container from the **Containers** tab and upload a `.tar` archive.
+- Upstand transfers the file over SSH and executes extraction directly inside the target container file system.
+
+---
+
+## 4. Automated Docker Cleanup
+
+Keep your hosts clean of dangling resources by enabling scheduled prunes:
+
+- **Schedule**: Prune jobs execute daily at the control-plane host's local **03:00 AM** hour.
+- **Scope**:
+  - **Control Plane**: Prunes unused images, stopped containers, and dangling networks on the manager node.
+  - **Remote Servers**: Connects via SSH to trigger prunes on external hosts. Does not expose remote Docker sockets to other hosts.
+- **Docker Inventory Cleanups**: Manually force the removal of unused images, networks, or volumes. These destructive operations require a verified 2FA token.

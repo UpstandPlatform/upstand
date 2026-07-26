@@ -1,0 +1,2 @@
+ALTER TABLE "s3_destination" ADD COLUMN "certificate_id" text;--> statement-breakpoint
+ALTER TABLE "s3_destination" ADD CONSTRAINT "s3_destination_certificate_id_certificate_id_fk" FOREIGN KEY ("certificate_id") REFERENCES "public"."certificate"("id") ON DELETE set null ON UPDATE no action;

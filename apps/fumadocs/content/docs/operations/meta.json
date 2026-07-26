@@ -1,0 +1,15 @@
+{
+  "title": "Operations & Security",
+  "pages": [
+    "upgal",
+    "mcp-server",
+    "cli",
+    "security-auth",
+    "organization-admin",
+    "infrastructure",
+    "schedules-workers",
+    "api-automation",
+    "backups-cleanup",
+    "audit-logs"
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "name": "@upstand/infrastructure",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "import": "./src/*.ts",
+      "default": "./src/*.ts"
+    },
+    "./*/*": {
+      "types": "./src/*/*.ts",
+      "import": "./src/*/*.ts",
+      "default": "./src/*/*.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "@upstand/domain": "workspace:*",
+    "@upstand/env": "workspace:*",
+    "@upstand/platform": "workspace:*",
+    "@upstand/redis": "workspace:*",
+    "@upstand/usecases": "workspace:*",
+    "bullmq": "catalog:",
+    "dockerode": "^5.0.1",
+    "evlog": "catalog:",
+    "nodemailer": "^9.0.3",
+    "ssh2": "^1.17.0",
+    "yaml": "^2.9.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.1",
+    "@types/nodemailer": "^8.0.1",
+    "@types/ssh2": "^1.15.5",
+    "@upstand/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

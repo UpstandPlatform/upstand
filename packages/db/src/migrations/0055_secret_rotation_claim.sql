@@ -1,0 +1,1 @@
+ALTER TABLE "secret_rotation_schedule" ADD COLUMN "rotation_claimed_until" timestamp;

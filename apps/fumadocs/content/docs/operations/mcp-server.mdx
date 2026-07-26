@@ -1,0 +1,246 @@
+---
+title: MCP Server Setup & Editor Integration
+description: Learn how to connect Upstand's Model Context Protocol (MCP) server to VS Code, Claude Desktop, Claude Code, Cursor, Codex, and other AI clients.
+---
+
+Upstand exposes a Model Context Protocol (MCP) server endpoint at `/api/mcp`. This allows external AI assistants—such as Cursor, VS Code (Copilot / Cline / Roo Code), Claude Desktop, Claude Code, Codex, and Windsurf—to inspect projects, list resources, view deployment logs, and request infrastructure actions directly from your editor or desktop assistant.
+
+---
+
+## 1. Prerequisites & Authentication
+
+To connect an external MCP client to Upstand, you need:
+
+1. **Upstand Instance URL**: Your local dev URL (`http://localhost:3000`) or production instance (`https://upstand.your-domain.com`).
+2. **Organization API Key**: An API key generated with MCP permissions.
+
+### Creating an MCP API Key
+
+1. Go to **Settings > API Keys** in your Upstand Dashboard.
+2. Click **Create API Key**.
+3. Name your key (e.g. `VS Code MCP Key` or `Claude Desktop`).
+4. Select **MCP Permissions**:
+   - `mcp: ["*"]` or `mcp-read-only` for read access to resources, logs, and infrastructure status.
+5. Copy the generated key (`upstand_ak_...`). Keep it safe as it will not be shown again.
+
+---
+
+Upstand's MCP server endpoint accepts standard JSON-RPC 2.0 requests over HTTP / SSE:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as External MCP Client (Cursor / Claude / Copilot)
+    participant Server as Hono API (/api/mcp)
+    participant Auth as API Key Authenticator
+    participant UpGal as UpGal Tool Handler
+    participant DB as Dashboard Approval Engine
+
+    Client->>Server: HTTP POST /api/mcp (jsonrpc: 2.0, method: initialize)
+    Server->>Auth: Verify Bearer / X-Api-Key Header
+    Auth-->>Server: Authenticated (Organization Scope)
+    Server-->>Client: Protocol Manifest (Version 2025-03-26)
+
+    Client->>Server: HTTP POST /api/mcp (method: tools/call, name: list_projects)
+    Server->>UpGal: Dispatch Tool Execution (list_projects)
+    alt Read-Only Tool Operation
+        UpGal-->>Server: JSON Tool Result
+        Server-->>Client: JSON-RPC Response (result.content)
+    else Mutating Tool Operation (Create / Delete / Deploy)
+        UpGal->>DB: Create Mutating Approval Task
+        UpGal-->>Server: Approval Required Response
+        Server-->>Client: "Mutating MCP tools must be approved through the UpGal dashboard."
+    end
+```
+
+---
+
+## Custom MCP Tool Extensions & AI Workflow Automation
+
+Organizations can register custom MCP tool extensions in `packages/api/src/ai/upgal.ts` or via `UPGAL_MCP_SERVERS`:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor IDE as Cursor / Claude / Windsurf
+    participant MCP as Upstand MCP Server (/api/mcp)
+    participant CustomTool as Custom Org Tool Handler
+    participant ExtAPI as External Internal API / Service
+
+    IDE->>MCP: tools/call (name: "custom_deploy_pipeline", args: {...})
+    MCP->>CustomTool: Validate Schema & Permissions
+    CustomTool->>ExtAPI: Dispatch Custom Pipeline Automation
+    ExtAPI-->>CustomTool: Pipeline Result Payload
+    CustomTool-->>MCP: Formatted Tool Result Content
+    MCP-->>IDE: Return JSON-RPC Result
+```
+
+- **Tool Definition**: Custom tools declare a unique tool name, markdown description, mutation status annotation (`readOnlyHint` / `destructiveHint`), and Zod input schema (`z.object({...})`).
+- **Authorization Scopes**: Custom tools inherit organization authorization checks, ensuring users cannot execute operations on infrastructure they do not own.
+
+---
+
+## 3. Editor & Client Configuration Tutorials
+
+### VS Code (Cline, Roo Code, Copilot, & MCP Extensions)
+
+VS Code extensions supporting MCP (such as Cline, Roo Code, or the GitHub Copilot MCP extension) can connect via SSE or stdio bridge.
+
+#### Option A: Direct SSE / HTTP Configuration
+
+Add the following to your workspace `.vscode/mcp.json` or your extension's MCP configuration settings:
+
+```json
+{
+  "mcpServers": {
+    "upstand": {
+      "url": "https://upstand.your-domain.com/api/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_UPSTAND_API_KEY"
+      }
+    }
+  }
+}
+```
+
+#### Option B: Stdio Bridge via `npx`
+
+If your extension requires `command` / `stdio` execution:
+
+```json
+{
+  "mcpServers": {
+    "upstand": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-fetch",
+        "https://upstand.your-domain.com/api/mcp",
+        "--header",
+        "Authorization: Bearer YOUR_UPSTAND_API_KEY"
+      ]
+    }
+  }
+}
+```
+
+---
+
+### Claude Desktop
+
+To connect **Claude Desktop** to your Upstand server:
+
+1. Open your Claude Desktop configuration file:
+   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+2. Add the `upstand` server entry:
+
+```json
+{
+  "mcpServers": {
+    "upstand": {
+      "url": "https://upstand.your-domain.com/api/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_UPSTAND_API_KEY"
+      }
+    }
+  }
+}
+```
+
+3. Restart Claude Desktop. The Upstand tools (icon `🔨`) will appear in the Claude tool panel.
+
+---
+
+### Claude Code (CLI)
+
+For **Claude Code** CLI users:
+
+Add the MCP server to your workspace `.mcp.json` file:
+
+```json
+{
+  "mcpServers": {
+    "upstand": {
+      "url": "https://upstand.your-domain.com/api/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_UPSTAND_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Or run the CLI setup command:
+
+```bash
+claude mcp add upstand -- https://upstand.your-domain.com/api/mcp -H "Authorization: Bearer YOUR_UPSTAND_API_KEY"
+```
+
+---
+
+### Cursor
+
+1. Open **Cursor Settings** -> **Features** -> **MCP**.
+2. Click **+ Add New MCP Server**.
+3. Fill in the configuration:
+   - **Name**: `upstand`
+   - **Type**: `SSE` / `HTTP`
+   - **URL**: `https://upstand.your-domain.com/api/mcp`
+   - **Headers**:
+     - Key: `Authorization`
+     - Value: `Bearer YOUR_UPSTAND_API_KEY`
+
+Alternatively, add it to `.cursor/mcp.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "upstand": {
+      "url": "https://upstand.your-domain.com/api/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_UPSTAND_API_KEY"
+      }
+    }
+  }
+}
+```
+
+---
+
+### Codex & Windsurf
+
+For **Codex** or **Windsurf** AI assistants:
+
+Edit `.codex/mcp.json` or `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "upstand": {
+      "url": "https://upstand.your-domain.com/api/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_UPSTAND_API_KEY"
+      }
+    }
+  }
+}
+```
+
+---
+
+## 4. Testing & Verification
+
+Once configured, verify your setup by asking your AI assistant:
+
+> "List my Upstand projects and check the status of active services."
+
+Your AI assistant will call `tools/list` on `/api/mcp`, retrieve your organization's resources, and display real-time status and logs.
+
+---
+
+## 5. Security & Safety Guardrails
+
+- **Scope Isolation**: API keys only access resources within their parent Organization.
+- **Read vs. Mutate Safeguards**: Read operations (querying logs, listing projects, viewing server status) execute transparently. Mutating operations (triggering deployments, updating environment variables) generate an interactive confirmation in the Upstand dashboard UI.
+- **Audit Logging**: Every MCP tool execution is recorded in **Settings > Audit Logs**.

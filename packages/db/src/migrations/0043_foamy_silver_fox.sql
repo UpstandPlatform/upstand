@@ -1,0 +1,1 @@
+CREATE INDEX "ssh_key_organization_idx" ON "ssh_key" USING btree ("organization_id");

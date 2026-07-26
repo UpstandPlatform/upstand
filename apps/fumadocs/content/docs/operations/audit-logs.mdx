@@ -1,0 +1,47 @@
+---
+title: Audit logs
+description: Search and filter the organization audit trail with precise operational queries.
+---
+
+Audit logs record security-sensitive and operational events across the organization. They are the authoritative timeline for who performed an action, which resource it affected, and when it happened.
+
+## Dashboard search
+
+Open **Settings → Audit logs** and combine the available filters:
+
+- actor/user id
+- action
+- resource type
+- free-text search across the recorded event context
+- start and end timestamps
+- page and page size
+
+Search is additive: narrow by a time range and resource type first, then use text search for a deployment id, resource name, server id, or error detail.
+
+```text
+resourceType=resource action=deploy search="payments" from=2026-07-01T00:00:00Z to=2026-07-18T23:59:59Z
+```
+
+The UI applies pagination server-side. This keeps large organizations responsive and avoids loading the entire audit history into the browser.
+
+## UpGal access
+
+UpGal can call `get_audit_logs` with the same actor, action, resource type, text, time-range, and pagination filters. The tool is read-only, is limited to the active organization, and only appears when the user has audit-log view permission.
+
+```json
+{
+  "action": "deploy",
+  "resourceType": "resource",
+  "search": "payments",
+  "page": 1,
+  "pageSize": 25
+}
+```
+
+Use this in incident reviews:
+
+1. Ask UpGal to identify the latest deployment or configuration change.
+2. Compare the event timestamp with [monitoring metrics](/docs/features/monitoring).
+3. Open the referenced resource and inspect logs before approving a rollback or redeploy.
+
+Audit results do not contain secret values. Keep access to the audit page and the `audit_log:view` permission limited to operators who need the organization history.

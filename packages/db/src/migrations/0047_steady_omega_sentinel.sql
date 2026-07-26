@@ -1,0 +1,1 @@
+CREATE INDEX "resource_app_name_idx" ON "resource" USING btree ("app_name");

@@ -1,0 +1,74 @@
+name: Documentation improvement
+description: Report missing, incorrect, unclear, or outdated Upstand documentation
+title: "[Docs]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Documentation reports should identify the exact page or workflow and the safe, current behavior that should be documented. Do not paste secrets or private infrastructure details.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I searched existing documentation issues for duplicates.
+          required: true
+        - label: I checked the latest documentation on the master branch.
+          required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Documentation problem
+      options:
+        - Incorrect information
+        - Missing instructions
+        - Unclear or ambiguous wording
+        - Outdated version or behavior
+        - Broken link or example
+        - Missing troubleshooting guidance
+        - Contributor documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Page, file, or section
+      description: Link to the page or provide the repository path and heading.
+      placeholder: apps/fumadocs/content/docs/self-hosting.mdx — Production origins
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Relevant Upstand version
+      placeholder: v0.1.41, master, or not version-specific
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current documentation or observed gap
+      description: Quote only the small relevant excerpt or explain what is missing.
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: Proposed correction or additional content
+      description: Describe the accurate behavior, prerequisites, warnings, and verification steps that should be documented.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: How the documentation can be verified
+      description: Include commands, UI workflow, supported topology, or source-code references without exposing sensitive data.
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to submit a documentation pull request.

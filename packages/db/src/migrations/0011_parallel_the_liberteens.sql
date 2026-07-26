@@ -1,0 +1,1 @@
+ALTER TABLE "resource" ADD COLUMN "build_config" text DEFAULT '{"type":"dockerfile","dockerfilePath":"Dockerfile","dockerContextPath":"."}' NOT NULL;

@@ -1,0 +1,1 @@
+CREATE INDEX "s3_destination_organization_idx" ON "s3_destination" USING btree ("organization_id");

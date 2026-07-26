@@ -1,0 +1,21 @@
+{
+  "title": "Core Features",
+  "pages": [
+    "projects-resources",
+    "deployments",
+    "builds-and-previews",
+    "cron-jobs",
+    "upstand-json",
+    "routing",
+    "servers",
+    "backups",
+    "integrations",
+    "notifications",
+    "secrets-and-scaling",
+    "monitoring",
+    "multi-tenancy",
+    "terminal-logs",
+    "templates",
+    "template-catalog"
+  ]
+}

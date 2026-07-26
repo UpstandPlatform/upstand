@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/upstandplatform/upstand/security/advisories/new
+    about: Do not disclose suspected vulnerabilities in public issues. Open a private security advisory instead.
+  - name: Read the support policy
+    url: https://github.com/upstandplatform/upstand/blob/master/SUPPORT.md
+    about: Check supported environments, troubleshooting guidance, and where to ask operational questions.
+  - name: Review the operator documentation
+    url: https://github.com/upstandplatform/upstand/tree/master/apps/fumadocs/content/docs
+    about: Installation, self-hosting, remote-server, deployment, Docker Swarm, update, and troubleshooting guides.

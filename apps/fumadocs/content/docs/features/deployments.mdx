@@ -1,0 +1,185 @@
+---
+title: Applications, Compose Stacks & Databases
+description: Learn how workloads are built, queued, deployed, and managed across your infrastructure.
+---
+
+Upstand orchestrates your services by dividing them into three distinct resource categories: Applications, Compose projects, and Databases.
+
+---
+
+## 1. Application Deployments
+
+Applications build from Git repositories (GitHub, GitLab, Bitbucket, Gitea, or generic URLs) or deploy directly from pre-built container registry images.
+
+### Build & Deployment Pipeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User / Webhook
+    participant API as Hono API Controller
+    participant Queue as Redis Queue (BullMQ)
+    participant Worker as Deployment Worker Queue
+    participant Swarm as Docker Swarm Engine
+    participant Caddy as Caddy Reverse Proxy
+
+    User->>API: Trigger Build (Git Push / Webhook / Dashboard)
+    API->>Queue: Enqueue Build Job (deployments-queue-<nodeId>)
+    Queue->>Worker: Pick Job & Acquire Resource Lock
+    Worker->>Worker: Clone Git Repo & Execute Builder (Dockerfile / Nixpacks)
+    Worker->>Swarm: Push Image & Perform Rolling Service Update
+    Worker->>Caddy: Compile & Dry-Run Validate Caddyfile Configuration
+    Caddy-->>Worker: Dry-Run Passed -> Apply Atomic Reload
+    Worker->>Queue: Release Resource Lock & Mark Deployment Complete
+    Worker->>User: Notify Deployment Status (WebSocket / Webhook)
+```
+
+### Serialization & Concurrency
+- **Build Queues**: Each server node hosts an isolated build queue (`deployments-queue-<nodeId>`).
+- **Resource Locking**: Redis locks serialize builds per resource to prevent overlapping builds from conflicting.
+- **Dynamic Concurrency**: Deployment workers adapt concurrency dynamically based on host node CPU/RAM, subscribing to Redis Pub/Sub events (`upstand:server:concurrency`).
+- **Webhook Deployments**: Git pushes trigger automatic builds, recording the provider commit SHA for historical auditability.
+
+### Application Builders
+
+Upstand supports multiple modern build systems:
+
+<Tabs items={['Dockerfile', 'Nixpacks / Railpack', 'Buildpacks', 'Static']}>
+  <Tab value="Dockerfile">
+    - **BuildKit Secrets**: Inject sensitive build variables as ephemeral secret mounts:
+      ```json
+      { "NPM_TOKEN": "secret_npm_token_here" }
+      ```
+      In your `Dockerfile`, consume them using:
+      ```dockerfile
+      RUN --mount=type=secret,id=NPM_TOKEN npm install
+      ```
+      This ensures tokens do not leak into final image layers.
+    - Custom build context paths, targets, and caching controls are supported.
+  </Tab>
+  <Tab value="Nixpacks / Railpack">
+    - Zero-config build systems that automatically detect project types (Node.js, Go, Python, Rust, PHP, Ruby) and build them efficiently.
+    - Specify a pinned Railpack version or select from the Nixpacks registry.
+  </Tab>
+  <Tab value="Buildpacks">
+    - Supports both Heroku and Paketo Cloud Native Buildpacks (CNB) to generate standardized OCI-compliant container images.
+  </Tab>
+  <Tab value="Static">
+    - Serves front-end assets directly.
+    - Custom publish directories and single-page-application (SPA) fallback behaviors.
+    - Offers automated validation with `sslip.io` hostname generation.
+  </Tab>
+</Tabs>
+
+### Pre-Deploy & Post-Deploy Hooks
+
+Upstand allows you to execute commands directly inside deployment containers before or after a new version rolls out:
+- **Pre-Deploy Hook**: Runs commands before shifting active traffic (e.g. running database schema migrations `prisma migrate deploy` or `drizzle-kit push`).
+- **Post-Deploy Hook**: Runs commands after successful container rollout (e.g. warming caches, triggering search indexes, or sending post-deployment notifications).
+- **Execution Timeouts**: Customize maximum execution time per hook (`timeoutSeconds`, default 300 seconds).
+- **Failure Policy**: Configure how failures are handled:
+  - `warn` (default): Log execution failures to deployment output but allow deployment to complete.
+  - `fail`: Abort deployment pipeline immediately if the hook command exits with a non-zero status.
+
+---
+
+## 2. Database Provisioning
+
+Databases run as Docker Swarm services with persistent named volumes (`upstand-db-data-<id>`) bound to standard data directories.
+
+### Supported Engines
+Upstand natively configures connection strings, environment details, and security for:
+- **PostgreSQL**
+- **MySQL**
+- **MariaDB**
+- **MongoDB**
+- **Redis**
+- **libSQL (sqld)**: Exposes independent HTTP (port 8080), gRPC (port 5001), and admin dashboard (port 5000) published ports. When credentials are saved, Upstand derives the `SQLD_HTTP_AUTH` basic-auth token dynamically without displaying it in plain text.
+
+### Database High-Availability & Connection Pooling
+
+For production database scale, Upstand manages replication topology and connection pooling:
+
+```mermaid
+graph TD
+    subgraph AppCluster["Application Tier"]
+        App1["Application Container 1"]
+        App2["Application Container 2"]
+    end
+
+    subgraph PoolerTier["Connection Pooling (PgBouncer)"]
+        Pooler["PgBouncer Proxy Pooler (Port 6432)"]
+    end
+
+    subgraph DbCluster["Database Replication Tier"]
+        Primary[("PostgreSQL Primary (Read/Write)")]
+        Replica1[("PostgreSQL Replica 1 (Read-Only)")]
+        Replica2[("PostgreSQL Replica 2 (Read-Only)")]
+    end
+
+    App1 --> Pooler
+    App2 --> Pooler
+    Pooler --> Primary
+    Primary -->|Streaming Replication| Replica1
+    Primary -->|Streaming Replication| Replica2
+```
+
+- **PgBouncer Connection Pooling**: Reduces backend connection overhead by pooling client connections into lightweight server sockets.
+- **Read Replicas**: Configure dedicated read-replica nodes to offload heavy reporting and analytics queries away from the primary database engine.
+
+---
+
+## 3. Progressive Blue-Green & Rollback Strategies
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Operator / CI
+    participant Swarm as Swarm Orchestrator
+    participant Blue as Blue Service (v1.0 - Active 100%)
+    participant Green as Green Service (v2.0 - Staged)
+    participant Caddy as Caddy Ingress Proxy
+
+    Admin->>Swarm: Deploy New Version (v2.0)
+    Swarm->>Green: Spin up Green Replicas
+    Green->>Green: Health Check Passes (/health/ready)
+    Admin->>Caddy: Shift Traffic Ratio (Blue 50% / Green 50%)
+    Admin->>Caddy: Full Cutover (Green 100% / Blue 0%)
+    Caddy-->>Admin: Traffic Fully Cutover to v2.0
+    alt Health Check Fails on Green
+        Caddy->>Blue: Revert Traffic 100% to Blue (v1.0 Instant Rollback)
+    end
+```
+
+- **Swarm Rollback**: Restores the previous Docker service specification from the Docker Swarm history.
+- **Git Rollback**: Re-deploys a historical Git commit SHA directly from your deployment history logs.
+- **Rollback Registry**: Encrypted Docker registry credentials for private images are sent securely only to the target node during rolling updates or rollbacks.
+
+---
+
+## 4. Compose Projects & Swarm Stacks
+
+Deploy multi-container applications from raw YAML configurations or repository-hosted Compose files.
+
+- **Custom Compose File Paths**: Specify custom Compose definition paths within your repository (e.g. `docker-compose.prod.yml` or `deploy/stack.yaml`).
+- **Service Container Auto-Detection**: Upstand automatically parses service names, dependencies, ports, and volumes from Compose files and matches them to active running containers.
+- **Compose Mode**: Runs workloads using standard `docker compose up --detach`. Better suited for single-node development testing.
+- **Stack Mode**: Deploys services using `docker stack deploy` on Docker Swarm.
+- **Mode Conversion**: Automatically converts Compose configurations to Swarm-compatible Stack files:
+  - Removes fixed `container_name` fields.
+  - Maps `restart: always` to Swarm's `deploy.restart_policy` settings.
+- **Name Randomization**: Replaces service, network, volume, config, and secret names with randomized hashes. Essential when deploying the same Compose template multiple times in the same cluster to avoid name clashes.
+
+---
+
+## 5. Scheduled Deployments & Crons
+
+All scheduled operations—including automated deployment rebuilds, container CLI scripts, backup jobs, and HTTP cron endpoints—are centrally managed via the **Cron Jobs** tab on the resource page:
+
+- **Deployment Jobs**: Queue a standard build/deployment operation on a cron schedule (e.g., nightly rebuilds).
+- **Command Jobs**: Execute specific cron commands inside the running resource container.
+- **Backup Jobs**: Trigger the resource's S3 backup workflow automatically on a schedule.
+- **HTTP Cron Jobs**: Send authenticated HTTP requests to server endpoints (e.g., `/api/cron`) with `CRON_SECRET`.
+- **Run Now & Logs**: Instantly enqueue any job into worker queues and view historical execution logs.
+
+For full details on configuring cron jobs, timezones, and framework code snippets, see the [Cron Jobs Documentation](/docs/features/cron-jobs).

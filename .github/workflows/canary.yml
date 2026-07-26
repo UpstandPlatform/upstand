@@ -1,0 +1,86 @@
+name: Publish Canary Images
+
+on:
+  workflow_run:
+    workflows: ["Continuous Integration"]
+    types: [completed]
+    branches: [canary]
+  workflow_dispatch:
+
+concurrency:
+  group: upstand-canary
+  cancel-in-progress: true
+
+jobs:
+  verify-and-publish:
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/canary') ||
+        (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server
+            context: .
+            file: apps/server/Dockerfile
+            scope: upstand-server
+            build_args: ""
+          - name: schedules
+            context: .
+            file: apps/schedules/Dockerfile
+            scope: upstand-schedules
+            build_args: ""
+          - name: web
+            context: .
+            file: apps/web/Dockerfile
+            scope: upstand-web
+            build_args: |
+              NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
+              NEXT_PUBLIC_UPSTAND_VERSION=canary
+          - name: fumadocs
+            context: .
+            file: apps/fumadocs/Dockerfile
+            scope: upstand-fumadocs
+            build_args: ""
+          - name: monitoring
+            context: apps/monitoring
+            file: apps/monitoring/Dockerfile
+            scope: upstand-monitoring
+            build_args: ""
+    env:
+      NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        run: echo "repository=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+      - name: Build and Push ${{ matrix.name }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/${{ steps.image.outputs.repository }}-${{ matrix.name }}:canary
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha,scope=${{ matrix.scope }}
+          cache-to: type=gha,scope=${{ matrix.scope }},mode=max
+          provenance: mode=max
+          sbom: true

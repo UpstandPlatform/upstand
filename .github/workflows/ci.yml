@@ -1,0 +1,124 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches: [master, canary]
+  push:
+    branches: [master, canary]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The web app validates this at build time. It is deliberately a reserved
+  # CI-only origin; deployments inject their real HTTPS API origin.
+  NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Restore Turbo cache
+        uses: actions/cache@v6
+        with:
+          path: .turbo/cache
+          key: ${{ runner.os }}-turbo-${{ github.workflow }}-${{ github.ref_name }}-${{ hashFiles('bun.lock', 'turbo.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ github.workflow }}-${{ github.ref_name }}-
+            ${{ runner.os }}-turbo-
+      - name: Check changed formatting and lint
+        env:
+          BASE_BRANCH: ${{ github.base_ref || github.ref_name }}
+        run: bunx biome check --changed --since "origin/${BASE_BRANCH}" --no-errors-on-unmatched
+      - name: Verify release changeset
+        # The generated release PR and the canary promotion intentionally
+        # contain consumed changesets plus generated versions/changelogs.
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.head_ref != 'changeset-release/canary' &&
+          github.head_ref != 'canary'
+        run: bun run changeset:status --since="origin/${{ github.base_ref }}"
+      - name: Verify generated database migrations
+        env:
+          BETTER_AUTH_URL: http://localhost:3000
+          CORS_ORIGIN: http://localhost:3001
+          BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
+        run: |
+          bun run db:generate
+          bun run db:check
+          git diff --exit-code -- packages/db/src/migrations packages/db/src/schema
+      - name: Check affected types
+        if: github.event_name == 'pull_request'
+        run: bunx turbo run check-types --filter="...[origin/${{ github.base_ref }}]"
+      - name: Check all types
+        if: github.event_name != 'pull_request'
+        run: bun run check-types
+      - name: Test affected packages
+        if: github.event_name == 'pull_request'
+        run: bunx turbo run test --filter="...[origin/${{ github.base_ref }}]"
+      - name: Test all packages
+        if: github.event_name != 'pull_request'
+        run: bun run test
+      - name: Build affected applications
+        if: github.event_name == 'pull_request'
+        run: bunx turbo run build --filter="...[origin/${{ github.base_ref }}]"
+      - name: Build all applications
+        if: github.event_name != 'pull_request'
+        run: bun run build
+
+  docker-builds:
+    name: Build pruned ${{ matrix.name }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server
+            file: apps/server/Dockerfile
+            build_args: ""
+          - name: web
+            file: apps/web/Dockerfile
+            build_args: |
+              NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
+              NEXT_PUBLIC_UPSTAND_VERSION=ci
+          - name: fumadocs
+            file: apps/fumadocs/Dockerfile
+            build_args: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build ${{ matrix.name }} image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: false
+          tags: upstand-${{ matrix.name }}:${{ github.sha }}
+          build-args: ${{ matrix.build_args }}

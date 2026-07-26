@@ -1,0 +1,1 @@
+CREATE INDEX "git_provider_organization_idx" ON "git_provider" USING btree ("organization_id");

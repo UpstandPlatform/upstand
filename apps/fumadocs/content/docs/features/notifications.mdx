@@ -1,0 +1,20 @@
+---
+title: Notifications and delivery observation
+description: Send deployment, backup, cluster, cleanup, and threshold events to supported notification providers and inspect delivery results.
+---
+
+Configure channels under **Management → Notifications**. A channel has a provider, provider-specific credentials/settings, enabled event types, and an enabled/disabled state. Credentials are stored as channel configuration and should be treated as secrets.
+
+## Supported providers
+
+The dashboard currently exposes configuration for Slack, Telegram, Discord, Lark, Microsoft Teams, SMTP Email, Resend, Gotify, ntfy, Mattermost, Pushover, and Custom Webhook.
+
+Provider fields vary. Examples include Slack webhook URL and channel override, Telegram bot token and chat ID, SMTP host/port/username/password/from/recipients/TLS, Resend API key/from/recipients, and custom webhook endpoint plus JSON headers.
+
+## Event types
+
+Available event categories include application deploys and build errors, database/volume/Web Server backups, Docker cleanup completion and failure, Upstand restart, Swarm initialization and node changes, join-token rotation, and server-threshold alerts. Select only the events the channel should receive; Docker cleanup failure notifications are also delivered to channels that already subscribe to Docker cleanup completion for backwards compatibility.
+
+## Delivery operations
+
+The notification worker records deliveries and retries failed deliveries. Use **Observation → Notification Deliveries** to inspect status, errors, attempts, and timestamps. A successful channel connection test does not guarantee delivery to every future event: provider rate limits, revoked tokens, recipient changes, and endpoint availability can still fail later.

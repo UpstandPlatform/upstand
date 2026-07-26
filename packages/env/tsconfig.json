@@ -1,0 +1,3 @@
+{
+  "extends": "@upstand/config/tsconfig.base.json"
+}

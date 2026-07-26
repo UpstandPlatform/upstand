@@ -1,0 +1,1 @@
+CREATE INDEX "certificate_organization_idx" ON "certificate" USING btree ("organization_id");

@@ -1,0 +1,40 @@
+{
+  "name": "@upstand/usecases",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "import": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "lint": "biome check .",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@circulo-ai/di": "^3.1.0",
+    "@upstand/domain": "workspace:*",
+    "@upstand/env": "workspace:*",
+    "@upstand/platform": "workspace:*",
+    "@upstand/redis": "workspace:*",
+    "bullmq": "catalog:",
+    "croner": "^10.0.1",
+    "dockerode": "^5.0.1",
+    "evlog": "catalog:",
+    "yaml": "^2.9.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.1",
+    "@upstand/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

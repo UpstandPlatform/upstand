@@ -1,0 +1,136 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "boundaries": {
+    "tags": {
+      "domain": { "dependencies": { "allow": ["tooling"] } },
+      "application": {
+        "dependencies": {
+          "allow": [
+            "configuration",
+            "domain",
+            "platform",
+            "runtime-infrastructure",
+            "tooling"
+          ]
+        }
+      },
+      "platform": {
+        "dependencies": { "allow": ["configuration", "tooling"] }
+      },
+      "runtime-infrastructure": {
+        "dependencies": { "allow": ["configuration", "tooling"] }
+      },
+      "infrastructure": {
+        "dependencies": {
+          "allow": [
+            "application",
+            "configuration",
+            "domain",
+            "infrastructure",
+            "platform",
+            "runtime-infrastructure",
+            "tooling"
+          ]
+        }
+      },
+      "interface": { "dependencies": { "allow": ["domain", "tooling"] } },
+      "composition": {
+        "dependencies": {
+          "allow": [
+            "application",
+            "composition",
+            "configuration",
+            "domain",
+            "infrastructure",
+            "platform",
+            "runtime-infrastructure",
+            "tooling"
+          ]
+        }
+      },
+      "configuration": { "dependencies": { "allow": ["tooling"] } },
+      "tooling": { "dependencies": { "allow": [] } },
+      "host": {
+        "dependencies": {
+          "allow": [
+            "application",
+            "composition",
+            "configuration",
+            "domain",
+            "infrastructure",
+            "interface",
+            "platform",
+            "runtime-infrastructure",
+            "tooling"
+          ]
+        }
+      }
+    }
+  },
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "check-types": {
+      "dependsOn": ["^check-types"]
+    },
+    "test": {
+      "cache": true,
+      "outputs": []
+    },
+    "test:e2e": {
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:push": {
+      "cache": false,
+      "env": ["DATABASE_URL"]
+    },
+    "db:check": {
+      "cache": false,
+      "env": ["DATABASE_URL"]
+    },
+    "db:generate": {
+      "cache": false,
+      "env": [
+        "BETTER_AUTH_URL",
+        "CORS_ORIGIN",
+        "BETTER_AUTH_SECRET",
+        "DATABASE_URL"
+      ]
+    },
+    "db:migrate": {
+      "cache": false,
+      "persistent": true,
+      "env": ["DATABASE_URL"]
+    },
+    "db:studio": {
+      "cache": false,
+      "persistent": true,
+      "env": ["DATABASE_URL"]
+    },
+    "db:start": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:stop": {
+      "cache": false
+    },
+    "db:watch": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:down": {
+      "cache": false
+    }
+  }
+}

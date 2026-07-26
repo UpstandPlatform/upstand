@@ -1,0 +1,113 @@
+---
+title: Environment variables reference
+description: Variables validated by the Upstand server, web console, documentation app, and installer.
+---
+
+The server validates its environment with `packages/env/src/server.ts`; the web console validates its public variables with `packages/env/src/web.ts`. Optional values have defaults or enable specific integrations. A variable mentioned in a deployment file is not necessarily read by the application, so use this page together with the installer and compose files for your deployment mode.
+
+---
+
+## Variable Resolution & Inheritance Hierarchy
+
+Upstand resolves environment variables across multiple scope levels, where lower levels override upper levels:
+
+```mermaid
+graph TD
+    OrgScope["1. Organization Shared Secrets / Integrations"]
+    EnvScope["2. Environment Shared Variables (e.g. Production / Staging)"]
+    ResourceScope["3. Resource Specific Variables & Secrets"]
+    UpstandJson["4. Repository Declarations (upstand.json)"]
+    RuntimeProcess["5. Container Runtime Environment Injection"]
+
+    OrgScope --> EnvScope
+    EnvScope --> ResourceScope
+    ResourceScope --> UpstandJson
+    UpstandJson --> RuntimeProcess
+```
+
+The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{project.SECRET_KEY}}`, allowing resources within the same environment to share endpoints dynamically.
+
+---
+
+## Server Runtime Variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Production | PostgreSQL connection string. |
+| `BETTER_AUTH_SECRET` | Production | Better Auth signing/session secret; the server schema requires at least 32 characters. |
+| `BETTER_AUTH_URL` | Production | Canonical auth API URL. |
+| `CORS_ORIGIN` | Production | Allowed dashboard origin. |
+| `ENCRYPTION_KEY_V1` | Production | Master 256-bit encryption key for stored database secrets and provider credentials. |
+| `REDIS_URL` | No | Redis connection URL; defaults to `redis://localhost:6379`. |
+| `PORT` | No | Server listen port; defaults to `3000`. |
+| `NODE_ENV` | No | `development`, `production`, or `test`; defaults to `development`. |
+| `DOCKER_NETWORK` | No | Docker network name; defaults to `upstand-network`. |
+| `TRUSTED_PROXY_CIDRS` | No | Comma-separated proxy CIDRs whose forwarded client headers may be trusted. |
+
+## URLs and deployment topology
+
+| Variable | Purpose |
+| --- | --- |
+| `UPSTAND_BASE_URL` | Optional public Upstand base URL. |
+| `APP_URL` | Optional application/dashboard URL. |
+| `UPSTAND_DASHBOARD_HOST` | Dashboard host used by deployment configuration. |
+| `UPSTAND_API_HOST` | API host used by deployment configuration. |
+| `UPSTAND_DOCS_HOST` | Documentation host used by deployment configuration. |
+| `UPSTAND_SERVER_UPSTREAM` | Server upstream override. |
+| `UPSTAND_WEB_UPSTREAM` | Web upstream override. |
+| `UPSTAND_FUMADOCS_UPSTREAM` | Fumadocs upstream override. |
+| `UPSTAND_DIRECT_ORIGINS` | Installer-managed mode for direct host-IP origins; defaults to `true` when origins are omitted. |
+| `UPSTAND_SERVER_PORT` / `UPSTAND_WEB_PORT` / `UPSTAND_DOCS_PORT` | Published host ports for the API, dashboard, and documentation services. |
+| `UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT` | Optional host-key pin for control-plane SSH operations. |
+
+## Release and runtime services
+
+| Variable | Purpose |
+| --- | --- |
+| `UPSTAND_VERSION` | Release version shown by the application/update flow. |
+| `UPSTAND_AUTO_UPDATE` | Boolean; enables the optional update runtime. Defaults to `false`. |
+| `UPSTAND_SERVER_IMAGE` | Server image reference. |
+| `UPSTAND_WEB_IMAGE` | Web image reference. |
+| `UPSTAND_MONITORING_IMAGE` | Monitoring image reference. |
+| `DB_MIGRATIONS_PATH` | Optional database migrations path. |
+| `UPSTAND_POSTGRES_CONTAINER` | Optional PostgreSQL container identifier/name. |
+| `UPSTAND_DOCKER_VERSION` | Optional Docker version used by provisioning/update flows. |
+| `SERVER_ID` | Optional server identity for a runtime instance. |
+| `UPSTAND_INSTANCE_OWNER_USER_ID` | Optional explicit instance-owner identity for instance-scoped operations. |
+
+## Git and AI integrations
+
+| Variable | Purpose |
+| --- | --- |
+| `UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS` | Comma-separated allowlist for custom Git provider hosts. HTTPS and public-host validation still apply. |
+| `GITHUB_REPOSITORY` | Repository used by release/update flows; defaults to `upstandplatform/upstand`. |
+| `GITHUB_TOKEN` | Optional GitHub token. |
+| `UPSTAND_GITHUB_TOKEN` | Optional Upstand GitHub token. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional Google auth credentials. |
+| `UPGAL_WEB_SEARCH_API_KEY` | Optional key for UpGal public-web search. |
+| `UPGAL_WEB_SEARCH_BASE_URL` | Search endpoint; defaults to the Brave-compatible endpoint. |
+| `UPGAL_MCP_SERVERS` | Optional MCP server configuration. |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | Optional OpenRouter configuration used by runtime AI flows. |
+| `IS_CLOUD` | Boolean cloud-mode flag; defaults to `false`. |
+
+## Web console
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SERVER_URL` | Yes | Public API origin used by the browser. |
+| `NEXT_PUBLIC_UPSTAND_VERSION` | No | Version shown by the web console. |
+
+Cloud mode is configured with the server-side `IS_CLOUD` variable. The web console reads the authoritative value from the API at runtime, so cloud and self-hosted installations use the same web image.
+
+When the installer has no URL variables, it leaves the control-plane services
+available on the host IP and their published ports. Configure the domain and
+HTTPS certificate in **Web Server** first, then disable **Direct IP:port
+access** to remove those host-port publications.
+
+## Documentation app
+
+The Fumadocs app reads `OPENROUTER_API_KEY` and optional `OPENROUTER_MODEL` for its documentation chat route. `NEXT_PUBLIC_FUMADOCS_URL` controls the canonical URL used by the documentation layout, and `OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` can enable telemetry export. Documentation builds may set `SKIP_TYPECHECK` or the repository's standard build-time validation flags according to the deployment pipeline.
+
+## Secret handling
+
+Do not commit production values to `.env` files. The production installer separates ordinary configuration from sensitive Docker Secret material under `/etc/upstand/secrets/` with restrictive permissions. Keep backups of encryption keys separately from database backups: losing `ENCRYPTION_KEY_V1` can make encrypted credentials unrecoverable.

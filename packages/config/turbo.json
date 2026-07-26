@@ -1,0 +1,13 @@
+{
+  "extends": ["//"],
+  "tags": ["tooling"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/**/*.{ts,tsx}",
+        "$TURBO_ROOT$/packages/**/*.{ts,tsx}"
+      ]
+    }
+  }
+}

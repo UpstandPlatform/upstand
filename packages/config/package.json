@@ -1,0 +1,14 @@
+{
+  "name": "@upstand/config",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "lint": "biome check .",
+    "test": "bun test src"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}

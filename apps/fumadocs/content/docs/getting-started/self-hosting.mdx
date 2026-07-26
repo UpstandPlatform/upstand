@@ -1,0 +1,277 @@
+---
+title: Production Self-Hosting
+description: Learn how to provision a secure production environment using the Upstand installer.
+---
+
+This guide outlines the production installation process, environment variable options, system prerequisites, and the security model for Upstand.
+
+---
+
+## Infrastructure Architecture
+
+Upstand's production self-hosting architecture separates the control plane services, ingress proxy, persistent volumes, and compute nodes into an isolated Docker Swarm network:
+
+```mermaid
+graph TD
+    subgraph Internet["Public Network"]
+        Client["Browser Client / UpGal AI / MCP Tool"]
+        DNS["DNS Records: app.example.com & api.example.com"]
+    end
+
+    subgraph Host["Production Host / Virtual Machine"]
+        subgraph IngressLayer["Ingress Proxy (Port 80 / 443)"]
+            Caddy["Caddy Reverse Proxy (Automatic TLS / ACME)"]
+        end
+
+        subgraph SwarmCluster["Docker Swarm Stack: upstand"]
+            WebUI["upstand-web (Next.js Dashboard)"]
+            ServerAPI["upstand-server (Hono API & Workers)"]
+            Fumadocs["upstand-docs (Fumadocs Engine)"]
+            DB[(PostgreSQL 16 Engine)]
+            Cache[(Redis 7 Cache & Task Queue)]
+        end
+
+        subgraph StorageLayer["Persistent Host Volumes"]
+            VolData["/etc/upstand/data (App Data)"]
+            VolSecrets["/etc/upstand/secrets (0600 File Vault)"]
+            VolCaddy["caddy_data (TLS Certs)"]
+        end
+    end
+
+    Client --> DNS
+    DNS --> Caddy
+    Caddy -->|"Proxy Server API (port 3000)"| ServerAPI
+    Caddy -->|"Proxy Web Dashboard (port 3001)"| WebUI
+    Caddy -->|"Proxy Fumadocs (port 4000)"| Fumadocs
+    ServerAPI --> DB
+    ServerAPI --> Cache
+    DB --> VolData
+    ServerAPI --> VolSecrets
+    Caddy --> VolCaddy
+```
+
+---
+
+## Server Prerequisites
+
+Prepare a fresh Linux Virtual Machine matching these requirements:
+
+1. **Host OS**: Ubuntu 24.04 LTS, Ubuntu 22.04 LTS, or Debian 12 (Bookworm) is recommended.
+2. **Hardware**: At least 2 vCPUs, 4 GB of RAM, and 30 GB of SSD storage.
+3. **DNS Configuration (optional for first boot)**: Configure A records pointing to your server's public IP when you are ready to use the managed HTTPS domain:
+   - `app.example.com` (for the dashboard UI)
+   - `api.example.com` (for the Hono/tRPC API server)
+   - `docs.example.com` (for the documentation app)
+4. **Firewall Rules**:
+   - Open public TCP **80** and **443** for Caddy HTTPS certificate generation.
+   - Until a domain is configured, the dashboard, API, and documentation are also reachable on TCP **3001**, **3000**, and **4000** respectively.
+   - For multi-node Swarms, restrict TCP **2377** (cluster management), TCP/UDP **7946** (node communication), and UDP **4789** (overlay network ingress) to your internal cluster network.
+
+---
+
+## Installation Modes
+
+The Upstand installer supports two compilation strategies:
+
+- **Release Images (Recommended)**: Pulls immutable pre-built images from the GitHub Container Registry (`ghcr.io`). Highly recommended for production stability and repeatability.
+- **GitHub Source Build**: Clones the public `@upstand` repository directly onto your manager node and builds the Docker images locally. Best for evaluation or testing local patches.
+
+---
+
+## Installation Walkthrough
+
+<Steps>
+  <Step>
+    ### Prepare the environment variables
+    
+    You can run the installer with no environment variables. It will generate cryptographic secrets under `/etc/upstand/secrets/`, detect a usable host address, and build the release images from the public repository when image digests are not supplied. Missing origins default to the host IP and the published service ports; no synthetic DNS names are assigned.
+
+    For a production deployment with DNS and pre-built immutable images, export your target domains and image digests first:
+    
+    ```bash
+    export BETTER_AUTH_URL=https://api.example.com
+    export CORS_ORIGIN=https://app.example.com
+    export NEXT_PUBLIC_SERVER_URL=https://api.example.com
+    
+    # Specify the image digests to pin for your rollout
+    export UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<digest>
+    export UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<digest>
+    export UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
+    export UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
+    export UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
+    ```
+  </Step>
+
+  <Step>
+    ### Run the installation script
+    
+    Execute the bootstrap command to download and run the installer:
+    
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash
+    ```
+
+    If the recommended CPU, memory, or Docker disk capacity is unavailable, the installer prints a warning and continues. The minimum recommendation is 2 vCPUs, 4 GB RAM, and 30 GB free Docker storage.
+  </Step>
+
+  <Step>
+    ### Verify the service statuses
+    
+    Once the installer finishes, verify that all services are running and reporting ready:
+    
+    ```bash
+    # Check Swarm stack state
+    docker stack services upstand
+    
+    # Query API health status
+    curl -fsS https://api.example.com/health/ready
+    ```
+  </Step>
+</Steps>
+
+After the first boot, open the dashboard at `http://<server-ip>:3001`. The API is at `http://<server-ip>:3000` and documentation is at `http://<server-ip>:4000`. On **Web Server**, configure the server domain and HTTPS certificate. Once that domain is working over HTTPS, clear **Direct IP:port access** and save; Upstand then removes the published control-plane ports while keeping the Caddy domain route active.
+
+---
+
+## Configuration & Storage Layout
+
+The installer isolates configuration from secrets to protect credentials:
+
+- **/etc/upstand/.env**: Stores non-secret environment variables, origins, and image digests. Pinned with mode `0600`.
+- **/etc/upstand/secrets/**: Stores sensitive credentials (Postgres passwords, Redis keys, SSH keys, encryption keys) as individual `0600` files. Injected directly into containers as Docker Secrets.
+
+> [!CAUTION]
+> **Secret Key Management:** Ensure you back up `/etc/upstand/` securely. The cluster master key (`ENCRYPTION_KEY_V1`) is used to encrypt database secrets and credentials at rest; losing it makes stored tokens, passwords, and SSH keys unrecoverable.
+
+---
+
+## Outage Resilience & Rate Limiting
+
+To maintain uptime, the Hono API integrates an in-process rate-limiting fallback that activates if Redis is down:
+
+- **Redis Online**: Employs a distributed sliding window rate limiter in Redis.
+- **Redis Offline Fallback**: Switches to a local, memory-bounded token bucket limiter.
+- **Emergency Limits**: Unauthenticated endpoints allow up to 20 requests/min; sensitive mutation routes allow 15/min; authenticated reads allow 30/min per active identity.
+- The `/health/ready` endpoint flags whether this local fallback mode is currently active.
+
+---
+
+## Swarm Advertise Address Configuration
+
+During Docker Swarm initialization, Docker requires a routable IP address or interface using the `--advertise-addr` parameter to bind cluster communications.
+
+### Automatic Detection
+By default, the installer automatically detects the server's primary IP address using standard routing lookup:
+```bash
+ip -4 route get 1.1.1.1
+```
+
+### Manual IP Override
+If you have multiple network interfaces, run behind a firewall/NAT, or want to specify a manual IP, set the `SWARM_ADVERTISE_ADDR` environment variable before running the installer:
+```bash
+export SWARM_ADVERTISE_ADDR=192.168.1.50
+curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash
+```
+
+Alternatively, run the installer with the `--interactive` flag to be prompted for the IP address interactively:
+```bash
+curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash -s -- --interactive
+```
+
+---
+
+## Manual Installation
+
+If you prefer to set up Docker Swarm, configuration directories, and dependencies manually:
+
+### 1. Initialize Docker Swarm manually
+Run the following command on your manager server, specifying the advertise IP address:
+```bash
+sudo docker swarm init --advertise-addr <your-server-ip>
+sudo docker swarm update --task-history-limit 1
+```
+
+### 2. Create the attachable overlay network
+Initialize the shared container communication network:
+```bash
+sudo docker network create --driver overlay --attachable --label com.upstand.managed=true upstand-network
+```
+
+### 3. Setup configuration and secrets directories
+Create the standard directory layout for config and secrets:
+```bash
+sudo mkdir -p /etc/upstand/secrets
+sudo chmod 700 /etc/upstand /etc/upstand/secrets
+```
+
+Store your database, redis, and session encryption credentials as secure docker secrets files:
+```bash
+openssl rand -hex 32 | sudo tee /etc/upstand/secrets/postgres_password >/dev/null
+openssl rand -hex 32 | sudo tee /etc/upstand/secrets/redis_password >/dev/null
+openssl rand -hex 32 | sudo tee /etc/upstand/secrets/better_auth_secret >/dev/null
+openssl rand -base64 32 | tr -d '\n' | sudo tee /etc/upstand/secrets/encryption_key >/dev/null
+sudo chmod 600 /etc/upstand/secrets/*
+```
+
+### 4. Create the Environment File
+Create `/etc/upstand/.env` with the following variables configured:
+```bash
+DOCKER_NETWORK=upstand-network
+BETTER_AUTH_URL=https://api.yourdomain.com
+CORS_ORIGIN=https://app.yourdomain.com
+NEXT_PUBLIC_SERVER_URL=https://api.yourdomain.com
+UPSTAND_DASHBOARD_HOST=app.yourdomain.com
+UPSTAND_API_HOST=api.yourdomain.com
+UPSTAND_DOCS_HOST=docs.yourdomain.com
+TRUSTED_PROXY_CIDRS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+
+# Specify the target image digests to pin
+UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<digest>
+UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<digest>
+UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
+UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
+UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
+EOF
+```
+
+### 5. Deploy the Stack
+Fetch the `docker-compose.prod.yml` and deploy it as a Docker Stack:
+```bash
+sudo curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/docker-compose.prod.yml -o /etc/upstand/docker-compose.yml
+sudo chmod 600 /etc/upstand/docker-compose.yml
+
+# Export environment variables and deploy
+set -a && source /etc/upstand/.env && set +a
+sudo docker stack deploy --compose-file /etc/upstand/docker-compose.yml upstand
+```
+
+---
+
+## Uninstalling Upstand
+
+To completely remove the Upstand control plane, services, and associated data volumes from your server:
+
+### 1. Remove the Docker Stack
+This tears down all running containers, services, and routing rules:
+```bash
+sudo docker stack rm upstand
+```
+
+### 2. Delete configuration and persistent volumes
+> [!CAUTION]
+> **Data Loss:** This will permanently delete your Postgres database, Redis store, and Caddy runtime state. Backup any important data before running this.
+```bash
+sudo rm -rf /etc/upstand
+sudo docker volume rm upstand_postgres_data upstand_redis_data upstand_caddy_data upstand_caddy_config
+```
+
+### 3. Remove the Docker Overlay Network
+```bash
+sudo docker network rm upstand-network
+```
+
+### 4. Leave Docker Swarm
+If this server is not hosting any other Swarm services, leave the Swarm cluster:
+```bash
+sudo docker swarm leave --force
+```

@@ -1,0 +1,85 @@
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const root = process.cwd();
+const changesetDirectory = join(root, ".changeset");
+const deployablePackages = ["server", "schedules", "web", "fumadocs"] as const;
+
+function readJson(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+}
+
+function writeJson(path: string, value: Record<string, unknown>) {
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function runChangesetVersion() {
+  const result = Bun.spawnSync(
+    [process.execPath, "x", "changeset", "version"],
+    {
+      cwd: root,
+      stderr: "inherit",
+      stdout: "inherit",
+    },
+  );
+
+  if (result.exitCode !== 0) {
+    process.exit(result.exitCode);
+  }
+}
+
+const changesetFiles = readdirSync(changesetDirectory)
+  .filter((file) => file.endsWith(".md") && file !== "README.md")
+  .map((file) => join(changesetDirectory, file));
+
+if (changesetFiles.length === 0) {
+  console.log(
+    "No pending changesets; version files and changelog are unchanged.",
+  );
+  process.exit(0);
+}
+
+const releaseNotes = changesetFiles
+  .map((path) =>
+    readFileSync(path, "utf8").split("---").slice(2).join("---").trim(),
+  )
+  .filter(Boolean);
+
+runChangesetVersion();
+
+const versions = deployablePackages.map((packageName) => {
+  const packageJson = readJson(join(root, "apps", packageName, "package.json"));
+  return String(packageJson.version ?? "");
+});
+
+if (versions.some((version) => !version) || new Set(versions).size !== 1) {
+  throw new Error(
+    `Deployable package versions must stay aligned: ${versions.join(", ")}`,
+  );
+}
+
+const releaseVersion = versions[0];
+const rootPackagePath = join(root, "package.json");
+const rootPackage = readJson(rootPackagePath);
+rootPackage.version = releaseVersion;
+writeJson(rootPackagePath, rootPackage);
+
+const changelogPath = join(root, "CHANGELOG.md");
+const changelog = readFileSync(changelogPath, "utf8");
+const releaseSection = `## ${releaseVersion} - ${new Date().toISOString().slice(0, 10)}\n\n${releaseNotes.join("\n\n")}\n\n`;
+const unreleasedMarker = "## Unreleased\n\n";
+
+if (!changelog.includes(`## ${releaseVersion} -`)) {
+  if (!changelog.includes(unreleasedMarker)) {
+    throw new Error("CHANGELOG.md must contain an Unreleased section.");
+  }
+
+  writeFileSync(
+    changelogPath,
+    changelog.replace(unreleasedMarker, `${unreleasedMarker}${releaseSection}`),
+  );
+}
+
+console.log(
+  `Prepared ${releaseVersion} with ${releaseNotes.length} changeset note(s).`,
+);

@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" width="100%" height="100%">
+  <rect width="1200" height="750" fill="#f8fafc" rx="16"/>
+  <rect x="2" y="2" width="1196" height="746" fill="none" stroke="#e2e8f0" stroke-width="4" rx="14"/>
+  
+  <!-- Header / Navigation -->
+  <rect x="0" y="0" width="1200" height="70" fill="#ffffff" rx="16"/>
+  <line x1="0" y1="70" x2="1200" y2="70" stroke="#e2e8f0" stroke-width="2"/>
+  
+  <!-- Logo -->
+  <image href="../brand/logo.svg" x="26" y="11" width="48" height="48" preserveAspectRatio="xMidYMid meet"/>
+  <text x="78" y="42" font-family="system-ui, sans-serif" font-size="20" font-weight="800" fill="#1e293b">Upstand</text>
+  
+  <!-- Nav links -->
+  <text x="220" y="40" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="#4f46e5">Dashboard</text>
+  <text x="320" y="40" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#64748b">Projects</text>
+  <text x="400" y="40" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#64748b">Servers</text>
+  <text x="480" y="40" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#64748b">Swarm</text>
+  <text x="550" y="40" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#64748b">Settings</text>
+  
+  <!-- User Profile / Org Selector -->
+  <rect x="1020" y="18" width="140" height="34" fill="#f1f5f9" rx="8"/>
+  <circle cx="1038" cy="35" r="10" fill="#6366f1"/>
+  <text x="1056" y="40" font-family="system-ui, sans-serif" font-size="12" font-weight="600" fill="#334155">My Organization</text>
+
+  <!-- Sidebar / Sub-navigation -->
+  <rect x="25" y="95" width="220" height="630" fill="#ffffff" rx="12" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="45" y="135" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#94a3b8" letter-spacing="1">RESOURCES</text>
+  
+  <!-- Active Sidebar Item -->
+  <rect x="35" y="155" width="200" height="36" fill="#e0e7ff" rx="8"/>
+  <text x="55" y="178" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="#4f46e5">Applications</text>
+  
+  <text x="55" y="225" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#475569">Databases</text>
+  <text x="55" y="270" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#475569">Compose Stacks</text>
+  <text x="55" y="315" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#475569">Volume Backups</text>
+  <text x="55" y="360" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#475569">Scheduled Jobs</text>
+  
+  <!-- Main Workspace Area -->
+  <rect x="270" y="95" width="905" height="630" fill="#ffffff" rx="12" stroke="#e2e8f0" stroke-width="1.5"/>
+  
+  <!-- Workspace Header -->
+  <text x="300" y="145" font-family="system-ui, sans-serif" font-size="24" font-weight="800" fill="#1e293b">Applications</text>
+  <text x="300" y="170" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#64748b">Manage container builds and service deployments</text>
+  
+  <rect x="1030" y="122" width="115" height="36" fill="#4f46e5" rx="8"/>
+  <text x="1050" y="145" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#ffffff">Create App</text>
+  
+  <!-- Cards Grid -->
+  <!-- Card 1 -->
+  <rect x="300" y="210" width="415" height="150" fill="#ffffff" rx="12" stroke="#e2e8f0" stroke-width="1.5"/>
+  <circle cx="340" cy="250" r="18" fill="#ecfdf5"/>
+  <!-- Status dot -->
+  <circle cx="340" cy="250" r="6" fill="#10b981"/>
+  <text x="375" y="255" font-family="system-ui, sans-serif" font-size="16" font-weight="700" fill="#1e293b">api-service</text>
+  <text x="375" y="275" font-family="system-ui, sans-serif" font-size="12" font-weight="500" fill="#64748b">github.com/upstandplatform/upstand/api • main</text>
+  <text x="315" y="315" font-family="system-ui, sans-serif" font-size="13" font-weight="500" fill="#475569">Status: Running (3 replicas)</text>
+  <rect x="610" y="235" width="80" height="28" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2" rx="6"/>
+  <text x="632" y="253" font-family="system-ui, sans-serif" font-size="12" font-weight="600" fill="#334155">Deploy</text>
+  
+  <!-- Card 2 -->
+  <rect x="730" y="210" width="415" height="150" fill="#ffffff" rx="12" stroke="#e2e8f0" stroke-width="1.5"/>
+  <circle cx="770" cy="250" r="18" fill="#ecfdf5"/>
+  <circle cx="770" cy="250" r="6" fill="#10b981"/>
+  <text x="805" y="255" font-family="system-ui, sans-serif" font-size="16" font-weight="700" fill="#1e293b">web-dashboard</text>
+  <text x="805" y="275" font-family="system-ui, sans-serif" font-size="12" font-weight="500" fill="#64748b">github.com/upstandplatform/upstand/web • master</text>
+  <text x="745" y="315" font-family="system-ui, sans-serif" font-size="13" font-weight="500" fill="#475569">Status: Running (2 replicas)</text>
+  <rect x="1040" y="235" width="80" height="28" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2" rx="6"/>
+  <text x="1062" y="253" font-family="system-ui, sans-serif" font-size="12" font-weight="600" fill="#334155">Deploy</text>
+  
+  <!-- Metrics / Logs Area -->
+  <rect x="300" y="380" width="845" height="310" fill="#f8fafc" rx="12" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="325" y="415" font-family="system-ui, sans-serif" font-size="16" font-weight="700" fill="#1e293b">Cluster Statistics</text>
+  
+  <!-- Graphs -->
+  <rect x="325" y="440" width="235" height="220" fill="#ffffff" rx="8" stroke="#e2e8f0" stroke-width="1.2"/>
+  <text x="340" y="465" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#475569">CPU Allocation</text>
+  <path d="M340 600 Q 380 520, 420 560 T 500 480 T 540 510" fill="none" stroke="#6366f1" stroke-width="3"/>
+  
+  <rect x="580" y="440" width="235" height="220" fill="#ffffff" rx="8" stroke="#e2e8f0" stroke-width="1.2"/>
+  <text x="595" y="465" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#475569">Memory Allocation</text>
+  <path d="M595 600 Q 635 500, 675 520 T 755 490 T 795 460" fill="none" stroke="#a855f7" stroke-width="3"/>
+  
+  <rect x="835" y="440" width="285" height="220" fill="#ffffff" rx="8" stroke="#e2e8f0" stroke-width="1.2"/>
+  <text x="850" y="465" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#475569">Active Swarm Tasks</text>
+  <circle cx="977" cy="545" r="45" fill="none" stroke="#e2e8f0" stroke-width="12"/>
+  <circle cx="977" cy="545" r="45" fill="none" stroke="#6366f1" stroke-width="12" stroke-dasharray="190, 280"/>
+  <text x="977" y="550" font-family="system-ui, sans-serif" font-size="16" font-weight="700" fill="#1e293b" text-anchor="middle">74%</text>
+</svg>

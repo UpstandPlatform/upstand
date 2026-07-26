@@ -1,0 +1,105 @@
+---
+title: Cron Jobs
+description: Centrally manage recurring container scripts, HTTP cron endpoints, automated deployments, and backup schedules.
+---
+
+Upstand provides a unified system for managing recurring tasks across your workloads. All resource schedules are centrally managed from the **Cron Jobs** tab on each resource page, as well as the platform-wide **Observation → Cron Jobs** subpage.
+
+---
+
+## 1. Supported Job Types
+
+Upstand supports four distinct job types to accommodate any automation requirement:
+
+| Job Type | Description | Target / Input |
+| :--- | :--- | :--- |
+| **Command / Script** | Executes a shell command inside the running resource container. | Command string (e.g. `php artisan schedule:run`), shell selection (`bash`/`sh`), and optional Compose service name. |
+| **HTTP Endpoint Cron** | Sends an HTTP GET request to an application path on a schedule. | Relative HTTP path (e.g., `/api/cron`). Sent with `Authorization: Bearer <CRON_SECRET>`. |
+| **Deployment (Rebuild)** | Automatically triggers a full build and redeploy of the resource. | Cron schedule expression (e.g., `0 2 * * 1` for weekly Monday rebuilds). |
+| **Backup Schedule** | Automatically triggers a configured S3 backup workflow for the resource. | Target backup schedule ID. |
+
+---
+
+## 2. Managing Cron Jobs
+
+To manage cron jobs for a resource:
+
+1. Open your project and navigate to the target resource page.
+2. Select the **Cron Jobs** tab.
+3. Click **New Schedule** to configure a new task.
+
+### Key Settings
+
+- **Cron Expression**: Standard 5-part cron syntax (e.g., `*/5 * * * *` for every 5 minutes, `0 0 * * *` for midnight). Predefined shortcuts are available in the UI.
+- **Timezone**: Select the timezone in which the cron schedule should execute (e.g., `UTC`, `America/New_York`, `Europe/London`).
+- **Resource Master Switch**: Toggle **Cron Jobs Enabled** at the top of the tab to enable or pause all cron executions for the resource.
+
+---
+
+## 3. Auto-Discovery with `upstand.json`
+
+You can declare HTTP cron jobs directly in your repository using an `upstand.json` file in your root directory:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/daily-cleanup",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/sync-data",
+      "schedule": "0 */4 * * *"
+    }
+  ]
+}
+```
+
+When deployed, Upstand automatically parses `upstand.json`, registers the schedules under your resource, and marks their source as `upstand.json`.
+
+---
+
+## 4. Securing HTTP Crons with `CRON_SECRET`
+
+To protect your HTTP endpoint routes from unauthorized external invocation:
+
+1. Set a `CRON_SECRET` environment variable in your resource's **Environment** tab.
+2. In your application endpoint route handler, check for the `Authorization` header:
+
+```javascript
+// Example Next.js App Router API Route (app/api/cron/route.js)
+import { NextResponse } from 'next/server';
+
+export async function GET(request) {
+  const authHeader = request.headers.get('authorization');
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  // Execute scheduled work...
+  return NextResponse.json({ success: true });
+}
+```
+
+---
+
+## 5. Logs & Observability
+
+- **Run Now**: Instantly trigger an execution on demand at any time to verify function or command behavior.
+- **Execution Logs**: Click the terminal icon next to any schedule to inspect execution status (`success`/`failed`), duration in milliseconds, HTTP status code or command output, and timestamp history.
+- **Global Dashboard**: View all configured crons, performance metrics, and logs across your organization under **Observation → Cron Jobs**.
+
+---
+
+## 6. Standalone Scheduler Architecture & BullMQ Queues
+
+Upstand offloads all cron executions and scheduled tasks to the standalone `apps/schedules` microservice:
+
+- **Isolated Background Engine**: `GeneralScheduler` and `BackupScheduler` run exclusively inside `apps/schedules`, keeping the primary API server responsive.
+- **BullMQ Job Conventions**:
+  - Uniqueness is scoped per queue (e.g. `upstand-backup-run`, `upstand-notification-delivery`).
+  - Completed or removed jobs do not block future executions with the same job ID.
+  - Job IDs must use `-` or `_` instead of `:` (colon), and must not be integer-only strings.
+
+For complete infrastructure specifications, see [Schedules, Workers & Queue Architecture](/docs/operations/schedules-workers).
+

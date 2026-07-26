@@ -1,0 +1,55 @@
+---
+title: Monitoring and metrics
+description: Inspect server health, historical metrics, containers, and deployment logs from the Upstand dashboard or UpGal.
+---
+
+Upstand exposes two complementary monitoring views: live Docker state for operational control and historical server metrics for capacity and trend analysis. Both are organization-scoped and permission checked.
+
+![UpGal capability map showing authorization between the dashboard and platform tools](/images/upgal-capability-map.svg)
+
+## What is available
+
+- **Server status**: reachability, Docker information, host resources, and current health.
+- **Historical metrics**: bounded CPU, memory, disk, network, load, and optional application/container series.
+- **Resource inspection**: resource state, deployment history, logs, statistics, and parsed non-secret configuration.
+- **Live operations**: container/service logs and Docker objects for the selected server.
+
+## Dashboard workflow
+
+<Steps>
+  <Step>
+    ### Select the scope
+
+    Open **Servers** or a project environment and select the server/resource you want to inspect.
+  </Step>
+  <Step>
+    ### Read the current state
+
+    Use the overview cards for current capacity and service health. Use logs and resource statistics when diagnosing a specific workload.
+  </Step>
+  <Step>
+    ### Review trends
+
+    Choose a time range for historical metrics. Keep the requested range bounded so charts remain responsive and the result is useful for capacity decisions.
+  </Step>
+</Steps>
+
+## UpGal monitoring tools
+
+UpGal can use `get_monitoring_status` and `get_monitoring_metrics` when the active user has the corresponding server permission. It can combine those results with resource logs, stats, and Docker inspection to explain a failure.
+
+```text
+User: Is server edge-1 healthy, and which resource used the most memory in the last hour?
+
+UpGal:
+1. Reads server status for edge-1.
+2. Reads bounded historical metrics and container metrics.
+3. Reads resource statistics for the matching workload.
+4. Summarizes evidence and proposes an action.
+```
+
+Read operations run automatically. Actions such as redeploying, restarting, stopping, or deleting a resource still require an explicit approval in the chat.
+
+## Practical checks
+
+For an incident, capture the server id, resource id, time window, and deployment id in the incident record. Pair the metrics page with [audit logs](/docs/operations/audit-logs) to distinguish a capacity event from a recent configuration or deployment change.

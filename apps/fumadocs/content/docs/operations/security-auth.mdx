@@ -1,0 +1,57 @@
+---
+title: Authentication, SSO & Security
+description: Explore Upstand's authentication patterns, SSO integrations, SCIM provisioning, and session controls.
+---
+
+Upstand prioritizes multi-tenant security, standardizing authentication on **Better Auth** and implementing strict boundary protection.
+
+---
+
+## 1. Bootstrap & Identity Lifecycles
+
+- **Owner Bootstrap**: The first user to register on a fresh installation is automatically assigned the role of Global Owner. Subsequent registrations are disabled or restricted to invited organization members.
+- **Sessions**: Session cookies are configured with `HttpOnly`, `Secure`, and `SameSite=Lax` parameters, scoped strictly to the dashboard/API domains.
+- **Expiration**: Sessions are valid for 7 days and are automatically rotated after 24 hours of active use.
+
+---
+
+## 2. Multi-Factor Authentication (2FA)
+
+Administrators can enforce two-factor authentication (2FA) for organization members. 
+- **Protected Actions**: Critical tasks such as viewing Swarm join tokens, rebuilding databases, uploading files to volumes, and restoring backups require a verified second-factor TOTP token.
+
+---
+
+## 3. Single Sign-On (OIDC & SAML)
+
+Configure corporate Single Sign-On (SSO) by navigating to **Settings → Single Sign-On**:
+
+- **Authentication Providers**: Register any standard OIDC or SAML 2.0 provider. Provider client secrets and signing certificates are hashed and hidden from listing endpoints.
+- **Domain Verification Challenge**: To enforce SSO for an email domain, you must prove domain ownership by adding a DNS TXT challenge:
+  - Hostname: `_upstand-sso.yourdomain.com`
+  - Value: Challenge hash provided by the dashboard.
+  - Verification: Click **Verify DNS** in settings to activate enforcement.
+- **Strict Enforcement**: When enabled, password-based logins are blocked for accounts belonging to the verified domain, redirecting users to the identity provider.
+
+---
+
+## 4. SCIM Provisioning API
+
+Upstand exposes a SCIM 2.0 compliant user-management endpoint at:
+```text
+/api/scim/v2.0/<organizationId>
+```
+
+- **Provisioning Token**: Generate a secure SCIM token (`upscim_...`). Only the SHA-256 hash is stored in the database.
+- **Actions Supported**: Automate user creation, profile updates, group memberships, deactivations, and deletions from directory managers like Okta or Azure AD.
+- **Deactivation vs Deletion**: Deactivating a member instantly revokes access to the organization's resources. Deleting a SCIM user removes organization membership but preserves the global user identity.
+
+---
+
+## 5. Organization API Keys
+
+Integrate external scripts or CI/CD pipelines safely using API Keys (`upk_...`):
+
+- **Usage**: Pass keys in the header as `x-api-key: upk_...` or `Authorization: Bearer upk_...`.
+- **Granular Scopes**: Assign keys predefined scopes or custom permissions (e.g. read-only, deployments-only, remote-operations, MCP tools).
+- **Session Limitations**: API Keys are rate-limited via Redis and are restricted from accessing session-only flows, such as web terminal shells, 2FA settings, or backup restores.

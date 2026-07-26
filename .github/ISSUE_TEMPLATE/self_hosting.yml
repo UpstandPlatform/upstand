@@ -1,0 +1,137 @@
+name: Self-hosting or installation problem
+description: Report installer, upgrade, networking, Docker Swarm, Caddy, or production runtime failures
+title: "[Self-hosting]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for supported self-hosted deployment problems. Review the self-hosting, Docker Swarm, updates, and troubleshooting guides first.
+
+        Never paste `/etc/upstand/.env`, Docker secret contents, SSH keys, access tokens, cookies, database URLs, private registry credentials, or unredacted logs. Report suspected vulnerabilities privately.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I reviewed the self-hosting and troubleshooting documentation.
+          required: true
+        - label: I searched open and closed issues for the same failure.
+          required: true
+        - label: I removed secrets, tokens, private keys, cookies, credentials, and personal data.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Failure stage
+      options:
+        - Host prerequisite validation
+        - Initial install.sh execution
+        - Docker image pull or source build
+        - Docker Swarm initialization or stack deployment
+        - Database migration or startup
+        - Redis or queue startup
+        - Caddy, DNS, domain, TLS, or ACME configuration
+        - Dashboard-to-API connectivity or CORS
+        - Remote-server registration or SSH
+        - Application or database deployment
+        - Backup or restore
+        - Update, rollback, or release-manifest verification
+        - Runtime health or readiness
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: install_mode
+    attributes:
+      label: Installation mode
+      options:
+        - Tagged immutable release images
+        - Reproducible source build through install.sh
+        - Local Docker Compose development stack
+        - Manual or unsupported deployment
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Upstand version, tag, or commit
+      placeholder: v0.1.41 or commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: host
+    attributes:
+      label: Host and Docker environment
+      placeholder: |
+        OS and version:
+        CPU architecture:
+        Docker Engine version:
+        Docker Compose version:
+        Swarm manager/worker status:
+        Filesystem/storage driver:
+    validations:
+      required: true
+  - type: textarea
+    id: topology
+    attributes:
+      label: Network and deployment topology
+      description: Describe node count, manager/worker roles, public and private addresses, proxy/load-balancer layers, DNS shape, firewall policy, and remote-server roles. Redact sensitive addresses when needed.
+      placeholder: |
+        Nodes:
+        Dashboard origin:
+        API origin:
+        DNS/wildcard DNS:
+        Reverse proxy or load balancer:
+        Relevant exposed ports:
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or action that failed
+      description: Include the exact non-secret command, UI action, or upgrade path.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted diagnostics
+      description: Include concise output from the installer, `docker service ps`, `docker service logs`, health endpoints, or relevant container logs. Redact all secrets and credentials.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: health
+    attributes:
+      label: Service and health status
+      placeholder: |
+        /health/live:
+        /health/ready:
+        docker stack services:
+        failing service/task:
+  - type: textarea
+    id: changes
+    attributes:
+      label: Recent changes and rollback result
+      description: Note upgrades, host changes, DNS/certificate changes, secret rotation, node additions, or whether rollback restored service.
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context

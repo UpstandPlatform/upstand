@@ -1,0 +1,1 @@
+ALTER TABLE "monitoring_settings" ADD COLUMN "token" text NOT NULL;

@@ -1,0 +1,69 @@
+---
+title: Multi-Tenancy & Access Control
+description: Learn how Upstand models multi-tenancy using organizations, role-based permissions, invitations, and directory sync.
+---
+
+Upstand is built from the ground up to support secure multi-tenant operations. Whether you are hosting services for multiple clients, managing development stages across distinct environments, or partitioning departments within an enterprise, Upstand provides clean logical boundaries.
+
+---
+
+## The Organization Boundary
+
+The core of Upstand's multi-tenancy is the **Organization**. All infrastructure components and credentials belong strictly to a parent organization:
+
+- **Servers & Nodes**: Docker Swarm managers, workers, and build servers are registered under a specific organization.
+- **Resources**: Applications, compose stacks, databases, and static sites.
+- **Routing**: Domains, Caddy configuration snippets, and TLS certificates.
+- **Integrations**: Git providers (GitHub, GitLab), S3 storage destinations, and external Docker registries.
+
+Users are members of one or more organizations and can seamlessly switch between active contexts from the dashboard interface.
+
+---
+
+---
+
+## Role-Based Access Control (RBAC) Capability Matrix
+
+Access within an organization is governed by memberships and permissions. Upstand supports standard roles and custom permission models:
+
+- **Owner**: Full administrative access over the organization, billing, and member lists. Can delete the organization.
+- **Admin**: Can manage servers, deploy resources, invite members, and modify routing rules. Cannot delete the organization or modify other administrators.
+- **Member**: Read-only dashboard access with deployment permissions constrained by specific project/environment scopes.
+
+### Granular Capability Reference Table
+
+| Capability String | Description | Owner | Admin | Member | Custom Role Target |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| `server:create` | Provision and register new compute nodes | Yes | Yes | No | Infrastructure Engineer |
+| `server:update` | Modify server roles, SSH keys, or drain status | Yes | Yes | No | Infrastructure Engineer |
+| `server:view` | Inspect server status, node IPs, and Docker info | Yes | Yes | Yes | All Operators |
+| `resource:create` | Create new applications, Compose stacks, or databases | Yes | Yes | No | Developer / DevOps |
+| `resource:deploy` | Trigger builds, deployments, and restarts | Yes | Yes | Yes | Developer / DevOps |
+| `resource:update` | Edit environment variables, domains, or replicas | Yes | Yes | No | Lead Developer |
+| `resource:delete` | Delete resources, persistent volumes, or stacks | Yes | Yes | No | Organization Admin |
+| `backup:create` | Trigger manual S3 backup dumps | Yes | Yes | Yes | Database Operator |
+| `backup:restore` | Restore database dumps (Requires 2FA) | Yes | Yes | No | Lead DBA |
+| `terminal:connect` | Open interactive SSH/Docker exec shells (Requires 2FA) | Yes | No | No | Owner Only |
+| `audit_log:view` | Search and export organization audit trails | Yes | Yes | No | Security Compliance |
+| `mcp:tools` | Execute MCP JSON-RPC protocol tools | Yes | Yes | Yes | AI Automation |
+| `billing:manage` | Manage subscription tiers and billing | Yes | No | No | Owner Only |
+
+---
+
+## Member Invitations & Lifecycle
+
+Inviting team members is handled securely via the dashboard:
+
+1. **Invitation Creation**: An admin enters the user's email, selects their initial role, and sets their scopes.
+2. **Secure Token**: Upstand generates a unique invitation record in the database with a cryptographically secure token and an expiry window (default is 7 days).
+3. **Redemption**: The invitee receives the invitation link, signs up or authenticates, and is dynamically bound to the organization.
+
+---
+
+## Directory Sync (SCIM Integration)
+
+For enterprise self-hosters, Upstand supports identity provider (IdP) directory synchronization using the **SCIM** (System for Cross-domain Identity Management) standard:
+
+- **Automated Provisioning**: Synchronize users and groups automatically from Okta, Microsoft Entra ID (Azure AD), Google Workspace, or Ping Identity.
+- **De-provisioning**: When a member is disabled or removed from your central directory, their SCIM state is marked inactive in Upstand, instantly revoking all active sessions.
+- **External Identity Mapping**: Tracks IdP external identifiers (`scim_external_id`) and displays name mappings on the member records.

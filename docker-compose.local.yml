@@ -1,0 +1,161 @@
+name: upstand-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: upstand-postgres-local
+    environment:
+      POSTGRES_DB: upstand
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-upstand-local-password}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: upstand-server-local
+    command:
+      ["/bin/sh", "-ec", "sh apps/server/scripts/ensure-local-swarm.sh && exec bun --hot apps/server/src/index.ts"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/server/node_modules
+      - /app/apps/web/node_modules
+      - /app/apps/fumadocs/node_modules
+      - /app/packages/repositories/node_modules
+      - /app/packages/domain/node_modules
+      - /app/packages/platform/node_modules
+      - /app/packages/usecases/node_modules
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.docker/caddy:/etc/caddy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-upstand-local-password}@postgres:5432/upstand
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-upstand-local-development-secret-that-is-at-least-32-characters}
+      BETTER_AUTH_URL: http://localhost:3000
+      CORS_ORIGIN: http://localhost:3001
+      REDIS_URL: redis://redis:6379
+      DOCKER_NETWORK: upstand-network
+      ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:3000/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  schedules:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: upstand-schedules-local
+    command: bun run dev:schedules
+    ports:
+      - "3002:3002"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/server/node_modules
+      - /app/apps/schedules/node_modules
+      - /app/apps/web/node_modules
+      - /app/apps/fumadocs/node_modules
+      - /app/packages/repositories/node_modules
+      - /app/packages/domain/node_modules
+      - /app/packages/usecases/node_modules
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-upstand-local-password}@postgres:5432/upstand
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-upstand-local-development-secret-that-is-at-least-32-characters}
+      REDIS_URL: redis://redis:6379
+      SCHEDULES_PORT: 3002
+      ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:3002/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: upstand-web-local
+    command: bun run dev:web
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/server/node_modules
+      - /app/apps/web/node_modules
+      - /app/apps/fumadocs/node_modules
+      - /app/packages/repositories/node_modules
+      - /app/packages/domain/node_modules
+      - /app/packages/usecases/node_modules
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_SERVER_URL: http://localhost:3000
+    depends_on:
+      server:
+        condition: service_healthy
+
+  fumadocs:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: upstand-fumadocs-local
+    command: bun run dev -F fumadocs
+    ports:
+      - "4000:4000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/server/node_modules
+      - /app/apps/web/node_modules
+      - /app/apps/fumadocs/node_modules
+      - /app/packages/repositories/node_modules
+      - /app/packages/domain/node_modules
+      - /app/packages/usecases/node_modules
+    environment:
+      NODE_ENV: development
+    depends_on:
+      server:
+        condition: service_healthy
+
+  redis:
+    image: redis:8-alpine
+    container_name: upstand-redis-local
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

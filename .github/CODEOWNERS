@@ -1,0 +1,11 @@
+# Default owner for every file. Keep this aligned with the required review
+# policy so changes cannot silently bypass the maintainer review queue.
+* @mhbdev
+
+# High-impact repository surfaces are called out explicitly for readability.
+/.github/ @mhbdev
+/apps/ @mhbdev
+/packages/ @mhbdev
+/docker-compose*.yml @mhbdev
+/Dockerfile* @mhbdev
+/install.sh @mhbdev

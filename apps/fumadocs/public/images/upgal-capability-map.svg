@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">UpGal AI Capability Map</title>
+  <desc id="desc">Architecture diagram depicting UpGal AI ToolLoopAgent, authorization context, and permission-gated platform capabilities.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#090d16"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="panel-user" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="panel-agent" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#2e1065"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="panel-auth" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#064e3b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#38bdf8"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="620" rx="24" fill="url(#bg)" stroke="#1e293b" stroke-width="2"/>
+
+  <!-- User Box -->
+  <rect x="40" y="50" width="250" height="125" rx="16" fill="url(#panel-user)" stroke="#6366f1" stroke-width="2"/>
+  <text x="165" y="96" text-anchor="middle" fill="#c7d2fe" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700">Dashboard User</text>
+  <text x="165" y="128" text-anchor="middle" fill="#94a3b8" font-family="Inter, system-ui, sans-serif" font-size="14">Natural Language Request</text>
+  <text x="165" y="148" text-anchor="middle" fill="#818cf8" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600">tRPC / Session Auth</text>
+
+  <!-- UpGal Box -->
+  <rect x="360" y="50" width="250" height="125" rx="16" fill="url(#panel-agent)" stroke="#a855f7" stroke-width="2"/>
+  <text x="485" y="96" text-anchor="middle" fill="#f0abfc" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700">UpGal AI Operator</text>
+  <text x="485" y="128" text-anchor="middle" fill="#94a3b8" font-family="Inter, system-ui, sans-serif" font-size="14">ToolLoopAgent (Max 12 steps)</text>
+  <text x="485" y="148" text-anchor="middle" fill="#c084fc" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600">MCP JSON-RPC / UI Approval</text>
+
+  <!-- Auth Box -->
+  <rect x="680" y="50" width="250" height="125" rx="16" fill="url(#panel-auth)" stroke="#10b981" stroke-width="2"/>
+  <text x="805" y="96" text-anchor="middle" fill="#a7f3d0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700">Authorization Gate</text>
+  <text x="805" y="128" text-anchor="middle" fill="#94a3b8" font-family="Inter, system-ui, sans-serif" font-size="14">Tenant &amp; Scope Isolation</text>
+  <text x="805" y="148" text-anchor="middle" fill="#34d399" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600">RBAC / Redacted Credentials</text>
+
+  <!-- Connectors -->
+  <path d="M290 112 H350" stroke="#38bdf8" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M610 112 H670" stroke="#38bdf8" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M805 175 V225" stroke="#38bdf8" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- Capabilities Panel -->
+  <rect x="50" y="245" width="1100" height="325" rx="20" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+  <text x="600" y="285" text-anchor="middle" fill="#f8fafc" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700">Permission-Scoped Platform Capabilities &amp; Tool Access</text>
+
+  <g font-family="Inter, system-ui, sans-serif" font-size="14">
+    <!-- Read Tools (Blue) -->
+    <rect x="90" y="320" width="220" height="65" rx="12" fill="#1e3a8a" stroke="#3b82f6"/>
+    <text x="200" y="348" text-anchor="middle" fill="#dbeafe" font-weight="600">Templates &amp; Catalog</text>
+    <text x="200" y="368" text-anchor="middle" fill="#93c5fd" font-size="12">Inspect / Compose Drafts</text>
+
+    <rect x="345" y="320" width="220" height="65" rx="12" fill="#1e3a8a" stroke="#3b82f6"/>
+    <text x="455" y="348" text-anchor="middle" fill="#dbeafe" font-weight="600">Resources &amp; Configs</text>
+    <text x="455" y="368" text-anchor="middle" fill="#93c5fd" font-size="12">Stats, Logs, Non-secret vars</text>
+
+    <rect x="600" y="320" width="220" height="65" rx="12" fill="#1e3a8a" stroke="#3b82f6"/>
+    <text x="710" y="348" text-anchor="middle" fill="#dbeafe" font-weight="600">Monitoring &amp; Audit</text>
+    <text x="710" y="368" text-anchor="middle" fill="#93c5fd" font-size="12">Host metrics &amp; event logs</text>
+
+    <rect x="855" y="320" width="220" height="65" rx="12" fill="#1e3a8a" stroke="#3b82f6"/>
+    <text x="965" y="348" text-anchor="middle" fill="#dbeafe" font-weight="600">Docker Swarm Engine</text>
+    <text x="965" y="368" text-anchor="middle" fill="#93c5fd" font-size="12">Containers, tasks, nodes</text>
+
+    <!-- Approval Gated Tools (Emerald / Amber) -->
+    <rect x="215" y="415" width="230" height="65" rx="12" fill="#064e3b" stroke="#10b981"/>
+    <text x="330" y="443" text-anchor="middle" fill="#a7f3d0" font-weight="600">Projects &amp; Deployments</text>
+    <text x="330" y="463" text-anchor="middle" fill="#6ee7b7" font-size="12">Mutation Approval Required</text>
+
+    <rect x="485" y="415" width="230" height="65" rx="12" fill="#064e3b" stroke="#10b981"/>
+    <text x="600" y="443" text-anchor="middle" fill="#a7f3d0" font-weight="600">Resource Mutations</text>
+    <text x="600" y="463" text-anchor="middle" fill="#6ee7b7" font-size="12">Deploy / Restart / Delete</text>
+
+    <rect x="755" y="415" width="230" height="65" rx="12" fill="#064e3b" stroke="#10b981"/>
+    <text x="870" y="443" text-anchor="middle" fill="#a7f3d0" font-weight="600">Tags &amp; Routing</text>
+    <text x="870" y="463" text-anchor="middle" fill="#6ee7b7" font-size="12">Assign / Detach / Caddy</text>
+  </g>
+</svg>
