@@ -79,15 +79,7 @@ function createOpenApiRouter() {
         }: OpenApiResolverInput) => {
           const caller = appRouter.createCaller(ctx);
           let target: CallerNode = caller as unknown as CallerNode;
-          for (const [index, segment] of procedurePath.split(".").entries()) {
-            // tRPC's root caller is a callable proxy, so it is both a
-            // function and the object through which the first procedure is
-            // resolved. Only nested callable nodes are terminal.
-            if (index > 0 && typeof target === "function") {
-              throw new Error(
-                `Unable to resolve ${procedurePath} in appRouter`,
-              );
-            }
+          for (const segment of procedurePath.split(".")) {
             const next = (target as CallerRecord)[segment];
             if (!next) {
               throw new Error(
