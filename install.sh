@@ -524,6 +524,9 @@ main() {
   echo "Use 'docker stack services upstand' to watch rollout status."
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# BASH_SOURCE[0] is unset when this script is executed through `curl | bash`.
+# The empty-source branch is therefore intentional and keeps both direct-file
+# execution and the documented stdin installer path working with `set -u`.
+if [[ "${BASH_SOURCE[0]:-}" == "$0" || -z "${BASH_SOURCE[0]:-}" ]]; then
   main "$@"
 fi

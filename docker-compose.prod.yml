@@ -214,7 +214,7 @@ services:
         max-file: "5"
 
   schedules:
-    image: ${UPSTAND_SCHEDULES_IMAGE:-${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}}
+    image: ${UPSTAND_SCHEDULES_IMAGE:?UPSTAND_SCHEDULES_IMAGE is required}
     init: true
     stop_grace_period: 2m
     environment:
