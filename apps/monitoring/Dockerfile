@@ -5,7 +5,8 @@ RUN apk add --no-cache ca-certificates gcc git musl-dev sqlite-dev
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN GOPROXY=direct go mod download
+ARG GOPROXY=https://proxy.golang.org,direct
+RUN GOPROXY="$GOPROXY" go mod download
 
 COPY . .
 

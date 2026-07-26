@@ -166,7 +166,9 @@ build_source_images() {
   docker build --file "$SOURCE_DIR/apps/schedules/Dockerfile" --tag "$UPSTAND_SCHEDULES_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/web/Dockerfile" --build-arg "NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL" --tag "$UPSTAND_WEB_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/fumadocs/Dockerfile" --tag "$UPSTAND_DOCS_IMAGE" "$SOURCE_DIR"
-  docker build --file "$SOURCE_DIR/apps/monitoring/Dockerfile" --tag "$UPSTAND_MONITORING_IMAGE" "$SOURCE_DIR/apps/monitoring"
+  docker build --file "$SOURCE_DIR/apps/monitoring/Dockerfile" \
+    --build-arg "GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}" \
+    --tag "$UPSTAND_MONITORING_IMAGE" "$SOURCE_DIR/apps/monitoring"
   SOURCE_BUILD=true
 }
 
