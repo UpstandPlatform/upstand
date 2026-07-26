@@ -30,7 +30,7 @@ describe("buildControlPlaneRoutes", () => {
       docsHost: "example.com",
     });
 
-    expect(caddyfile.match(/example\.com \{/g)).toHaveLength(1);
+    expect(caddyfile.match(/^example\.com \{$/gm)).toHaveLength(1);
     expect(caddyfile).toContain("api.example.com {");
   });
 });
