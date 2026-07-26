@@ -5,7 +5,7 @@ RUN apk add --no-cache gcc musl-dev sqlite-dev
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN GOPROXY=direct go mod download
 
 COPY . .
 
