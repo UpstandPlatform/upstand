@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   parseResourceAdvancedConfig,
+  ResourceAdvancedConfigSchema,
   ResourcePortSchema,
+  ResourceVolumeSchema,
   serializeResourceAdvancedConfig,
 } from "@upstand/domain";
 
@@ -46,5 +48,32 @@ describe("Port Conflict & Advanced Config Schema Validation", () => {
     expect(reParsed.ports).toHaveLength(2);
     expect(reParsed.ports[0]?.publishedPort).toBe(3000);
     expect(reParsed.ports[1]?.publishedPort).toBe(8443);
+  });
+
+  test("accepts named volumes and rejects host bind sources", () => {
+    expect(
+      ResourceVolumeSchema.parse({
+        source: "app-data",
+        target: "/var/lib/app",
+      }).source,
+    ).toBe("app-data");
+    expect(() =>
+      ResourceVolumeSchema.parse({
+        source: "/var/run/docker.sock",
+        target: "/var/run/docker.sock",
+      }),
+    ).toThrow("named Docker volumes");
+    expect(() =>
+      ResourceVolumeSchema.parse({ source: "../host", target: "/data" }),
+    ).toThrow("named Docker volumes");
+  });
+
+  test("rejects privileged mode and added capabilities", () => {
+    expect(() =>
+      ResourceAdvancedConfigSchema.parse({ privileged: true }),
+    ).toThrow("Privileged containers");
+    expect(() =>
+      ResourceAdvancedConfigSchema.parse({ capAdd: ["NET_ADMIN"] }),
+    ).toThrow("Added Linux capabilities");
   });
 });

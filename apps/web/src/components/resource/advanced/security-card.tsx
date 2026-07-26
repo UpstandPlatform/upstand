@@ -23,7 +23,7 @@ import { type AdvancedCardProps, splitLines } from "./types";
 // Security & Capabilities Card
 // ──────────────────────────────────────────────────────────────────────────────
 
-type SecurityKey = "init" | "readOnlyRootFilesystem" | "tty" | "privileged";
+type SecurityKey = "init" | "readOnlyRootFilesystem" | "tty";
 
 const SECURITY_TOGGLES: ReadonlyArray<{
   key: SecurityKey;
@@ -48,18 +48,12 @@ const SECURITY_TOGGLES: ReadonlyArray<{
     description:
       "Allocate a pseudo-terminal for interactive workloads that require a TTY (e.g. shell sessions).",
   },
-  {
-    key: "privileged",
-    label: "Privileged mode",
-    description:
-      "Grant the container elevated kernel capabilities. Use only for workloads that explicitly require it.",
-  },
 ] as const;
 
 /**
  * Groups all security-relevant knobs:
- *   • Security mode toggles (init, read-only FS, TTY, privileged)
- *   • Added / dropped Linux capabilities (capAdd / capDrop)
+ *   • Security mode toggles (init, read-only FS, TTY)
+ *   • Dropped Linux capabilities (capDrop)
  *   • Kernel parameter overrides (sysctls)
  */
 export function SecurityCard({ config, onChange }: AdvancedCardProps) {
@@ -69,7 +63,8 @@ export function SecurityCard({ config, onChange }: AdvancedCardProps) {
         <CardTitle>Security &amp; capabilities</CardTitle>
         <CardDescription>
           Container security profile — Linux capabilities, kernel parameters,
-          and runtime security modes.
+          and runtime security modes. Privileged mode and added capabilities are
+          disabled to preserve workload isolation.
         </CardDescription>
       </CardHeader>
 
@@ -92,29 +87,7 @@ export function SecurityCard({ config, onChange }: AdvancedCardProps) {
         </FieldGroup>
 
         {/* ── Capabilities ── */}
-        <FieldGroup className="grid gap-5 lg:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor="advanced-cap-add">
-              Added capabilities
-            </FieldLabel>
-            <FieldDescription>
-              One Linux capability per line, e.g.{" "}
-              <span className="font-mono text-xs">NET_ADMIN</span> or{" "}
-              <span className="font-mono text-xs">SYS_PTRACE</span>.
-            </FieldDescription>
-            <CodeSurface>
-              <CodeEditor
-                id="advanced-cap-add"
-                language="shell"
-                allowLanguageChange={false}
-                height="100px"
-                value={config.capAdd.join("\n")}
-                onChange={(value) => onChange("capAdd", splitLines(value))}
-                aria-label="Added capabilities"
-              />
-            </CodeSurface>
-          </Field>
-
+        <FieldGroup className="grid gap-5">
           <Field>
             <FieldLabel htmlFor="advanced-cap-drop">
               Dropped capabilities

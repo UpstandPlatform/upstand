@@ -26,6 +26,19 @@ const secondaryStorage = {
     if (ttl) await redis.set(key, value, "EX", ttl);
     else await redis.set(key, value);
   },
+  // Better Auth uses increment for its distributed rate limiter when it is
+  // available. Keep the increment and first-write expiry in one Redis script
+  // so concurrent API instances cannot bypass the limit or create immortal
+  // counters.
+  increment: async (key: string, ttl: number) => {
+    const result = await redis.eval(
+      "local value = redis.call('INCR', KEYS[1]); if value == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return value",
+      1,
+      key,
+      String(Math.max(1, Math.ceil(ttl))),
+    );
+    return Number(result);
+  },
   delete: (key: string) => redis.del(key).then(() => undefined),
 };
 
