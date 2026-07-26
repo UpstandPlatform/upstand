@@ -1,6 +1,6 @@
 FROM golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052 AS builder
 
-RUN apk add --no-cache gcc musl-dev sqlite-dev
+RUN apk add --no-cache ca-certificates gcc git musl-dev sqlite-dev
 
 WORKDIR /app
 
