@@ -3052,6 +3052,11 @@ export function GeneralTab({
                               const mergedVolumes = [...currentConfig.volumes];
                               let volsAdded = 0;
                               for (const v of detectedVolumes) {
+                                if (
+                                  !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(v.source)
+                                ) {
+                                  continue;
+                                }
                                 const key = `${v.source}:${v.target}`;
                                 if (!existingVolKeys.has(key)) {
                                   mergedVolumes.push(v);

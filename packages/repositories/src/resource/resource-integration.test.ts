@@ -59,6 +59,17 @@ describe("Drizzle Resource Repository Integration Tests", () => {
       const found = await uow.resourceRepository.findById(resId);
       expect(found).not.toBeNull();
       expect(found?.name).toBe("Integration Test Web App");
+      if (!found) throw new Error("Resource was not created");
+
+      const compareAndSetUpdated =
+        await uow.resourceRepository.updateByIdIfUpdatedAt(
+          resId,
+          found.updatedAt,
+          { description: "Updated with millisecond-safe compare-and-set" },
+        );
+      expect(compareAndSetUpdated?.description).toBe(
+        "Updated with millisecond-safe compare-and-set",
+      );
 
       const duplicate =
         await uow.resourceRepository.checkDuplicateServiceKey(appName);

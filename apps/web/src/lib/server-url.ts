@@ -128,5 +128,15 @@ export function getDocsUrl(path = ""): string {
     return `${protocol}//${hostname}${port ? `:${port}` : ""}${docsPath}`;
   }
 
+  const configuredServerUrl = parseConfiguredUrl(env.NEXT_PUBLIC_SERVER_URL);
+  if (isConfiguredOrigin(configuredServerUrl)) {
+    if (isDirectOrigin(configuredServerUrl)) {
+      return `${configuredServerUrl.protocol}//${configuredServerUrl.hostname}:4000${docsPath}`;
+    }
+
+    const docsHostname = `docs.${configuredServerUrl.hostname}`;
+    return `${configuredServerUrl.protocol}//${docsHostname}${docsPath}`;
+  }
+
   return `http://localhost:4000${docsPath}`;
 }

@@ -70,6 +70,10 @@ describe("Docker Compose configuration", () => {
         start_period: "8s",
       },
     });
+    const api = result.services.api;
+    if (!api) throw new Error("Expected API service is missing");
+    expect(api.security_opt).toContain("no-new-privileges:true");
+    expect(api.cap_drop).toContain("ALL");
     expect(result.services.worker).toEqual({ image: "worker:latest" });
   });
 
@@ -125,5 +129,34 @@ describe("Docker Compose configuration", () => {
         { ...DEFAULT_RESOURCE_ADVANCED_CONFIG, serviceName: "missing" },
       ),
     ).toThrow("Compose service 'missing' was not found");
+  });
+
+  test("rejects host escape primitives in raw Compose resources", () => {
+    expect(() =>
+      applyComposeResourceConfig(
+        [
+          "services:",
+          "  api:",
+          "    image: nginx:alpine",
+          "    privileged: true",
+          "    volumes: ['/var/run/docker.sock:/var/run/docker.sock']",
+        ].join("\n"),
+        resource,
+        DEFAULT_RESOURCE_ADVANCED_CONFIG,
+      ),
+    ).toThrow("privileged mode");
+
+    expect(() =>
+      applyComposeResourceConfig(
+        [
+          "services:",
+          "  api:",
+          "    image: nginx:alpine",
+          "    volumes: ['/var/run/docker.sock:/var/run/docker.sock']",
+        ].join("\n"),
+        resource,
+        DEFAULT_RESOURCE_ADVANCED_CONFIG,
+      ),
+    ).toThrow("host bind or Docker socket");
   });
 });

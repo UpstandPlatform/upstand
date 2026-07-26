@@ -1,7 +1,10 @@
 import type { Resource, ResourceAdvancedConfig } from "@upstand/domain";
 import yaml from "yaml";
+import { validateComposeSecurity } from "./compose-security";
 import { isUnknownRecord } from "./docker-values";
 import { parseResourceEnvironmentVariables } from "./resource-environment";
+
+export { validateComposeSecurity } from "./compose-security";
 
 function composeMap(value: unknown): Record<string, string> {
   if (isUnknownRecord(value)) {
@@ -32,6 +35,7 @@ export function applyComposeResourceConfig(
   resource: Resource,
   config: ResourceAdvancedConfig,
 ): string {
+  validateComposeSecurity(rawCompose);
   const parsed = yaml.parse(rawCompose) as {
     services?: Record<string, Record<string, unknown>>;
   };
@@ -73,12 +77,26 @@ export function applyComposeResourceConfig(
     if (config.dns.length) service.dns = config.dns;
     if (config.dnsSearch.length) service.dns_search = config.dnsSearch;
     if (config.extraHosts.length) service.extra_hosts = config.extraHosts;
-    if (config.capAdd.length) service.cap_add = config.capAdd;
     if (config.capDrop.length) service.cap_drop = config.capDrop;
     if (config.init) service.init = true;
     if (config.readOnlyRootFilesystem) service.read_only = true;
-    if (config.privileged) service.privileged = true;
     if (config.tty) service.tty = true;
+    const securityOptions = Array.isArray(service.security_opt)
+      ? service.security_opt.filter(
+          (option): option is string => typeof option === "string",
+        )
+      : [];
+    if (!securityOptions.includes("no-new-privileges:true")) {
+      securityOptions.push("no-new-privileges:true");
+    }
+    service.security_opt = securityOptions;
+    const droppedCapabilities = Array.isArray(service.cap_drop)
+      ? service.cap_drop.filter(
+          (capability): capability is string => typeof capability === "string",
+        )
+      : [];
+    if (!droppedCapabilities.includes("ALL")) droppedCapabilities.push("ALL");
+    service.cap_drop = droppedCapabilities;
     if (config.stopGracePeriodSeconds !== undefined) {
       service.stop_grace_period = `${config.stopGracePeriodSeconds}s`;
     }

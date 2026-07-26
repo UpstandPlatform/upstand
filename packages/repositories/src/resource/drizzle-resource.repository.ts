@@ -9,7 +9,7 @@ import {
   serializeResourceConfiguration,
   ValidationError,
 } from "@upstand/domain";
-import { and, count, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { DrizzleSecretVersionRepository } from "../secret/drizzle-secret-version.repository";
 import { isPostgresUniqueViolation } from "../shared/database-errors";
 import type { Executor } from "../shared/types";
@@ -169,12 +169,21 @@ export class DrizzleResourceRepository implements IResourceRepository {
     expectedUpdatedAt: Date,
     patch: Partial<CreateResourceDTO>,
   ): Promise<Resource | null> {
+    // PostgreSQL timestamps can retain microseconds while JavaScript Date
+    // values only retain milliseconds. Match the complete millisecond bucket
+    // represented by the value read by the caller instead of requiring an
+    // impossible byte-for-byte timestamp equality.
+    const nextMillisecond = new Date(expectedUpdatedAt.getTime() + 1);
     const { configuration, secrets, core } = splitResourceValues(patch);
     const [claimed] = await this.executor
       .update(resource)
       .set({ ...core, updatedAt: new Date() })
       .where(
-        and(eq(resource.id, id), eq(resource.updatedAt, expectedUpdatedAt)),
+        and(
+          eq(resource.id, id),
+          gte(resource.updatedAt, expectedUpdatedAt),
+          lt(resource.updatedAt, nextMillisecond),
+        ),
       )
       .returning({ id: resource.id });
     if (!claimed) return null;

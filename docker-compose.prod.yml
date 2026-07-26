@@ -214,7 +214,7 @@ services:
         max-file: "5"
 
   schedules:
-    image: ${UPSTAND_SCHEDULES_IMAGE:-${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}}
+    image: ${UPSTAND_SCHEDULES_IMAGE:?UPSTAND_SCHEDULES_IMAGE is required}
     init: true
     stop_grace_period: 2m
     environment:
@@ -224,6 +224,8 @@ services:
       DATABASE_USER: upstand
       REDIS_HOST: redis
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
       SSH_KEY_ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
       DOCKER_HOST: unix:///var/run/docker.sock

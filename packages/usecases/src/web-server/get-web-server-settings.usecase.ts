@@ -40,6 +40,82 @@ function ensureControlPlaneRetries(snippets: string): string {
   );
 }
 
+type ControlPlaneHosts = {
+  dashboardHost?: string;
+  apiHost?: string;
+  docsHost?: string;
+};
+
+type ControlPlaneUpstreams = {
+  web: string;
+  server: string;
+  fumadocs: string;
+};
+
+function controlPlaneProxy(upstream: string): string {
+  return `	reverse_proxy ${upstream} {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}`;
+}
+
+export function buildControlPlaneRoutes(
+  hosts: ControlPlaneHosts,
+  upstreams: ControlPlaneUpstreams = {
+    web: controlPlaneUpstream("web"),
+    server: controlPlaneUpstream("server"),
+    fumadocs: controlPlaneUpstream("fumadocs"),
+  },
+): string {
+  const dashboardHost = hosts.dashboardHost?.trim();
+  const apiHost = hosts.apiHost?.trim();
+  const docsHost = hosts.docsHost?.trim();
+  const validHost = (host: string | undefined) =>
+    host && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(host);
+
+  if (!validHost(dashboardHost) || !validHost(apiHost)) return "";
+
+  if (dashboardHost === apiHost) {
+    return `${dashboardHost} {
+	encode zstd gzip
+	handle /api/* {
+${controlPlaneProxy(upstreams.server)}
+	}
+	handle {
+${controlPlaneProxy(upstreams.web)}
+	}
+}${
+      validHost(docsHost) && docsHost !== dashboardHost
+        ? `
+
+${docsHost} {
+	encode zstd gzip
+${controlPlaneProxy(upstreams.fumadocs)}
+}`
+        : ""
+    }`;
+  }
+
+  return `${dashboardHost} {
+	encode zstd gzip
+${controlPlaneProxy(upstreams.web)}
+}
+
+${apiHost} {
+	encode zstd gzip
+${controlPlaneProxy(upstreams.server)}
+}${
+    validHost(docsHost) && docsHost !== dashboardHost && docsHost !== apiHost
+      ? `
+
+${docsHost} {
+	encode zstd gzip
+${controlPlaneProxy(upstreams.fumadocs)}
+}`
+      : ""
+  }`;
+}
+
 export class GetWebServerSettingsUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
@@ -138,43 +214,10 @@ export class GetWebServerSettingsUseCase {
   }
 
   private getControlPlaneRoutes(): string {
-    const dashboardHost = env.UPSTAND_DASHBOARD_HOST?.trim();
-    const apiHost = env.UPSTAND_API_HOST?.trim();
-    const docsHost = env.UPSTAND_DOCS_HOST?.trim();
-    const validHost = (host: string | undefined) =>
-      host && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(host);
-
-    if (!validHost(dashboardHost) || !validHost(apiHost)) return "";
-
-    // These routes make the control plane reachable through the same managed
-    // Caddy instance that later fronts deployed resources. They are seeded only
-    // for a new installation; operator-authored snippets remain untouched.
-    return `${dashboardHost} {
-\tencode zstd gzip
-\treverse_proxy upstand_web:3001 {
-\t\tlb_try_duration 30s
-\t\tlb_try_interval 250ms
-\t}
-}
-
-${apiHost} {
-\tencode zstd gzip
-\treverse_proxy upstand_server:3000 {
-\t\tlb_try_duration 30s
-\t\tlb_try_interval 250ms
-\t}
-}${
-      validHost(docsHost)
-        ? `
-
-${docsHost} {
-	encode zstd gzip
-	reverse_proxy upstand_fumadocs:4000 {
-		lb_try_duration 30s
-		lb_try_interval 250ms
-	}
-}`
-        : ""
-    }`;
+    return buildControlPlaneRoutes({
+      dashboardHost: env.UPSTAND_DASHBOARD_HOST,
+      apiHost: env.UPSTAND_API_HOST,
+      docsHost: env.UPSTAND_DOCS_HOST,
+    });
   }
 }

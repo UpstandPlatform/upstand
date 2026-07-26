@@ -96,6 +96,15 @@ export function createAuth(options: {
   const { database, secondaryStorage, configuration, callbacks, stepUp } =
     options;
   const sharedCookieDomain = getSharedCookieDomain(configuration);
+  // The self-hosted installer can intentionally run the first boot on direct
+  // HTTP origins when DNS/TLS are not configured yet. Secure cookies are
+  // correct for HTTPS production deployments, but browsers reject them over
+  // that documented HTTP bootstrap path.
+  const secureCookies =
+    configuration.nodeEnv === "production" &&
+    [configuration.betterAuthUrl, configuration.corsOrigin].every((origin) =>
+      origin?.startsWith("https://"),
+    );
 
   const auth = betterAuth({
     database,
@@ -161,7 +170,7 @@ export function createAuth(options: {
       storeSessionInDatabase: true,
     },
     advanced: {
-      useSecureCookies: configuration.nodeEnv === "production",
+      useSecureCookies: secureCookies,
       trustedProxyHeaders: true,
       crossSubDomainCookies: sharedCookieDomain
         ? {
@@ -171,7 +180,7 @@ export function createAuth(options: {
         : undefined,
       defaultCookieAttributes: {
         sameSite: "lax",
-        secure: configuration.nodeEnv === "production",
+        secure: secureCookies,
         httpOnly: true,
       },
     },

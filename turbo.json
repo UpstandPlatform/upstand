@@ -85,7 +85,15 @@
       "outputs": []
     },
     "test:e2e": {
-      "cache": false
+      "cache": false,
+      "env": [
+        "E2E_BASE_URL",
+        "E2E_AUTH_COOKIE",
+        "E2E_RESOURCE_ID",
+        "E2E_ORGANIZATION_ID",
+        "E2E_ALLOW_MUTATIONS",
+        "E2E_REQUEST_TIMEOUT_MS"
+      ]
     },
     "dev": {
       "cache": false,

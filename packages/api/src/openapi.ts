@@ -80,12 +80,7 @@ function createOpenApiRouter() {
           const caller = appRouter.createCaller(ctx);
           let target: CallerNode = caller as unknown as CallerNode;
           for (const segment of procedurePath.split(".")) {
-            if (typeof target === "function") {
-              throw new Error(
-                `Unable to resolve ${procedurePath} in appRouter`,
-              );
-            }
-            const next = target[segment];
+            const next = (target as CallerRecord)[segment];
             if (!next) {
               throw new Error(
                 `Unable to resolve ${procedurePath} in appRouter`,

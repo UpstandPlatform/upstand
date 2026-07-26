@@ -11,6 +11,7 @@ import {
 } from "@upstand/domain";
 import yaml from "yaml";
 import { z } from "zod";
+import { validateComposeSecurity } from "../resource/compose-security";
 import {
   CreateResourceInputSchema,
   type CreateResourceUseCase,
@@ -88,6 +89,7 @@ export function validateTemplateComposeFile(composeFile: string): string {
     throw new Error("Template Compose YAML must define at least one service.");
   }
   validateTemplateSafety(document);
+  validateComposeSecurity(composeFile);
   return composeFile;
 }
 

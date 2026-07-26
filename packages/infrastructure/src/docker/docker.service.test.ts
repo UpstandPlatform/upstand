@@ -95,4 +95,33 @@ describe("deployment command log safety", () => {
     );
     expect(result).toBeNull();
   });
+
+  test("always drops all capabilities when applying advanced config", () => {
+    const service = new DockerService({} as never) as unknown as {
+      applyAdvancedConfig: (
+        resource: unknown,
+        containerSpec: Record<string, unknown>,
+        taskTemplate: Record<string, unknown>,
+        endpointSpec: Record<string, unknown>,
+      ) => void;
+    };
+    const containerSpec: Record<string, unknown> = {};
+
+    service.applyAdvancedConfig(
+      {
+        advancedConfig: JSON.stringify({
+          capDrop: ["NET_BIND_SERVICE"],
+        }),
+      },
+      containerSpec,
+      {},
+      {},
+    );
+
+    expect(containerSpec).toMatchObject({
+      Privileged: false,
+      SecurityOpt: ["no-new-privileges:true"],
+      CapDrop: ["ALL", "NET_BIND_SERVICE"],
+    });
+  });
 });

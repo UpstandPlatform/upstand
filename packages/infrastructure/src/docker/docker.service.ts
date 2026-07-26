@@ -255,7 +255,23 @@ export class DockerService {
     containerSpec.Init = config.init;
     containerSpec.ReadOnly = config.readOnlyRootFilesystem;
     containerSpec.TTY = config.tty;
-    containerSpec.Privileged = config.privileged;
+    containerSpec.Privileged = false;
+    const securityOptions = Array.isArray(containerSpec.SecurityOpt)
+      ? containerSpec.SecurityOpt.filter(
+          (option): option is string => typeof option === "string",
+        )
+      : [];
+    if (!securityOptions.includes("no-new-privileges:true")) {
+      securityOptions.push("no-new-privileges:true");
+    }
+    containerSpec.SecurityOpt = securityOptions;
+    const droppedCapabilities = Array.isArray(containerSpec.CapDrop)
+      ? containerSpec.CapDrop.filter(
+          (capability): capability is string => typeof capability === "string",
+        )
+      : [];
+    if (!droppedCapabilities.includes("ALL")) droppedCapabilities.push("ALL");
+    containerSpec.CapDrop = droppedCapabilities;
     if (config.stopGracePeriodSeconds !== undefined) {
       containerSpec.StopGracePeriod =
         config.stopGracePeriodSeconds * 1_000_000_000;
@@ -268,8 +284,14 @@ export class DockerService {
     if (config.extraHosts.length) containerSpec.Hosts = config.extraHosts;
     if (Object.keys(config.sysctls).length)
       containerSpec.Sysctls = config.sysctls;
-    if (config.capAdd.length) containerSpec.CapAdd = config.capAdd;
-    if (config.capDrop.length) containerSpec.CapDrop = config.capDrop;
+    if (config.capDrop.length) {
+      for (const capability of config.capDrop) {
+        if (!droppedCapabilities.includes(capability)) {
+          droppedCapabilities.push(capability);
+        }
+      }
+      containerSpec.CapDrop = droppedCapabilities;
+    }
 
     const resources = config.resources;
     if (resources.cpuLimit || resources.memoryLimitMb) {

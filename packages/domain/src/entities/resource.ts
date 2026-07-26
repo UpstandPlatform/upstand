@@ -70,7 +70,15 @@ export const ResourcePortSchema = z.object({
 });
 
 export const ResourceVolumeSchema = z.object({
-  source: z.string().trim().min(1).max(512),
+  source: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .regex(
+      /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/,
+      "Volume sources must be named Docker volumes",
+    ),
   target: z
     .string()
     .trim()
@@ -308,7 +316,14 @@ export const ResourceAdvancedConfigSchema = z.object({
   dnsSearch: z.array(z.string().trim().min(1).max(253)).max(16).default([]),
   extraHosts: z.array(z.string().trim().min(1).max(512)).max(64).default([]),
   sysctls: z.record(z.string(), z.string()).default({}),
-  capAdd: z.array(z.string().trim().min(1).max(128)).max(64).default([]),
+  capAdd: z
+    .array(z.string().trim().min(1).max(128))
+    .max(64)
+    .default([])
+    .refine(
+      (capabilities) => capabilities.length === 0,
+      "Added Linux capabilities are not supported for workload isolation",
+    ),
   capDrop: z.array(z.string().trim().min(1).max(128)).max(64).default([]),
   updateConfig: z
     .object({
@@ -332,7 +347,13 @@ export const ResourceAdvancedConfigSchema = z.object({
   init: z.boolean().default(false),
   readOnlyRootFilesystem: z.boolean().default(false),
   tty: z.boolean().default(false),
-  privileged: z.boolean().default(false),
+  privileged: z
+    .boolean()
+    .default(false)
+    .refine(
+      (enabled) => !enabled,
+      "Privileged containers are not supported for workload isolation",
+    ),
 });
 
 export type ResourceAdvancedConfig = z.infer<

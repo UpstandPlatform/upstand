@@ -288,11 +288,14 @@ export function PortsVolumesCard({
           }
 
           if (detectedVolumes.length > 0) {
+            const namedVolumes = detectedVolumes.filter((volume) =>
+              /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(volume.source),
+            );
             const existingKeys = new Set(
               config.volumes.map((v) => `${v.source}:${v.target}`),
             );
             const newVolumes = [...config.volumes];
-            for (const v of detectedVolumes) {
+            for (const v of namedVolumes) {
               const key = `${v.source}:${v.target}`;
               if (!existingKeys.has(key)) {
                 newVolumes.push(v);
@@ -328,7 +331,7 @@ export function PortsVolumesCard({
           <CardTitle>Ports &amp; storage</CardTitle>
           <CardDescription>
             Publish service ports through the Swarm ingress mesh and mount
-            persistent Docker volumes or host paths into the container.
+            persistent named Docker volumes into the container.
           </CardDescription>
         </div>
         {(resourceType === "compose" || composeFile) && (
@@ -376,7 +379,7 @@ export function PortsVolumesCard({
         <Field>
           <SectionHeader
             title="Persistent volumes"
-            description="Mount named Docker volumes or host-managed volume sources."
+            description="Mount named Docker volumes. Host bind mounts are blocked for workload isolation."
             addLabel="Add volume"
             onAdd={addVolume}
           />

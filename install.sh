@@ -166,7 +166,9 @@ build_source_images() {
   docker build --file "$SOURCE_DIR/apps/schedules/Dockerfile" --tag "$UPSTAND_SCHEDULES_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/web/Dockerfile" --build-arg "NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL" --tag "$UPSTAND_WEB_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/fumadocs/Dockerfile" --tag "$UPSTAND_DOCS_IMAGE" "$SOURCE_DIR"
-  docker build --file "$SOURCE_DIR/apps/monitoring/Dockerfile" --tag "$UPSTAND_MONITORING_IMAGE" "$SOURCE_DIR/apps/monitoring"
+  docker build --file "$SOURCE_DIR/apps/monitoring/Dockerfile" \
+    --build-arg "GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}" \
+    --tag "$UPSTAND_MONITORING_IMAGE" "$SOURCE_DIR/apps/monitoring"
   SOURCE_BUILD=true
 }
 
@@ -524,6 +526,9 @@ main() {
   echo "Use 'docker stack services upstand' to watch rollout status."
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# BASH_SOURCE[0] is unset when this script is executed through `curl | bash`.
+# The empty-source branch is therefore intentional and keeps both direct-file
+# execution and the documented stdin installer path working with `set -u`.
+if [[ "${BASH_SOURCE[0]:-}" == "$0" || -z "${BASH_SOURCE[0]:-}" ]]; then
   main "$@"
 fi
