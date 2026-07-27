@@ -353,62 +353,6 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  fumadocs:
-    image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
-    environment:
-      NODE_ENV: production
-    networks:
-      upstand-network:
-        aliases:
-          - fumadocs
-          - upstand_fumadocs
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:4000/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.labels.upstand.control-plane == true
-      restart_policy:
-        condition: any
-        delay: 5s
-        max_attempts: 3
-        window: 120s
-      update_config:
-        parallelism: 1
-        delay: 10s
-        order: stop-first
-        failure_action: rollback
-        monitor: 45s
-      rollback_config:
-        parallelism: 1
-        delay: 5s
-        order: stop-first
-        failure_action: pause
-        monitor: 45s
-      resources:
-        reservations:
-          cpus: "0.10"
-          memory: 128M
-        limits:
-          cpus: "0.50"
-          memory: 512M
-    ports:
-      - ${UPSTAND_DOCS_PORT:-4000}:4000
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
-
 volumes:
   postgres_data:
     driver: local

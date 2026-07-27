@@ -8,7 +8,10 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@upstand/ui/components/button";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { getDocsUrl } from "@/lib/server-url";
 
 const FEATURES = [
@@ -40,6 +43,19 @@ const DEPLOY_LOG = [
 ] as const;
 
 export default function Home() {
+  const router = useRouter();
+  const { isCloud, isLoading } = useSystemConfig();
+
+  useEffect(() => {
+    if (!isLoading && !isCloud) {
+      router.replace("/login");
+    }
+  }, [isLoading, isCloud, router]);
+
+  if (!isCloud) {
+    return null;
+  }
+
   return (
     <div id="top">
       <div className="mx-auto w-full max-w-5xl px-6 pt-24 pb-20 md:px-8 md:pt-32 md:pb-28">
