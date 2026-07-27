@@ -165,13 +165,11 @@ build_source_images() {
   UPSTAND_SERVER_IMAGE="upstand-server:source-${revision}"
   UPSTAND_SCHEDULES_IMAGE="upstand-schedules:source-${revision}"
   UPSTAND_WEB_IMAGE="upstand-web:source-${revision}"
-  UPSTAND_DOCS_IMAGE="upstand-docs:source-${revision}"
   UPSTAND_MONITORING_IMAGE="upstand-monitoring:source-${revision}"
 
   docker build --file "$SOURCE_DIR/apps/server/Dockerfile" --tag "$UPSTAND_SERVER_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/schedules/Dockerfile" --tag "$UPSTAND_SCHEDULES_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/web/Dockerfile" --build-arg "NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL" --tag "$UPSTAND_WEB_IMAGE" "$SOURCE_DIR"
-  docker build --file "$SOURCE_DIR/apps/fumadocs/Dockerfile" --tag "$UPSTAND_DOCS_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/monitoring/Dockerfile" \
     --build-arg "GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}" \
     --tag "$UPSTAND_MONITORING_IMAGE" "$SOURCE_DIR/apps/monitoring"
@@ -373,14 +371,13 @@ write_environment() {
   POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c}"
   REDIS_IMAGE="${REDIS_IMAGE:-redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2}"
 
-  if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" == true || -z "$UPSTAND_SERVER_IMAGE$UPSTAND_SCHEDULES_IMAGE$UPSTAND_WEB_IMAGE$UPSTAND_DOCS_IMAGE$UPSTAND_MONITORING_IMAGE" ]]; then
+  if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" == true || -z "$UPSTAND_SERVER_IMAGE$UPSTAND_SCHEDULES_IMAGE$UPSTAND_WEB_IMAGE$UPSTAND_MONITORING_IMAGE" ]]; then
     build_source_images
   fi
   if [[ "${SOURCE_BUILD:-false}" != true ]]; then
     require_digest_image UPSTAND_SERVER_IMAGE
     require_digest_image UPSTAND_SCHEDULES_IMAGE
     require_digest_image UPSTAND_WEB_IMAGE
-    require_digest_image UPSTAND_DOCS_IMAGE
     require_digest_image UPSTAND_MONITORING_IMAGE
     require_digest_image POSTGRES_IMAGE
     require_digest_image REDIS_IMAGE
@@ -463,7 +460,7 @@ cleanup_registry_auth() {
 
 wait_for_stack() {
   local deadline=$((SECONDS + 600))
-  local services=(postgres redis server web fumadocs)
+  local services=(postgres redis server web)
 
   while ((SECONDS < deadline)); do
     local converged=true
@@ -483,16 +480,14 @@ wait_for_stack() {
       fi
     done
 
-    local server_container web_container docs_container
+    local server_container web_container
     server_container="$(docker ps -q --filter label=com.docker.swarm.service.name=upstand_server | head -n1)"
     web_container="$(docker ps -q --filter label=com.docker.swarm.service.name=upstand_web | head -n1)"
-    docs_container="$(docker ps -q --filter label=com.docker.swarm.service.name=upstand_fumadocs | head -n1)"
 
     if [[ "$converged" == true ]] \
-      && [[ -n "$server_container" && -n "$web_container" && -n "$docs_container" ]] \
+      && [[ -n "$server_container" && -n "$web_container" ]] \
       && docker exec "$server_container" curl --fail --silent http://127.0.0.1:3000/health/ready >/dev/null \
-      && docker exec "$web_container" node -e "fetch('http://127.0.0.1:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" \
-      && docker exec "$docs_container" node -e "fetch('http://127.0.0.1:4000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+      && docker exec "$web_container" node -e "fetch('http://127.0.0.1:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
       return
     fi
     sleep 5
@@ -504,26 +499,17 @@ wait_for_stack() {
 }
 
 validate_external_origins() {
-  local api_probe dashboard_probe docs_probe
+  local api_probe dashboard_probe
 
   # These probes intentionally run from the deployment host. curl validates
   # DNS resolution and, for HTTPS origins, the complete TLS certificate chain.
   api_probe="${BETTER_AUTH_URL%/}/health/ready"
   dashboard_probe="${CORS_ORIGIN%/}/"
-  docs_probe="$(
-    case "$BETTER_AUTH_URL" in
-      http://*:3000) printf '%s/' "${BETTER_AUTH_URL%:3000}:4000" ;;
-      https://*) printf 'https://%s/' "$UPSTAND_DOCS_HOST" ;;
-      *) printf 'http://%s/' "$UPSTAND_DOCS_HOST" ;;
-    esac
-  )"
 
   curl --fail --silent --show-error --location --max-time 30 "$api_probe" >/dev/null \
     || fail "API origin failed DNS/TLS/readiness validation: $BETTER_AUTH_URL"
   curl --fail --silent --show-error --location --max-time 30 "$dashboard_probe" >/dev/null \
     || fail "dashboard origin failed DNS/TLS/HTTP validation: $CORS_ORIGIN"
-  curl --fail --silent --show-error --location --max-time 30 "$docs_probe" >/dev/null \
-    || fail "documentation origin failed DNS/TLS/HTTP validation: $docs_probe"
 }
 
 main() {

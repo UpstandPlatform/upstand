@@ -286,19 +286,21 @@ export default function LoginPage() {
             </>
           )}
 
-          <div className="flex items-center justify-between pt-2 text-muted-foreground text-xs">
-            <span />
-            <Button
-              variant="ghost"
-              size="sm"
-              nativeButton={false}
-              className="gap-1 text-xs hover:text-primary"
-              render={<Link href="/" />}
-            >
-              Back to home
-              <HugeiconsIcon icon={ArrowRight01Icon} className="size-3" />
-            </Button>
-          </div>
+          {isCloud && (
+            <div className="flex items-center justify-between pt-2 text-muted-foreground text-xs">
+              <span />
+              <Button
+                variant="ghost"
+                size="sm"
+                nativeButton={false}
+                className="gap-1 text-xs hover:text-primary"
+                render={<Link href="/" />}
+              >
+                Back to home
+                <HugeiconsIcon icon={ArrowRight01Icon} className="size-3" />
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
