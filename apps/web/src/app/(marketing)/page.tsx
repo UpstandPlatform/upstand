@@ -8,9 +8,9 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@upstand/ui/components/button";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { useSystemConfig } from "@/hooks/use-system-config";
 import { getDocsUrl } from "@/lib/server-url";
 
