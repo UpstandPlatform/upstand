@@ -15,6 +15,10 @@ export interface UpdateConcurrencyInput {
   ip?: string;
 }
 
+export interface RedisPublisher {
+  publish(channel: string, message: string): Promise<number>;
+}
+
 export class UpdateConcurrencyUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
@@ -22,6 +26,7 @@ export class UpdateConcurrencyUseCase {
       DockerInventoryReaderPort,
       "listSwarmNodes"
     >,
+    private readonly redisPublisher: RedisPublisher = redis,
   ) {}
 
   async execute(input: UpdateConcurrencyInput): Promise<ServerBuildSettings> {
@@ -89,13 +94,17 @@ export class UpdateConcurrencyUseCase {
       return settings;
     });
 
-    await redis.publish(
-      "upstand:server:concurrency",
-      JSON.stringify({
-        serverId: input.serverId,
-        concurrency: input.concurrency,
-      }),
-    );
+    try {
+      await this.redisPublisher.publish(
+        "upstand:server:concurrency",
+        JSON.stringify({
+          serverId: input.serverId,
+          concurrency: input.concurrency,
+        }),
+      );
+    } catch {
+      // Best-effort pub-sub notification
+    }
     return settings;
   }
 
