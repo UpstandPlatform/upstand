@@ -59,22 +59,40 @@ import {
 } from "@upstand/ui/components/sidebar";
 import { Spinner } from "@upstand/ui/components/spinner";
 import type { Route } from "next";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { CreateOrganizationDialog } from "@/components/auth/organization/create-organization-dialog";
 import { OrganizationSwitcher } from "@/components/auth/organization/organization-switcher";
 import { UserButton } from "@/components/auth/user/user-button";
-import { GlobalSearch } from "@/components/global-search";
 import { ModeToggle } from "@/components/mode-toggle";
 import { ProjectsBreadcrumb } from "@/components/projects-breadcrumb";
-import { UpGalChat } from "@/components/upgal-chat";
-import { UpGalGuideOverlay } from "@/components/upgal-guide-overlay";
 import { UpGalTarget } from "@/components/upgal-target";
-import { SettingsDialog } from "@/features/settings";
 import { authClient } from "@/lib/auth-client";
 import { trpc } from "@/utils/trpc";
+
+const GlobalSearch = dynamic(
+  () =>
+    import("@/components/global-search").then((module) => module.GlobalSearch),
+  { ssr: false },
+);
+const UpGalChat = dynamic(
+  () => import("@/components/upgal-chat").then((module) => module.UpGalChat),
+  { ssr: false },
+);
+const UpGalGuideOverlay = dynamic(
+  () =>
+    import("@/components/upgal-guide-overlay").then(
+      (module) => module.UpGalGuideOverlay,
+    ),
+  { ssr: false },
+);
+const SettingsDialog = dynamic(
+  () => import("@/features/settings").then((module) => module.SettingsDialog),
+  { ssr: false },
+);
 
 type NavigationPath = `/${string}`;
 type NavigationItem = {
@@ -448,7 +466,11 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const {
+    data: session,
+    isPending: sessionPending,
+    refetch: refetchSession,
+  } = authClient.useSession();
   const {
     data: activeOrg,
     isPending: activeOrgPending,
@@ -457,6 +479,24 @@ export default function DashboardLayout({
   const { data: organizations, isPending: organizationsPending } =
     authClient.useListOrganizations();
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
+  const [sessionValidationPending, setSessionValidationPending] =
+    useState(false);
+  const [sessionValidationError, setSessionValidationError] = useState(false);
+  const [sessionPendingTimedOut, setSessionPendingTimedOut] = useState(false);
+  const sessionValidationInFlight = useRef(false);
+
+  useEffect(() => {
+    if (!sessionPending) {
+      setSessionPendingTimedOut(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSessionPendingTimedOut(true);
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [sessionPending]);
 
   useEffect(() => {
     const handler = () => setCreateOrgOpen(true);
@@ -497,22 +537,128 @@ export default function DashboardLayout({
   ]);
 
   useEffect(() => {
-    if (sessionPending || mfaPending) return;
-    if (!session && pathname !== "/2fa-verify") {
-      router.push("/login");
+    if (
+      (sessionPending && !sessionPendingTimedOut) ||
+      pathname === "/2fa-verify" ||
+      sessionValidationError
+    )
       return;
-    }
-    if (session && mfaData && !mfaData.verified && pathname !== "/2fa-verify") {
-      router.push("/2fa-verify");
-    }
-  }, [session, sessionPending, mfaData, mfaPending, pathname, router]);
+    if (!session) {
+      if (sessionValidationInFlight.current) return;
 
-  if (sessionPending || (session && mfaPending)) {
+      sessionValidationInFlight.current = true;
+      setSessionValidationPending(true);
+      setSessionValidationError(false);
+      let cancelled = false;
+
+      void (async () => {
+        let sessionRefreshStatus:
+          | "authenticated"
+          | "unauthenticated"
+          | "unavailable" = "unavailable";
+        for (const delay of [0, 150, 400]) {
+          if (delay > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+          try {
+            const result = await Promise.race([
+              authClient.getSession(),
+              new Promise<undefined>((resolve) => {
+                setTimeout(resolve, 5000);
+              }),
+            ]);
+            if (result?.data) {
+              sessionRefreshStatus = "authenticated";
+              await Promise.race([
+                refetchSession(),
+                new Promise<void>((resolve) => {
+                  setTimeout(resolve, 5000);
+                }),
+              ]);
+              break;
+            }
+
+            // A response without data or an error is an explicit anonymous
+            // session. Network errors, timeouts, and Better Auth errors must
+            // remain retryable instead of forcing a logout during an outage.
+            if (result && !result.error) {
+              sessionRefreshStatus = "unauthenticated";
+              break;
+            }
+          } catch {
+            // Keep transient transport failures retryable.
+          }
+        }
+
+        if (cancelled) return;
+        sessionValidationInFlight.current = false;
+        setSessionValidationPending(false);
+        if (sessionRefreshStatus === "unauthenticated") {
+          router.replace("/login");
+          return;
+        }
+        if (sessionRefreshStatus === "unavailable") {
+          setSessionValidationError(true);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        sessionValidationInFlight.current = false;
+      };
+    }
+
+    if (mfaPending) return;
+
+    setSessionValidationPending(false);
+    if (session && mfaData && !mfaData.verified && pathname !== "/2fa-verify") {
+      router.replace("/2fa-verify");
+    }
+  }, [
+    session,
+    sessionPending,
+    sessionPendingTimedOut,
+    sessionValidationError,
+    mfaData,
+    mfaPending,
+    pathname,
+    refetchSession,
+    router,
+  ]);
+
+  if (
+    (sessionPending && !sessionPendingTimedOut) ||
+    sessionValidationPending ||
+    (session && mfaPending)
+  ) {
     return (
       <div className="flex h-svh items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-muted-foreground text-sm">
           <Spinner />
           <span className="text-sm">Checking authorization…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (sessionValidationError) {
+    return (
+      <div className="flex h-svh items-center justify-center px-6">
+        <div className="flex max-w-md flex-col items-center gap-3 text-center text-muted-foreground text-sm">
+          <span>
+            We couldn’t verify your session. Check the server connection and try
+            again.
+          </span>
+          <button
+            className="rounded-md border px-3 py-2 font-medium text-foreground text-sm hover:bg-muted"
+            onClick={() => {
+              setSessionValidationError(false);
+              setSessionValidationPending(true);
+            }}
+            type="button"
+          >
+            Retry session check
+          </button>
         </div>
       </div>
     );

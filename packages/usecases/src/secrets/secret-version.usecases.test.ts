@@ -19,7 +19,7 @@ const resource: Resource = {
   name: "Web",
   type: "application",
   status: "running",
-  provider: "github",
+  provider: "drop",
   appName: "web",
   credentials: "{}",
   buildSecrets: null,

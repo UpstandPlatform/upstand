@@ -286,7 +286,7 @@ export class DeploymentWorker {
               resourceId: job?.data?.resourceId,
               serverId: this.serverId,
             },
-            err,
+            err: errorMessage(err),
           });
         },
       );
@@ -1526,7 +1526,7 @@ export class DeploymentWorker {
       );
       log.error({
         message: "Queue worker deploy pipeline error",
-        err,
+        err: errorMessage(err),
       });
       const currentDeployment =
         await uow.deploymentRepository.findById(deploymentId);

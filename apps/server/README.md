@@ -35,7 +35,7 @@ src/
 ## Running & Building
 
 ```bash
-# Start development server with hot reloading
+# Start development server with restart-on-change
 bun run dev
 
 # Check TypeScript types

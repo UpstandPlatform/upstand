@@ -16,7 +16,7 @@ import { Input } from "@upstand/ui/components/input";
 import { Separator } from "@upstand/ui/components/separator";
 import { Spinner } from "@upstand/ui/components/spinner";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PageBackdrop } from "@/components/marketing/page-backdrop";
 import { authClient } from "@/lib/auth-client";
@@ -30,6 +30,17 @@ export default function TwoFactorVerifyPage() {
   const [recoveryMode, setRecoveryMode] = useState(false);
 
   const { data: session } = authClient.useSession();
+
+  useEffect(() => {
+    if (session === null) {
+      router.replace("/login");
+      return;
+    }
+
+    if (session && session.user.twoFactorEnabled !== true) {
+      router.replace("/dashboard");
+    }
+  }, [router, session]);
 
   const handleVerify = async (e: React.SyntheticEvent) => {
     e.preventDefault();
@@ -67,7 +78,11 @@ export default function TwoFactorVerifyPage() {
     }
   };
 
-  if (session === undefined) {
+  if (
+    session === undefined ||
+    session === null ||
+    session.user.twoFactorEnabled !== true
+  ) {
     return (
       <div className="flex min-h-svh items-center justify-center">
         <Spinner />

@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -32,8 +33,9 @@ func scanServerMetrics(rows *sql.Rows) ([]ServerMetric, error) {
 	var metrics []ServerMetric
 	for rows.Next() {
 		var m ServerMetric
+		var timestamp any
 		err := rows.Scan(
-			&m.Timestamp, &m.CPU, &m.CPUModel, &m.CPUCores, &m.CPUPhysicalCores,
+			&timestamp, &m.CPU, &m.CPUModel, &m.CPUCores, &m.CPUPhysicalCores,
 			&m.CPUSpeed, &m.OS, &m.Distro, &m.Kernel, &m.Arch,
 			&m.MemUsed, &m.MemUsedGB, &m.MemTotal, &m.Uptime,
 			&m.DiskUsed, &m.TotalDisk, &m.NetworkIn, &m.NetworkOut,
@@ -41,9 +43,41 @@ func scanServerMetrics(rows *sql.Rows) ([]ServerMetric, error) {
 		if err != nil {
 			return nil, err
 		}
+		m.Timestamp, err = parseTimestamp(timestamp)
+		if err != nil {
+			return nil, err
+		}
 		metrics = append(metrics, m)
 	}
-	return metrics, nil
+	return metrics, rows.Err()
+}
+
+func parseTimestamp(value any) (time.Time, error) {
+	if timestamp, ok := value.(time.Time); ok {
+		return timestamp, nil
+	}
+
+	var raw string
+	switch timestamp := value.(type) {
+	case string:
+		raw = timestamp
+	case []byte:
+		raw = string(timestamp)
+	default:
+		return time.Time{}, fmt.Errorf("invalid server metric timestamp type %T", value)
+	}
+
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999Z07:00",
+		"2006-01-02 15:04:05.999999999",
+	} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("invalid server metric timestamp %q", raw)
 }
 
 func (db *DB) SaveServerMetric(m ServerMetric) error {

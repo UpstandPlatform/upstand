@@ -31,6 +31,14 @@ const MAX_CONTAINER_FILE_CONTENT_LENGTH =
   Math.ceil(MAX_CONTAINER_FILE_SIZE_BYTES / 3) * 4;
 const MAX_CONTAINER_FILE_PATH_LENGTH = 4096;
 const MAX_CONTAINER_FILE_NAME_LENGTH = 255;
+const NO_ACTIVE_CONTAINER_MESSAGE =
+  "Active running container not found for this resource.";
+
+function isNoActiveContainerError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message === NO_ACTIVE_CONTAINER_MESSAGE
+  );
+}
 
 const PROTECTED_SYSTEM_PATHS = [
   "/bin",
@@ -248,7 +256,7 @@ export class ContainerFileManagerUseCase {
     }
 
     if (!selected) {
-      throw new Error("Active running container not found for this resource.");
+      throw new Error(NO_ACTIVE_CONTAINER_MESSAGE);
     }
 
     return { target, containerId: selected.id };
@@ -257,11 +265,18 @@ export class ContainerFileManagerUseCase {
   async listFiles(
     input: z.infer<typeof ListContainerFilesInputSchema>,
   ): Promise<FileExplorerItem[]> {
-    const { target, containerId } = await this.resolveTargetContainer(
-      input.organizationId,
-      input.resourceId,
-      input.containerId,
-    );
+    let target: DockerInspectionTarget;
+    let containerId: string;
+    try {
+      ({ target, containerId } = await this.resolveTargetContainer(
+        input.organizationId,
+        input.resourceId,
+        input.containerId,
+      ));
+    } catch (error) {
+      if (!input.containerId && isNoActiveContainerError(error)) return [];
+      throw error;
+    }
 
     const normalizedPath = normalizeContainerPath(input.path);
     const safePath = shellQuote(normalizedPath);
@@ -464,11 +479,18 @@ export class ContainerFileManagerUseCase {
   async searchFiles(
     input: z.infer<typeof SearchContainerFilesInputSchema>,
   ): Promise<FileExplorerItem[]> {
-    const { target, containerId } = await this.resolveTargetContainer(
-      input.organizationId,
-      input.resourceId,
-      input.containerId,
-    );
+    let target: DockerInspectionTarget;
+    let containerId: string;
+    try {
+      ({ target, containerId } = await this.resolveTargetContainer(
+        input.organizationId,
+        input.resourceId,
+        input.containerId,
+      ));
+    } catch (error) {
+      if (!input.containerId && isNoActiveContainerError(error)) return [];
+      throw error;
+    }
 
     const normalizedPath = assertValidContainerPath(input.path, "Search path");
     const searchTerm = input.query.replace(/[*?]/g, "").trim();

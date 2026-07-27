@@ -73,8 +73,20 @@ describe("Docker Compose configuration", () => {
     const api = result.services.api;
     if (!api) throw new Error("Expected API service is missing");
     expect(api.security_opt).toContain("no-new-privileges:true");
-    expect(api.cap_drop).toContain("ALL");
+    expect(api.cap_drop).toBeUndefined();
     expect(result.services.worker).toEqual({ image: "worker:latest" });
+  });
+
+  test("preserves explicit capability drops without imposing a blanket drop", () => {
+    const result = yaml.parse(
+      applyComposeResourceConfig(
+        "services:\n  api:\n    image: nginx:alpine",
+        resource,
+        { ...DEFAULT_RESOURCE_ADVANCED_CONFIG, capDrop: ["NET_RAW"] },
+      ),
+    ) as { services: Record<string, Record<string, unknown>> };
+
+    expect(result.services.api?.cap_drop).toEqual(["NET_RAW"]);
   });
 
   test("adds ingress routing and prefixes only internal named volumes", () => {

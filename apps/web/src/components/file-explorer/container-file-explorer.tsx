@@ -87,6 +87,7 @@ export function ContainerFileExplorer({
   const [selectedContainer, setSelectedContainer] = useState<
     string | undefined
   >(undefined);
+  const hasActiveContainer = Boolean(selectedContainer);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
@@ -125,6 +126,13 @@ export function ContainerFileExplorer({
 
   // Auto-sync selected container if stale or dead
   useEffect(() => {
+    if (containersData.length === 0) {
+      if (selectedContainer !== undefined) {
+        setSelectedContainer(undefined);
+      }
+      return;
+    }
+
     if (containersData.length > 0) {
       const exists = containersData.some(
         (c: { id: string; name: string }) =>
@@ -162,13 +170,14 @@ export function ContainerFileExplorer({
     isRefetching,
     refetch,
     error,
-  } = useQuery(
-    trpc.containerFileManager.listFiles.queryOptions({
+  } = useQuery({
+    ...trpc.containerFileManager.listFiles.queryOptions({
       resourceId,
       path: currentPath,
       containerId: selectedContainer,
     }),
-  );
+    enabled: hasActiveContainer,
+  });
 
   // Search files query (active when search query > 1 char)
   const { data: searchResults = [], isLoading: isSearching } = useQuery({
@@ -178,7 +187,7 @@ export function ContainerFileExplorer({
       path: currentPath,
       containerId: selectedContainer,
     }),
-    enabled: debouncedSearchQuery.length > 1,
+    enabled: hasActiveContainer && debouncedSearchQuery.length > 1,
   });
 
   // Read file query
@@ -480,6 +489,7 @@ export function ContainerFileExplorer({
               setNewItemParentPath(currentPath);
               setNewItemModal("file");
             }}
+            disabled={!hasActiveContainer}
             className="h-8 font-medium text-xs"
           >
             <HugeiconsIcon icon={PlusSignIcon} className="mr-1 h-3.5 w-3.5" />
@@ -492,6 +502,7 @@ export function ContainerFileExplorer({
               setNewItemParentPath(currentPath);
               setNewItemModal("directory");
             }}
+            disabled={!hasActiveContainer}
             className="h-8 font-medium text-xs"
           >
             <HugeiconsIcon icon={FolderIcon} className="mr-1 h-3.5 w-3.5" />
@@ -501,6 +512,7 @@ export function ContainerFileExplorer({
             size="xs"
             variant="outline"
             onClick={() => handleFileUploadSelect(currentPath)}
+            disabled={!hasActiveContainer}
             className="h-8 font-medium text-xs"
           >
             <HugeiconsIcon icon={Upload01Icon} className="mr-1 h-3.5 w-3.5" />
@@ -510,7 +522,7 @@ export function ContainerFileExplorer({
             size="xs"
             variant="ghost"
             onClick={() => refetch()}
-            disabled={isRefetching}
+            disabled={!hasActiveContainer || isRefetching}
             className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
             title="Refresh Directory"
             aria-label="Refresh directory"
@@ -625,7 +637,21 @@ export function ContainerFileExplorer({
 
           {/* Directory File List */}
           <div className="flex-1 overflow-y-auto">
-            {isLoading || isSearching ? (
+            {!hasActiveContainer ? (
+              <div
+                className="flex h-48 flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground text-xs"
+                role="status"
+                aria-live="polite"
+              >
+                <span className="font-medium text-foreground">
+                  No active container is available.
+                </span>
+                <span>
+                  Deploy and start this resource before browsing its container
+                  files.
+                </span>
+              </div>
+            ) : isLoading || isSearching ? (
               <div
                 className="flex h-48 flex-col items-center justify-center gap-2 text-muted-foreground text-xs"
                 role="status"

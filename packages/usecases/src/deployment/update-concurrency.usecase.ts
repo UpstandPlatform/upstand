@@ -5,6 +5,7 @@ import {
   ValidationError,
 } from "@upstand/domain";
 import { redis } from "@upstand/redis";
+import type { DockerInventoryReaderPort } from "../ports/docker";
 
 export interface UpdateConcurrencyInput {
   organizationId: string;
@@ -15,7 +16,13 @@ export interface UpdateConcurrencyInput {
 }
 
 export class UpdateConcurrencyUseCase {
-  constructor(private readonly uow: IUnitOfWork) {}
+  constructor(
+    private readonly uow: IUnitOfWork,
+    private readonly inventory: Pick<
+      DockerInventoryReaderPort,
+      "listSwarmNodes"
+    >,
+  ) {}
 
   async execute(input: UpdateConcurrencyInput): Promise<ServerBuildSettings> {
     if (
@@ -33,12 +40,18 @@ export class UpdateConcurrencyUseCase {
     }
     if (!["local", "manager"].includes(input.serverId)) {
       const server = await this.uow.serverRepository.findById(input.serverId);
-      if (!server || server.organizationId !== input.organizationId) {
+      const isLocalSwarmNode = server
+        ? false
+        : await this.isLocalSwarmNode(input.serverId);
+      if (
+        (!server || server.organizationId !== input.organizationId) &&
+        !isLocalSwarmNode
+      ) {
         throw new ValidationError(
           "Build server is not part of the active organization",
         );
       }
-      if (server.serverType === "database") {
+      if (server?.serverType === "database") {
         throw new ValidationError(
           "Database servers cannot be used for application build concurrency",
         );
@@ -84,5 +97,17 @@ export class UpdateConcurrencyUseCase {
       }),
     );
     return settings;
+  }
+
+  private async isLocalSwarmNode(serverId: string): Promise<boolean> {
+    try {
+      const nodes = await this.inventory.listSwarmNodes({
+        kind: "local",
+        name: "local",
+      });
+      return nodes.some((node) => node.id === serverId);
+    } catch {
+      return false;
+    }
   }
 }

@@ -32,6 +32,18 @@ type Config struct {
 	} `json:"containers"`
 }
 
+// RuntimeConfig contains the mutable monitoring settings needed by the
+// collection and alerting loop. Returning a value snapshot keeps threshold
+// updates race-free while the collector is running.
+type RuntimeConfig struct {
+	ServerID        string
+	ServerType      string
+	Token           string
+	URLCallback     string
+	CPUThreshold    int
+	MemoryThreshold int
+}
+
 var (
 	config     *Config
 	configOnce sync.Once
@@ -77,11 +89,25 @@ func GetMetricsConfig() *Config {
 // GetThresholds returns the current runtime alert thresholds. A value of zero
 // disables the corresponding alert.
 func GetThresholds() (cpu int, memory int) {
+	runtimeConfig := GetRuntimeConfig()
+	return runtimeConfig.CPUThreshold, runtimeConfig.MemoryThreshold
+}
+
+// GetRuntimeConfig returns the alerting configuration as a value snapshot.
+// Callers can safely use the result after this function returns.
+func GetRuntimeConfig() RuntimeConfig {
 	configMu.RLock()
 	defer configMu.RUnlock()
 
 	cfg := GetMetricsConfig()
-	return cfg.Server.Thresholds.CPU, cfg.Server.Thresholds.Memory
+	return RuntimeConfig{
+		ServerID:        cfg.Server.ServerID,
+		ServerType:      cfg.Server.ServerType,
+		Token:           cfg.Server.Token,
+		URLCallback:     cfg.Server.UrlCallback,
+		CPUThreshold:    cfg.Server.Thresholds.CPU,
+		MemoryThreshold: cfg.Server.Thresholds.Memory,
+	}
 }
 
 // UpdateThresholds changes alert thresholds without requiring an agent restart.

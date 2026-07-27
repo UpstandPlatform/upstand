@@ -237,6 +237,24 @@ describe("Resource Actions Exhaustive Edge-Case Suite", () => {
       );
     });
 
+    test("allows configuring a Docker image on application resources", async () => {
+      const uow = createMockStoreUow();
+      uow.store.resources.push({
+        id: "res-docker-app",
+        name: "Docker App",
+        type: "application",
+        environmentId: "env-1",
+      });
+
+      const useCase = new UpdateResourceUseCase(uow as never, null as never);
+      const updated = await useCase.execute({
+        id: "res-docker-app",
+        dockerImage: "nginx:alpine",
+      });
+
+      expect(updated?.dockerImage).toBe("nginx:alpine");
+    });
+
     test("rejects enabling rollback without selecting a Docker registry", async () => {
       const uow = createMockStoreUow();
       uow.store.resources.push({

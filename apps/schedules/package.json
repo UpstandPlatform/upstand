@@ -8,7 +8,7 @@
     "build": "tsdown",
     "check-types": "tsc --noEmit",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile schedules",
-    "dev": "bun --env-file=apps/schedules/.env --cwd ../.. --hot apps/schedules/src/index.ts",
+    "dev": "bun --env-file=apps/schedules/.env --cwd ../.. --watch apps/schedules/src/index.ts",
     "start": "bun run dist/index.mjs",
     "lint": "biome check ."
   },

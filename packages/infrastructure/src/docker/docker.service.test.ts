@@ -96,7 +96,7 @@ describe("deployment command log safety", () => {
     expect(result).toBeNull();
   });
 
-  test("always drops all capabilities when applying advanced config", () => {
+  test("applies explicit capability drops when applying advanced config", () => {
     const service = new DockerService({} as never) as unknown as {
       applyAdvancedConfig: (
         resource: unknown,

@@ -300,6 +300,7 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:?NEXT_PUBLIC_SERVER_URL is required}
+      UPSTAND_SERVER_INTERNAL_URL: http://server:3000
     networks:
       upstand-network:
         aliases:

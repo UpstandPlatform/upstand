@@ -5,6 +5,7 @@ import { z } from "zod";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission } from "../permissions";
+import { ScimProviderIdSchema } from "./scim.schemas";
 
 const baseInput = z.object({ organizationId: z.string().min(1) });
 
@@ -27,7 +28,7 @@ export const scimRouter = router({
     }),
 
   create: twoFactorVerifiedProcedure
-    .input(baseInput.extend({ providerId: z.string().trim().min(1).max(120) }))
+    .input(baseInput.extend({ providerId: ScimProviderIdSchema }))
     .mutation(async ({ ctx, input }) => {
       await assertManager(ctx.session.user.id, input.organizationId);
       try {

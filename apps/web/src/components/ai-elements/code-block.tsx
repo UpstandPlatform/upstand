@@ -26,7 +26,6 @@ import type {
   HighlighterGeneric,
   ThemedToken,
 } from "shiki";
-import { createHighlighter } from "shiki";
 import { CheckIcon, CopyIcon, DownloadIcon } from "@/components/huge-icons";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { downloadText } from "@/lib/browser";
@@ -157,10 +156,12 @@ const getHighlighter = (
     return cached;
   }
 
-  const highlighterPromise = createHighlighter({
-    langs: [language],
-    themes: ["github-light", "github-dark"],
-  });
+  const highlighterPromise = import("shiki").then(({ createHighlighter }) =>
+    createHighlighter({
+      langs: [language],
+      themes: ["github-light", "github-dark"],
+    }),
+  );
 
   highlighterCache.set(language, highlighterPromise);
   return highlighterPromise;
@@ -385,9 +386,10 @@ export const CodeBlockContent = ({
   // Memoized raw tokens for immediate display
   const rawTokens = useMemo(() => createRawTokens(code), [code]);
 
-  // Synchronous cache lookup — avoids setState in effect for cached results
+  // Read only the cache during render. Shiki is loaded from the client effect
+  // below so the server renderer never imports its generated external module.
   const syncTokens = useMemo(
-    () => highlightCode(code, language) ?? rawTokens,
+    () => tokensCache.get(getTokensCacheKey(code, language)) ?? rawTokens,
     [code, language, rawTokens],
   );
 

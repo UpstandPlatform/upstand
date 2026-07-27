@@ -11,7 +11,8 @@ function isLoopbackHost(hostname: string): boolean {
   );
 }
 
-function parseConfiguredUrl(configured: string): URL | null {
+function parseConfiguredUrl(configured: string | undefined): URL | null {
+  if (!configured) return null;
   try {
     return new URL(configured);
   } catch {
@@ -72,6 +73,9 @@ export function getServerUrlFromHeaders(
   requestHeaders: Headers,
   configured = env.NEXT_PUBLIC_SERVER_URL,
 ): string {
+  const internalUrl = parseConfiguredUrl(env.UPSTAND_SERVER_INTERNAL_URL);
+  if (internalUrl) return internalUrl.origin;
+
   const configuredUrl = parseConfiguredUrl(configured);
   const forwardedHost = requestHeaders.get("x-forwarded-host");
   const host = (forwardedHost || requestHeaders.get("host") || "localhost:3001")
