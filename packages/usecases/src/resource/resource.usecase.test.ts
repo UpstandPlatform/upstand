@@ -467,6 +467,7 @@ describe("Resource Usecases", () => {
       name: "my-service",
       type: "application",
       appName: "my-service",
+      dockerImage: "nginx:alpine",
     });
 
     const deployed = await deployUseCase.execute({ id: res.id });
@@ -508,6 +509,7 @@ describe("Resource Usecases", () => {
       name: "enqueue-failure",
       type: "application",
       appName: "enqueue-failure",
+      dockerImage: "nginx:alpine",
     });
 
     await deployUseCase.execute({ id: resource.id });

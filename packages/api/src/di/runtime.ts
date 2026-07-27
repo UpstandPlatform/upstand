@@ -73,6 +73,7 @@ export function registerRuntime(services: ServiceCollection) {
     (c) =>
       new dependencies.UpdateConcurrencyUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
+        c.resolve(dependencies.DockerInventoryReaderToken),
       ),
   );
 

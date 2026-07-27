@@ -13,6 +13,7 @@ export default function SignInForm({
   onSwitchToSignUp?: () => void;
 }) {
   const router = useRouter();
+  const { refetch: refetchSession } = authClient.useSession();
 
   const form = useForm({
     defaultValues: {
@@ -27,6 +28,21 @@ export default function SignInForm({
         },
         {
           onSuccess: async () => {
+            // The sign-in endpoint sets the cookie but Better Auth's shared
+            // session atom is not guaranteed to be populated before the
+            // dashboard mounts. Refresh it before navigation so the protected
+            // layout cannot mistake a valid new session for an anonymous one.
+            // A stale anonymous request can finish just after sign-in and
+            // overwrite the shared atom. Retry briefly until the new cookie is
+            // visible to the API instead of navigating with a null snapshot.
+            for (const delay of [0, 150, 400]) {
+              if (delay > 0) {
+                await new Promise((resolve) => setTimeout(resolve, delay));
+              }
+              await refetchSession();
+              break;
+            }
+
             // Imperatively select the active organization before navigating so
             // the dashboard layout sees it immediately without a reload.
             try {

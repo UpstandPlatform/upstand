@@ -13,6 +13,7 @@ export default function SignUpForm({
   onSwitchToSignIn?: () => void;
 }) {
   const router = useRouter();
+  const { refetch: refetchSession } = authClient.useSession();
 
   const form = useForm({
     defaultValues: {
@@ -28,7 +29,16 @@ export default function SignUpForm({
           name: value.name,
         },
         {
-          onSuccess: () => {
+          onSuccess: async () => {
+            // Keep the shared client session state in sync before entering the
+            // protected dashboard after the first-account bootstrap flow.
+            for (const delay of [0, 150, 400]) {
+              if (delay > 0) {
+                await new Promise((resolve) => setTimeout(resolve, delay));
+              }
+              await refetchSession();
+              break;
+            }
             router.push("/dashboard");
             toast.success("Sign up successful");
           },

@@ -184,6 +184,10 @@ export class DockerService {
   private readonly docker: Docker;
   private readonly commandEnvironment: Record<string, string | undefined>;
   private readonly networkName = env.DOCKER_NETWORK;
+  private readonly cacheDockerDiskUsage: boolean;
+  private dockerDiskUsage: Record<string, unknown> | undefined;
+  private dockerDiskUsageUpdatedAt = 0;
+  private dockerDiskUsageRefresh: Promise<void> | undefined;
   private cancellationKey: string | null = null;
 
   constructor(
@@ -192,6 +196,10 @@ export class DockerService {
   ) {
     this.docker = docker;
     this.commandEnvironment = commandEnvironment;
+    // Remote services carry an SSH command environment and are recreated per
+    // request. Cache the expensive disk-usage call for the long-lived local
+    // service, while keeping remote responses complete and request-scoped.
+    this.cacheDockerDiskUsage = Object.keys(commandEnvironment).length === 0;
   }
 
   setCancellationKey(key: string | null): void {
@@ -2033,18 +2041,134 @@ export class DockerService {
     );
     const composeEnv =
       envVars ?? parseResourceEnvironmentVariables(resource.envVars);
-    await this.runCommandAsync(
-      "docker",
-      composeCommand,
-      onLog,
-      composeEnv as NodeJS.ProcessEnv,
-      {
-        redactions: Object.values(composeEnv),
-      },
+    try {
+      await this.runCommandAsync(
+        "docker",
+        composeCommand,
+        onLog,
+        composeEnv as NodeJS.ProcessEnv,
+        {
+          redactions: Object.values(composeEnv),
+        },
+      );
+
+      // `docker compose up --detach` can return successfully before an image
+      // finishes its startup sequence. Verify the resulting containers so a
+      // crash loop or an unhealthy service cannot be reported as a successful
+      // deployment. Swarm stacks use the separate convergence path.
+      if (resource.composeType === "compose") {
+        await this.waitForComposeConvergence(stackName, onLog);
+      }
+    } finally {
+      fs.rmSync(composeDir, { recursive: true, force: true });
+    }
+  }
+
+  private async waitForComposeConvergence(
+    projectName: string,
+    onLog: (log: string) => void,
+  ): Promise<void> {
+    const timeoutMs = 60_000;
+    const stabilityMs = 5_000;
+    const startedAt = Date.now();
+    let stableSince: number | null = null;
+    let lastObservedState = "No Compose containers found yet";
+
+    onLog(
+      `Verifying Docker Compose project '${projectName}' startup and health...\n`,
     );
 
-    // Clean up
-    fs.rmSync(composeDir, { recursive: true, force: true });
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        const containers = await this.docker.listContainers({
+          all: true,
+          filters: JSON.stringify({
+            label: [`com.docker.compose.project=${projectName}`],
+          }),
+        });
+
+        if (containers.length > 0) {
+          const states = await Promise.all(
+            containers.map(async (container) => {
+              const inspected = await this.docker
+                .getContainer(container.Id)
+                .inspect();
+              return {
+                name: container.Names?.[0]?.replace(/^\//, "") || container.Id,
+                status: inspected.State?.Status ?? container.State,
+                exitCode: inspected.State?.ExitCode ?? 0,
+                health: inspected.State?.Health?.Status,
+              };
+            }),
+          );
+
+          const failed = states.find(
+            (state) =>
+              (state.status === "exited" || state.status === "dead") &&
+              state.exitCode !== 0,
+          );
+          if (failed) {
+            throw new Error(
+              `Compose container '${failed.name}' exited with code ${failed.exitCode}`,
+            );
+          }
+
+          const unhealthy = states.find(
+            (state) => state.health === "unhealthy",
+          );
+          if (unhealthy) {
+            throw new Error(
+              `Compose container '${unhealthy.name}' reported an unhealthy status`,
+            );
+          }
+
+          const pending = states.filter(
+            (state) =>
+              !["running", "exited"].includes(state.status) ||
+              state.health === "starting",
+          );
+          const successful = states.filter(
+            (state) => state.status === "running" || state.exitCode === 0,
+          );
+          lastObservedState = states
+            .map(
+              (state) =>
+                `${state.name}:${state.status}${state.health ? `/${state.health}` : ""}`,
+            )
+            .join(", ");
+
+          if (pending.length === 0 && successful.length === states.length) {
+            if (stableSince === null) stableSince = Date.now();
+            if (Date.now() - stableSince >= stabilityMs) {
+              onLog(
+                `Docker Compose project '${projectName}' is running stably. ✅\n`,
+              );
+              return;
+            }
+          } else {
+            stableSince = null;
+          }
+        }
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          /Compose container .* (?:exited|reported an unhealthy)/.test(
+            error.message,
+          )
+        ) {
+          onLog(`Docker Compose convergence failed: ${error.message}. ❌\n`);
+          throw error;
+        }
+        // Docker may briefly reject an inspect while Compose is replacing a
+        // container. Keep polling until the bounded convergence timeout.
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+
+    throw new Error(
+      `Docker Compose project '${projectName}' did not converge within ${timeoutMs / 1000} seconds (last state: ${lastObservedState})`,
+    );
   }
 
   async controlService(
@@ -2945,22 +3069,34 @@ export class DockerService {
     });
   }
 
-  async getContainerStats(containerId: string): Promise<ContainerRuntimeStats> {
+  async getContainerStats(
+    containerId: string,
+    resolveSwarmTask = true,
+  ): Promise<ContainerRuntimeStats> {
     try {
       let realContainerId = containerId;
-      const tasks = await this.docker
-        .listTasks({
-          filters: JSON.stringify({ id: [containerId] }),
-        })
-        .catch(() => []);
 
-      if (tasks.length > 0 && tasks[0].Status?.ContainerStatus?.ContainerID) {
-        realContainerId = tasks[0].Status.ContainerStatus.ContainerID;
-      } else {
-        const allTasks = await this.docker.listTasks().catch(() => []);
-        const matchingTask = allTasks.find((t) => t.ID.startsWith(containerId));
-        if (matchingTask?.Status?.ContainerStatus?.ContainerID) {
-          realContainerId = matchingTask.Status.ContainerStatus.ContainerID;
+      // listContainers already returns real Docker container IDs. The task
+      // lookup is only needed by callers that pass a Swarm task ID; skipping
+      // it for running-container inventory avoids a global Swarm task scan per
+      // container and keeps runtime dashboards responsive on local Docker.
+      if (resolveSwarmTask) {
+        const tasks = await this.docker
+          .listTasks({
+            filters: JSON.stringify({ id: [containerId] }),
+          })
+          .catch(() => []);
+
+        if (tasks.length > 0 && tasks[0].Status?.ContainerStatus?.ContainerID) {
+          realContainerId = tasks[0].Status.ContainerStatus.ContainerID;
+        } else {
+          const allTasks = await this.docker.listTasks().catch(() => []);
+          const matchingTask = allTasks.find((t) =>
+            t.ID.startsWith(containerId),
+          );
+          if (matchingTask?.Status?.ContainerStatus?.ContainerID) {
+            realContainerId = matchingTask.Status.ContainerStatus.ContainerID;
+          }
         }
       }
 
@@ -3026,15 +3162,17 @@ export class DockerService {
   }
 
   async getServerRuntimeStats(): Promise<ServerRuntimeStats> {
-    const [rawInfo, rawDiskUsage, containers] = await Promise.all([
+    const [rawInfo, containers, rawDiskUsage] = await Promise.all([
       this.docker.info() as Promise<unknown>,
-      this.docker.df() as Promise<unknown>,
       this.docker.listContainers({ all: false }),
+      this.getDockerDiskUsage(),
     ]);
     const info = isUnknownRecord(rawInfo) ? rawInfo : {};
     const diskUsage = isUnknownRecord(rawDiskUsage) ? rawDiskUsage : {};
     const containerStats = await Promise.all(
-      containers.map((container) => this.getContainerStats(container.Id)),
+      containers.map((container) =>
+        this.getContainerStats(container.Id, false),
+      ),
     );
     const totals = containerStats.reduce<ContainerRuntimeStats>(
       (aggregate, current) => ({
@@ -3083,6 +3221,37 @@ export class DockerService {
       dockerVolumeBytes: sumDockerUsage(diskUsage.Volumes),
       dockerBuildCacheBytes: sumDockerUsage(diskUsage.BuildCache),
     };
+  }
+
+  private async getDockerDiskUsage(): Promise<unknown> {
+    if (!this.cacheDockerDiskUsage) {
+      return this.docker.df();
+    }
+
+    const now = Date.now();
+    if (this.dockerDiskUsage && now - this.dockerDiskUsageUpdatedAt < 60_000) {
+      return this.dockerDiskUsage;
+    }
+
+    if (!this.dockerDiskUsageRefresh) {
+      this.dockerDiskUsageRefresh = this.docker
+        .df()
+        .then((value) => {
+          this.dockerDiskUsage = isUnknownRecord(value) ? value : {};
+          this.dockerDiskUsageUpdatedAt = Date.now();
+        })
+        .catch((error: unknown) => {
+          log.warn({
+            message: "Failed to refresh Docker disk usage",
+            err: error,
+          });
+        })
+        .finally(() => {
+          this.dockerDiskUsageRefresh = undefined;
+        });
+    }
+
+    return this.dockerDiskUsage ?? {};
   }
 
   async removeResource(

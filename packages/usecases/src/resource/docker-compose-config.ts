@@ -90,13 +90,13 @@ export function applyComposeResourceConfig(
       securityOptions.push("no-new-privileges:true");
     }
     service.security_opt = securityOptions;
-    const droppedCapabilities = Array.isArray(service.cap_drop)
-      ? service.cap_drop.filter(
-          (capability): capability is string => typeof capability === "string",
-        )
-      : [];
-    if (!droppedCapabilities.includes("ALL")) droppedCapabilities.push("ALL");
-    service.cap_drop = droppedCapabilities;
+    // Do not unconditionally drop every capability. Many otherwise safe
+    // images perform required, non-privileged startup work (for example,
+    // nginx changes ownership of its runtime cache) before dropping to a
+    // worker user. A blanket ALL drop makes those images fail at startup.
+    // Explicit capability drops from the resource's advanced configuration
+    // are still applied, while unsafe capability additions are rejected by
+    // validateComposeSecurity above.
     if (config.stopGracePeriodSeconds !== undefined) {
       service.stop_grace_period = `${config.stopGracePeriodSeconds}s`;
     }

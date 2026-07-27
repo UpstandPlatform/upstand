@@ -54,7 +54,10 @@ export async function trpc(
   input: Record<string, unknown>,
   method: "GET" | "POST" = "GET",
 ) {
-  const encoded = encodeURIComponent(JSON.stringify({ json: input }));
+  // The server uses tRPC's default v11 transformer, which expects the raw
+  // input object. The `{ json: ... }` envelope belongs to transformer-aware
+  // client serializers and is not part of the HTTP input contract here.
+  const encoded = encodeURIComponent(JSON.stringify(input));
   const response = await fetchWithTimeout(
     `${e2eContext.baseUrl}/trpc/${procedure}${method === "GET" ? `?input=${encoded}` : ""}`,
     {
@@ -63,7 +66,7 @@ export async function trpc(
         ...(e2eContext.authCookie ? { cookie: e2eContext.authCookie } : {}),
         ...(method === "POST" ? { "content-type": "application/json" } : {}),
       },
-      body: method === "POST" ? JSON.stringify({ json: input }) : undefined,
+      body: method === "POST" ? JSON.stringify(input) : undefined,
     },
   );
   const body: unknown = await response.json().catch(() => null);
@@ -72,8 +75,18 @@ export async function trpc(
 
 export function trpcJson(body: unknown): unknown {
   if (!body || typeof body !== "object") return undefined;
-  const result = (body as { result?: { data?: { json?: unknown } } }).result;
-  return result?.data?.json;
+  const result = (body as { result?: { data?: unknown } }).result;
+  if (!result || !("data" in result)) return undefined;
+  const data = result.data;
+  if (
+    data &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    "json" in data
+  ) {
+    return (data as { json?: unknown }).json;
+  }
+  return data;
 }
 
 export async function getResource(): Promise<E2eResource> {

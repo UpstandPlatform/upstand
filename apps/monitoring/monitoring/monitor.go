@@ -248,12 +248,11 @@ func ConvertToSystemMetrics(metric database.ServerMetric) SystemMetrics {
 }
 
 func CheckThresholds(metrics database.ServerMetric) error {
-	cfg := config.GetMetricsConfig()
-	cpuThresholdValue, memoryThresholdValue := config.GetThresholds()
-	cpuThreshold := float64(cpuThresholdValue)
-	memThreshold := float64(memoryThresholdValue)
-	callbackURL := cfg.Server.UrlCallback
-	metricsToken := cfg.Server.Token
+	runtimeConfig := config.GetRuntimeConfig()
+	cpuThreshold := float64(runtimeConfig.CPUThreshold)
+	memThreshold := float64(runtimeConfig.MemoryThreshold)
+	callbackURL := runtimeConfig.URLCallback
+	metricsToken := runtimeConfig.Token
 
 	// log.Printf("CPU threshold: %.2f%%", cpuThreshold)
 	// log.Printf("Current CPU usage: %.2f%%", metrics.CPU)
@@ -267,8 +266,8 @@ func CheckThresholds(metrics database.ServerMetric) error {
 
 	if cpuThreshold > 0 && metrics.CPU > cpuThreshold {
 		alert := AlertPayload{
-			ServerID:   cfg.Server.ServerID,
-			ServerType: cfg.Server.ServerType,
+			ServerID:   runtimeConfig.ServerID,
+			ServerType: runtimeConfig.ServerType,
 			Type:       "CPU",
 			Value:      metrics.CPU,
 			Threshold:  cpuThreshold,
@@ -284,8 +283,8 @@ func CheckThresholds(metrics database.ServerMetric) error {
 
 	if memThreshold > 0 && float64(metrics.MemUsed) > memThreshold {
 		alert := AlertPayload{
-			ServerID:   cfg.Server.ServerID,
-			ServerType: cfg.Server.ServerType,
+			ServerID:   runtimeConfig.ServerID,
+			ServerType: runtimeConfig.ServerType,
 			Type:       "Memory",
 			Value:      float64(metrics.MemUsed),
 			Threshold:  memThreshold,

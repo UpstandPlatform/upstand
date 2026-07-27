@@ -130,34 +130,46 @@ export class UpdateResourceUseCase {
     }
     if (input.description !== undefined) patch.description = input.description;
     if (input.provider !== undefined) patch.provider = input.provider;
-    if (input.dbType !== undefined || input.dockerImage !== undefined) {
+    if (input.dbType !== undefined) {
       if (resource.type !== "database") {
         throw new ValidationError(
-          "Database engine and image can only be changed on database resources",
+          "Database engine can only be changed on database resources",
         );
       }
-
-      const dbType = input.dbType ?? resource.dbType ?? undefined;
-      const dockerImage =
-        input.dockerImage ?? resource.dockerImage ?? undefined;
-      if (
-        !isSupportedDatabaseImage(
-          dbType,
-          dockerImage,
-          input.allowCustomImage === true,
-        )
-      ) {
+      patch.dbType = input.dbType;
+    }
+    if (input.dockerImage !== undefined) {
+      if (resource.type === "database") {
+        const dbType = input.dbType ?? resource.dbType ?? undefined;
+        if (
+          !isSupportedDatabaseImage(
+            dbType,
+            input.dockerImage,
+            input.allowCustomImage === true,
+          )
+        ) {
+          throw new ValidationError(
+            "Select a supported database image version for the selected database engine",
+          );
+        }
+      } else if (resource.type !== "application") {
         throw new ValidationError(
-          "Select a supported database image version for the selected database engine",
+          "Docker images can only be changed on application or database resources",
+        );
+      } else if (!input.dockerImage.trim()) {
+        throw new ValidationError(
+          "Docker image is required for application resources",
         );
       }
-      if (input.dbType !== undefined) patch.dbType = input.dbType;
-      if (input.dbType?.toLowerCase() !== "libsql") {
-        patch.libsqlGrpcPort = null;
-        patch.libsqlAdminPort = null;
-      }
-      if (input.dockerImage !== undefined)
-        patch.dockerImage = input.dockerImage;
+      patch.dockerImage = input.dockerImage.trim();
+    }
+    if (
+      resource.type === "database" &&
+      input.dbType !== undefined &&
+      input.dbType.toLowerCase() !== "libsql"
+    ) {
+      patch.libsqlGrpcPort = null;
+      patch.libsqlAdminPort = null;
     }
     if (input.externalPort !== undefined) {
       if (resource.type !== "database") {

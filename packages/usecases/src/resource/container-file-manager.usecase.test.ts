@@ -12,6 +12,12 @@ describe("ContainerFileManagerUseCase", () => {
     const mockEnvId = "env-123";
     const mockResourceId = "res-123";
     let commandFailure = false;
+    let containers = [
+      {
+        id: "container-abc123456",
+        labels: ["com.docker.swarm.service.name=web-app"],
+      },
+    ];
 
     const uow = mockUnitOfWork({
       projectRepository: {
@@ -75,12 +81,7 @@ describe("ContainerFileManagerUseCase", () => {
     };
 
     const mockDockerInventory = {
-      listContainers: async () => [
-        {
-          id: "container-abc123456",
-          labels: ["com.docker.swarm.service.name=web-app"],
-        },
-      ],
+      listContainers: async () => containers,
     };
 
     const useCase = new ContainerFileManagerUseCase(
@@ -95,6 +96,9 @@ describe("ContainerFileManagerUseCase", () => {
       mockResourceId,
       setCommandFailure: (value: boolean) => {
         commandFailure = value;
+      },
+      setContainers: (value: typeof containers) => {
+        containers = value;
       },
     };
   };
@@ -112,6 +116,20 @@ describe("ContainerFileManagerUseCase", () => {
     expect(items[0]?.type).toBe("directory");
     expect(items[1]?.name).toBe("config.json");
     expect(items[1]?.type).toBe("file");
+  });
+
+  test("listFiles returns an empty directory when the resource is not running", async () => {
+    const { useCase, mockOrgId, mockResourceId, setContainers } =
+      createMockContext();
+    setContainers([]);
+
+    expect(
+      await useCase.listFiles({
+        organizationId: mockOrgId,
+        resourceId: mockResourceId,
+        path: "/",
+      }),
+    ).toEqual([]);
   });
 
   test("readFile retrieves file contents", async () => {
@@ -280,6 +298,21 @@ describe("ContainerFileManagerUseCase", () => {
 
     expect(results.length).toBe(2);
     expect(results[0]?.name).toBe("config.json");
+  });
+
+  test("searchFiles returns no matches when the resource is not running", async () => {
+    const { useCase, mockOrgId, mockResourceId, setContainers } =
+      createMockContext();
+    setContainers([]);
+
+    expect(
+      await useCase.searchFiles({
+        organizationId: mockOrgId,
+        resourceId: mockResourceId,
+        path: "/",
+        query: "config",
+      }),
+    ).toEqual([]);
   });
 
   test("rejects access when resource belongs to another organization", async () => {

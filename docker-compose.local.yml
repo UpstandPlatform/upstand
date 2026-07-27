@@ -25,7 +25,7 @@ services:
       dockerfile: Dockerfile.dev
     container_name: upstand-server-local
     command:
-      ["/bin/sh", "-ec", "sh apps/server/scripts/ensure-local-swarm.sh && exec bun --hot apps/server/src/index.ts"]
+      ["/bin/sh", "-ec", "sh apps/server/scripts/ensure-local-swarm.sh && exec bun --watch apps/server/src/index.ts"]
     ports:
       - "3000:3000"
     volumes:
@@ -49,6 +49,12 @@ services:
       REDIS_URL: redis://redis:6379
       DOCKER_NETWORK: upstand-network
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
+    networks:
+      default:
+        aliases:
+          # Keep local Compose compatible with the service name used by the
+          # monitoring agent and generated Caddy configuration.
+          - upstand_server
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,7 +72,9 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: upstand-schedules-local
-    command: bun run dev:schedules
+    # Run the entrypoint directly so the package-level --env-file does not
+    # overwrite Compose's service URLs with localhost values inside Docker.
+    command: bun --watch apps/schedules/src/index.ts
     ports:
       - "3002:3002"
     volumes:
@@ -92,6 +100,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      server:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:3002/health/ready >/dev/null"]
       interval: 10s
@@ -105,11 +115,15 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: upstand-web-local
-    command: bun run dev:web
+    # Keep Webpack for Docker dev until Turbopack supports this monorepo's
+    # nested dynamic project routes without returning false 404 responses.
+    command: bun run --cwd apps/web dev -- --webpack
     ports:
       - "3001:3001"
     volumes:
       - .:/app
+      # Keep regenerable Next.js output out of the Windows bind mount.
+      - web_next_cache:/app/apps/web/.next
       - /app/node_modules
       - /app/apps/server/node_modules
       - /app/apps/web/node_modules
@@ -120,6 +134,7 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_SERVER_URL: http://localhost:3000
+      UPSTAND_SERVER_INTERNAL_URL: http://server:3000
     depends_on:
       server:
         condition: service_healthy
@@ -129,11 +144,15 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: upstand-fumadocs-local
-    command: bun run dev -F fumadocs
+    # Invoke the package script directly; the root dev bootstrap expects
+    # Docker access and is not needed for the documentation site.
+    command: bun run --cwd apps/fumadocs dev
     ports:
       - "4000:4000"
     volumes:
       - .:/app
+      # Keep regenerable documentation output out of the Windows bind mount.
+      - fumadocs_next_cache:/app/apps/fumadocs/.next
       - /app/node_modules
       - /app/apps/server/node_modules
       - /app/apps/web/node_modules
@@ -159,3 +178,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  web_next_cache:
+  fumadocs_next_cache:

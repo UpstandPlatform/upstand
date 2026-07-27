@@ -9,6 +9,135 @@ import {
   type DeployOutboxPayload,
   OUTBOX_COMMAND_TYPES,
 } from "../outbox/outbox-commands";
+import { parseResourceCredentials } from "../resource/resource-credentials";
+
+const GIT_SOURCE_PROVIDERS = new Set([
+  "github",
+  "gitlab",
+  "bitbucket",
+  "gitea",
+]);
+
+function stringField(
+  value: Record<string, unknown>,
+  field: string,
+): string | undefined {
+  const candidate = value[field];
+  return typeof candidate === "string" && candidate.trim()
+    ? candidate.trim()
+    : undefined;
+}
+
+function parseProviderConfig(value: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function validateDeploymentSource(
+  uow: IUnitOfWork,
+  resource: Resource,
+): Promise<void> {
+  const credentials = parseResourceCredentials(resource.credentials);
+
+  if (resource.type === "database") return;
+
+  if (resource.type === "compose" && resource.provider === "raw") {
+    if (!stringField(credentials, "composeFile")) {
+      throw new ValidationError(
+        "Compose file is missing. Add compose content before deploying.",
+      );
+    }
+    return;
+  }
+
+  if (resource.provider === "docker-registry") {
+    if (!resource.dockerImage?.trim()) {
+      throw new ValidationError(
+        "Docker image is missing. Configure an image before deploying.",
+      );
+    }
+    return;
+  }
+
+  if (GIT_SOURCE_PROVIDERS.has(resource.provider)) {
+    const providerId = stringField(credentials, "githubAccount");
+    if (!providerId) {
+      throw new ValidationError(
+        "Git provider is not associated. Configure a repository connection before deploying.",
+      );
+    }
+    const provider = await uow.gitProviderRepository.findById(providerId);
+    if (!provider) {
+      throw new ValidationError(
+        "Associated Git provider was not found. Select a valid repository connection before deploying.",
+      );
+    }
+    if (!stringField(credentials, "repository")) {
+      throw new ValidationError(
+        "Repository is missing. Select a repository before deploying.",
+      );
+    }
+    return;
+  }
+
+  if (resource.provider === "git") {
+    if (!stringField(credentials, "repositoryUrl")) {
+      throw new ValidationError(
+        "Repository URL is missing. Configure a repository before deploying.",
+      );
+    }
+    return;
+  }
+
+  if (resource.provider === "generic") {
+    if (resource.type !== "compose") {
+      throw new ValidationError(
+        "Generic Git deployments are only supported for Compose resources.",
+      );
+    }
+    const providerId = stringField(credentials, "githubAccount");
+    if (!providerId) {
+      throw new ValidationError(
+        "Git provider is not associated. Configure a repository connection before deploying.",
+      );
+    }
+    const provider = await uow.gitProviderRepository.findById(providerId);
+    if (!provider) {
+      throw new ValidationError(
+        "Associated Git provider was not found. Select a valid repository connection before deploying.",
+      );
+    }
+    if (!stringField(credentials, "repository")) {
+      throw new ValidationError(
+        "Repository is missing. Select a repository before deploying.",
+      );
+    }
+    const providerConfig = parseProviderConfig(provider.config);
+    if (
+      !stringField(credentials, "repositoryUrl") &&
+      !stringField(providerConfig, "gitUrl")
+    ) {
+      throw new ValidationError(
+        "Repository URL is missing. Configure a repository before deploying.",
+      );
+    }
+    return;
+  }
+
+  if (resource.provider === "drop") return;
+
+  throw new ValidationError(
+    `Unsupported deployment provider: ${resource.provider}`,
+  );
+}
 
 export interface QueueDeploymentInput {
   resourceId: string;
@@ -44,6 +173,7 @@ export class QueueDeploymentUseCase {
       if (!resource) {
         throw new ValidationError("Resource not found");
       }
+      await validateDeploymentSource(tx, resource);
       const environment = await tx.environmentRepository.findById(
         resource.environmentId,
       );

@@ -31,12 +31,60 @@ const nextConfig: NextConfig = {
       process.env.SKIP_TYPECHECK === "true",
   },
   typedRoutes: true,
-  reactCompiler: true,
+  // The compiler is valuable for production optimization but adds substantial
+  // cold-start cost to the Webpack development graph.
+  reactCompiler: process.env.NODE_ENV === "production",
   output: "standalone",
   devIndicators: false,
+  // Keep a bounded warm route set in development. A short eviction window
+  // forces this large dashboard graph to recompile on every navigation.
+  onDemandEntries:
+    process.env.NODE_ENV === "development"
+      ? {
+          maxInactiveAge: 5 * 60 * 1000,
+          pagesBufferLength: 8,
+        }
+      : undefined,
+  // Turbopack must bundle Shiki from the workspace instead of trying to
+  // resolve its generated external module name at runtime in Docker dev.
+  transpilePackages: ["shiki"],
+  experimental: {
+    // Keep local Webpack compilation from retaining unnecessary intermediate
+    // module state in this large workspace graph.
+    webpackMemoryOptimizations: true,
+  },
   webpack: (config) => {
     config.output.hashFunction = SafeSha256;
     return config;
+  },
+  async redirects() {
+    return [
+      {
+        source: "/dashboard",
+        destination: "/projects",
+        permanent: false,
+      },
+      {
+        source: "/audit-logs",
+        destination: "/observation?tab=audits",
+        permanent: false,
+      },
+      {
+        source: "/monitoring",
+        destination: "/observation?tab=monitoring",
+        permanent: false,
+      },
+      {
+        source: "/deployments",
+        destination: "/observation?tab=deployments",
+        permanent: false,
+      },
+      {
+        source: "/requests",
+        destination: "/observation?tab=requests",
+        permanent: false,
+      },
+    ];
   },
 };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@upstand/ui/components/button";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import {
@@ -16,12 +17,57 @@ import {
   RefreshCw,
   Rocket01Icon,
 } from "@/components/huge-icons";
-import { AuditsSubpage } from "@/features/observation/components/audits-subpage";
-import { CronJobsSubpage } from "@/features/observation/components/cron-jobs-subpage";
-import { DeploymentsSubpage } from "@/features/observation/components/deployments-subpage";
-import { MonitoringSubpage } from "@/features/observation/components/monitoring-subpage";
-import { NotificationDeliveriesSubpage } from "@/features/observation/components/notification-deliveries-subpage";
-import { RequestsSubpage } from "@/features/observation/components/requests-subpage";
+
+function ObservationTabLoading() {
+  return (
+    <div className="flex min-h-48 items-center justify-center text-muted-foreground text-sm">
+      Loading observation data…
+    </div>
+  );
+}
+
+const AuditsSubpage = dynamic(
+  () =>
+    import("@/features/observation/components/audits-subpage").then(
+      (module) => module.AuditsSubpage,
+    ),
+  { loading: ObservationTabLoading, ssr: false },
+);
+const CronJobsSubpage = dynamic(
+  () =>
+    import("@/features/observation/components/cron-jobs-subpage").then(
+      (module) => module.CronJobsSubpage,
+    ),
+  { loading: ObservationTabLoading, ssr: false },
+);
+const DeploymentsSubpage = dynamic(
+  () =>
+    import("@/features/observation/components/deployments-subpage").then(
+      (module) => module.DeploymentsSubpage,
+    ),
+  { loading: ObservationTabLoading, ssr: false },
+);
+const MonitoringSubpage = dynamic(
+  () =>
+    import("@/features/observation/components/monitoring-subpage").then(
+      (module) => module.MonitoringSubpage,
+    ),
+  { loading: ObservationTabLoading, ssr: false },
+);
+const NotificationDeliveriesSubpage = dynamic(
+  () =>
+    import(
+      "@/features/observation/components/notification-deliveries-subpage"
+    ).then((module) => module.NotificationDeliveriesSubpage),
+  { loading: ObservationTabLoading, ssr: false },
+);
+const RequestsSubpage = dynamic(
+  () =>
+    import("@/features/observation/components/requests-subpage").then(
+      (module) => module.RequestsSubpage,
+    ),
+  { loading: ObservationTabLoading, ssr: false },
+);
 
 const TABS = [
   {
