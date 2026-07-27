@@ -7,6 +7,10 @@ const noSwarmNodes = {
   listSwarmNodes: async () => [],
 };
 
+const mockRedisPublisher = {
+  publish: async () => 1,
+};
+
 describe("UpdateConcurrencyUseCase", () => {
   test("rejects a build-server setting outside the active organization", async () => {
     const useCase = new UpdateConcurrencyUseCase(
@@ -16,6 +20,7 @@ describe("UpdateConcurrencyUseCase", () => {
         },
       }),
       noSwarmNodes,
+      mockRedisPublisher,
     );
 
     await expect(
@@ -38,6 +43,7 @@ describe("UpdateConcurrencyUseCase", () => {
         },
       }),
       noSwarmNodes,
+      mockRedisPublisher,
     );
 
     await expect(
@@ -82,6 +88,7 @@ describe("UpdateConcurrencyUseCase", () => {
           },
         ],
       },
+      mockRedisPublisher,
     );
 
     const settings = await useCase.execute({
