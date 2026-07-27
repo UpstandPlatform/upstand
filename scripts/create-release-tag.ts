@@ -33,7 +33,15 @@ function compareVersions(left: string, right: string) {
 
 const tag = `v${version}`;
 const existingTags = git(["tag", "--list", tag]);
-if (existingTags === tag) {
+let remoteTagExists = false;
+try {
+  git(["ls-remote", "--exit-code", "origin", `refs/tags/${tag}`]);
+  remoteTagExists = true;
+} catch {
+  remoteTagExists = false;
+}
+
+if (existingTags === tag || remoteTagExists) {
   console.log(`${tag} already exists; nothing to tag.`);
   process.exit(0);
 }
