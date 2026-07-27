@@ -19,6 +19,7 @@ STACK_FILE="$INSTALL_DIR/docker-compose.prod.yml"
 INTERACTIVE=false
 IS_CLOUD="${IS_CLOUD:-false}"
 MODE_OVERRIDE=""
+REGISTRY_LOGIN_PERFORMED=false
 
 usage() {
   cat <<'EOF'
@@ -27,6 +28,11 @@ Usage: install.sh [--interactive] [--cloud|--self-hosted]
 The installer is non-interactive by default. Set deployment variables in the
 environment before running it. Use --interactive to prompt for the Swarm
 advertise address when installing from a terminal.
+
+For private application images, set UPSTAND_REGISTRY, UPSTAND_REGISTRY_USERNAME,
+and UPSTAND_REGISTRY_PASSWORD. The password is read from the environment only,
+forwarded to the Swarm service specification, and removed from the local Docker
+credential store after deployment.
 
 Options:
   --interactive         prompt for the Swarm advertise address
@@ -436,6 +442,25 @@ deploy_stack() {
   fi
 }
 
+configure_registry_auth() {
+  [[ "${SOURCE_BUILD:-false}" == true ]] && return
+  local registry="${UPSTAND_REGISTRY:-}"
+  [[ -z "$registry" ]] && return
+  [[ "$registry" != */* && "$registry" != *:*/* ]] || fail "UPSTAND_REGISTRY must be a registry hostname, not an image path"
+  [[ -n "${UPSTAND_REGISTRY_USERNAME:-}" ]] || fail "UPSTAND_REGISTRY_USERNAME is required when UPSTAND_REGISTRY is set"
+  [[ -n "${UPSTAND_REGISTRY_PASSWORD:-}" ]] || fail "UPSTAND_REGISTRY_PASSWORD is required when UPSTAND_REGISTRY is set"
+  printf '%s' "$UPSTAND_REGISTRY_PASSWORD" | docker login "$registry" \
+    --username "$UPSTAND_REGISTRY_USERNAME" \
+    --password-stdin >/dev/null
+  REGISTRY_LOGIN_PERFORMED=true
+}
+
+cleanup_registry_auth() {
+  if [[ "$REGISTRY_LOGIN_PERFORMED" == true ]]; then
+    docker logout "${UPSTAND_REGISTRY}" >/dev/null 2>&1 || true
+  fi
+}
+
 wait_for_stack() {
   local deadline=$((SECONDS + 600))
   local services=(postgres redis server web fumadocs)
@@ -512,6 +537,8 @@ main() {
   ensure_stack_file
   ensure_swarm "$advertise_address"
   write_environment "$advertise_address"
+  trap cleanup_registry_auth EXIT
+  configure_registry_auth
   deploy_stack
   wait_for_stack
   # shellcheck disable=SC1090

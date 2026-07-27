@@ -171,6 +171,12 @@ export UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha25
 export UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
 export UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
 
+# Only for private registries: credentials are used for deployment and are not
+# written to the Upstand environment file.
+export UPSTAND_REGISTRY=ghcr.io
+export UPSTAND_REGISTRY_USERNAME=<registry-user>
+export UPSTAND_REGISTRY_PASSWORD=<registry-token>
+
 curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash
 ```
 
