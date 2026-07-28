@@ -91,7 +91,7 @@
     "docker:local:down": "docker compose -f docker-compose.local.yml down",
     "docker:local:logs": "docker compose -f docker-compose.local.yml logs -f",
     "check": "biome check --write .",
-    "check:staged": "biome check --staged --error-on-warnings",
+    "check:staged": "biome check --staged --error-on-warnings --no-errors-on-unmatched",
     "knip": "knip --reporter compact",
     "security:scan": "bun audit",
     "changeset": "changeset",
