@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.3 - 2026-07-28
+
+Improve dashboard navigation rendering, keep topology selection highlighting linear as graphs grow, use Turbopack for the default Next.js builds, and upgrade the bundled PostgreSQL and Redis images for new deployments.
+
+This change only improves test isolation and does not require a package release.
+
 ## 0.1.2 - 2026-07-28
 
 Make source-based installations resilient when the Go module proxy returns a temporary or policy-based HTTP error.

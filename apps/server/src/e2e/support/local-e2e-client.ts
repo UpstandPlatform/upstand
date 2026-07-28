@@ -53,6 +53,7 @@ export async function trpc(
   procedure: string,
   input: Record<string, unknown>,
   method: "GET" | "POST" = "GET",
+  options: { authenticated?: boolean } = {},
 ) {
   // The server uses tRPC's default v11 transformer, which expects the raw
   // input object. The `{ json: ... }` envelope belongs to transformer-aware
@@ -63,7 +64,9 @@ export async function trpc(
     {
       method,
       headers: {
-        ...(e2eContext.authCookie ? { cookie: e2eContext.authCookie } : {}),
+        ...(options.authenticated !== false && e2eContext.authCookie
+          ? { cookie: e2eContext.authCookie }
+          : {}),
         ...(method === "POST" ? { "content-type": "application/json" } : {}),
       },
       body: method === "POST" ? JSON.stringify(input) : undefined,

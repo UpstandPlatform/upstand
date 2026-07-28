@@ -2,7 +2,7 @@ name: upstand-local
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: upstand-postgres-local
     labels:
       com.upstand.component: postgres
@@ -11,10 +11,11 @@ services:
       POSTGRES_DB: upstand
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-upstand-local-password}
+      PGDATA: /var/lib/postgresql/18/docker
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_v18:/var/lib/postgresql
     networks:
       - upstand-network
       - local-ingress
@@ -264,7 +265,7 @@ services:
       start_period: 30s
 
   redis:
-    image: redis:8-alpine
+    image: redis:8.8-alpine
     container_name: upstand-redis-local
     labels:
       com.upstand.component: redis
@@ -284,7 +285,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  postgres_data_v18:
   redis_data:
   web_next_cache:
   fumadocs_next_cache:

@@ -12,6 +12,8 @@ readonly NETWORK_NAME="${DOCKER_NETWORK:-upstand-network}"
 readonly RECOMMENDED_CPU_CORES=2
 readonly RECOMMENDED_MEMORY_BYTES=$((4 * 1024 * 1024 * 1024))
 readonly RECOMMENDED_DISK_BYTES=$((30 * 1024 * 1024 * 1024))
+readonly POSTGRES_VOLUME="upstand_postgres_data_v18"
+readonly LEGACY_POSTGRES_VOLUME="upstand_postgres_data"
 # BASH_SOURCE is an array only when Bash executes a file. A curl | bash install
 # has no array element, so use the scalar expansion with a safe $0 fallback.
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE:-$0}")" && pwd)"
@@ -76,6 +78,17 @@ require_digest_image() {
   local name="$1"
   local image="${!name:-}"
   [[ "$image" == *@sha256:* ]] || fail "$name must be set to an immutable image digest (for example ghcr.io/acme/image@sha256:...)"
+}
+
+ensure_postgres_storage_layout() {
+  # PostgreSQL 18 uses /var/lib/postgresql/18/docker. Never let a rollout
+  # accidentally start an empty cluster beside an older populated volume.
+  if docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1; then
+    return
+  fi
+  if docker volume inspect "$LEGACY_POSTGRES_VOLUME" >/dev/null 2>&1; then
+    fail "the existing $LEGACY_POSTGRES_VOLUME volume must be migrated to $POSTGRES_VOLUME before deploying PostgreSQL 18; see the database upgrade guide"
+  fi
 }
 
 ensure_host_dependencies() {
@@ -368,8 +381,8 @@ write_environment() {
     UPSTAND_DOCS_HOST="docs.$UPSTAND_API_HOST"
   fi
 
-  POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c}"
-  REDIS_IMAGE="${REDIS_IMAGE:-redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2}"
+  POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}"
+  REDIS_IMAGE="${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}"
 
   if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" == true || -z "$UPSTAND_SERVER_IMAGE$UPSTAND_SCHEDULES_IMAGE$UPSTAND_WEB_IMAGE$UPSTAND_MONITORING_IMAGE" ]]; then
     build_source_images
@@ -401,8 +414,8 @@ UPSTAND_AUTO_UPDATE=$UPSTAND_AUTO_UPDATE
 UPSTAND_VERSION=$requested_version
 IS_CLOUD=${IS_CLOUD:-false}
 UPSTAND_DIRECT_ORIGINS=$direct_origins
-POSTGRES_IMAGE=${POSTGRES_IMAGE:-postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c}
-REDIS_IMAGE=${REDIS_IMAGE:-redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2}
+POSTGRES_IMAGE=${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
+REDIS_IMAGE=${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
 UPSTAND_SERVER_PORT=${UPSTAND_SERVER_PORT:-3000}
 UPSTAND_WEB_PORT=${UPSTAND_WEB_PORT:-3001}
 UPSTAND_DOCS_PORT=${UPSTAND_DOCS_PORT:-4000}
@@ -416,6 +429,7 @@ deploy_stack() {
     stack_file="$SOURCE_DIR/docker-compose.prod.yml"
   fi
   [[ -f "$stack_file" ]] || fail "docker-compose.prod.yml is unavailable"
+  ensure_postgres_storage_layout
   install -m 0600 "$stack_file" "$INSTALL_DIR/docker-compose.yml"
 
   set -a

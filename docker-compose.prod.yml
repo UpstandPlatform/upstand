@@ -2,15 +2,16 @@
 # digest by the installer, including the default Postgres and Redis images.
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c}
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
     environment:
       POSTGRES_DB: upstand
       POSTGRES_USER: upstand
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      PGDATA: /var/lib/postgresql/18/docker
     secrets:
       - postgres_password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_v18:/var/lib/postgresql
     networks:
       upstand-network:
         aliases:
@@ -59,7 +60,7 @@ services:
         max-file: "5"
 
   redis:
-    image: ${REDIS_IMAGE:-redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2}
+    image: ${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
     command:
       [
         "sh",
@@ -354,7 +355,7 @@ services:
         max-file: "5"
 
 volumes:
-  postgres_data:
+  postgres_data_v18:
     driver: local
   redis_data:
     driver: local
