@@ -86,6 +86,7 @@ process.once("SIGINT", () => void shutdown("SIGINT"));
 const port = Number(process.env.SCHEDULES_PORT || process.env.PORT || 3002);
 
 export default {
+  hostname: process.env.HOST || "0.0.0.0",
   port,
   fetch: healthApp.fetch,
 };

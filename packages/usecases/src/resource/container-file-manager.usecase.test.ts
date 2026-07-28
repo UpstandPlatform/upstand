@@ -66,7 +66,7 @@ describe("ContainerFileManagerUseCase", () => {
               "file|1024|644|1753400000|config.json\ndirectory|4096|755|1753400000|src",
           };
         }
-        if (command.includes("cat --")) {
+        if (command.includes("cat ")) {
           return {
             output: '{"key":"value"}',
           };
@@ -116,6 +116,25 @@ describe("ContainerFileManagerUseCase", () => {
     expect(items[0]?.type).toBe("directory");
     expect(items[1]?.name).toBe("config.json");
     expect(items[1]?.type).toBe("file");
+  });
+
+  test("recognizes containers managed with the Docker resource label", async () => {
+    const { useCase, mockOrgId, mockResourceId, setContainers } =
+      createMockContext();
+    setContainers([
+      {
+        id: "container-managed-by-label",
+        labels: ["com.upstand.resource-id=res-123"],
+      },
+    ]);
+
+    const items = await useCase.listFiles({
+      organizationId: mockOrgId,
+      resourceId: mockResourceId,
+      path: "/",
+    });
+
+    expect(items).toHaveLength(2);
   });
 
   test("listFiles returns an empty directory when the resource is not running", async () => {
@@ -198,6 +217,35 @@ describe("ContainerFileManagerUseCase", () => {
         organizationId: mockOrgId,
         resourceId: mockResourceId,
         path: "/etc",
+      }),
+    ).rejects.toThrow("protected system path");
+  });
+
+  test("changePermissions modifies permissions and rejects invalid modes or system paths", async () => {
+    const { useCase, mockOrgId, mockResourceId } = createMockContext();
+    const res = await useCase.changePermissions({
+      organizationId: mockOrgId,
+      resourceId: mockResourceId,
+      path: "/var/log/app.log",
+      mode: "0755",
+    });
+    expect(res.success).toBe(true);
+
+    expect(
+      useCase.changePermissions({
+        organizationId: mockOrgId,
+        resourceId: mockResourceId,
+        path: "/var/log/app.log",
+        mode: "invalid",
+      }),
+    ).rejects.toThrow("Permission mode must be an octal string");
+
+    expect(
+      useCase.changePermissions({
+        organizationId: mockOrgId,
+        resourceId: mockResourceId,
+        path: "/etc",
+        mode: "0777",
       }),
     ).rejects.toThrow("protected system path");
   });

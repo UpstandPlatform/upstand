@@ -1,10 +1,11 @@
 import type { DockerContainer } from "../ports/docker";
 
-export function resourceName(resource: {
+export function resourceName(resource?: {
   appName?: string | null;
-  name: string;
+  name?: string | null;
 }): string {
-  return (resource.appName || resource.name)
+  const rawName = resource?.appName || resource?.name || "";
+  return rawName
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9_-]/g, "-");
@@ -20,6 +21,9 @@ export function containerBelongsToResource(
     name: string;
   },
 ): boolean {
+  const containerIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
+  if (!containerIdPattern.test(container.id)) return false;
+
   const labels = new Map(
     (container.labels || []).flatMap((label) => {
       const separator = label.indexOf("=");
@@ -30,7 +34,8 @@ export function containerBelongsToResource(
   );
   const expectedName = resourceName(resource);
 
-  const upstandResourceId = labels.get("upstand.resource.id");
+  const upstandResourceId =
+    labels.get("upstand.resource.id") ?? labels.get("com.upstand.resource-id");
   if (upstandResourceId && upstandResourceId === resource.id) {
     return true;
   }
@@ -44,35 +49,28 @@ export function containerBelongsToResource(
   }
 
   const swarmService = labels.get("com.docker.swarm.service.name");
-  if (
-    swarmService &&
-    (swarmService === expectedName || swarmService.includes(expectedName))
-  ) {
-    return true;
+  if (swarmService !== undefined) {
+    if (swarmService === expectedName) return true;
+    const taskSuffix = swarmService.slice(expectedName.length + 1);
+    if (
+      swarmService.startsWith(`${expectedName}.`) &&
+      /^\d+(?:\.|$)/.test(taskSuffix)
+    ) {
+      return true;
+    }
+    return false;
   }
 
   const composeService = labels.get("com.docker.compose.service");
-  if (
-    composeService &&
-    (composeService === expectedName || composeService.includes(expectedName))
-  ) {
-    return true;
+  if (composeService !== undefined) {
+    return composeService === expectedName;
   }
 
   const cleanContainerName = (container.name || "")
     .replace(/^\//, "")
     .toLowerCase();
-  if (
-    cleanContainerName === expectedName ||
-    cleanContainerName.includes(expectedName) ||
-    cleanContainerName.includes(resource.id) ||
-    (resource.appName &&
-      cleanContainerName.includes(resource.appName.toLowerCase()))
-  ) {
-    return true;
-  }
-
-  return false;
+  if (cleanContainerName === expectedName) return true;
+  return /^[-_]\d+$/.test(cleanContainerName.slice(expectedName.length));
 }
 
 export function matchesContainerIdentifier(

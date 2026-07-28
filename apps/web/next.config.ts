@@ -6,9 +6,10 @@ class SafeSha256 {
   private hash = crypto.createHash("sha256");
 
   update(
-    data: string | NodeJS.ArrayBufferView<ArrayBufferLike>,
+    data?: string | NodeJS.ArrayBufferView<ArrayBufferLike>,
     encoding?: BufferEncoding,
   ): this {
+    if (data === undefined) return this;
     if (typeof data === "string" && encoding !== undefined) {
       this.hash.update(data, encoding);
     } else {

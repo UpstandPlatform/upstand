@@ -515,7 +515,6 @@ export default function ResourceDetail({
               resource={resource}
               organizationId={project.organizationId}
               containers={containerList}
-              sshKeys={sshKeys}
             />
           )}
         </TabsContent>

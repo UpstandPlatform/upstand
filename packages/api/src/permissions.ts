@@ -13,7 +13,7 @@ import {
   parseCapabilities,
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { ensureOrganizationAccess } from "./access-control";
 import type { ApiKeyPrincipal } from "./api-key-auth";
 import type { AuthenticatedContext } from "./context";
@@ -138,9 +138,31 @@ export class AuthorizationService {
       });
     }
 
-    const configuredOwner = env.UPSTAND_INSTANCE_OWNER_USER_ID?.trim();
-    if (configuredOwner) {
-      if (configuredOwner !== actor.userId) {
+    const configuredOwnerId = env.UPSTAND_INSTANCE_OWNER_USER_ID?.trim();
+    if (configuredOwnerId) {
+      if (configuredOwnerId !== actor.userId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Instance owner permission required",
+        });
+      }
+      return;
+    }
+
+    const configuredOwnerEmail =
+      env.UPSTAND_INSTANCE_OWNER_EMAIL?.trim()?.toLowerCase();
+    if (configuredOwnerEmail) {
+      const currentUser = await db
+        .select({ email: user.email })
+        .from(user)
+        .where(eq(user.id, actor.userId))
+        .limit(1)
+        .then((rows) => rows[0]);
+
+      if (
+        !currentUser ||
+        currentUser.email.toLowerCase() !== configuredOwnerEmail
+      ) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Instance owner permission required",

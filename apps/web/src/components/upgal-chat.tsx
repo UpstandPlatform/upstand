@@ -233,6 +233,11 @@ function Part({
   onReplay?: (action: UpGalUIAction) => void;
   onUiAction?: (actionId: string, action: UpGalUIAction) => void;
 }) {
+  const isTool = isToolUIPart(part);
+  const toolState = isToolUIPart(part) ? part.state : undefined;
+  const [open, setOpen] = useState(() => toolState !== "output-available");
+  const [userInteracted, setUserInteracted] = useState(false);
+
   useEffect(() => {
     if (!isToolUIPart(part) || part.state !== "output-available") return;
     const candidate = part as typeof part & {
@@ -242,6 +247,12 @@ function Part({
     if (!candidate.toolCallId || !isUpGalUIAction(candidate.output)) return;
     onUiAction?.(candidate.toolCallId, candidate.output);
   }, [onUiAction, part]);
+
+  useEffect(() => {
+    if (isTool && toolState !== undefined && !userInteracted) {
+      setOpen(toolState !== "output-available");
+    }
+  }, [isTool, toolState, userInteracted]);
 
   if (isTextUIPart(part)) return <MessageResponse>{part.text}</MessageResponse>;
   if (isToolUIPart(part)) {
@@ -254,7 +265,11 @@ function Part({
         Object.keys(part.input).length > 0);
     return (
       <Tool
-        defaultOpen={part.state !== "output-available"}
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setUserInteracted(true);
+          setOpen(nextOpen);
+        }}
         className="my-2 w-full"
       >
         {part.type === "dynamic-tool" ? (
@@ -437,6 +452,18 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
     }),
     enabled: Boolean(organizationId),
   });
+  const aiProviders = useQuery({
+    ...trpc.ai.listProviders.queryOptions({
+      organizationId: organizationId as string,
+    }),
+    enabled: Boolean(organizationId),
+  });
+
+  const hasAiProvider = Boolean(
+    aiProviders.data?.some(
+      (provider) => provider.configured && provider.enabled,
+    ),
+  );
 
   const pageContext = useMemo<UpGalPageContext>(
     () => ({
@@ -559,7 +586,11 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
 
   async function send(text: string, files?: FileUIPart[]) {
     const trimmedText = text.trim();
-    if ((!trimmedText && (!files || files.length === 0)) || !organizationId)
+    if (
+      (!trimmedText && (!files || files.length === 0)) ||
+      !organizationId ||
+      !hasAiProvider
+    )
       return;
     const id = await ensureConversation();
     await chat.sendMessage(
@@ -614,13 +645,13 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
       {!open ? (
         <Button
           aria-label="Open UpGal assistant"
-          className="fixed right-5 bottom-5 z-70 size-14 rounded-full shadow-lg"
+          className="fixed right-5 bottom-5 z-40 size-14 rounded-full shadow-lg"
           onClick={() => setOpen(true)}
         >
           <MessageCircle className="size-6" />
         </Button>
       ) : (
-        <section className="fixed inset-x-3 bottom-3 z-70 flex h-[min(720px,calc(100svh-24px))] flex-col overflow-hidden rounded-xl border bg-background shadow-2xl sm:inset-x-auto sm:right-5 sm:w-110">
+        <section className="fixed inset-x-3 bottom-3 z-40 flex h-[min(720px,calc(100svh-24px))] flex-col overflow-hidden rounded-xl border bg-background shadow-2xl sm:inset-x-auto sm:right-5 sm:w-110">
           <header className="flex items-center gap-3 border-b px-4 py-3">
             <div className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground">
               <Bot className="size-5" />
@@ -646,7 +677,7 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
               <PopoverContent
                 align="end"
                 className="w-[min(88vw,340px)] gap-2 p-2"
-                positionerClassName="z-[80]"
+                positionerClassName="z-50"
               >
                 <div className="flex items-center justify-between px-2 py-1">
                   <p className="font-semibold text-sm">
@@ -729,11 +760,38 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
           <Conversation className="min-h-0 flex-1">
             <ConversationContent className="gap-4 p-4">
               {chat.messages.length === 0 ? (
-                <ConversationEmptyState
-                  icon={<Bot className="size-8" />}
-                  title="What should I inspect?"
-                  description="Ask UpGal to list projects, inspect environments, read logs, or check Docker. Any change requires your approval."
-                />
+                <ConversationEmptyState>
+                  <div className="text-muted-foreground">
+                    <Bot className="size-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-medium text-sm">
+                      What should I inspect?
+                    </h3>
+                    <p className="text-muted-foreground text-sm">
+                      Ask UpGal to list projects, inspect environments, read
+                      logs, or check Docker. Any change requires your approval.
+                    </p>
+                  </div>
+                  {!hasAiProvider && !aiProviders.isPending ? (
+                    <Button
+                      title="Add Provider"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 gap-1.5"
+                      onClick={() => {
+                        window.dispatchEvent(
+                          new CustomEvent("open-settings-dialog", {
+                            detail: { page: "upgal" },
+                          }),
+                        );
+                      }}
+                    >
+                      <Plus className="size-4" />
+                      Add Provider
+                    </Button>
+                  ) : null}
+                </ConversationEmptyState>
               ) : null}
               {chat.messages.map((message) => (
                 <Message key={message.id} from={message.role}>
@@ -831,6 +889,7 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
                 Shift + Enter for a new line
               </span>
               <PromptInputSubmit
+                disabled={!hasAiProvider}
                 status={chat.status}
                 onStop={() => chat.stop()}
               />

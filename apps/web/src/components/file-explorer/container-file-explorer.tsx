@@ -47,6 +47,11 @@ import {
   TableHeader,
   TableRow,
 } from "@upstand/ui/components/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@upstand/ui/components/tooltip";
 import { cn } from "@upstand/ui/lib/utils";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -54,6 +59,10 @@ import { trpc } from "@/utils/trpc";
 
 interface ContainerFileExplorerProps {
   resourceId: string;
+  initialContainerId?: string;
+  initialPath?: string;
+  title?: string;
+  compact?: boolean;
 }
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
@@ -81,12 +90,16 @@ function base64ToArrayBuffer(value: string): ArrayBuffer {
 
 export function ContainerFileExplorer({
   resourceId,
+  initialContainerId,
+  initialPath = "/",
+  title = "Container Volume Explorer",
+  compact = false,
 }: ContainerFileExplorerProps) {
   const queryClient = useQueryClient();
-  const [currentPath, setCurrentPath] = useState("/");
+  const [currentPath, setCurrentPath] = useState(initialPath);
   const [selectedContainer, setSelectedContainer] = useState<
     string | undefined
-  >(undefined);
+  >(initialContainerId);
   const hasActiveContainer = Boolean(selectedContainer);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
@@ -112,6 +125,13 @@ export function ContainerFileExplorer({
     name: string;
   } | null>(null);
 
+  const [chmodModalItem, setChmodModalItem] = useState<{
+    path: string;
+    name: string;
+    permissions: string;
+  } | null>(null);
+  const [chmodMode, setChmodMode] = useState("0644");
+
   const [unsavedGuardAction, setUnsavedGuardAction] = useState<
     (() => void) | null
   >(null);
@@ -134,6 +154,15 @@ export function ContainerFileExplorer({
     }
 
     if (containersData.length > 0) {
+      const initialContainerExists = initialContainerId
+        ? containersData.some(
+            (c: { id: string; name: string }) =>
+              c.id === initialContainerId ||
+              c.id.startsWith(initialContainerId) ||
+              initialContainerId.startsWith(c.id) ||
+              c.name === initialContainerId,
+          )
+        : false;
       const exists = containersData.some(
         (c: { id: string; name: string }) =>
           c.id === selectedContainer ||
@@ -141,11 +170,22 @@ export function ContainerFileExplorer({
           selectedContainer?.startsWith(c.id) ||
           c.name === selectedContainer,
       );
-      if (!exists && containersData[0]) {
+      if (initialContainerExists) {
+        const matchingContainer = containersData.find(
+          (c: { id: string; name: string }) =>
+            c.id === initialContainerId ||
+            c.id.startsWith(initialContainerId ?? "___") ||
+            initialContainerId?.startsWith(c.id) ||
+            c.name === initialContainerId,
+        );
+        if (matchingContainer && selectedContainer !== matchingContainer.id) {
+          setSelectedContainer(matchingContainer.id);
+        }
+      } else if (!exists && containersData[0]) {
         setSelectedContainer(containersData[0].id);
       }
     }
-  }, [containersData, selectedContainer]);
+  }, [containersData, initialContainerId, selectedContainer]);
 
   useEffect(() => {
     const timeout = window.setTimeout(
@@ -157,11 +197,11 @@ export function ContainerFileExplorer({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset explorer state when the selected container changes
   useEffect(() => {
-    setCurrentPath("/");
+    setCurrentPath(initialPath);
     setSelectedFilePath(null);
     setSearchQuery("");
     setDebouncedSearchQuery("");
-  }, [selectedContainer]);
+  }, [initialPath, selectedContainer]);
 
   // Fetch file list
   const {
@@ -281,6 +321,25 @@ export function ContainerFileExplorer({
       toast.error(`Deletion failed: ${err.message}`);
     },
   });
+
+  const changePermissionsMutation = useMutation({
+    ...trpc.containerFileManager.changePermissions.mutationOptions(),
+    onSuccess: () => {
+      toast.success("Permissions updated successfully");
+      setChmodModalItem(null);
+      refetch();
+    },
+    onError: (err) => {
+      toast.error(`Permission change failed: ${err.message}`);
+    },
+  });
+
+  // This effect intentionally runs whenever the selected path changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedFilePath is the trigger for resetting editor state.
+  useEffect(() => {
+    setEditingFileContent("");
+    setHasUnsavedChanges(false);
+  }, [selectedFilePath]);
 
   const checkUnsavedAndRun = (action: () => void) => {
     if (hasUnsavedChanges) {
@@ -420,7 +479,14 @@ export function ContainerFileExplorer({
   };
 
   return (
-    <div className="flex h-[750px] w-full flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-lg">
+    <div
+      className={cn(
+        "flex w-full flex-col overflow-hidden border border-border bg-card text-card-foreground",
+        compact
+          ? "h-full min-h-0 rounded-lg shadow-none"
+          : "h-[750px] rounded-xl shadow-lg",
+      )}
+    >
       {/* Hidden File Input for Container Upload */}
       <input
         type="file"
@@ -430,14 +496,19 @@ export function ContainerFileExplorer({
       />
 
       {/* Explorer Header & Control Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-border/70 border-b bg-muted/40 px-4 py-2.5">
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 border-border/70 border-b bg-muted/40 py-2.5",
+          compact ? "px-3" : "px-4",
+        )}
+      >
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <HugeiconsIcon icon={FolderOpenIcon} className="h-4 w-4" />
             </span>
             <span className="font-semibold text-foreground text-sm tracking-tight">
-              Container Volume Explorer
+              {title}
             </span>
           </div>
 
@@ -482,63 +553,115 @@ export function ContainerFileExplorer({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1.5">
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => {
-              setNewItemParentPath(currentPath);
-              setNewItemModal("file");
-            }}
-            disabled={!hasActiveContainer}
-            className="h-8 font-medium text-xs"
-          >
-            <HugeiconsIcon icon={PlusSignIcon} className="mr-1 h-3.5 w-3.5" />
-            New File
-          </Button>
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => {
-              setNewItemParentPath(currentPath);
-              setNewItemModal("directory");
-            }}
-            disabled={!hasActiveContainer}
-            className="h-8 font-medium text-xs"
-          >
-            <HugeiconsIcon icon={FolderIcon} className="mr-1 h-3.5 w-3.5" />
-            New Folder
-          </Button>
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => handleFileUploadSelect(currentPath)}
-            disabled={!hasActiveContainer}
-            className="h-8 font-medium text-xs"
-          >
-            <HugeiconsIcon icon={Upload01Icon} className="mr-1 h-3.5 w-3.5" />
-            Upload File
-          </Button>
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() => refetch()}
-            disabled={!hasActiveContainer || isRefetching}
-            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-            title="Refresh Directory"
-            aria-label="Refresh directory"
-          >
-            <HugeiconsIcon
-              icon={RefreshIcon}
-              className={cn("h-4 w-4", isRefetching && "animate-spin")}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => {
+                    setNewItemParentPath(currentPath);
+                    setNewItemModal("file");
+                  }}
+                  disabled={!hasActiveContainer}
+                  className="h-8 font-medium text-xs"
+                >
+                  <HugeiconsIcon
+                    icon={PlusSignIcon}
+                    className="mr-1 h-3.5 w-3.5"
+                  />
+                  New File
+                </Button>
+              }
             />
-          </Button>
+            <TooltipContent>
+              Create new file in current directory
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => {
+                    setNewItemParentPath(currentPath);
+                    setNewItemModal("directory");
+                  }}
+                  disabled={!hasActiveContainer}
+                  className="h-8 font-medium text-xs"
+                >
+                  <HugeiconsIcon
+                    icon={FolderIcon}
+                    className="mr-1 h-3.5 w-3.5"
+                  />
+                  New Folder
+                </Button>
+              }
+            />
+            <TooltipContent>
+              Create new subfolder in current directory
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => handleFileUploadSelect(currentPath)}
+                  disabled={!hasActiveContainer}
+                  className="h-8 font-medium text-xs"
+                >
+                  <HugeiconsIcon
+                    icon={Upload01Icon}
+                    className="mr-1 h-3.5 w-3.5"
+                  />
+                  Upload File
+                </Button>
+              }
+            />
+            <TooltipContent>
+              Upload local file to container folder
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => refetch()}
+                  disabled={!hasActiveContainer || isRefetching}
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                  aria-label="Refresh directory"
+                >
+                  <HugeiconsIcon
+                    icon={RefreshIcon}
+                    className={cn("h-4 w-4", isRefetching && "animate-spin")}
+                  />
+                </Button>
+              }
+            />
+            <TooltipContent>Refresh directory listing</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
       {/* Split Layout */}
-      <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-12">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 overflow-hidden",
+          compact ? "grid-cols-12" : "grid-cols-1 md:grid-cols-12",
+        )}
+      >
         {/* Left Sidebar: File Tree & Navigation */}
-        <div className="flex flex-col border-border/70 border-r bg-card/40 md:col-span-4 lg:col-span-4">
+        <div
+          className={cn(
+            "flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border/70 border-r bg-card/40",
+            compact ? "col-span-4" : "md:col-span-4 lg:col-span-4",
+          )}
+        >
           {/* Breadcrumb Path & Search */}
           <div className="space-y-2 border-border/50 border-b bg-muted/20 p-3">
             {/* Breadcrumb */}
@@ -636,7 +759,7 @@ export function ContainerFileExplorer({
           </div>
 
           {/* Directory File List */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {!hasActiveContainer ? (
               <div
                 className="flex h-48 flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground text-xs"
@@ -820,6 +943,21 @@ export function ContainerFileExplorer({
                               >
                                 ✏️ Rename / Move
                               </ContextMenuItem>
+                              <ContextMenuItem
+                                onClick={() => {
+                                  setChmodModalItem({
+                                    path: file.path,
+                                    name: file.name,
+                                    permissions: file.permissions || "0644",
+                                  });
+                                  const perm = file.permissions || "0644";
+                                  setChmodMode(
+                                    perm.length === 3 ? `0${perm}` : perm,
+                                  );
+                                }}
+                              >
+                                🔒 Change Permissions (chmod)
+                              </ContextMenuItem>
                               <ContextMenuSeparator />
                               <ContextMenuItem
                                 onClick={() =>
@@ -904,7 +1042,14 @@ export function ContainerFileExplorer({
         </div>
 
         {/* Right Main Editor Panel */}
-        <div className="flex flex-col border-border border-t bg-background text-foreground md:col-span-8 md:border-t-0 lg:col-span-8">
+        <div
+          className={cn(
+            "min-w-0 flex-col border-border bg-background text-foreground",
+            compact
+              ? "col-span-8 flex border-t-0"
+              : "flex border-t md:col-span-8 md:border-t-0 lg:col-span-8",
+          )}
+        >
           {selectedFilePath ? (
             <div className="flex h-full flex-col">
               {/* Tab Header */}
@@ -1232,6 +1377,110 @@ export function ContainerFileExplorer({
               }}
             >
               Discard Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Permissions (chmod) Dialog */}
+      <Dialog
+        open={chmodModalItem !== null}
+        onOpenChange={(open) => {
+          if (!open) setChmodModalItem(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change Permissions (chmod)</DialogTitle>
+            <DialogDescription className="font-mono text-xs">
+              Modify file permissions for{" "}
+              <span className="font-semibold text-primary">
+                {chmodModalItem?.name}
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="chmod-mode" className="text-xs">
+                Octal Permission Mode (e.g. 0644, 0755, 0777)
+              </Label>
+              <Input
+                id="chmod-mode"
+                placeholder="0644"
+                value={chmodMode}
+                onChange={(e) => setChmodMode(e.target.value)}
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => setChmodMode("0644")}
+                className="h-6 text-[10px]"
+              >
+                0644 (File Default)
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => setChmodMode("0755")}
+                className="h-6 text-[10px]"
+              >
+                0755 (Dir/Exec)
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => setChmodMode("0600")}
+                className="h-6 text-[10px]"
+              >
+                0600 (Private)
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => setChmodMode("0777")}
+                className="h-6 text-[10px]"
+              >
+                0777 (Full Access)
+              </Button>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setChmodModalItem(null)}
+              disabled={changePermissionsMutation.isPending}
+              className="text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!chmodModalItem) return;
+                changePermissionsMutation.mutate({
+                  resourceId,
+                  containerId: selectedContainer,
+                  path: chmodModalItem.path,
+                  mode: chmodMode,
+                });
+              }}
+              disabled={changePermissionsMutation.isPending}
+              className="text-xs"
+            >
+              {changePermissionsMutation.isPending
+                ? "Applying…"
+                : "Apply Permissions"}
             </Button>
           </DialogFooter>
         </DialogContent>

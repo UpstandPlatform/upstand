@@ -643,19 +643,6 @@ export class DockerService {
     const envArray = Object.entries(mergedEnv).map(([k, v]) => `${k}=${v}`);
     const volumeName = `upstand-db-data-${resource.id}`;
 
-    const isDev = env.NODE_ENV === "development";
-    const getPublishedPort = (p: number) => {
-      if (!isDev) return p;
-      if (p === 5432) return 5433;
-      if (p === 3306) return 3307;
-      if (p === 27017) return 27018;
-      if (p === 6379) return 6380;
-      if (p === 5001) return 5002;
-      if (p === 5000) return 5001;
-      if (p === 8080) return 8081;
-      return p + 1;
-    };
-
     const containerSpec: MutableContainerSpec = {
       Image: image,
       Env: envArray,
@@ -687,7 +674,7 @@ export class DockerService {
       ];
     }
 
-    const publishedPortForTarget = (targetPort: number): number => {
+    const publishedPortForTarget = (targetPort: number): number | undefined => {
       if (dbType === "libsql") {
         if (targetPort === 8080 && resource.externalPort) {
           return resource.externalPort;
@@ -698,10 +685,24 @@ export class DockerService {
         if (targetPort === 5000 && resource.libsqlAdminPort) {
           return resource.libsqlAdminPort;
         }
-        return getPublishedPort(targetPort);
+        return undefined;
       }
-      return resource.externalPort ?? getPublishedPort(targetPort);
+      return resource.externalPort ? resource.externalPort : undefined;
     };
+
+    const publishedPorts: Docker.PortConfig[] = ports
+      .map((p) => {
+        const pub = publishedPortForTarget(p);
+        if (!pub) return null;
+        return {
+          Protocol: "tcp" as const,
+          PublishedPort: pub,
+          TargetPort: p,
+          PublishMode: "ingress" as const,
+        };
+      })
+      .filter((p): p is NonNullable<typeof p> => p !== null);
+
     const spec: Docker.CreateServiceOptions = {
       Name: serviceName,
       Labels: { "com.upstand.resource-id": resource.id },
@@ -713,14 +714,13 @@ export class DockerService {
         Placement: constraints ? { Constraints: constraints } : undefined,
         Networks: [{ Target: networkId }],
       },
-      EndpointSpec: {
-        Ports: ports.map((p) => ({
-          Protocol: "tcp",
-          PublishedPort: publishedPortForTarget(p),
-          TargetPort: p,
-          PublishMode: "ingress",
-        })),
-      },
+      ...(publishedPorts.length > 0
+        ? {
+            EndpointSpec: {
+              Ports: publishedPorts,
+            },
+          }
+        : {}),
     };
 
     const endpointSpec = spec.EndpointSpec || {};

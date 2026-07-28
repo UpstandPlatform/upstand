@@ -1,0 +1,4 @@
+#!/bin/sh
+
+bun run check-types
+bun test packages

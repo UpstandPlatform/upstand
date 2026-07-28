@@ -32,6 +32,7 @@ import { ssoRouter } from "./sso.router";
 import { swarmRouter } from "./swarm.router";
 import { tagRouter } from "./tag.router";
 import { templateRouter } from "./template.router";
+import { topologyRouter } from "./topology.router";
 import { webServerRouter } from "./web-server.router";
 
 export const appRouter = router({
@@ -73,6 +74,7 @@ export const appRouter = router({
   sso: ssoRouter,
   containerFileManager: containerFileManagerRouter,
   secret: secretRouter,
+  topology: topologyRouter,
 });
 
 export type AppRouter = typeof appRouter;

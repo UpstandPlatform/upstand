@@ -193,6 +193,19 @@ export const DeleteContainerItemInputSchema = z.object({
   path: z.string().min(1).max(MAX_CONTAINER_FILE_PATH_LENGTH),
 });
 
+export const ChangeContainerItemPermissionsInputSchema = z.object({
+  organizationId: z.string().min(1),
+  resourceId: z.string().min(1),
+  containerId: z.string().optional(),
+  path: z.string().min(1).max(MAX_CONTAINER_FILE_PATH_LENGTH),
+  mode: z
+    .string()
+    .regex(
+      /^[0-7]{3,4}$/,
+      "Permission mode must be a 3 or 4-digit octal string like 0644 or 0755.",
+    ),
+});
+
 export const SearchContainerFilesInputSchema = z.object({
   organizationId: z.string().min(1),
   resourceId: z.string().min(1),
@@ -350,8 +363,8 @@ export class ContainerFileManagerUseCase {
     const safePath = shellQuote(normalizedPath);
     const command =
       encoding === "base64"
-        ? `test -f ${safePath} && test -r ${safePath} && [ "$(wc -c < ${safePath})" -le ${MAX_CONTAINER_FILE_SIZE_BYTES} ] && base64 ${safePath}`
-        : `test -f ${safePath} && test -r ${safePath} && [ "$(wc -c < ${safePath})" -le ${MAX_CONTAINER_FILE_SIZE_BYTES} ] && cat -- ${safePath}`;
+        ? `if [ ! -e ${safePath} ]; then echo "File does not exist" >&2; exit 1; fi; if [ -d ${safePath} ]; then echo "Path is a directory" >&2; exit 1; fi; if [ ! -r ${safePath} ]; then echo "Permission denied: File is not readable" >&2; exit 1; fi; if [ "$(wc -c < ${safePath})" -gt ${MAX_CONTAINER_FILE_SIZE_BYTES} ]; then echo "File exceeds the 10 MB size limit" >&2; exit 1; fi; base64 ${safePath}`
+        : `if [ ! -e ${safePath} ]; then echo "File does not exist" >&2; exit 1; fi; if [ -d ${safePath} ]; then echo "Path is a directory" >&2; exit 1; fi; if [ ! -r ${safePath} ]; then echo "Permission denied: File is not readable" >&2; exit 1; fi; if [ "$(wc -c < ${safePath})" -gt ${MAX_CONTAINER_FILE_SIZE_BYTES} ]; then echo "File exceeds the 10 MB size limit" >&2; exit 1; fi; cat ${safePath}`;
 
     const result = await this.execChecked(target, containerId, command);
 
@@ -360,6 +373,35 @@ export class ContainerFileManagerUseCase {
       path: normalizedPath,
       encoding,
     };
+  }
+
+  async changePermissions(
+    input: z.infer<typeof ChangeContainerItemPermissionsInputSchema>,
+  ): Promise<{ success: boolean }> {
+    const { target, containerId } = await this.resolveTargetContainer(
+      input.organizationId,
+      input.resourceId,
+      input.containerId,
+    );
+
+    const normalizedPath = assertValidContainerPath(input.path, "File path");
+    if (DANGEROUS_SYSTEM_PATHS.has(normalizedPath) || normalizedPath === "/") {
+      throw new Error(
+        "Changing permissions of system root or system directory is forbidden for security.",
+      );
+    }
+
+    const mode = input.mode.trim();
+    if (!/^[0-7]{3,4}$/.test(mode)) {
+      throw new Error(
+        "Permission mode must be an octal string like 0644 or 0755.",
+      );
+    }
+
+    const command = `chmod ${shellQuote(mode)} -- ${shellQuote(normalizedPath)}`;
+    await this.execChecked(target, containerId, command);
+
+    return { success: true };
   }
 
   async writeFile(

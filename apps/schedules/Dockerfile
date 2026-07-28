@@ -66,7 +66,7 @@ COPY --from=buildx /buildx /usr/libexec/docker/cli-plugins/docker-buildx
 RUN chmod 0755 /usr/libexec/docker/cli-plugins/docker-buildx && docker buildx version
 
 COPY --from=pruner /out/json/ ./
-RUN --mount=type=cache,target=/root/.bun/install/cache bun install --production --frozen-lockfile
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install --production --ignore-scripts --frozen-lockfile
 
 COPY --from=builder /app/apps/schedules/dist ./apps/schedules/dist
 COPY --from=builder /app/packages/db/src/migrations ./packages/db/src/migrations

@@ -1,0 +1,3 @@
+# Configure Bun workspace watch root
+[watch]
+root = "."

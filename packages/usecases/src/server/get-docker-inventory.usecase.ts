@@ -17,6 +17,7 @@ export const DockerInventoryKindSchema = z.enum([
   "volumes",
   "networks",
   "services",
+  "swarm_nodes",
   "logs",
   "stats",
 ]);
@@ -104,6 +105,8 @@ export class GetDockerInventoryUseCase {
         return this.inventory.listNetworks(target);
       case "services":
         return this.inventory.listServices(target);
+      case "swarm_nodes":
+        return this.inventory.listSwarmNodes(target);
       case "logs":
         return this.inventory.getLogs(target, {
           containerId: input.containerId,

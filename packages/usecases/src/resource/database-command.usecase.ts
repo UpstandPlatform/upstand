@@ -1,5 +1,6 @@
 import type { IUnitOfWork, Resource } from "@upstand/domain";
 import { z } from "zod";
+import { shellQuote } from "../server/container-resolution.helper";
 import { getDatabaseEnvironment } from "./database-environment";
 import type { DockerCommandService as DockerService } from "./docker-client";
 import { resolveDockerServiceForServer } from "./docker-client";
@@ -25,27 +26,29 @@ function resolveEngineCommand(
     if (dbType === "postgres") {
       const user = dbEnv.POSTGRES_USER || "postgres";
       const db = dbEnv.POSTGRES_DB;
-      return db ? `pg_isready -U ${user} -d ${db}` : `pg_isready -U ${user}`;
+      return db
+        ? `pg_isready -U ${shellQuote(user)} -d ${shellQuote(db)}`
+        : `pg_isready -U ${shellQuote(user)}`;
     }
     if (dbType === "mysql" || dbType === "mariadb") {
       const user = dbEnv.MYSQL_USER || "root";
       const pass = dbEnv.MYSQL_ROOT_PASSWORD || dbEnv.MYSQL_PASSWORD;
-      const passFlag = pass ? ` -p"${pass}"` : "";
+      const passFlag = pass ? ` -p${shellQuote(pass)}` : "";
       const tool = dbType === "mariadb" ? "mariadb-admin" : "mysqladmin";
-      return `${tool} ping${user !== "root" ? ` -u ${user}` : ""}${passFlag}`;
+      return `${tool} ping${user !== "root" ? ` -u ${shellQuote(user)}` : ""}${passFlag}`;
     }
     if (dbType === "mongodb") {
       const user = dbEnv.MONGO_INITDB_ROOT_USERNAME;
       const pass = dbEnv.MONGO_INITDB_ROOT_PASSWORD;
       const auth =
         user && pass
-          ? ` -u "${user}" -p "${pass}" --authenticationDatabase admin`
+          ? ` -u ${shellQuote(user)} -p ${shellQuote(pass)} --authenticationDatabase admin`
           : "";
       return `mongosh${auth} --quiet --eval 'db.runCommand({ ping: 1 }).ok'`;
     }
     if (dbType === "redis") {
       const pass = dbEnv.REDIS_PASSWORD;
-      const auth = pass ? ` -a "${pass}"` : "";
+      const auth = pass ? ` --no-auth-warning -a ${shellQuote(pass)}` : "";
       return `redis-cli${auth} ping`;
     }
     if (dbType === "libsql") {

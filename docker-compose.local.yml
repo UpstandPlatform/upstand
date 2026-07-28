@@ -4,6 +4,9 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: upstand-postgres-local
+    labels:
+      com.upstand.component: postgres
+      com.upstand.platform: "true"
     environment:
       POSTGRES_DB: upstand
       POSTGRES_USER: postgres
@@ -12,6 +15,9 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - upstand-network
+      - local-ingress
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -24,6 +30,10 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: upstand-server-local
+    init: true
+    labels:
+      com.upstand.component: server
+      com.upstand.platform: "true"
     command:
       ["/bin/sh", "-ec", "sh apps/server/scripts/ensure-local-swarm.sh && exec bun --watch apps/server/src/index.ts"]
     ports:
@@ -32,16 +42,28 @@ services:
       - .:/app
       - /app/node_modules
       - /app/apps/server/node_modules
+      - /app/apps/schedules/node_modules
       - /app/apps/web/node_modules
       - /app/apps/fumadocs/node_modules
-      - /app/packages/repositories/node_modules
+      - /app/packages/api/node_modules
+      - /app/packages/auth/node_modules
+      - /app/packages/config/node_modules
+      - /app/packages/db/node_modules
       - /app/packages/domain/node_modules
+      - /app/packages/env/node_modules
+      - /app/packages/infrastructure/node_modules
       - /app/packages/platform/node_modules
+      - /app/packages/redis/node_modules
+      - /app/packages/repositories/node_modules
+      - /app/packages/ui/node_modules
       - /app/packages/usecases/node_modules
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.docker/caddy:/etc/caddy
     environment:
       NODE_ENV: development
+      IS_CLOUD: ${IS_CLOUD:-false}
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-upstand-local-password}@postgres:5432/upstand
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-upstand-local-development-secret-that-is-at-least-32-characters}
       BETTER_AUTH_URL: http://localhost:3000
@@ -50,11 +72,12 @@ services:
       DOCKER_NETWORK: upstand-network
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
     networks:
-      default:
+      upstand-network:
         aliases:
           # Keep local Compose compatible with the service name used by the
           # monitoring agent and generated Caddy configuration.
           - upstand_server
+      local-ingress: {}
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,6 +95,10 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: upstand-schedules-local
+    init: true
+    labels:
+      com.upstand.component: schedules
+      com.upstand.platform: "true"
     # Run the entrypoint directly so the package-level --env-file does not
     # overwrite Compose's service URLs with localhost values inside Docker.
     command: bun --watch apps/schedules/src/index.ts
@@ -84,22 +111,37 @@ services:
       - /app/apps/schedules/node_modules
       - /app/apps/web/node_modules
       - /app/apps/fumadocs/node_modules
-      - /app/packages/repositories/node_modules
+      - /app/packages/api/node_modules
+      - /app/packages/auth/node_modules
+      - /app/packages/config/node_modules
+      - /app/packages/db/node_modules
       - /app/packages/domain/node_modules
+      - /app/packages/env/node_modules
+      - /app/packages/infrastructure/node_modules
+      - /app/packages/platform/node_modules
+      - /app/packages/redis/node_modules
+      - /app/packages/repositories/node_modules
+      - /app/packages/ui/node_modules
       - /app/packages/usecases/node_modules
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       NODE_ENV: development
+      IS_CLOUD: ${IS_CLOUD:-false}
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-upstand-local-password}@postgres:5432/upstand
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-upstand-local-development-secret-that-is-at-least-32-characters}
       REDIS_URL: redis://redis:6379
       SCHEDULES_PORT: 3002
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
+    networks:
+      - upstand-network
+      - local-ingress
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       server:
         condition: service_healthy
     healthcheck:
@@ -109,15 +151,16 @@ services:
       retries: 12
       start_period: 30s
 
-
   web:
     build:
       context: .
       dockerfile: Dockerfile.dev
     container_name: upstand-web-local
-    # Keep Webpack for Docker dev until Turbopack supports this monorepo's
-    # nested dynamic project routes without returning false 404 responses.
-    command: bun run --cwd apps/web dev -- --webpack
+    init: true
+    labels:
+      com.upstand.component: web
+      com.upstand.platform: "true"
+    command: bun run --cwd apps/web dev
     ports:
       - "3001:3001"
     volumes:
@@ -126,24 +169,53 @@ services:
       - web_next_cache:/app/apps/web/.next
       - /app/node_modules
       - /app/apps/server/node_modules
+      - /app/apps/schedules/node_modules
       - /app/apps/web/node_modules
       - /app/apps/fumadocs/node_modules
-      - /app/packages/repositories/node_modules
+      - /app/packages/api/node_modules
+      - /app/packages/auth/node_modules
+      - /app/packages/config/node_modules
+      - /app/packages/db/node_modules
       - /app/packages/domain/node_modules
+      - /app/packages/env/node_modules
+      - /app/packages/infrastructure/node_modules
+      - /app/packages/platform/node_modules
+      - /app/packages/redis/node_modules
+      - /app/packages/repositories/node_modules
+      - /app/packages/ui/node_modules
       - /app/packages/usecases/node_modules
     environment:
       NODE_ENV: development
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
       NEXT_PUBLIC_SERVER_URL: http://localhost:3000
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000
+    networks:
+      - upstand-network
+      - local-ingress
     depends_on:
       server:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   fumadocs:
     build:
       context: .
       dockerfile: Dockerfile.dev
     container_name: upstand-fumadocs-local
+    init: true
+    labels:
+      com.upstand.component: fumadocs
+      com.upstand.platform: "true"
     # Invoke the package script directly; the root dev bootstrap expects
     # Docker access and is not needed for the documentation site.
     command: bun run --cwd apps/fumadocs dev
@@ -155,24 +227,60 @@ services:
       - fumadocs_next_cache:/app/apps/fumadocs/.next
       - /app/node_modules
       - /app/apps/server/node_modules
+      - /app/apps/schedules/node_modules
       - /app/apps/web/node_modules
       - /app/apps/fumadocs/node_modules
-      - /app/packages/repositories/node_modules
+      - /app/packages/api/node_modules
+      - /app/packages/auth/node_modules
+      - /app/packages/config/node_modules
+      - /app/packages/db/node_modules
       - /app/packages/domain/node_modules
+      - /app/packages/env/node_modules
+      - /app/packages/infrastructure/node_modules
+      - /app/packages/platform/node_modules
+      - /app/packages/redis/node_modules
+      - /app/packages/repositories/node_modules
+      - /app/packages/ui/node_modules
       - /app/packages/usecases/node_modules
     environment:
       NODE_ENV: development
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    networks:
+      - upstand-network
+      - local-ingress
     depends_on:
       server:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:4000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   redis:
     image: redis:8-alpine
     container_name: upstand-redis-local
+    labels:
+      com.upstand.component: redis
+      com.upstand.platform: "true"
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - upstand-network
+      - local-ingress
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     restart: unless-stopped
 
 volumes:
@@ -180,3 +288,10 @@ volumes:
   redis_data:
   web_next_cache:
   fumadocs_next_cache:
+
+networks:
+  upstand-network:
+    external: true
+    name: ${DOCKER_NETWORK:-upstand-network}
+  local-ingress:
+    driver: bridge

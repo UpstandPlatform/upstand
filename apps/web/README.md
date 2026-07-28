@@ -5,7 +5,6 @@ The **Upstand Dashboard Web Client** is the modern web user interface for managi
 ## Features
 
 - **Workload Management**: Unified UI for Applications, Docker Compose stacks, and Databases (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, libSQL).
-- **Cluster & Swarm Topology**: Interactive visual network and node topology map (`features/topology`).
 - **UpGal AI Assistant**: Built-in AI assistant drawer with human-in-the-loop approval workflows for mutating operations.
 - **Web SSH & Container Terminals**: Interactive CodeMirror editor, container logs viewer, and secure web SSH shell.
 - **Organization & Multi-Tenancy**: Organization switching, team invitations, RBAC roles, SCIM directory management, and SSO setup.
@@ -26,7 +25,6 @@ src/
 │   │   └── ...
 │   └── api/                 # Client API proxy routes
 ├── features/                # Domain-specific UI features
-│   ├── topology/            # Interactive Swarm cluster map
 │   ├── upgal/               # AI Assistant chat & approval drawers
 │   ├── logs/                # Streaming log viewer
 │   └── ...

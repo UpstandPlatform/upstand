@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@upstand/ui/components/select";
 import { Spinner } from "@upstand/ui/components/spinner";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ShowDockerLogs } from "@/components/shared/docker-logs";
 import { TerminalEmulator } from "@/components/shared/terminal-emulator";
@@ -46,14 +46,13 @@ interface ConsoleTabProps {
   };
   organizationId: string;
   containers: ContainerInfo[];
-  sshKeys: ResourceDetailState["sshKeys"];
+  sshKeys?: ResourceDetailState["sshKeys"];
 }
 
 export function ConsoleTab({
   resource,
   organizationId,
   containers,
-  sshKeys,
 }: ConsoleTabProps) {
   const [logsLimit] = useState(300);
   const logsQuery = useQuery({
@@ -71,14 +70,20 @@ export function ConsoleTab({
   }, [logsQuery.data]);
 
   const [selectedContainerId, setSelectedContainerId] = useState<string>("");
-  const [selectedKeyId, setSelectedKeyId] = useState<string>("");
   const [token, setToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const terminalCardRef = useRef<HTMLDivElement>(null);
 
-  const isLocal =
-    !resource.serverId ||
-    resource.serverId === "local" ||
-    resource.serverId === "manager";
+  // Estimate terminal cols/rows from the container pixel size
+  function getTerminalDimensions(): { cols: number; rows: number } {
+    const el = terminalCardRef.current;
+    if (!el) return { cols: 120, rows: 30 };
+    const charW = 8.4; // approximate monospace char width at 13px
+    const charH = 17; // approximate line height at 13px * 1.2
+    const cols = Math.max(Math.floor(el.clientWidth / charW), 10);
+    const rows = Math.max(Math.floor(el.clientHeight / charH), 5);
+    return { cols, rows };
+  }
 
   // Pre-select first container when list updates
   useEffect(() => {
@@ -86,13 +91,6 @@ export function ConsoleTab({
       setSelectedContainerId(containers[0].id);
     }
   }, [containers, selectedContainerId]);
-
-  // Pre-select first SSH key when list updates
-  useEffect(() => {
-    if (isLocal && sshKeys.length > 0 && !selectedKeyId) {
-      setSelectedKeyId(sshKeys[0].id);
-    }
-  }, [isLocal, sshKeys, selectedKeyId]);
 
   const disconnect = () => {
     setToken(null);
@@ -103,12 +101,9 @@ export function ConsoleTab({
       toast.error("Please select a container to connect");
       return;
     }
-    if (isLocal && !selectedKeyId) {
-      toast.error("Choose an SSH key first");
-      return;
-    }
     setConnecting(true);
     try {
+      const dims = getTerminalDimensions();
       const response = await fetch(
         getServerApiUrl("/api/docker/terminal/session"),
         {
@@ -120,7 +115,8 @@ export function ConsoleTab({
             resourceId: resource.id,
             serverId: resource.serverId || "local",
             containerId: selectedContainerId,
-            ...(isLocal ? { sshKeyId: selectedKeyId } : {}),
+            cols: dims.cols,
+            rows: dims.rows,
           }),
         },
       );
@@ -212,44 +208,6 @@ export function ConsoleTab({
               </Select>
             </div>
 
-            {isLocal && (
-              <div className="flex min-w-[150px] flex-1 flex-col gap-1.5">
-                <Label
-                  htmlFor="terminal-key-select"
-                  className="text-muted-foreground text-xs"
-                >
-                  SSH Key
-                </Label>
-                <Select
-                  items={sshKeys.map((key) => ({
-                    value: key.id,
-                    label: key.name,
-                  }))}
-                  value={selectedKeyId}
-                  onValueChange={(val) => setSelectedKeyId(val ?? "")}
-                  disabled={token !== null || connecting}
-                >
-                  <SelectTrigger
-                    id="terminal-key-select"
-                    className="h-9 w-full border border-border/40 bg-background text-xs"
-                  >
-                    <SelectValue placeholder="Select SSH Key" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sshKeys.map((key) => (
-                      <SelectItem
-                        key={key.id}
-                        value={key.id}
-                        className="text-xs"
-                      >
-                        {key.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
             <div className="flex gap-2">
               {token === null ? (
                 <Button
@@ -281,7 +239,10 @@ export function ConsoleTab({
           </div>
 
           {/* Terminal viewport */}
-          <div className="relative flex min-h-[300px] flex-1 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#080c0a] shadow-inner">
+          <div
+            ref={terminalCardRef}
+            className="relative flex min-h-[420px] flex-1 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#080c0a] shadow-inner"
+          >
             <div className="flex h-9 shrink-0 items-center gap-2 border-white/10 border-b bg-[#0d1210] px-3 text-xs">
               <HugeiconsIcon
                 icon={TerminalIcon}
@@ -301,13 +262,15 @@ export function ConsoleTab({
                     : "offline"}
               </span>
             </div>
-            <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div className="relative min-h-[380px] flex-1 overflow-hidden">
               {token !== null ? (
-                <TerminalEmulator
-                  token={token}
-                  onReady={() => {}}
-                  onClose={disconnect}
-                />
+                <div className="absolute inset-0">
+                  <TerminalEmulator
+                    token={token}
+                    onReady={() => {}}
+                    onClose={disconnect}
+                  />
+                </div>
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
                   <div className="flex size-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 font-mono text-emerald-400 text-lg">

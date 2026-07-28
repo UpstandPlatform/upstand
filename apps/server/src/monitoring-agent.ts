@@ -142,7 +142,10 @@ async function initializeMonitoringOnce(): Promise<void> {
 
   const containerOpts = {
     name: MONITORING_CONTAINER_NAME,
-    Labels: { [MONITORING_LABEL]: MONITORING_LABEL_VALUE },
+    Labels: {
+      [MONITORING_LABEL]: MONITORING_LABEL_VALUE,
+      "com.upstand.platform": "true",
+    },
     Env: [
       `METRICS_CONFIG=${JSON.stringify(metricsConfig)}`,
       "DB_PATH=/data/monitoring.db",

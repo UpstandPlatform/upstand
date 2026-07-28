@@ -10,11 +10,17 @@ import {
 import { ensureOrganizationAccess } from "../access-control";
 import type { Context } from "../context";
 
+export type AuditOutcome = {
+  success: boolean;
+  errorCode?: string;
+};
+
 export async function recordAuditEvent(
   ctx: Context,
   path: string,
   organizationId: string,
   input: unknown,
+  outcome: AuditOutcome = { success: true },
 ) {
   try {
     if (!ctx.session || !ctx.actor) return;
@@ -23,9 +29,35 @@ export async function recordAuditEvent(
       organizationId,
     );
     const [resource = "system", operation = "read"] = path.split(".");
-    const action = resolveAuditAction(operation);
+    const attemptedAction = resolveAuditAction(operation);
+    const action = outcome.success ? attemptedAction : "failure";
     const resourceType = resolveAuditResourceType(resource);
-    const metadata = sanitizeAuditInput(input);
+    const inputMetadata = sanitizeAuditInput(input);
+    const metadata = {
+      ...inputMetadata,
+      audit: {
+        outcome: outcome.success ? "success" : "failure",
+        attemptedAction,
+        ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+      },
+    } satisfies JsonObject;
+    const resourceId = readStringField(inputMetadata, [
+      "resourceId",
+      "deploymentId",
+      "projectId",
+      "environmentId",
+      "serverId",
+      "providerId",
+      "id",
+    ]);
+    const resourceName = readStringField(inputMetadata, [
+      "resourceName",
+      "serverName",
+      "projectName",
+      "environmentName",
+      "name",
+      "appName",
+    ]);
     await ctx.scope.resolve(CreateAuditLogUseCaseToken).execute({
       organizationId,
       actorId: ctx.actor.userId,
@@ -34,8 +66,8 @@ export async function recordAuditEvent(
       actorRole: membership.role,
       action,
       resourceType,
-      resourceId: typeof metadata.id === "string" ? metadata.id : null,
-      resourceName: typeof metadata.name === "string" ? metadata.name : null,
+      resourceId,
+      resourceName,
       route: path,
       metadata,
       ipAddress: ctx.honoContext.req.header("x-forwarded-for") ?? null,
@@ -68,10 +100,7 @@ export async function resolveAuditOrganizationId(
   const activeOrganizationId = (
     ctx.session?.session as { activeOrganizationId?: unknown } | undefined
   )?.activeOrganizationId;
-  if (
-    typeof activeOrganizationId === "string" &&
-    (path.startsWith("webServer.") || path.startsWith("auth."))
-  ) {
+  if (typeof activeOrganizationId === "string" && path !== "auditLog.list") {
     return activeOrganizationId;
   }
 
@@ -157,7 +186,9 @@ export async function resolveAuditOrganizationId(
   return undefined;
 }
 
-function resolveAuditAction(operation: string): (typeof AUDIT_ACTIONS)[number] {
+export function resolveAuditAction(
+  operation: string,
+): (typeof AUDIT_ACTIONS)[number] {
   const normalized = operation.toLowerCase();
   if (normalized.includes("invite")) return "invite";
   if (normalized.includes("revoke") || normalized.includes("remove"))
@@ -182,7 +213,7 @@ function resolveAuditAction(operation: string): (typeof AUDIT_ACTIONS)[number] {
   return "read";
 }
 
-function resolveAuditResourceType(
+export function resolveAuditResourceType(
   resource: string,
 ): (typeof AUDIT_RESOURCE_TYPES)[number] {
   const aliases: Record<string, (typeof AUDIT_RESOURCE_TYPES)[number]> = {
@@ -211,25 +242,54 @@ function resolveAuditResourceType(
   );
 }
 
-function sanitizeAuditInput(input: unknown): JsonObject {
+export function sanitizeAuditInput(input: unknown): JsonObject {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return sanitizeAuditObject(input, 0);
+}
+
+function sanitizeAuditObject(input: object, depth: number): JsonObject {
   const sensitive =
-    /key|token|password|secret|credential|cookie|authorization|environment/i;
+    /key|token|password|secret|credential|cookie|authorization|private/i;
   const result: JsonObject = {};
   for (const [key, value] of Object.entries(input)) {
-    if (sensitive.test(key)) continue;
+    const normalizedKey = key.toLowerCase();
     if (
-      value === null ||
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      result[key] = value;
-    } else if (Array.isArray(value)) {
-      result[key] = value.length;
-    } else if (typeof value === "object") {
-      result[key] = "[redacted object]";
-    }
+      sensitive.test(key) ||
+      normalizedKey === "env" ||
+      normalizedKey === "environment"
+    )
+      continue;
+    const sanitized = sanitizeAuditValue(value, depth);
+    if (sanitized !== undefined) result[key] = sanitized;
   }
   return result;
+}
+
+function sanitizeAuditValue(value: unknown, depth: number) {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+  if (typeof value === "string") return value.slice(0, 500);
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === "object") {
+    return depth < 2
+      ? sanitizeAuditObject(value, depth + 1)
+      : "[nested object]";
+  }
+  return undefined;
+}
+
+function readStringField(
+  input: JsonObject,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
 }

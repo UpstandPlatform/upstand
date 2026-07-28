@@ -68,6 +68,7 @@ import {
   ServerDomainCard,
 } from "@/features/web-server/components/server-domain-card";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import type { authClient } from "@/lib/auth-client";
 import { copyText } from "@/lib/browser";
 import { trpc } from "@/utils/trpc";
@@ -676,7 +677,44 @@ export default function WebServerDashboard(_props: {
     setPortsModalOpen(false);
   };
 
+  const { isCloud } = useSystemConfig();
   const isSaving = updateSettingsMutation.isPending;
+
+  if (isCloud) {
+    return (
+      <DashboardPage className="gap-6">
+        <DashboardPageHeader
+          title="Web Server"
+          description="Control-plane reverse proxy and web server management."
+          icon={<ServerIcon className="size-6 text-primary" />}
+        />
+        <Card className="p-6">
+          <CardHeader className="p-0 pb-3">
+            <CardTitle className="font-semibold text-base">
+              Self-Hosted Feature
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Web Server control-plane configuration (global Caddy reverse
+              proxy, ports, and SSL settings for the control-plane host) applies
+              to self-hosted Upstand installations.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0 text-muted-foreground text-xs">
+            On Upstand Cloud, your workloads, databases, and domain routing are
+            managed on your connected{" "}
+            <a
+              href="/remote-servers"
+              className="font-medium text-primary underline"
+            >
+              Remote Servers
+            </a>
+            .
+          </CardContent>
+        </Card>
+      </DashboardPage>
+    );
+  }
+
   return (
     <DashboardPage>
       {/* Page Header */}

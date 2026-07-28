@@ -134,6 +134,14 @@ export function registerRuntime(services: ServiceCollection) {
       ),
   );
   services.addTransient(
+    dependencies.GetTopologyGraphUseCaseToken,
+    (c) =>
+      new dependencies.GetTopologyGraphUseCase(
+        c.resolve(dependencies.GetServersUseCaseToken),
+        c.resolve(dependencies.GetDockerInventoryUseCaseToken),
+      ),
+  );
+  services.addTransient(
     dependencies.SetupServerUseCaseToken,
     (c) =>
       new dependencies.SetupServerUseCase(

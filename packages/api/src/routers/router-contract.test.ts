@@ -73,6 +73,7 @@ describe("API router contract", () => {
       "secret",
       "sso",
       "containerFileManager",
+      "topology",
     ];
 
     expect(Object.keys(record).sort()).toEqual(expectedRouters.sort());

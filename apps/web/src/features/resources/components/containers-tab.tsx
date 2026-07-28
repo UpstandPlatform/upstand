@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { Button } from "@upstand/ui/components/button";
 import {
   Card,
@@ -25,14 +24,6 @@ import {
 } from "@upstand/ui/components/dropdown-menu";
 import { Input } from "@upstand/ui/components/input";
 import { Label } from "@upstand/ui/components/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@upstand/ui/components/select";
 import { cn } from "@upstand/ui/lib/utils";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -58,7 +49,6 @@ import {
 } from "@/lib/archive-upload";
 import { authClient } from "@/lib/auth-client";
 import { getServerApiUrl } from "@/lib/server-url";
-import { trpc } from "@/utils/trpc";
 import type { ResourceDetailState } from "../hooks/use-resource-detail";
 import { parseJsonObject } from "./general-tab.helpers";
 
@@ -553,13 +543,6 @@ function ContainerTerminalDialog({
   onClose(): void;
 }) {
   const { data: organization } = authClient.useActiveOrganization();
-  const { data: keys = [] } = useQuery({
-    ...trpc.sshKey.list.queryOptions({
-      organizationId: organization?.id as string,
-    }),
-    enabled: Boolean(organization?.id) && Boolean(container),
-  });
-  const [keyId, setKeyId] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
 
@@ -574,10 +557,7 @@ function ContainerTerminalDialog({
   };
 
   const connect = async () => {
-    if (!organization?.id || !container || !keyId) {
-      toast.error("Choose an SSH key first");
-      return;
-    }
+    if (!organization?.id || !container) return;
     setConnecting(true);
     try {
       const response = await fetch(
@@ -590,7 +570,6 @@ function ContainerTerminalDialog({
             organizationId: organization.id,
             resourceId,
             containerId: container.id,
-            sshKeyId: keyId,
           }),
         },
       );
@@ -621,42 +600,15 @@ function ContainerTerminalDialog({
           <span className="font-mono font-semibold text-foreground">
             {container?.name}
           </span>
-          . The selected SSH key stays on the server.
+          .
         </>
       }
       token={token}
       connecting={connecting}
-      emptyMessage="Select an SSH key and click Connect to start a terminal session"
+      emptyMessage="Connecting to container terminal..."
       onTerminalClose={disconnect}
       controls={
-        <div className="flex w-full flex-wrap gap-2">
-          <Select
-            items={[
-              { value: "_none", label: "Select SSH key" },
-              ...keys.map((key) => ({
-                value: key.id,
-                label: `${key.name} · ${key.fingerprint}`,
-              })),
-            ]}
-            value={keyId || "_none"}
-            onValueChange={(val) =>
-              setKeyId(val === "_none" || !val ? "" : val)
-            }
-          >
-            <SelectTrigger className="min-w-0 flex-1 sm:min-w-56 sm:flex-none">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="_none">Select SSH key</SelectItem>
-                {keys.map((key) => (
-                  <SelectItem key={key.id} value={key.id}>
-                    {key.name} · {key.fingerprint}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+        <div className="flex w-full flex-wrap justify-end gap-2">
           <Button
             className="flex-1 sm:flex-none"
             onClick={connect}

@@ -80,6 +80,8 @@ export function RenderEntityIcon({
       <Image
         src={icon}
         alt="Icon"
+        fill
+        unoptimized
         className={className}
         onError={(e) => {
           // Fallback if image URL fails to load
@@ -234,7 +236,7 @@ export function EditableEntityIcon({
             <div className="flex items-center gap-4 rounded-xl border border-border/40 bg-accent/20 p-3">
               <div
                 className={cn(
-                  "flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full",
+                  "relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full",
                   bgClassName,
                 )}
               >
