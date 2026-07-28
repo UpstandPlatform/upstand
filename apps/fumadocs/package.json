@@ -3,7 +3,8 @@
   "version": "0.1.2",
   "private": true,
   "scripts": {
-    "build": "next build --webpack",
+    "build": "next build",
+    "build:webpack": "next build --webpack",
     "dev": "next dev --turbopack --port=4000",
     "start": "next start",
     "check-types": "bun scripts/check-types.ts",

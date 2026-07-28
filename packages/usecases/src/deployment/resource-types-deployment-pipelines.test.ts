@@ -70,10 +70,14 @@ describe("Resource Types & Deployment Pipeline Configurations", () => {
   describe("Database Resource Pipelines", () => {
     test("validates supported database images for PostgreSQL, MySQL, Redis, MongoDB, LibSQL", () => {
       expect(isSupportedDatabaseImage("postgres", "postgres:16-alpine")).toBe(
+        false,
+      );
+      expect(isSupportedDatabaseImage("postgres", "postgres:18-alpine")).toBe(
         true,
       );
       expect(isSupportedDatabaseImage("mysql", "mysql:8.0")).toBe(true);
-      expect(isSupportedDatabaseImage("redis", "redis:7-alpine")).toBe(true);
+      expect(isSupportedDatabaseImage("redis", "redis:7-alpine")).toBe(false);
+      expect(isSupportedDatabaseImage("redis", "redis:8.8-alpine")).toBe(true);
       expect(isSupportedDatabaseImage("mongodb", "mongo:7.0")).toBe(true);
       expect(
         isSupportedDatabaseImage(

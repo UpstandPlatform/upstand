@@ -1,0 +1,66 @@
+---
+title: PostgreSQL and Redis upgrades
+description: Safely upgrade the bundled PostgreSQL and Redis images in local and production environments.
+---
+
+Upstand now uses PostgreSQL 18 and Redis 8.8 for new control-plane deployments. These are image upgrades, not Drizzle schema migrations. Always back up the data and test the procedure on a disposable host before upgrading production.
+
+## PostgreSQL 16/17 to 18
+
+PostgreSQL major versions do not share an on-disk data format. PostgreSQL 18 must start with a new data directory, then the database must be migrated with a logical dump/restore, `pg_upgrade`, or logical replication. The official PostgreSQL upgrade documentation describes these supported approaches: [PostgreSQL 18 upgrade guide](https://www.postgresql.org/docs/18/upgrading.html).
+
+The PostgreSQL 18 Docker image also changed its default data directory to `/var/lib/postgresql/18/docker` and its recommended volume mount to `/var/lib/postgresql`: [official Postgres image documentation](https://github.com/docker-library/docs/blob/master/postgres/README.md).
+
+### Production migration
+
+The installer protects existing installations: if `upstand_postgres_data` exists and the new `upstand_postgres_data_v18` volume does not, it stops instead of starting an empty PostgreSQL 18 cluster.
+
+1. Confirm backups and encryption-key recovery. Keep `/etc/upstand/secrets/`, especially `postgres_password` and `encryption_key`, safe and offline.
+2. While the current PostgreSQL service is healthy, create a logical dump of the control-plane database:
+
+   ```bash
+   old_container="$(docker ps -q --filter label=com.docker.swarm.service.name=upstand_postgres | head -n1)"
+   docker exec "$old_container" pg_dump -U upstand -d upstand --format=custom --no-owner --no-acl > /root/upstand-postgres.dump
+   ```
+
+3. Stop the stack while preserving the old volume:
+
+   ```bash
+   docker stack rm upstand
+   docker volume inspect upstand_postgres_data
+   docker volume create upstand_postgres_data_v18
+   ```
+
+4. Start a temporary PostgreSQL 18 container using the new volume and the same password. Replace `<password>` only in your shell; do not put it in a committed file:
+
+   ```bash
+   docker run -d --name upstand-postgres-upgrade \
+     -e POSTGRES_DB=upstand \
+     -e POSTGRES_USER=upstand \
+     -e POSTGRES_PASSWORD='<password>' \
+     -e PGDATA=/var/lib/postgresql/18/docker \
+     -v upstand_postgres_data_v18:/var/lib/postgresql \
+     postgres:18-alpine
+
+   until docker exec upstand-postgres-upgrade pg_isready -U upstand -d upstand; do sleep 2; done
+   docker cp /root/upstand-postgres.dump upstand-postgres-upgrade:/tmp/upstand-postgres.dump
+   docker exec upstand-postgres-upgrade pg_restore -U upstand -d upstand --clean --if-exists --no-owner /tmp/upstand-postgres.dump
+   docker rm -f upstand-postgres-upgrade
+   ```
+
+5. Run the installer again. It will use the populated `upstand_postgres_data_v18` volume and PostgreSQL 18 image.
+6. Verify `/health/ready`, sign in, inspect organizations and projects, and run the application migrations before removing the old volume. Keep the old volume until the release has been accepted and a fresh backup has been verified.
+
+For large installations, use `pg_upgrade --check` or logical replication to reduce downtime instead of the dump/restore example above. Do not copy PostgreSQL 16 files into the PostgreSQL 18 directory.
+
+### Local development
+
+`docker-compose.local.yml` uses `postgres_data_v18:/var/lib/postgresql` with `PGDATA=/var/lib/postgresql/18/docker`. Existing local PostgreSQL 16 data remains in the old volume and is not deleted. If the old data is disposable, remove the old local stack and volume explicitly; otherwise migrate it with the same logical dump/restore approach before copying it into the new volume.
+
+## Redis 7 to 8.8
+
+Redis supports an in-place 7.x to 8 upgrade path. Back up the RDB/AOF data first, test the upgrade, then replace the image and verify the server version: [Redis standalone upgrade guide](https://redis.io/docs/latest/operate/oss_and_stack/install/upgrade/standalone/). The official image publishes the `8.8-alpine` tag and multi-platform manifest: [Redis Docker image](https://hub.docker.com/_/redis).
+
+Redis continues to use `/data`, so Upstand keeps the existing `redis_data:/data` volume in both local Compose and production Swarm. For a zero-downtime production rollout, use a new Redis 8.8 replica, wait for synchronization, verify key counts, switch clients, and promote it as described in the [Redis administration guidance](https://redis.io/docs/latest/operate/oss_and_stack/management/admin/).
+
+After the upgrade, verify `redis-cli INFO server` reports Redis 8.8.x and confirm that the scheduler queue and application readiness checks are healthy.

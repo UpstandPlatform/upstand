@@ -125,7 +125,7 @@ docker-compose.prod.yml  Production Swarm stack configuration
    ```bash
    bun setup
    ```
-   This creates ignored local environment files for the API and web app, installs dependencies, starts PostgreSQL and Redis, waits for readiness, and applies the checked-in migrations.
+   This creates ignored local environment files for the API and web app, installs dependencies, starts PostgreSQL 18 and Redis 8.8, waits for readiness, and applies the checked-in migrations. Local database data is stored in the versioned `postgres_data_v18` volume.
 3. Launch the development workspace:
    ```bash
    bun dev
@@ -133,6 +133,8 @@ docker-compose.prod.yml  Production Swarm stack configuration
    Open `http://localhost:3001` for the web console, `http://localhost:3000/api/docs/` for the API Swagger UI, and `http://localhost:4000` for Fumadocs. Run `bun setup` again after pulling dependency or schema changes.
 
 For database schema changes, update the TypeScript schema and run `bun run db:generate`; Drizzle Kit generates the migration files. Never create migration files manually.
+
+For major database image upgrades, read the [database upgrade runbook](apps/fumadocs/content/docs/operations/database-upgrades.mdx) before updating a production stack. PostgreSQL major versions require a logical dump/restore or `pg_upgrade`; do not reuse PostgreSQL 16 data files in the PostgreSQL 18 volume.
 
 ---
 
