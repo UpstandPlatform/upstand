@@ -310,17 +310,37 @@ export class DockerReadOnlyService implements DockerExecPort {
       hostname: string;
       ip: string;
       isLeader: boolean;
+      role?: string;
+      status?: string;
+      isLocalNode?: boolean;
     }>
   > {
-    if (target.kind !== "local") return [];
-    const info = await this.docker.info();
-    if (info.Swarm?.LocalNodeState !== "active") return [];
-    const nodes = await this.docker.listNodes();
-    return nodes.map((node) => ({
-      id: node.ID || "",
-      hostname: node.Description?.Hostname || node.ID || "",
-      ip: node.Status?.Addr || "127.0.0.1",
-      isLeader: Boolean(node.ManagerStatus?.Leader),
+    if (target.kind === "local") {
+      const info = await this.docker.info();
+      if (info.Swarm?.LocalNodeState !== "active") return [];
+      const nodes = await this.docker.listNodes();
+      return nodes.map((node) => ({
+        id: node.ID || "",
+        hostname: node.Description?.Hostname || node.ID || "",
+        ip: node.Status?.Addr || "127.0.0.1",
+        isLeader: Boolean(node.ManagerStatus?.Leader),
+        role: node.Spec?.Role || "worker",
+        status: node.Status?.State || "unknown",
+        isLocalNode: node.ID === info.Swarm?.NodeID,
+      }));
+    }
+
+    const rows = parseJsonLines(
+      await this.executeRemote(target, "docker node ls --format '{{json .}}'"),
+    );
+    return rows.map((row) => ({
+      id: asString(row.ID),
+      hostname: asString(row.Hostname, asString(row.Name, asString(row.ID))),
+      ip: asString(row.Addr),
+      isLeader: asString(row.ManagerStatus).toLowerCase().includes("leader"),
+      role: asString(row.ManagerStatus).trim() ? "manager" : "worker",
+      status: asString(row.Status, "unknown"),
+      isLocalNode: asString(row.Self).toLowerCase() === "true",
     }));
   }
 

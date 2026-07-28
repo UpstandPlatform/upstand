@@ -1090,6 +1090,19 @@ const dockerServicesOutputSchema = z
     }),
   )
   .describe("Docker Swarm service records.");
+const dockerSwarmNodesOutputSchema = z
+  .array(
+    z.object({
+      id: z.string(),
+      hostname: z.string(),
+      ip: z.string(),
+      isLeader: z.boolean(),
+      role: z.string().optional(),
+      status: z.string().optional(),
+      isLocalNode: z.boolean().optional(),
+    }),
+  )
+  .describe("Docker Swarm node records.");
 const dockerStatsOutputSchema = z
   .object({
     containerId: z.string().describe("Docker container ID."),
@@ -1112,6 +1125,7 @@ const dockerOutputSchema = z
     dockerVolumesOutputSchema,
     dockerNetworksOutputSchema,
     dockerServicesOutputSchema,
+    dockerSwarmNodesOutputSchema,
     dockerStatsOutputSchema,
     z.string().describe("Plain-text Docker log output."),
   ])

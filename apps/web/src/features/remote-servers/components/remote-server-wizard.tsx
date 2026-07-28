@@ -853,6 +853,13 @@ export function RemoteServerWizard({
                           </SelectGroup>
                         </SelectContent>
                       </Select>
+                      <FieldDescription className="text-xs">
+                        {serverType === "build"
+                          ? "Build servers handle compilation and build processes, offloading work from deployment servers. Build servers will not appear in deployment options."
+                          : serverType === "database"
+                            ? "Database servers are dedicated hosts optimized for database engines."
+                            : "Deploy servers run your applications, databases, and container services."}
+                      </FieldDescription>
                     </Field>
                   </div>
 

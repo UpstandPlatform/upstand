@@ -109,7 +109,7 @@ export function TerminalDialogShell({
       if (savedFontSize) {
         const parsed = Number.parseInt(savedFontSize, 10);
         if (!Number.isNaN(parsed)) {
-          setFontSize(parsed);
+          setFontSize(Math.min(20, Math.max(10, parsed)));
         }
       }
     }
@@ -117,12 +117,16 @@ export function TerminalDialogShell({
 
   const handleThemeChange = (newTheme: typeof themeName) => {
     setThemeName(newTheme);
-    localStorage.setItem("upstand-terminal-theme", newTheme);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("upstand-terminal-theme", newTheme);
+    }
   };
 
   const handleFontSizeChange = (newSize: number) => {
     setFontSize(newSize);
-    localStorage.setItem("upstand-terminal-fontsize", String(newSize));
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("upstand-terminal-fontsize", String(newSize));
+    }
   };
 
   const activeTheme =

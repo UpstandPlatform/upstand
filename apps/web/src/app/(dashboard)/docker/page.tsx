@@ -66,6 +66,7 @@ import {
 import { CodeBlock } from "@/components/shared/code-block";
 import { ShowDockerLogs } from "@/components/shared/docker-logs";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import {
   uploadArchive,
   validateArchiveDestination,
@@ -321,12 +322,13 @@ type PendingRemoval =
     };
 
 export default function DockerInventoryPage() {
+  const { isCloud } = useSystemConfig();
   const organizationState = useRequiredActiveOrganization();
   const organizationId =
     organizationState.status === "ready"
       ? organizationState.organizationId
       : "";
-  const [serverId, setServerId] = useState("local");
+  const [serverId, setServerId] = useState(isCloud ? "" : "local");
   const [kind, setKind] = useState<(typeof kinds)[number]["id"]>("info");
 
   // Filtering & controls states
@@ -356,6 +358,15 @@ export default function DockerInventoryPage() {
     ...trpc.server.list.queryOptions({ organizationId }),
     enabled: organizationState.status === "ready",
   });
+
+  useEffect(() => {
+    if (isCloud && (serverId === "local" || !serverId)) {
+      const firstRemote = serversQuery.data?.[0]?.id;
+      if (firstRemote) {
+        setServerId(firstRemote);
+      }
+    }
+  }, [isCloud, serverId, serversQuery.data]);
 
   // Query all containers on the server to populate logs/stats selects
   const containersQuery = useQuery({
@@ -535,7 +546,9 @@ export default function DockerInventoryPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="local">Local Docker Daemon</SelectItem>
+                  {!isCloud && (
+                    <SelectItem value="local">Local Docker Daemon</SelectItem>
+                  )}
                   {(serversQuery.data ?? []).map((server) => (
                     <SelectItem key={server.id} value={server.id}>
                       {server.name} ({server.ipAddress})
@@ -561,373 +574,577 @@ export default function DockerInventoryPage() {
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
-        {/* Navigation Sidebar */}
-        <div className="flex flex-col gap-1">
-          {kinds.map((item) => {
-            const Icon = item.icon;
-            const isActive = kind === item.id;
-            return (
-              <Button
-                key={item.id}
-                variant={isActive ? "secondary" : "ghost"}
-                className={`h-10 justify-start gap-2 px-3 ${
-                  isActive
-                    ? "bg-muted/80 font-medium text-foreground"
-                    : "text-muted-foreground"
-                }`}
-                onClick={() => setKind(item.id)}
-              >
-                <Icon className={`size-4 ${isActive ? "text-primary" : ""}`} />
-                {item.label}
-              </Button>
-            );
-          })}
-        </div>
+      {isCloud && !serverId ? (
+        <Card className="p-6">
+          <CardHeader className="p-0 pb-3">
+            <CardTitle className="font-semibold text-base">
+              Select a Remote Server
+            </CardTitle>
+            <CardDescription className="text-xs">
+              In Cloud mode, Docker Inventory inspects containers, images,
+              volumes, and services on your connected remote servers.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0 text-muted-foreground text-xs">
+            Connect and configure a target server under{" "}
+            <a
+              href="/remote-servers"
+              className="font-medium text-primary underline"
+            >
+              Remote Servers
+            </a>{" "}
+            to inspect its Docker inventory.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
+          {/* Navigation Sidebar */}
+          <div className="flex flex-col gap-1">
+            {kinds.map((item) => {
+              const Icon = item.icon;
+              const isActive = kind === item.id;
+              return (
+                <Button
+                  key={item.id}
+                  variant={isActive ? "secondary" : "ghost"}
+                  className={`h-10 justify-start gap-2 px-3 ${
+                    isActive
+                      ? "bg-muted/80 font-medium text-foreground"
+                      : "text-muted-foreground"
+                  }`}
+                  onClick={() => setKind(item.id)}
+                >
+                  <Icon
+                    className={`size-4 ${isActive ? "text-primary" : ""}`}
+                  />
+                  {item.label}
+                </Button>
+              );
+            })}
+          </div>
 
-        {/* Tab Detail Panel */}
-        <div className="min-w-0 space-y-6">
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader className="border-b pb-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <CardTitle className="font-bold text-xl capitalize">
-                    {kinds.find((k) => k.id === kind)?.label}
-                  </CardTitle>
-                  <CardDescription>
-                    Docker target:{" "}
-                    <span className="font-semibold text-foreground">
-                      {activeServerName}
-                    </span>
-                  </CardDescription>
-                </div>
-                {inventoryQuery.isLoading && (
-                  <Badge variant="outline" className="animate-pulse">
-                    Loading Docker data…
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="pt-6">
-              {inventoryQuery.isLoading ? (
-                kind === "info" || kind === "stats" ? (
-                  <CardGridSkeleton count={3} />
-                ) : kind === "logs" ? (
-                  <div className="flex flex-col gap-2">
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-48 w-full" />
+          {/* Tab Detail Panel */}
+          <div className="min-w-0 space-y-6">
+            <Card className="border-border/60 shadow-sm">
+              <CardHeader className="border-b pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="font-bold text-xl capitalize">
+                      {kinds.find((k) => k.id === kind)?.label}
+                    </CardTitle>
+                    <CardDescription>
+                      Docker target:{" "}
+                      <span className="font-semibold text-foreground">
+                        {activeServerName}
+                      </span>
+                    </CardDescription>
                   </div>
-                ) : (
-                  <TableSkeleton columns={5} rows={5} />
-                )
-              ) : (
-                <>
-                  {/* Kind: INFO / OVERVIEW */}
-                  {kind === "info" && (
-                    <div className="space-y-6">
-                      {dockerInfo ? (
-                        (() => {
-                          const info = dockerInfo;
-                          return (
-                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                              <Card className="bg-muted/20">
-                                <CardHeader className="p-4">
-                                  <CardDescription>
-                                    System Hostname
-                                  </CardDescription>
-                                  <CardTitle className="text-lg">
-                                    {String(info.name || "N/A")}
-                                  </CardTitle>
-                                </CardHeader>
-                              </Card>
-                              <Card className="bg-muted/20">
-                                <CardHeader className="p-4">
-                                  <CardDescription>
-                                    Docker Engine Version
-                                  </CardDescription>
-                                  <CardTitle className="text-lg">
-                                    {String(info.serverVersion || "N/A")}
-                                  </CardTitle>
-                                </CardHeader>
-                              </Card>
-                              <Card className="bg-muted/20">
-                                <CardHeader className="p-4">
-                                  <CardDescription>
-                                    Operating System
-                                  </CardDescription>
-                                  <CardTitle className="overflow-hidden truncate text-ellipsis text-lg">
-                                    {String(info.operatingSystem || "N/A")}
-                                  </CardTitle>
-                                </CardHeader>
-                              </Card>
-                              <Card className="bg-muted/20">
-                                <CardHeader className="p-4">
-                                  <CardDescription>
-                                    Architecture
-                                  </CardDescription>
-                                  <CardTitle className="text-lg">
-                                    {String(info.architecture || "N/A")}
-                                  </CardTitle>
-                                </CardHeader>
-                              </Card>
-                              <Card className="bg-muted/20">
-                                <CardHeader className="p-4">
-                                  <CardDescription>
-                                    Swarm Status
-                                  </CardDescription>
-                                  <CardTitle className="text-lg capitalize">
-                                    {String(info.swarmState || "N/A")}
-                                  </CardTitle>
-                                </CardHeader>
-                              </Card>
-                              <Card className="bg-muted/20">
-                                <CardHeader className="p-4">
-                                  <CardDescription>
-                                    System Memory Limit
-                                  </CardDescription>
-                                  <CardTitle className="text-lg">
-                                    {info.memoryBytes
-                                      ? formatBytes(Number(info.memoryBytes))
-                                      : "Unlimited"}
-                                  </CardTitle>
-                                </CardHeader>
-                              </Card>
-                              <Card className="bg-muted/20 sm:col-span-2 lg:col-span-3">
-                                <CardContent className="flex items-center justify-around p-4">
-                                  <div className="text-center">
-                                    <span className="font-extrabold text-3xl text-primary">
-                                      {String(info.containers || 0)}
-                                    </span>
-                                    <p className="mt-1 text-muted-foreground text-xs">
-                                      Containers
-                                    </p>
-                                  </div>
-                                  <div className="h-8 border-border border-l" />
-                                  <div className="text-center">
-                                    <span className="font-extrabold text-3xl text-primary">
-                                      {String(info.images || 0)}
-                                    </span>
-                                    <p className="mt-1 text-muted-foreground text-xs">
-                                      Images
-                                    </p>
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            </div>
-                          );
-                        })()
-                      ) : (
-                        <div className="py-8 text-center text-muted-foreground text-sm">
-                          Failed to load Docker daemon info or daemon is
-                          unreachable.
-                        </div>
-                      )}
-                    </div>
+                  {inventoryQuery.isLoading && (
+                    <Badge variant="outline" className="animate-pulse">
+                      Loading Docker data…
+                    </Badge>
                   )}
+                </div>
+              </CardHeader>
+              <CardContent className="pt-6">
+                {inventoryQuery.isLoading ? (
+                  kind === "info" || kind === "stats" ? (
+                    <CardGridSkeleton count={3} />
+                  ) : kind === "logs" ? (
+                    <div className="flex flex-col gap-2">
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-48 w-full" />
+                    </div>
+                  ) : (
+                    <TableSkeleton columns={5} rows={5} />
+                  )
+                ) : (
+                  <>
+                    {/* Kind: INFO / OVERVIEW */}
+                    {kind === "info" && (
+                      <div className="space-y-6">
+                        {dockerInfo ? (
+                          (() => {
+                            const info = dockerInfo;
+                            return (
+                              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                <Card className="bg-muted/20">
+                                  <CardHeader className="p-4">
+                                    <CardDescription>
+                                      System Hostname
+                                    </CardDescription>
+                                    <CardTitle className="text-lg">
+                                      {String(info.name || "N/A")}
+                                    </CardTitle>
+                                  </CardHeader>
+                                </Card>
+                                <Card className="bg-muted/20">
+                                  <CardHeader className="p-4">
+                                    <CardDescription>
+                                      Docker Engine Version
+                                    </CardDescription>
+                                    <CardTitle className="text-lg">
+                                      {String(info.serverVersion || "N/A")}
+                                    </CardTitle>
+                                  </CardHeader>
+                                </Card>
+                                <Card className="bg-muted/20">
+                                  <CardHeader className="p-4">
+                                    <CardDescription>
+                                      Operating System
+                                    </CardDescription>
+                                    <CardTitle className="overflow-hidden truncate text-ellipsis text-lg">
+                                      {String(info.operatingSystem || "N/A")}
+                                    </CardTitle>
+                                  </CardHeader>
+                                </Card>
+                                <Card className="bg-muted/20">
+                                  <CardHeader className="p-4">
+                                    <CardDescription>
+                                      Architecture
+                                    </CardDescription>
+                                    <CardTitle className="text-lg">
+                                      {String(info.architecture || "N/A")}
+                                    </CardTitle>
+                                  </CardHeader>
+                                </Card>
+                                <Card className="bg-muted/20">
+                                  <CardHeader className="p-4">
+                                    <CardDescription>
+                                      Swarm Status
+                                    </CardDescription>
+                                    <CardTitle className="text-lg capitalize">
+                                      {String(info.swarmState || "N/A")}
+                                    </CardTitle>
+                                  </CardHeader>
+                                </Card>
+                                <Card className="bg-muted/20">
+                                  <CardHeader className="p-4">
+                                    <CardDescription>
+                                      System Memory Limit
+                                    </CardDescription>
+                                    <CardTitle className="text-lg">
+                                      {info.memoryBytes
+                                        ? formatBytes(Number(info.memoryBytes))
+                                        : "Unlimited"}
+                                    </CardTitle>
+                                  </CardHeader>
+                                </Card>
+                                <Card className="bg-muted/20 sm:col-span-2 lg:col-span-3">
+                                  <CardContent className="flex items-center justify-around p-4">
+                                    <div className="text-center">
+                                      <span className="font-extrabold text-3xl text-primary">
+                                        {String(info.containers || 0)}
+                                      </span>
+                                      <p className="mt-1 text-muted-foreground text-xs">
+                                        Containers
+                                      </p>
+                                    </div>
+                                    <div className="h-8 border-border border-l" />
+                                    <div className="text-center">
+                                      <span className="font-extrabold text-3xl text-primary">
+                                        {String(info.images || 0)}
+                                      </span>
+                                      <p className="mt-1 text-muted-foreground text-xs">
+                                        Images
+                                      </p>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <div className="py-8 text-center text-muted-foreground text-sm">
+                            Failed to load Docker daemon info or daemon is
+                            unreachable.
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  {/* Kind: CONTAINERS */}
-                  {kind === "containers" && (
-                    <div className="space-y-4">
-                      {/* Container Filters */}
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Input
-                          className="max-w-xs"
-                          value={search}
-                          onChange={(event) => setSearch(event.target.value)}
-                          placeholder="Filter by name, image, label..."
-                        />
-                        <Select
-                          items={[
-                            { value: "_all", label: "All States" },
-                            ...[
-                              "created",
-                              "running",
-                              "paused",
-                              "restarting",
-                              "removing",
-                              "exited",
-                              "dead",
-                            ].map((s) => ({ value: s, label: s })),
-                          ]}
-                          value={state || "_all"}
-                          onValueChange={(val) =>
-                            setState(val === "_all" || !val ? "" : val)
-                          }
-                        >
-                          <SelectTrigger className="w-40">
-                            <SelectValue placeholder="All States" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="_all">All States</SelectItem>
-                            {[
-                              "created",
-                              "running",
-                              "paused",
-                              "restarting",
-                              "removing",
-                              "exited",
-                              "dead",
-                            ].map((s) => (
-                              <SelectItem key={s} value={s}>
-                                {s}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    {/* Kind: CONTAINERS */}
+                    {kind === "containers" && (
+                      <div className="space-y-4">
+                        {/* Container Filters */}
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Input
+                            className="max-w-xs"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Filter by name, image, label..."
+                          />
+                          <Select
+                            items={[
+                              { value: "_all", label: "All States" },
+                              ...[
+                                "created",
+                                "running",
+                                "paused",
+                                "restarting",
+                                "removing",
+                                "exited",
+                                "dead",
+                              ].map((s) => ({ value: s, label: s })),
+                            ]}
+                            value={state || "_all"}
+                            onValueChange={(val) =>
+                              setState(val === "_all" || !val ? "" : val)
+                            }
+                          >
+                            <SelectTrigger className="w-40">
+                              <SelectValue placeholder="All States" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_all">All States</SelectItem>
+                              {[
+                                "created",
+                                "running",
+                                "paused",
+                                "restarting",
+                                "removing",
+                                "exited",
+                                "dead",
+                              ].map((s) => (
+                                <SelectItem key={s} value={s}>
+                                  {s}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
 
-                        <div className="flex-1" />
+                          <div className="flex-1" />
 
-                        <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-1.5 text-xs">
+                          <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-1.5 text-xs">
+                            <span className="font-medium text-muted-foreground">
+                              Upload path:
+                            </span>
+                            <Input
+                              className="h-7 w-24 px-2 font-mono text-[11px]"
+                              value={containerDestination}
+                              onChange={(e) =>
+                                setContainerDestination(e.target.value)
+                              }
+                              placeholder="/tmp"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Container Grid Table */}
+                        {getInventoryItems(
+                          inventoryQuery.data,
+                          isDockerContainer,
+                        ).length > 0 ? (
+                          <div className="overflow-hidden rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="">
+                                  <TableHead className="w-[100px]">
+                                    State
+                                  </TableHead>
+                                  <TableHead>Container Name</TableHead>
+                                  <TableHead>Image</TableHead>
+                                  <TableHead>Ports</TableHead>
+                                  <TableHead className="text-right">
+                                    Actions
+                                  </TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {getInventoryItems(
+                                  inventoryQuery.data,
+                                  isDockerContainer,
+                                ).map((c) => {
+                                  const isRunning = c.state === "running";
+                                  let badgeVariant:
+                                    | "default"
+                                    | "secondary"
+                                    | "destructive" = "secondary";
+                                  if (isRunning) badgeVariant = "default";
+                                  else if (
+                                    c.state === "dead" ||
+                                    c.state === "removing"
+                                  )
+                                    badgeVariant = "destructive";
+
+                                  return (
+                                    <TableRow
+                                      key={c.id}
+                                      className="font-sans hover:bg-muted/5"
+                                    >
+                                      <TableCell>
+                                        <Badge
+                                          variant={badgeVariant}
+                                          className={`select-none capitalize ${
+                                            isRunning
+                                              ? "border-success/20 bg-success/10 text-success"
+                                              : ""
+                                          }`}
+                                        >
+                                          {isRunning && (
+                                            <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-success" />
+                                          )}
+                                          {c.state}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="max-w-[160px] truncate font-semibold text-foreground">
+                                        {c.name}
+                                      </TableCell>
+                                      <TableCell
+                                        className="max-w-[180px] truncate font-mono text-muted-foreground text-xs"
+                                        title={c.image}
+                                      >
+                                        {c.image}
+                                      </TableCell>
+                                      <TableCell
+                                        className="max-w-[140px] truncate font-mono text-muted-foreground text-xs"
+                                        title={c.ports}
+                                      >
+                                        {c.ports || "—"}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="size-7"
+                                            disabled={
+                                              isRunning ||
+                                              controlContainer.isPending
+                                            }
+                                            onClick={() => {
+                                              controlContainer.mutate({
+                                                organizationId,
+                                                serverId,
+                                                containerId: c.id,
+                                                command: "start",
+                                              });
+                                            }}
+                                            title="Start Container"
+                                            aria-label={`Start container ${c.name}`}
+                                          >
+                                            <Play className="size-3.5 text-success" />
+                                          </Button>
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="size-7"
+                                            disabled={
+                                              !isRunning ||
+                                              controlContainer.isPending
+                                            }
+                                            onClick={() => {
+                                              controlContainer.mutate({
+                                                organizationId,
+                                                serverId,
+                                                containerId: c.id,
+                                                command: "stop",
+                                              });
+                                            }}
+                                            title="Stop Container"
+                                            aria-label={`Stop container ${c.name}`}
+                                          >
+                                            <Square className="size-3.5 text-muted-foreground" />
+                                          </Button>
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="size-7"
+                                            disabled={
+                                              controlContainer.isPending
+                                            }
+                                            onClick={() => {
+                                              controlContainer.mutate({
+                                                organizationId,
+                                                serverId,
+                                                containerId: c.id,
+                                                command: "restart",
+                                              });
+                                            }}
+                                            title="Restart Container"
+                                            aria-label={`Restart container ${c.name}`}
+                                          >
+                                            <RotateCw className="size-3.5 text-warning" />
+                                          </Button>
+                                          <Label
+                                            className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                                            title="Upload Tar Archive"
+                                            aria-label={`Upload tar archive to container ${c.name}`}
+                                          >
+                                            <Upload className="size-3.5" />
+                                            <input
+                                              type="file"
+                                              accept=".tar,application/x-tar"
+                                              className="sr-only"
+                                              onChange={(event) => {
+                                                const file =
+                                                  event.target.files?.[0];
+                                                if (file)
+                                                  void uploadContainer(
+                                                    c.id,
+                                                    file,
+                                                  );
+                                                event.currentTarget.value = "";
+                                              }}
+                                            />
+                                          </Label>
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                            disabled={
+                                              controlContainer.isPending
+                                            }
+                                            onClick={() =>
+                                              setPendingRemoval({
+                                                kind: "container",
+                                                id: c.id,
+                                                label: c.name,
+                                              })
+                                            }
+                                            title="Force Remove"
+                                            aria-label={`Force remove container ${c.name}`}
+                                          >
+                                            <Trash2 className="size-3.5" />
+                                          </Button>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <PageEmpty
+                            icon={Server}
+                            title="No containers found"
+                            description="No Docker containers match the active filters or target daemon."
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Kind: IMAGES */}
+                    {kind === "images" && (
+                      <div className="space-y-4">
+                        {getInventoryItems(inventoryQuery.data, isDockerImage)
+                          .length > 0 ? (
+                          <div className="overflow-hidden rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="">
+                                  <TableHead>Repository Tags</TableHead>
+                                  <TableHead>Image ID</TableHead>
+                                  <TableHead>Size</TableHead>
+                                  <TableHead className="w-[100px] text-right">
+                                    Actions
+                                  </TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {getInventoryItems(
+                                  inventoryQuery.data,
+                                  isDockerImage,
+                                ).map((img) => (
+                                  <TableRow key={img.id}>
+                                    <TableCell className="font-sans font-semibold">
+                                      {img.tags && img.tags.length > 0
+                                        ? img.tags.join(", ")
+                                        : "<none>"}
+                                    </TableCell>
+                                    <TableCell className="font-mono text-muted-foreground text-xs">
+                                      {img.id ? img.id.substring(0, 19) : "—"}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                      {img.sizeBytes
+                                        ? formatBytes(Number(img.sizeBytes))
+                                        : "—"}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                        disabled={controlResource.isPending}
+                                        onClick={() =>
+                                          setPendingRemoval({
+                                            kind: "resource",
+                                            id: img.id,
+                                            label: img.id,
+                                            command: "remove-image",
+                                          })
+                                        }
+                                        title="Remove Image"
+                                        aria-label={`Remove image ${img.id}`}
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <PageEmpty
+                            icon={Layers}
+                            title="No images found"
+                            description="No Docker images are downloaded on the target daemon."
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Kind: VOLUMES */}
+                    {kind === "volumes" && (
+                      <div className="space-y-4">
+                        {/* Volume path select */}
+                        <div className="mb-2 flex max-w-lg items-center gap-2 rounded-lg border border-dashed p-3 text-xs">
                           <span className="font-medium text-muted-foreground">
-                            Upload path:
+                            Tar upload destination folder:
                           </span>
                           <Input
-                            className="h-7 w-24 px-2 font-mono text-[11px]"
-                            value={containerDestination}
-                            onChange={(e) =>
-                              setContainerDestination(e.target.value)
+                            className="h-8 w-32 font-mono text-[11px]"
+                            value={volumeDestination}
+                            onChange={(event) =>
+                              setVolumeDestination(event.target.value)
                             }
-                            placeholder="/tmp"
+                            placeholder="/"
                           />
                         </div>
-                      </div>
 
-                      {/* Container Grid Table */}
-                      {getInventoryItems(inventoryQuery.data, isDockerContainer)
-                        .length > 0 ? (
-                        <div className="overflow-hidden rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="">
-                                <TableHead className="w-[100px]">
-                                  State
-                                </TableHead>
-                                <TableHead>Container Name</TableHead>
-                                <TableHead>Image</TableHead>
-                                <TableHead>Ports</TableHead>
-                                <TableHead className="text-right">
-                                  Actions
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {getInventoryItems(
-                                inventoryQuery.data,
-                                isDockerContainer,
-                              ).map((c) => {
-                                const isRunning = c.state === "running";
-                                let badgeVariant:
-                                  | "default"
-                                  | "secondary"
-                                  | "destructive" = "secondary";
-                                if (isRunning) badgeVariant = "default";
-                                else if (
-                                  c.state === "dead" ||
-                                  c.state === "removing"
-                                )
-                                  badgeVariant = "destructive";
-
-                                return (
-                                  <TableRow
-                                    key={c.id}
-                                    className="font-sans hover:bg-muted/5"
-                                  >
-                                    <TableCell>
-                                      <Badge
-                                        variant={badgeVariant}
-                                        className={`select-none capitalize ${
-                                          isRunning
-                                            ? "border-success/20 bg-success/10 text-success"
-                                            : ""
-                                        }`}
-                                      >
-                                        {isRunning && (
-                                          <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-success" />
-                                        )}
-                                        {c.state}
-                                      </Badge>
+                        {getInventoryItems(inventoryQuery.data, isDockerVolume)
+                          .length > 0 ? (
+                          <div className="overflow-hidden rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="">
+                                  <TableHead>Volume Name</TableHead>
+                                  <TableHead>Driver</TableHead>
+                                  <TableHead className="text-right">
+                                    Actions
+                                  </TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {getInventoryItems(
+                                  inventoryQuery.data,
+                                  isDockerVolume,
+                                ).map((v) => (
+                                  <TableRow key={v.name}>
+                                    <TableCell className="font-mono font-semibold text-xs">
+                                      {v.name}
                                     </TableCell>
-                                    <TableCell className="max-w-[160px] truncate font-semibold text-foreground">
-                                      {c.name}
-                                    </TableCell>
-                                    <TableCell
-                                      className="max-w-[180px] truncate font-mono text-muted-foreground text-xs"
-                                      title={c.image}
-                                    >
-                                      {c.image}
-                                    </TableCell>
-                                    <TableCell
-                                      className="max-w-[140px] truncate font-mono text-muted-foreground text-xs"
-                                      title={c.ports}
-                                    >
-                                      {c.ports || "—"}
+                                    <TableCell className="text-muted-foreground">
+                                      {v.driver}
                                     </TableCell>
                                     <TableCell className="text-right">
                                       <div className="flex items-center justify-end gap-1.5">
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          className="size-7"
-                                          disabled={
-                                            isRunning ||
-                                            controlContainer.isPending
-                                          }
-                                          onClick={() => {
-                                            controlContainer.mutate({
-                                              organizationId,
-                                              serverId,
-                                              containerId: c.id,
-                                              command: "start",
-                                            });
-                                          }}
-                                          title="Start Container"
-                                          aria-label={`Start container ${c.name}`}
-                                        >
-                                          <Play className="size-3.5 text-success" />
-                                        </Button>
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          className="size-7"
-                                          disabled={
-                                            !isRunning ||
-                                            controlContainer.isPending
-                                          }
-                                          onClick={() => {
-                                            controlContainer.mutate({
-                                              organizationId,
-                                              serverId,
-                                              containerId: c.id,
-                                              command: "stop",
-                                            });
-                                          }}
-                                          title="Stop Container"
-                                          aria-label={`Stop container ${c.name}`}
-                                        >
-                                          <Square className="size-3.5 text-muted-foreground" />
-                                        </Button>
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          className="size-7"
-                                          disabled={controlContainer.isPending}
-                                          onClick={() => {
-                                            controlContainer.mutate({
-                                              organizationId,
-                                              serverId,
-                                              containerId: c.id,
-                                              command: "restart",
-                                            });
-                                          }}
-                                          title="Restart Container"
-                                          aria-label={`Restart container ${c.name}`}
-                                        >
-                                          <RotateCw className="size-3.5 text-warning" />
-                                        </Button>
                                         <Label
                                           className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                                           title="Upload Tar Archive"
-                                          aria-label={`Upload tar archive to container ${c.name}`}
+                                          aria-label={`Upload tar archive to volume ${v.name}`}
                                         >
                                           <Upload className="size-3.5" />
                                           <input
@@ -938,10 +1155,7 @@ export default function DockerInventoryPage() {
                                               const file =
                                                 event.target.files?.[0];
                                               if (file)
-                                                void uploadContainer(
-                                                  c.id,
-                                                  file,
-                                                );
+                                                void uploadVolume(v.name, file);
                                               event.currentTarget.value = "";
                                             }}
                                           />
@@ -950,172 +1164,94 @@ export default function DockerInventoryPage() {
                                           size="icon"
                                           variant="ghost"
                                           className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                          disabled={controlContainer.isPending}
+                                          disabled={controlResource.isPending}
                                           onClick={() =>
                                             setPendingRemoval({
-                                              kind: "container",
-                                              id: c.id,
-                                              label: c.name,
+                                              kind: "resource",
+                                              id: v.name,
+                                              label: v.name,
+                                              command: "remove-volume",
                                             })
                                           }
-                                          title="Force Remove"
-                                          aria-label={`Force remove container ${c.name}`}
+                                          title="Remove Volume"
+                                          aria-label={`Remove volume ${v.name}`}
                                         >
                                           <Trash2 className="size-3.5" />
                                         </Button>
                                       </div>
                                     </TableCell>
                                   </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      ) : (
-                        <PageEmpty
-                          icon={Server}
-                          title="No containers found"
-                          description="No Docker containers match the active filters or target daemon."
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  {/* Kind: IMAGES */}
-                  {kind === "images" && (
-                    <div className="space-y-4">
-                      {getInventoryItems(inventoryQuery.data, isDockerImage)
-                        .length > 0 ? (
-                        <div className="overflow-hidden rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="">
-                                <TableHead>Repository Tags</TableHead>
-                                <TableHead>Image ID</TableHead>
-                                <TableHead>Size</TableHead>
-                                <TableHead className="w-[100px] text-right">
-                                  Actions
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {getInventoryItems(
-                                inventoryQuery.data,
-                                isDockerImage,
-                              ).map((img) => (
-                                <TableRow key={img.id}>
-                                  <TableCell className="font-sans font-semibold">
-                                    {img.tags && img.tags.length > 0
-                                      ? img.tags.join(", ")
-                                      : "<none>"}
-                                  </TableCell>
-                                  <TableCell className="font-mono text-muted-foreground text-xs">
-                                    {img.id ? img.id.substring(0, 19) : "—"}
-                                  </TableCell>
-                                  <TableCell className="text-muted-foreground">
-                                    {img.sizeBytes
-                                      ? formatBytes(Number(img.sizeBytes))
-                                      : "—"}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                      disabled={controlResource.isPending}
-                                      onClick={() =>
-                                        setPendingRemoval({
-                                          kind: "resource",
-                                          id: img.id,
-                                          label: img.id,
-                                          command: "remove-image",
-                                        })
-                                      }
-                                      title="Remove Image"
-                                      aria-label={`Remove image ${img.id}`}
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      ) : (
-                        <PageEmpty
-                          icon={Layers}
-                          title="No images found"
-                          description="No Docker images are downloaded on the target daemon."
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  {/* Kind: VOLUMES */}
-                  {kind === "volumes" && (
-                    <div className="space-y-4">
-                      {/* Volume path select */}
-                      <div className="mb-2 flex max-w-lg items-center gap-2 rounded-lg border border-dashed p-3 text-xs">
-                        <span className="font-medium text-muted-foreground">
-                          Tar upload destination folder:
-                        </span>
-                        <Input
-                          className="h-8 w-32 font-mono text-[11px]"
-                          value={volumeDestination}
-                          onChange={(event) =>
-                            setVolumeDestination(event.target.value)
-                          }
-                          placeholder="/"
-                        />
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <PageEmpty
+                            icon={HardDrive}
+                            title="No volumes found"
+                            description="No Docker volumes are configured on the target daemon."
+                          />
+                        )}
                       </div>
+                    )}
 
-                      {getInventoryItems(inventoryQuery.data, isDockerVolume)
-                        .length > 0 ? (
-                        <div className="overflow-hidden rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="">
-                                <TableHead>Volume Name</TableHead>
-                                <TableHead>Driver</TableHead>
-                                <TableHead className="text-right">
-                                  Actions
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {getInventoryItems(
-                                inventoryQuery.data,
-                                isDockerVolume,
-                              ).map((v) => (
-                                <TableRow key={v.name}>
-                                  <TableCell className="font-mono font-semibold text-xs">
-                                    {v.name}
-                                  </TableCell>
-                                  <TableCell className="text-muted-foreground">
-                                    {v.driver}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <Label
-                                        className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                                        title="Upload Tar Archive"
-                                        aria-label={`Upload tar archive to volume ${v.name}`}
+                    {/* Kind: NETWORKS */}
+                    {kind === "networks" && (
+                      <div className="space-y-4">
+                        {getInventoryItems(inventoryQuery.data, isDockerNetwork)
+                          .length > 0 ? (
+                          <div className="overflow-hidden rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="">
+                                  <TableHead>Network Name</TableHead>
+                                  <TableHead>Driver</TableHead>
+                                  <TableHead>Scope</TableHead>
+                                  <TableHead>Attachable</TableHead>
+                                  <TableHead>Internal</TableHead>
+                                  <TableHead className="w-[100px] text-right">
+                                    Actions
+                                  </TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {getInventoryItems(
+                                  inventoryQuery.data,
+                                  isDockerNetwork,
+                                ).map((net) => (
+                                  <TableRow key={net.id}>
+                                    <TableCell className="font-mono font-semibold text-xs">
+                                      {net.name}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                      {net.driver}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground capitalize">
+                                      {net.scope}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge
+                                        variant={
+                                          net.attachable
+                                            ? "default"
+                                            : "secondary"
+                                        }
                                       >
-                                        <Upload className="size-3.5" />
-                                        <input
-                                          type="file"
-                                          accept=".tar,application/x-tar"
-                                          className="sr-only"
-                                          onChange={(event) => {
-                                            const file =
-                                              event.target.files?.[0];
-                                            if (file)
-                                              void uploadVolume(v.name, file);
-                                            event.currentTarget.value = "";
-                                          }}
-                                        />
-                                      </Label>
+                                        {net.attachable ? "yes" : "no"}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge
+                                        variant={
+                                          net.internal
+                                            ? "destructive"
+                                            : "secondary"
+                                        }
+                                      >
+                                        {net.internal ? "yes" : "no"}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right">
                                       <Button
                                         size="icon"
                                         variant="ghost"
@@ -1124,199 +1260,202 @@ export default function DockerInventoryPage() {
                                         onClick={() =>
                                           setPendingRemoval({
                                             kind: "resource",
-                                            id: v.name,
-                                            label: v.name,
-                                            command: "remove-volume",
+                                            id: net.id,
+                                            label: net.name,
+                                            command: "remove-network",
                                           })
                                         }
-                                        title="Remove Volume"
-                                        aria-label={`Remove volume ${v.name}`}
+                                        title="Remove Network"
+                                        aria-label={`Remove network ${net.name}`}
                                       >
                                         <Trash2 className="size-3.5" />
                                       </Button>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      ) : (
-                        <PageEmpty
-                          icon={HardDrive}
-                          title="No volumes found"
-                          description="No Docker volumes are configured on the target daemon."
-                        />
-                      )}
-                    </div>
-                  )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <PageEmpty
+                            icon={Network}
+                            title="No networks found"
+                            description="No Docker networks are configured on the target daemon."
+                          />
+                        )}
+                      </div>
+                    )}
 
-                  {/* Kind: NETWORKS */}
-                  {kind === "networks" && (
-                    <div className="space-y-4">
-                      {getInventoryItems(inventoryQuery.data, isDockerNetwork)
-                        .length > 0 ? (
-                        <div className="overflow-hidden rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="">
-                                <TableHead>Network Name</TableHead>
-                                <TableHead>Driver</TableHead>
-                                <TableHead>Scope</TableHead>
-                                <TableHead>Attachable</TableHead>
-                                <TableHead>Internal</TableHead>
-                                <TableHead className="w-[100px] text-right">
-                                  Actions
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {getInventoryItems(
-                                inventoryQuery.data,
-                                isDockerNetwork,
-                              ).map((net) => (
-                                <TableRow key={net.id}>
-                                  <TableCell className="font-mono font-semibold text-xs">
-                                    {net.name}
-                                  </TableCell>
-                                  <TableCell className="text-muted-foreground">
-                                    {net.driver}
-                                  </TableCell>
-                                  <TableCell className="text-muted-foreground capitalize">
-                                    {net.scope}
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge
-                                      variant={
-                                        net.attachable ? "default" : "secondary"
-                                      }
-                                    >
-                                      {net.attachable ? "yes" : "no"}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge
-                                      variant={
-                                        net.internal
-                                          ? "destructive"
-                                          : "secondary"
-                                      }
-                                    >
-                                      {net.internal ? "yes" : "no"}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                      disabled={controlResource.isPending}
-                                      onClick={() =>
-                                        setPendingRemoval({
-                                          kind: "resource",
-                                          id: net.id,
-                                          label: net.name,
-                                          command: "remove-network",
-                                        })
-                                      }
-                                      title="Remove Network"
-                                      aria-label={`Remove network ${net.name}`}
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </Button>
-                                  </TableCell>
+                    {/* Kind: SERVICES */}
+                    {kind === "services" && (
+                      <div className="space-y-4">
+                        {getInventoryItems(inventoryQuery.data, isDockerService)
+                          .length > 0 ? (
+                          <div className="overflow-hidden rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="">
+                                  <TableHead>Service Name</TableHead>
+                                  <TableHead>Mode</TableHead>
+                                  <TableHead>Replicas</TableHead>
+                                  <TableHead>Image</TableHead>
+                                  <TableHead>Ports</TableHead>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      ) : (
-                        <PageEmpty
-                          icon={Network}
-                          title="No networks found"
-                          description="No Docker networks are configured on the target daemon."
-                        />
-                      )}
-                    </div>
-                  )}
+                              </TableHeader>
+                              <TableBody>
+                                {getInventoryItems(
+                                  inventoryQuery.data,
+                                  isDockerService,
+                                ).map((srv) => (
+                                  <TableRow key={srv.id}>
+                                    <TableCell className="font-semibold text-foreground">
+                                      {srv.name}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground capitalize">
+                                      {srv.mode}
+                                    </TableCell>
+                                    <TableCell className="font-mono">
+                                      {srv.replicas}
+                                    </TableCell>
+                                    <TableCell
+                                      className="max-w-[200px] truncate font-mono text-muted-foreground text-xs"
+                                      title={srv.image}
+                                    >
+                                      {srv.image}
+                                    </TableCell>
+                                    <TableCell className="font-mono text-muted-foreground text-xs">
+                                      {srv.ports || "—"}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <PageEmpty
+                            icon={Activity}
+                            title="No Swarm services active"
+                            description="No Docker Swarm services are active on this target. Swarm mode might be disabled."
+                          />
+                        )}
+                      </div>
+                    )}
 
-                  {/* Kind: SERVICES */}
-                  {kind === "services" && (
-                    <div className="space-y-4">
-                      {getInventoryItems(inventoryQuery.data, isDockerService)
-                        .length > 0 ? (
-                        <div className="overflow-hidden rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="">
-                                <TableHead>Service Name</TableHead>
-                                <TableHead>Mode</TableHead>
-                                <TableHead>Replicas</TableHead>
-                                <TableHead>Image</TableHead>
-                                <TableHead>Ports</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {getInventoryItems(
-                                inventoryQuery.data,
-                                isDockerService,
-                              ).map((srv) => (
-                                <TableRow key={srv.id}>
-                                  <TableCell className="font-semibold text-foreground">
-                                    {srv.name}
-                                  </TableCell>
-                                  <TableCell className="text-muted-foreground capitalize">
-                                    {srv.mode}
-                                  </TableCell>
-                                  <TableCell className="font-mono">
-                                    {srv.replicas}
-                                  </TableCell>
-                                  <TableCell
-                                    className="max-w-[200px] truncate font-mono text-muted-foreground text-xs"
-                                    title={srv.image}
-                                  >
-                                    {srv.image}
-                                  </TableCell>
-                                  <TableCell className="font-mono text-muted-foreground text-xs">
-                                    {srv.ports || "—"}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      ) : (
-                        <PageEmpty
-                          icon={Activity}
-                          title="No Swarm services active"
-                          description="No Docker Swarm services are active on this target. Swarm mode might be disabled."
-                        />
-                      )}
-                    </div>
-                  )}
+                    {/* Kind: LOGS */}
+                    {kind === "logs" && (
+                      <div className="space-y-4">
+                        {/* Target Selection & Query Parameters */}
+                        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+                          <Label className="flex flex-col space-y-1 font-semibold text-xs">
+                            <span className="mb-1 text-muted-foreground">
+                              Target Container
+                            </span>
+                            <Select
+                              items={availableContainers.map((c) => ({
+                                value: c.id,
+                                label: c.name,
+                              }))}
+                              value={containerId}
+                              onValueChange={(val) => {
+                                setContainerId(val ?? "");
+                                setServiceName("");
+                              }}
+                            >
+                              <SelectTrigger className="h-9 w-full">
+                                <SelectValue placeholder="Choose container" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  {availableContainers.map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>
+                                      {c.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          </Label>
 
-                  {/* Kind: LOGS */}
-                  {kind === "logs" && (
-                    <div className="space-y-4">
-                      {/* Target Selection & Query Parameters */}
-                      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-                        <Label className="flex flex-col space-y-1 font-semibold text-xs">
-                          <span className="mb-1 text-muted-foreground">
-                            Target Container
-                          </span>
+                          <Label className="flex flex-col space-y-1 font-semibold text-xs">
+                            <span className="mb-1 text-muted-foreground">
+                              Service Name (Swarm)
+                            </span>
+                            <Input
+                              value={serviceName}
+                              onChange={(e) => {
+                                setServiceName(e.target.value);
+                                setContainerId("");
+                              }}
+                              placeholder="Service name"
+                              className="h-9"
+                            />
+                          </Label>
+
+                          <Label className="flex flex-col space-y-1 font-semibold text-xs">
+                            <span className="mb-1 text-muted-foreground">
+                              Lines limit (max 1000)
+                            </span>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={tail}
+                              onChange={(e) => setTail(e.target.value)}
+                              className="h-9"
+                            />
+                          </Label>
+
+                          <Label className="flex flex-col space-y-1 font-semibold text-xs">
+                            <span className="mb-1 text-muted-foreground">
+                              Logs Since
+                            </span>
+                            <Input
+                              type="datetime-local"
+                              value={since}
+                              onChange={(e) => setSince(e.target.value)}
+                              className="h-9"
+                            />
+                          </Label>
+                        </div>
+
+                        {/* Advanced Reusable Log Viewer */}
+                        <ShowDockerLogs
+                          containerId={
+                            containerId
+                              ? (availableContainers.find(
+                                  (c) => c.id === containerId,
+                                )?.name ?? containerId)
+                              : serviceName || "docker"
+                          }
+                          logs={
+                            typeof inventoryQuery.data === "string"
+                              ? inventoryQuery.data
+                              : undefined
+                          }
+                          isFetching={inventoryQuery.isFetching}
+                          emptyMessage={
+                            containerId || serviceName
+                              ? "Querying logs or no logs match current target filters..."
+                              : "Choose a container or input a service name above to inspect logs."
+                          }
+                        />
+                      </div>
+                    )}
+
+                    {/* Kind: LIVE STATS */}
+                    {kind === "stats" && (
+                      <div className="space-y-4">
+                        <div className="mb-4 flex max-w-sm items-center gap-3">
                           <Select
                             items={availableContainers.map((c) => ({
                               value: c.id,
                               label: c.name,
                             }))}
                             value={containerId}
-                            onValueChange={(val) => {
-                              setContainerId(val ?? "");
-                              setServiceName("");
-                            }}
+                            onValueChange={(val) => setContainerId(val ?? "")}
                           >
                             <SelectTrigger className="h-9 w-full">
-                              <SelectValue placeholder="Choose container" />
+                              <SelectValue placeholder="Select container to monitor" />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectGroup>
@@ -1328,293 +1467,201 @@ export default function DockerInventoryPage() {
                               </SelectGroup>
                             </SelectContent>
                           </Select>
-                        </Label>
-
-                        <Label className="flex flex-col space-y-1 font-semibold text-xs">
-                          <span className="mb-1 text-muted-foreground">
-                            Service Name (Swarm)
-                          </span>
-                          <Input
-                            value={serviceName}
-                            onChange={(e) => {
-                              setServiceName(e.target.value);
-                              setContainerId("");
-                            }}
-                            placeholder="Service name"
-                            className="h-9"
-                          />
-                        </Label>
-
-                        <Label className="flex flex-col space-y-1 font-semibold text-xs">
-                          <span className="mb-1 text-muted-foreground">
-                            Lines limit (max 1000)
-                          </span>
-                          <Input
-                            type="number"
-                            min={1}
-                            max={1000}
-                            value={tail}
-                            onChange={(e) => setTail(e.target.value)}
-                            className="h-9"
-                          />
-                        </Label>
-
-                        <Label className="flex flex-col space-y-1 font-semibold text-xs">
-                          <span className="mb-1 text-muted-foreground">
-                            Logs Since
-                          </span>
-                          <Input
-                            type="datetime-local"
-                            value={since}
-                            onChange={(e) => setSince(e.target.value)}
-                            className="h-9"
-                          />
-                        </Label>
-                      </div>
-
-                      {/* Advanced Reusable Log Viewer */}
-                      <ShowDockerLogs
-                        containerId={
-                          containerId
-                            ? (availableContainers.find(
-                                (c) => c.id === containerId,
-                              )?.name ?? containerId)
-                            : serviceName || "docker"
-                        }
-                        logs={
-                          typeof inventoryQuery.data === "string"
-                            ? inventoryQuery.data
-                            : undefined
-                        }
-                        isFetching={inventoryQuery.isFetching}
-                        emptyMessage={
-                          containerId || serviceName
-                            ? "Querying logs or no logs match current target filters..."
-                            : "Choose a container or input a service name above to inspect logs."
-                        }
-                      />
-                    </div>
-                  )}
-
-                  {/* Kind: LIVE STATS */}
-                  {kind === "stats" && (
-                    <div className="space-y-4">
-                      <div className="mb-4 flex max-w-sm items-center gap-3">
-                        <Select
-                          items={availableContainers.map((c) => ({
-                            value: c.id,
-                            label: c.name,
-                          }))}
-                          value={containerId}
-                          onValueChange={(val) => setContainerId(val ?? "")}
-                        >
-                          <SelectTrigger className="h-9 w-full">
-                            <SelectValue placeholder="Select container to monitor" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {availableContainers.map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  {c.name}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {containerId && dockerStats ? (
-                        (() => {
-                          const stats = dockerStats;
-                          const cpuVal = stats.cpuPercent;
-                          const memPercentVal = stats.memoryPercent;
-                          const memUsed = stats.memoryUsageBytes;
-                          const memLimit = stats.memoryLimitBytes;
-
-                          return (
-                            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-                              {/* CPU card */}
-                              <Card className="border-border/40">
-                                <CardHeader>
-                                  <CardDescription className="flex items-center justify-between">
-                                    <span>CPU Usage</span>
-                                    <Cpu className="size-4 text-primary" />
-                                  </CardDescription>
-                                  <CardTitle className="mt-1 font-black text-2xl">
-                                    {cpuVal.toFixed(2)}%
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
-                                    <div
-                                      className="h-full bg-success transition-all duration-300"
-                                      style={{
-                                        width: `${Math.min(100, cpuVal)}%`,
-                                      }}
-                                    />
-                                  </div>
-                                </CardContent>
-                              </Card>
-
-                              {/* Memory card */}
-                              <Card className="border-border/40">
-                                <CardHeader>
-                                  <CardDescription className="flex items-center justify-between">
-                                    <span>Memory Usage</span>
-                                    <HardDrive className="size-4 text-primary" />
-                                  </CardDescription>
-                                  <CardTitle className="mt-1 font-black text-2xl">
-                                    {memPercentVal.toFixed(2)}%
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
-                                    <div
-                                      className="h-full bg-info transition-all duration-300"
-                                      style={{
-                                        width: `${Math.min(100, memPercentVal)}%`,
-                                      }}
-                                    />
-                                  </div>
-                                  <div className="mt-2 flex justify-between font-mono text-[11px] text-muted-foreground">
-                                    <span>{formatBytes(memUsed)}</span>
-                                    <span>{formatBytes(memLimit)}</span>
-                                  </div>
-                                </CardContent>
-                              </Card>
-
-                              {/* Process IDs */}
-                              <Card className="border-border/40">
-                                <CardHeader>
-                                  <CardDescription className="flex items-center justify-between">
-                                    <span>Active Processes</span>
-                                    <Activity className="size-4 text-primary" />
-                                  </CardDescription>
-                                  <CardTitle className="mt-1 font-black text-2xl">
-                                    {String(stats.pids || 0)}
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <p className="mt-3 text-[11px] text-muted-foreground">
-                                    Number of thread tasks running inside
-                                    container namespaces.
-                                  </p>
-                                </CardContent>
-                              </Card>
-
-                              {/* Network I/O */}
-                              <Card className="border-border/40 sm:col-span-2 md:col-span-1">
-                                <CardHeader>
-                                  <CardDescription>
-                                    Network I/O Traffic
-                                  </CardDescription>
-                                </CardHeader>
-                                <CardContent className="mt-2 space-y-2 p-4 pt-0 font-mono text-xs">
-                                  <div className="flex items-center justify-between">
-                                    <span className="flex items-center gap-1 text-muted-foreground">
-                                      <ArrowDown className="size-3 text-success" />{" "}
-                                      Rx (Download)
-                                    </span>
-                                    <span className="font-semibold">
-                                      {formatBytes(
-                                        Number(stats.networkRxBytes) || 0,
-                                      )}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center justify-between border-t pt-2">
-                                    <span className="flex items-center gap-1 text-muted-foreground">
-                                      <ArrowUp className="size-3 text-info" />{" "}
-                                      Tx (Upload)
-                                    </span>
-                                    <span className="font-semibold">
-                                      {formatBytes(
-                                        Number(stats.networkTxBytes) || 0,
-                                      )}
-                                    </span>
-                                  </div>
-                                </CardContent>
-                              </Card>
-
-                              {/* Block I/O */}
-                              <Card className="border-border/40 sm:col-span-2">
-                                <CardHeader>
-                                  <CardDescription>
-                                    Disk Block I/O
-                                  </CardDescription>
-                                </CardHeader>
-                                <CardContent className="mt-3 flex gap-6 p-4 pt-0 font-mono text-xs">
-                                  <div className="flex-1 space-y-1">
-                                    <span className="text-muted-foreground">
-                                      Total Read Bytes
-                                    </span>
-                                    <p className="mt-1 font-bold text-base text-foreground">
-                                      {formatBytes(
-                                        Number(stats.blockReadBytes) || 0,
-                                      )}
-                                    </p>
-                                  </div>
-                                  <div className="h-10 border-border/60 border-l" />
-                                  <div className="flex-1 space-y-1">
-                                    <span className="text-muted-foreground">
-                                      Total Written Bytes
-                                    </span>
-                                    <p className="mt-1 font-bold text-base text-foreground">
-                                      {formatBytes(
-                                        Number(stats.blockWriteBytes) || 0,
-                                      )}
-                                    </p>
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            </div>
-                          );
-                        })()
-                      ) : (
-                        <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
-                          {containerId
-                            ? "Stats streaming offline or pending container read..."
-                            : "Select a running container above to inspect realtime CPU, memory, block and network statistics."}
                         </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
 
-          {/* Dev Panel: Collapsible Raw Inspection */}
-          <div className="overflow-hidden rounded-lg border border-border/50">
-            <button
-              type="button"
-              onClick={() => setShowRawJson(!showRawJson)}
-              className="flex w-full items-center justify-between p-4 font-semibold text-muted-foreground text-xs transition-all hover:bg-muted/20"
-            >
-              <span className="flex items-center gap-1.5">
-                <Code className="size-4" />
-                Inspect Raw Docker API Response
-              </span>
-              <ChevronRight
-                className={`size-4 transform transition-transform duration-200 ${showRawJson ? "rotate-90" : ""}`}
-              />
-            </button>
-            {showRawJson && (
-              <div className="border-t p-4">
-                <CodeBlock
-                  code={
-                    typeof inventoryQuery.data === "string"
-                      ? inventoryQuery.data
-                      : JSON.stringify(inventoryQuery.data ?? null, null, 2)
-                  }
-                  language="json"
-                  filename="raw-docker-response.json"
-                  className="max-h-[350px]"
+                        {containerId && dockerStats ? (
+                          (() => {
+                            const stats = dockerStats;
+                            const cpuVal = stats.cpuPercent;
+                            const memPercentVal = stats.memoryPercent;
+                            const memUsed = stats.memoryUsageBytes;
+                            const memLimit = stats.memoryLimitBytes;
+
+                            return (
+                              <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                                {/* CPU card */}
+                                <Card className="border-border/40">
+                                  <CardHeader>
+                                    <CardDescription className="flex items-center justify-between">
+                                      <span>CPU Usage</span>
+                                      <Cpu className="size-4 text-primary" />
+                                    </CardDescription>
+                                    <CardTitle className="mt-1 font-black text-2xl">
+                                      {cpuVal.toFixed(2)}%
+                                    </CardTitle>
+                                  </CardHeader>
+                                  <CardContent>
+                                    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
+                                      <div
+                                        className="h-full bg-success transition-all duration-300"
+                                        style={{
+                                          width: `${Math.min(100, cpuVal)}%`,
+                                        }}
+                                      />
+                                    </div>
+                                  </CardContent>
+                                </Card>
+
+                                {/* Memory card */}
+                                <Card className="border-border/40">
+                                  <CardHeader>
+                                    <CardDescription className="flex items-center justify-between">
+                                      <span>Memory Usage</span>
+                                      <HardDrive className="size-4 text-primary" />
+                                    </CardDescription>
+                                    <CardTitle className="mt-1 font-black text-2xl">
+                                      {memPercentVal.toFixed(2)}%
+                                    </CardTitle>
+                                  </CardHeader>
+                                  <CardContent>
+                                    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
+                                      <div
+                                        className="h-full bg-info transition-all duration-300"
+                                        style={{
+                                          width: `${Math.min(100, memPercentVal)}%`,
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="mt-2 flex justify-between font-mono text-[11px] text-muted-foreground">
+                                      <span>{formatBytes(memUsed)}</span>
+                                      <span>{formatBytes(memLimit)}</span>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+
+                                {/* Process IDs */}
+                                <Card className="border-border/40">
+                                  <CardHeader>
+                                    <CardDescription className="flex items-center justify-between">
+                                      <span>Active Processes</span>
+                                      <Activity className="size-4 text-primary" />
+                                    </CardDescription>
+                                    <CardTitle className="mt-1 font-black text-2xl">
+                                      {String(stats.pids || 0)}
+                                    </CardTitle>
+                                  </CardHeader>
+                                  <CardContent>
+                                    <p className="mt-3 text-[11px] text-muted-foreground">
+                                      Number of thread tasks running inside
+                                      container namespaces.
+                                    </p>
+                                  </CardContent>
+                                </Card>
+
+                                {/* Network I/O */}
+                                <Card className="border-border/40 sm:col-span-2 md:col-span-1">
+                                  <CardHeader>
+                                    <CardDescription>
+                                      Network I/O Traffic
+                                    </CardDescription>
+                                  </CardHeader>
+                                  <CardContent className="mt-2 space-y-2 p-4 pt-0 font-mono text-xs">
+                                    <div className="flex items-center justify-between">
+                                      <span className="flex items-center gap-1 text-muted-foreground">
+                                        <ArrowDown className="size-3 text-success" />{" "}
+                                        Rx (Download)
+                                      </span>
+                                      <span className="font-semibold">
+                                        {formatBytes(
+                                          Number(stats.networkRxBytes) || 0,
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between border-t pt-2">
+                                      <span className="flex items-center gap-1 text-muted-foreground">
+                                        <ArrowUp className="size-3 text-info" />{" "}
+                                        Tx (Upload)
+                                      </span>
+                                      <span className="font-semibold">
+                                        {formatBytes(
+                                          Number(stats.networkTxBytes) || 0,
+                                        )}
+                                      </span>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+
+                                {/* Block I/O */}
+                                <Card className="border-border/40 sm:col-span-2">
+                                  <CardHeader>
+                                    <CardDescription>
+                                      Disk Block I/O
+                                    </CardDescription>
+                                  </CardHeader>
+                                  <CardContent className="mt-3 flex gap-6 p-4 pt-0 font-mono text-xs">
+                                    <div className="flex-1 space-y-1">
+                                      <span className="text-muted-foreground">
+                                        Total Read Bytes
+                                      </span>
+                                      <p className="mt-1 font-bold text-base text-foreground">
+                                        {formatBytes(
+                                          Number(stats.blockReadBytes) || 0,
+                                        )}
+                                      </p>
+                                    </div>
+                                    <div className="h-10 border-border/60 border-l" />
+                                    <div className="flex-1 space-y-1">
+                                      <span className="text-muted-foreground">
+                                        Total Written Bytes
+                                      </span>
+                                      <p className="mt-1 font-bold text-base text-foreground">
+                                        {formatBytes(
+                                          Number(stats.blockWriteBytes) || 0,
+                                        )}
+                                      </p>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
+                            {containerId
+                              ? "Stats streaming offline or pending container read..."
+                              : "Select a running container above to inspect realtime CPU, memory, block and network statistics."}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Dev Panel: Collapsible Raw Inspection */}
+            <div className="overflow-hidden rounded-lg border border-border/50">
+              <button
+                type="button"
+                onClick={() => setShowRawJson(!showRawJson)}
+                className="flex w-full items-center justify-between p-4 font-semibold text-muted-foreground text-xs transition-all hover:bg-muted/20"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Code className="size-4" />
+                  Inspect Raw Docker API Response
+                </span>
+                <ChevronRight
+                  className={`size-4 transform transition-transform duration-200 ${showRawJson ? "rotate-90" : ""}`}
                 />
-              </div>
-            )}
+              </button>
+              {showRawJson && (
+                <div className="border-t p-4">
+                  <CodeBlock
+                    code={
+                      typeof inventoryQuery.data === "string"
+                        ? inventoryQuery.data
+                        : JSON.stringify(inventoryQuery.data ?? null, null, 2)
+                    }
+                    language="json"
+                    filename="raw-docker-response.json"
+                    className="max-h-[350px]"
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <ConfirmActionDialog
         open={pendingRemoval !== null}

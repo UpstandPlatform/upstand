@@ -9,7 +9,6 @@ import {
   ContainerIcon,
   Folder01Icon,
   GitBranchIcon,
-  HierarchyIcon,
   Key01Icon,
   LayoutTemplate,
   LockKeyIcon,
@@ -45,7 +44,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarHeader,
   SidebarInset,
   SidebarMenu,
   SidebarMenuButton,
@@ -60,7 +58,6 @@ import {
 import { Spinner } from "@upstand/ui/components/spinner";
 import type { Route } from "next";
 import dynamic from "next/dynamic";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -70,6 +67,7 @@ import { UserButton } from "@/components/auth/user/user-button";
 import { ModeToggle } from "@/components/mode-toggle";
 import { ProjectsBreadcrumb } from "@/components/projects-breadcrumb";
 import { UpGalTarget } from "@/components/upgal-target";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
 import { trpc } from "@/utils/trpc";
 
@@ -130,13 +128,17 @@ const NAVIGATION_GROUPS: readonly NavigationGroup[] = [
     title: "Infrastructure",
     items: [
       {
+        title: "Topology",
+        href: "/topology",
+        icon: Network,
+      },
+      {
         title: "Remote Servers",
         href: "/remote-servers",
         icon: CloudServerIcon,
       },
       { title: "SSH Keys", href: "/ssh-keys", icon: Key01Icon },
       { title: "Docker Swarm", href: "/docker-swarm", icon: Network },
-      { title: "Topology", href: "/topology", icon: HierarchyIcon },
       { title: "Docker Inventory", href: "/docker", icon: ContainerIcon },
       {
         title: "Docker Registry",
@@ -313,11 +315,17 @@ function DashboardSidebarGroup({
 }) {
   const searchParams = useSearchParams();
   const currentTab = searchParams.get("tab");
+  const { isCloud } = useSystemConfig();
+
+  const filteredItems = group.items.filter((item) => {
+    if (isCloud && item.href === "/web-server") return false;
+    return true;
+  });
 
   const content = (
     <SidebarGroupContent className={isCollapsed ? undefined : "mt-1"}>
       <SidebarMenu>
-        {group.items.map((item: NavigationItem) => {
+        {filteredItems.map((item: NavigationItem) => {
           if (isCollapsibleNavigationItem(item)) {
             return (
               <CollapsibleMenuItem
@@ -390,18 +398,7 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <Link
-          href="/"
-          aria-label="Upstand home"
-          className="flex items-center gap-2 px-1 font-bold text-sm tracking-tight"
-        >
-          <Image src="/brand/logo.svg" alt="" width={28} height={28} priority />
-          <span className="group-data-[collapsible=icon]:hidden">Upstand</span>
-        </Link>
-      </SidebarHeader>
-
-      <OrganizationSwitcher className="min-h-13.75 w-full border-none p-[11.5px]" />
+      <OrganizationSwitcher className="min-h-13.75 w-full rounded-none border-none p-[11.5px]" />
 
       <Separator />
 
@@ -416,8 +413,8 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
         ))}
       </SidebarContent>
 
-      <SidebarFooter>
-        <UserButton className="w-full" />
+      <SidebarFooter className="p-0">
+        <UserButton className="w-full rounded-none border-none" />
       </SidebarFooter>
     </Sidebar>
   );
@@ -592,11 +589,11 @@ export default function DashboardLayout({
 
         if (cancelled) return;
         sessionValidationInFlight.current = false;
-        setSessionValidationPending(false);
         if (sessionRefreshStatus === "unauthenticated") {
           router.replace("/login");
           return;
         }
+        setSessionValidationPending(false);
         if (sessionRefreshStatus === "unavailable") {
           setSessionValidationError(true);
         }
@@ -610,10 +607,12 @@ export default function DashboardLayout({
 
     if (mfaPending) return;
 
-    setSessionValidationPending(false);
     if (session && mfaData && !mfaData.verified && pathname !== "/2fa-verify") {
       router.replace("/2fa-verify");
+      return;
     }
+
+    setSessionValidationPending(false);
   }, [
     session,
     sessionPending,

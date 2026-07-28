@@ -139,6 +139,7 @@ export * from "./server/get-server-monitoring-status.usecase";
 export * from "./server/get-server-runtime-stats.usecase";
 export * from "./server/get-servers.usecase";
 export * from "./server/get-setup-status.usecase";
+export * from "./server/get-topology-graph.usecase";
 export * from "./server/monitoring-agent.client";
 export * from "./server/prune-docker-resources.usecase";
 export * from "./server/reset-two-factor.usecase";

@@ -87,7 +87,7 @@ RUN chmod 0755 /usr/libexec/docker/cli-plugins/docker-buildx && docker buildx ve
 
 # The pruned json tree contains only the server dependency closure.
 COPY --from=pruner /out/json/ ./
-RUN --mount=type=cache,target=/root/.bun/install/cache bun install --production --frozen-lockfile
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install --production --ignore-scripts --frozen-lockfile
 
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY --from=builder /app/packages/db/src/migrations ./packages/db/src/migrations

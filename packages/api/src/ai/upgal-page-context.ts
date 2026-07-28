@@ -69,6 +69,11 @@ const PAGE_ROUTES: readonly PageRoute[] = [
     description: "Recent HTTP request activity and diagnostics.",
   },
   {
+    pattern: /^\/topology\/?$/,
+    description:
+      "Interactive real-time infrastructure topology flowchart graph.",
+  },
+  {
     pattern: /^\/remote-servers\/?$/,
     description: "Remote deploy, build, and database servers.",
   },

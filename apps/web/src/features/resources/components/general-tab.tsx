@@ -44,6 +44,11 @@ import {
   SelectValue,
 } from "@upstand/ui/components/select";
 import { Switch } from "@upstand/ui/components/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@upstand/ui/components/tooltip";
 import { cn } from "@upstand/ui/lib/utils";
 import type { Route } from "next";
 import Link from "next/link";
@@ -1178,38 +1183,29 @@ export function GeneralTab({
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="database-engine">Database engine</Label>
-                  <Select
-                    items={[
-                      { value: "postgres", label: "PostgreSQL" },
-                      { value: "mysql", label: "MySQL" },
-                      { value: "mariadb", label: "MariaDB" },
-                      { value: "mongodb", label: "MongoDB" },
-                      { value: "redis", label: "Redis" },
-                      { value: "libsql", label: "libSQL" },
-                    ]}
-                    value={databaseType}
-                    onValueChange={(value) => {
-                      const nextType = value as DatabaseType;
-                      setDatabaseType(nextType);
-                      setDockerImage(DATABASE_IMAGE_OPTIONS[nextType][0]);
-                      setUseCustomDatabaseImage(false);
-                      setCustomDatabaseImage("");
-                    }}
-                  >
-                    <SelectTrigger id="database-engine" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="postgres">PostgreSQL</SelectItem>
-                        <SelectItem value="mysql">MySQL</SelectItem>
-                        <SelectItem value="mariadb">MariaDB</SelectItem>
-                        <SelectItem value="mongodb">MongoDB</SelectItem>
-                        <SelectItem value="redis">Redis</SelectItem>
-                        <SelectItem value="libsql">libSQL</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    id="database-engine"
+                    value={
+                      databaseType === "postgres"
+                        ? "PostgreSQL"
+                        : databaseType === "mysql"
+                          ? "MySQL"
+                          : databaseType === "mariadb"
+                            ? "MariaDB"
+                            : databaseType === "mongodb"
+                              ? "MongoDB"
+                              : databaseType === "redis"
+                                ? "Redis"
+                                : databaseType === "libsql"
+                                  ? "libSQL"
+                                  : databaseType
+                    }
+                    disabled
+                    className="w-full cursor-not-allowed bg-muted/20 font-medium"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Database engine is fixed at resource creation.
+                  </p>
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="database-image">Image version</Label>
@@ -1414,66 +1410,124 @@ export function GeneralTab({
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant={isRunning ? "destructive" : "default"}
-                    disabled={isControllingResource || isRebuildingDatabase}
-                    onClick={() =>
-                      triggerStatusChange(isRunning ? "stopped" : "running")
-                    }
-                    className="gap-2"
-                  >
-                    {isRunning ? (
-                      <>
-                        <Square className="size-4" /> Stop
-                      </>
-                    ) : (
-                      <>
-                        <Play className="size-4" /> Start
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={databaseCommand.isPending}
-                    onClick={() =>
-                      databaseCommand.mutate({
-                        id: resource.id,
-                        command: "health",
-                      })
-                    }
-                  >
-                    {databaseCommand.isPending ? "Checking..." : "Health"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={databaseCommand.isPending}
-                    onClick={() =>
-                      databaseCommand.mutate({
-                        id: resource.id,
-                        command: "version",
-                      })
-                    }
-                  >
-                    Version
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={isControllingResource || isRebuildingDatabase}
-                    onClick={() => {
-                      toast.info("Reloading database service...");
-                      controlResource({ id: resource.id, command: "restart" });
-                    }}
-                  >
-                    <RefreshCw className="mr-2 size-4" />
-                    Reload
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    disabled={isControllingResource || isRebuildingDatabase}
-                    onClick={() => setRebuildDialogOpen(true)}
-                  >
-                    {isRebuildingDatabase ? "Rebuilding..." : "Rebuild"}
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant={isRunning ? "destructive" : "default"}
+                          disabled={
+                            isControllingResource || isRebuildingDatabase
+                          }
+                          onClick={() =>
+                            triggerStatusChange(
+                              isRunning ? "stopped" : "running",
+                            )
+                          }
+                          className="gap-2"
+                        >
+                          {isRunning ? (
+                            <>
+                              <Square className="size-4" /> Stop
+                            </>
+                          ) : (
+                            <>
+                              <Play className="size-4" /> Start
+                            </>
+                          )}
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>
+                      {isRunning
+                        ? "Stop the database service containers"
+                        : "Start the database service containers"}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          disabled={databaseCommand.isPending}
+                          onClick={() =>
+                            databaseCommand.mutate({
+                              id: resource.id,
+                              command: "health",
+                            })
+                          }
+                        >
+                          {databaseCommand.isPending ? "Checking..." : "Health"}
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>
+                      Query container health check status
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          disabled={databaseCommand.isPending}
+                          onClick={() =>
+                            databaseCommand.mutate({
+                              id: resource.id,
+                              command: "version",
+                            })
+                          }
+                        >
+                          Version
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>
+                      Query database engine runtime version
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          disabled={
+                            isControllingResource || isRebuildingDatabase
+                          }
+                          onClick={() => {
+                            toast.info("Reloading database service...");
+                            controlResource({
+                              id: resource.id,
+                              command: "restart",
+                            });
+                          }}
+                        >
+                          <RefreshCw className="mr-2 size-4" />
+                          Reload
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>
+                      Gracefully restart container tasks without destroying data
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="destructive"
+                          disabled={
+                            isControllingResource || isRebuildingDatabase
+                          }
+                          onClick={() => setRebuildDialogOpen(true)}
+                        >
+                          {isRebuildingDatabase ? "Rebuilding..." : "Rebuild"}
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>
+                      Dismantle service and recreate instance from scratch
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
               {databaseCommandOutput && (
