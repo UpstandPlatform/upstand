@@ -58,6 +58,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -81,6 +82,6 @@ jobs:
           tags: ghcr.io/${{ steps.image.outputs.repository }}-${{ matrix.name }}:canary
           build-args: ${{ matrix.build_args }}
           cache-from: type=gha,scope=${{ matrix.scope }}
-          cache-to: type=gha,scope=${{ matrix.scope }},mode=max
+          cache-to: type=gha,scope=${{ matrix.scope }},mode=max,ignore-error=true
           provenance: mode=max
           sbom: true
