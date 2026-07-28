@@ -56,4 +56,7 @@ jobs:
           # release branch is exactly `changeset-release/canary`.
           branch: canary
           commitMode: github-api
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Prefer a narrowly scoped RELEASE_TOKEN when the organization
+          # disables pull-request creation for GITHUB_TOKEN. If the
+          # organization enables that setting, GITHUB_TOKEN remains sufficient.
+          github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}

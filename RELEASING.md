@@ -37,3 +37,13 @@ gh release list --repo UpstandPlatform/upstand --limit 10
 
 Do not announce a release until CI, image publication, manifest verification,
 and the GitHub Release have all passed.
+
+## Changesets token configuration
+
+The Changesets workflow needs permission to create and update pull requests.
+The preferred setup is enabling **Allow GitHub Actions to create and approve
+pull requests** in the organization Actions policy. If organization policy
+cannot be changed, configure a repository secret named `RELEASE_TOKEN` using a
+short-lived or fine-grained GitHub App/PAT credential with only Contents and
+Pull requests write access. Do not use a broad personal token as a permanent
+release credential.
