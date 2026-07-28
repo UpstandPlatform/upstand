@@ -4,7 +4,10 @@ on:
   pull_request:
     branches: [master, canary]
   push:
-    branches: [master, canary]
+    # Canary is the single post-merge integration validation lane. Master is
+    # validated by the promotion PR and by the stable release workflow; a
+    # second full push validation there only repeats the same work.
+    branches: [canary]
   workflow_dispatch:
 
 concurrency:
@@ -73,26 +76,33 @@ jobs:
           bun run db:check
           git diff --exit-code -- packages/db/src/migrations packages/db/src/schema
       - name: Check affected types
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.head_ref != 'canary' &&
+          github.head_ref != 'changeset-release/canary'
         run: bunx turbo run check-types --filter="...[origin/${{ github.base_ref }}]"
       - name: Check all types
         if: github.event_name != 'pull_request'
         run: bun run check-types
       - name: Test affected packages
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.head_ref != 'canary' &&
+          github.head_ref != 'changeset-release/canary'
         run: bunx turbo run test --filter="...[origin/${{ github.base_ref }}]"
       - name: Test all packages
         if: github.event_name != 'pull_request'
         run: bun run test
-      - name: Build affected applications
-        if: github.event_name == 'pull_request'
-        run: bunx turbo run build --filter="...[origin/${{ github.base_ref }}]"
       - name: Build all applications
         if: github.event_name != 'pull_request'
         run: bun run build
 
   docker-builds:
     name: Build pruned ${{ matrix.name }} image
+    # The canary image workflow is the canonical image build/publish lane.
+    # Keep this matrix available for an explicit workflow_dispatch, but do
+    # not rebuild the same images on every PR or canary push.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

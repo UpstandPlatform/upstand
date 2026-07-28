@@ -75,6 +75,14 @@ Open the pull request against `canary`. Keep it small and describe the tests,
 migrations, deployment impact, and rollback plan. CI is the source of truth;
 local hooks provide fast feedback but should not be bypassed to hide a failure.
 
+The CI lanes are intentionally split to avoid rebuilding the same artifact at
+every branch boundary. Pull requests run formatting, migration checks, type
+checks, and affected package tests. After a merge to `canary`, one full
+application validation runs and the canary image workflow builds and publishes
+the images once. The `canary` to `master` promotion reuses that validated
+integration result; the stable workflow is responsible for the immutable tag
+and production image publication.
+
 ```bash
 git fetch origin --prune
 git switch canary
@@ -89,6 +97,13 @@ automated release PR is created after Changesets land on `canary`. Review and
 merge it into `canary`, then promote the resulting commit to `master` through a
 pull request. The stable-tag workflow creates the immutable
 `vMAJOR.MINOR.PATCH` tag and dispatches the reusable image publishing workflow.
+
+If the Changesets workflow reports that GitHub Actions cannot create or approve
+pull requests, keep the repository token read-only and either enable the
+organization setting that permits Actions to create and approve pull requests,
+or configure the narrowly scoped `RELEASE_TOKEN` repository secret. The
+generated `changeset-release/canary` branch can be opened as a PR manually
+while that setting is being changed.
 
 Never move an existing release tag. A correction becomes the next patch
 release; for example, `v0.1.0` stays immutable and the correction is `v0.1.1`.

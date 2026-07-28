@@ -24,6 +24,18 @@
       "skillPath": "skills/dry-refactoring/SKILL.md",
       "computedHash": "0ccb5181aee5f7af4bf712ea0b746c14c27ad796e09e22900d7aa5e02073369a"
     },
+    "github-actions": {
+      "source": "callstackincubator/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/github-actions/SKILL.md",
+      "computedHash": "900022d1edee1aafa5b5b13da1d3fcd41a0297b277f9aa835c9acf98023c45a3"
+    },
+    "github-actions-templates": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/cicd-automation/skills/github-actions-templates/SKILL.md",
+      "computedHash": "d57f2a45525180e30d9130aeab1613930c274917c5002899d8c37185594de411"
+    },
     "hono": {
       "source": "yusukebe/hono-skill",
       "sourceType": "github",
