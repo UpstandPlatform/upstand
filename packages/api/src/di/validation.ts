@@ -147,6 +147,7 @@ const STARTUP_TOKENS: readonly Token[] = [
   dependencies.ProjectRepositoryToken,
   dependencies.GetProjectUseCaseToken,
   dependencies.GetServersUseCaseToken,
+  dependencies.GetTopologyGraphUseCaseToken,
   dependencies.GetSshKeysUseCaseToken,
   dependencies.SshKeyRepositoryToken,
   dependencies.CreateTagUseCaseToken,

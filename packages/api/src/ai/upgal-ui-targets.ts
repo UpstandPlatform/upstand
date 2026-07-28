@@ -59,6 +59,14 @@ export const UPGAL_UI_TARGETS = [
     path: "/requests",
   },
   {
+    id: "navigation-topology",
+    label: "Topology navigation",
+    description: "Open the Infrastructure Topology page.",
+    kind: "navigation",
+    action: "spotlight",
+    path: "/topology",
+  },
+  {
     id: "navigation-remote-servers",
     label: "Remote Servers navigation",
     description: "Open the Remote Servers page.",
@@ -81,14 +89,6 @@ export const UPGAL_UI_TARGETS = [
     kind: "navigation",
     action: "spotlight",
     path: "/docker-swarm",
-  },
-  {
-    id: "navigation-topology",
-    label: "Infrastructure topology navigation",
-    description: "Open the live infrastructure topology map.",
-    kind: "navigation",
-    action: "spotlight",
-    path: "/topology",
   },
   {
     id: "navigation-docker",

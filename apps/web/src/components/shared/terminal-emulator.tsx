@@ -22,26 +22,45 @@ type TerminalControlMessage =
   | { type: "terminal.ready" }
   | { type: "terminal.error"; message: string };
 
-function getTerminalSocketUrl(): string {
+function getTerminalSocketUrl(token: string): string {
   const url = new URL(getServerApiUrl("/api/terminal/connect"));
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("token", token);
   return url.toString();
 }
 
+/**
+ * Only classify a message as a control message when it matches the exact
+ * known shape. Anything else (including arbitrary JSON-looking text that
+ * happens to come through as a text frame) is treated as regular terminal
+ * output and must NOT be swallowed here — the caller falls back to writing
+ * it to the terminal.
+ */
 function parseControlMessage(data: string): TerminalControlMessage | null {
   try {
     const message = JSON.parse(data) as Partial<TerminalControlMessage>;
-    if (message.type === "terminal.ready") return { type: message.type };
-    if (
-      message.type === "terminal.error" &&
-      typeof message.message === "string"
-    ) {
-      return { type: message.type, message: message.message };
+    if (message && typeof message === "object") {
+      if (message.type === "terminal.ready") {
+        return { type: "terminal.ready" };
+      }
+      if (
+        message.type === "terminal.error" &&
+        typeof message.message === "string"
+      ) {
+        return { type: "terminal.error", message: message.message };
+      }
     }
   } catch {
-    // Regular terminal output is sent as binary, but preserve unexpected text.
+    // Not JSON — this is regular terminal output sent as a text frame.
   }
   return null;
+}
+
+function sanitizeTerminalMessage(message: string): string {
+  return message
+    .replace(new RegExp(String.fromCharCode(27), "g"), "")
+    .replace(/[^\P{Cc}\r\n\t]/gu, " ")
+    .slice(0, 512);
 }
 
 export interface TerminalThemeOptions {
@@ -264,7 +283,7 @@ export function TerminalEmulator({
 
       termRef.current = term;
 
-      ws = new WebSocket(getTerminalSocketUrl());
+      ws = new WebSocket(getTerminalSocketUrl(token));
       ws.binaryType = "arraybuffer";
 
       ws.onmessage = async (event) => {
@@ -272,25 +291,37 @@ export function TerminalEmulator({
           const controlMessage = parseControlMessage(event.data);
           if (controlMessage?.type === "terminal.ready") {
             term.focus();
+            // Send current viewport size immediately so the PTY resizes to match
+            const { cols, rows } = term;
+            if (
+              ws &&
+              ws.readyState === WebSocket.OPEN &&
+              cols > 0 &&
+              rows > 0
+            ) {
+              ws.send(JSON.stringify({ type: "resize", cols, rows }));
+            }
             onReadyRef.current?.();
             return;
           }
           if (controlMessage?.type === "terminal.error") {
-            connectionError = controlMessage.message;
-            term.write(`\r\n\x1b[1;31m[${controlMessage.message}]\x1b[0m\r\n`);
+            connectionError = sanitizeTerminalMessage(controlMessage.message);
+            term.write(`\r\n\x1b[1;31m[${connectionError}]\x1b[0m\r\n`);
             return;
           }
+          // Not a recognized control message — write it as regular
+          // terminal output instead of silently dropping it.
+          term.write(event.data);
+          return;
         }
 
-        const text =
-          typeof event.data === "string"
-            ? event.data
-            : new TextDecoder().decode(
-                event.data instanceof Blob
-                  ? await event.data.arrayBuffer()
-                  : event.data,
-              );
-        term.write(text);
+        const text = new TextDecoder().decode(
+          event.data instanceof Blob
+            ? await event.data.arrayBuffer()
+            : event.data,
+        );
+
+        if (isMounted) term.write(text);
       };
 
       ws.onerror = () => {
@@ -299,7 +330,9 @@ export function TerminalEmulator({
 
       ws.onclose = (e) => {
         if (closingIntentionally || !isMounted) return;
-        const reason = connectionError || e.reason || "SSH session closed";
+        const reason = sanitizeTerminalMessage(
+          connectionError || e.reason || "SSH session closed",
+        );
         term.write(`\r\n\x1b[1;31m[Disconnected: ${reason}]\x1b[0m\r\n`);
         onCloseRef.current?.(reason);
       };
@@ -307,6 +340,12 @@ export function TerminalEmulator({
       term.onData((data) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(data);
+        }
+      });
+
+      term.onResize(({ cols, rows }) => {
+        if (ws && ws.readyState === WebSocket.OPEN && cols > 0 && rows > 0) {
+          ws.send(JSON.stringify({ type: "resize", cols, rows }));
         }
       });
 
@@ -319,6 +358,15 @@ export function TerminalEmulator({
         }
       });
       resizeObserver.observe(containerRef.current);
+
+      requestAnimationFrame(() => {
+        try {
+          term.focus();
+          fitAddon.fit();
+        } catch (_e) {
+          // ignore
+        }
+      });
     }
 
     initTerminal().catch((error) => {
@@ -346,9 +394,12 @@ export function TerminalEmulator({
 
   return (
     <div
-      className="relative h-full w-full select-text p-2"
+      className="relative h-full w-full cursor-text select-text p-2"
+      onClick={() => termRef.current?.focus()}
       style={{
-        backgroundColor: TERMINAL_THEMES[themeName]?.background || "#080c0a",
+        backgroundColor: (
+          TERMINAL_THEMES[activeThemeKey] || TERMINAL_THEMES.slate
+        ).background,
       }}
     >
       <div ref={containerRef} className="h-full w-full overflow-hidden" />

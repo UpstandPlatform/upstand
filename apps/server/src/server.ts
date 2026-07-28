@@ -173,6 +173,9 @@ process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.once("SIGINT", () => void shutdown("SIGINT"));
 
 export default {
+  // Bind on all interfaces so the same process works for host development,
+  // Docker port forwarding, and the self-hosted runtime.
+  hostname: process.env.HOST || "0.0.0.0",
   port: env.PORT,
   fetch: (request: Request, bunServer: Bun.Server<unknown>) =>
     app.fetch(request, { server: bunServer }),

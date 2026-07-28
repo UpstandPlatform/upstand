@@ -25,6 +25,7 @@ export interface AuthConfiguration {
   nodeEnv: string;
   googleClientId?: string;
   googleClientSecret?: string;
+  isCloud?: boolean;
 }
 
 export interface AuthCallbacks {
@@ -151,6 +152,12 @@ export function createAuth(options: {
         },
       },
     },
+    account: {
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ["google"],
+      },
+    },
     socialProviders: {
       google:
         configuration.googleClientId && configuration.googleClientSecret
@@ -194,6 +201,16 @@ export function createAuth(options: {
     databaseHooks: {
       user: {
         create: {
+          before: async (user) => {
+            if (configuration.isCloud) {
+              return {
+                data: {
+                  ...user,
+                  managed: true,
+                },
+              };
+            }
+          },
           after: async (user) => callbacks.createPersonalOrganization(user),
         },
       },

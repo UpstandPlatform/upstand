@@ -181,6 +181,7 @@ export const auth = createAuth({
     nodeEnv: env.NODE_ENV,
     googleClientId: env.GOOGLE_CLIENT_ID,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+    isCloud: env.IS_CLOUD,
   },
 });
 

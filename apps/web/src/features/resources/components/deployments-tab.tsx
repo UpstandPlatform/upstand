@@ -9,6 +9,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@upstand/ui/components/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@upstand/ui/components/tooltip";
 import { cn } from "@upstand/ui/lib/utils";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -95,8 +100,7 @@ export function DeploymentsTab({
   const supportsHistoricalRollback =
     (resource.type === "compose" && resource.provider !== "raw") ||
     isGitBackedApplication;
-  const canRollback =
-    resource.type !== "compose" || resource.provider !== "raw";
+  const canRollback = supportsHistoricalRollback;
   const queuedDeployment = deployList.find((deployment) =>
     ["queued", "waiting", "retrying"].includes(deployment.status),
   );
@@ -184,108 +188,160 @@ export function DeploymentsTab({
           </div>
 
           <div className="flex flex-wrap gap-2 pt-2">
-            <Button
-              onClick={triggerDeployment}
-              disabled={isBuilding || isDeployingResource}
-              className="gap-2 font-medium"
-            >
-              <RefreshCw
-                className={cn(
-                  "size-4",
-                  (isBuilding || isDeployingResource) && "animate-spin",
-                )}
-              />
-              Deploy Now
-            </Button>
-            <Button
-              onClick={() =>
-                setPendingAction({
-                  type: "clear-history",
-                  label: "completed deployment history",
-                })
-              }
-              variant="outline"
-              className="gap-2 border-border/40"
-            >
-              <Trash2 className="size-4" /> Clear Deployments
-            </Button>
-            <Button
-              onClick={() => setConfigureRollbackDialogOpen(true)}
-              variant="outline"
-              className="gap-2 border-border/40"
-            >
-              <Layers className="size-4" /> Configure Rollback
-            </Button>
-            <Button
-              onClick={() => {
-                if (!queuedDeployment) return;
-                setPendingAction({
-                  type: "cancel-queued",
-                  label: queuedDeployment.title,
-                  deploymentId: queuedDeployment.id,
-                });
-              }}
-              variant="destructive"
-              disabled={
-                !hasPendingDeployment || cancelDeploymentMutation.isPending
-              }
-            >
-              {cancelDeploymentMutation.isPending
-                ? "Cancelling..."
-                : "Cancel Queued Deployment"}
-            </Button>
-            <Button
-              onClick={() => {
-                const active = deployList.find(
-                  (deployment) => deployment.status === "running",
-                );
-                if (active) {
-                  setPendingAction({
-                    type: "kill-build",
-                    label: active.title,
-                    deploymentId: active.id,
-                  });
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    onClick={triggerDeployment}
+                    disabled={isBuilding || isDeployingResource}
+                    className="gap-2 font-medium"
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "size-4",
+                        (isBuilding || isDeployingResource) && "animate-spin",
+                      )}
+                    />
+                    Deploy Now
+                  </Button>
                 }
-              }}
-              variant="destructive"
-              disabled={!isBuilding || killBuildMutation.isPending}
-            >
-              {killBuildMutation.isPending
-                ? "Stopping build..."
-                : "Kill Active Build"}
-            </Button>
+              />
+              <TooltipContent>
+                Trigger a new build and deployment pipeline using latest
+                configuration
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    onClick={() =>
+                      setPendingAction({
+                        type: "clear-history",
+                        label: "completed deployment history",
+                      })
+                    }
+                    variant="outline"
+                    className="gap-2 border-border/40"
+                  >
+                    <Trash2 className="size-4" /> Clear Deployments
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                Clear completed and failed items from deployment audit log
+              </TooltipContent>
+            </Tooltip>
+            {resource.type !== "database" && resource.type !== "compose" && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      onClick={() => setConfigureRollbackDialogOpen(true)}
+                      variant="outline"
+                      className="gap-2 border-border/40"
+                    >
+                      <Layers className="size-4" /> Configure Rollback
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  Configure automated rollback settings upon health check
+                  failure
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    onClick={() => {
+                      if (!queuedDeployment) return;
+                      setPendingAction({
+                        type: "cancel-queued",
+                        label: queuedDeployment.title,
+                        deploymentId: queuedDeployment.id,
+                      });
+                    }}
+                    variant="destructive"
+                    disabled={
+                      !hasPendingDeployment ||
+                      cancelDeploymentMutation.isPending
+                    }
+                  >
+                    {cancelDeploymentMutation.isPending
+                      ? "Cancelling..."
+                      : "Cancel Queued Deployment"}
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                Remove pending build from deployment execution queue
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    onClick={() => {
+                      const active = deployList.find(
+                        (deployment) => deployment.status === "running",
+                      );
+                      if (active) {
+                        setPendingAction({
+                          type: "kill-build",
+                          label: active.title,
+                          deploymentId: active.id,
+                        });
+                      }
+                    }}
+                    variant="destructive"
+                    disabled={!isBuilding || killBuildMutation.isPending}
+                  >
+                    {killBuildMutation.isPending
+                      ? "Stopping build..."
+                      : "Kill Active Build"}
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                Abort currently running build job process
+              </TooltipContent>
+            </Tooltip>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="border border-border/40 bg-card/20">
-        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Clock className="size-5" />
+      {resource.type !== "database" && (
+        <Card className="border border-border/40 bg-card/20">
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Clock className="size-5" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">
+                  Scheduled Resource Jobs & Crons
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  Manage recurring deployment schedules, container commands,
+                  backups, and HTTP crons centrally in the Cron Jobs tab.
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="font-semibold text-sm">
-                Scheduled Resource Jobs & Crons
-              </p>
-              <p className="text-muted-foreground text-xs">
-                Manage recurring deployment schedules, container commands,
-                backups, and HTTP crons centrally in the Cron Jobs tab.
-              </p>
-            </div>
-          </div>
-          {onNavigateToCrons && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onNavigateToCrons}
-              className="shrink-0 gap-2 border-border/40 text-xs"
-            >
-              <Clock className="size-3.5" /> Go to Cron Jobs Tab
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+            {onNavigateToCrons && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onNavigateToCrons}
+                className="shrink-0 gap-2 border-border/40 text-xs"
+              >
+                <Clock className="size-3.5" /> Go to Cron Jobs Tab
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border border-border/40 bg-card/20">
         <CardHeader>

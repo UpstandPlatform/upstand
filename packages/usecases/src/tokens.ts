@@ -224,6 +224,8 @@ export const ScimUseCaseToken =
   createToken<UseCases.ScimUseCase>("ScimUseCase");
 export const GetDockerInventoryUseCaseToken =
   createToken<UseCases.GetDockerInventoryUseCase>("GetDockerInventoryUseCase");
+export const GetTopologyGraphUseCaseToken =
+  createToken<UseCases.GetTopologyGraphUseCase>("GetTopologyGraphUseCase");
 export const PruneDockerResourcesUseCaseToken =
   createToken<UseCases.PruneDockerResourcesUseCase>(
     "PruneDockerResourcesUseCase",

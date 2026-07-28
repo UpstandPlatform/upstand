@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import {
+  ChangeContainerItemPermissionsInputSchema,
   CreateContainerItemInputSchema,
   DeleteContainerItemInputSchema,
   ListContainerFilesInputSchema,
@@ -169,6 +170,33 @@ export const containerFileManagerRouter = router({
         );
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
         return await useCase.deleteItem({
+          ...input,
+          organizationId,
+        });
+      } catch (error) {
+        handleUseCaseError(error);
+      }
+    }),
+
+  changePermissions: twoFactorVerifiedProcedure
+    .input(
+      ChangeContainerItemPermissionsInputSchema.omit({
+        organizationId: true,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const organizationId = await resolveResourceOrgId(
+          ctx,
+          input.resourceId,
+        );
+        await checkPermission(
+          ctx.session.user.id,
+          organizationId,
+          "resource:update",
+        );
+        const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
+        return await useCase.changePermissions({
           ...input,
           organizationId,
         });

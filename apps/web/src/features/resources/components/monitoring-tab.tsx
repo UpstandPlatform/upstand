@@ -342,7 +342,7 @@ export function MonitoringTab({
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardContent className="flex items-center justify-between p-4">
+          <CardContent className="flex items-center justify-between">
             <div>
               <p className="text-muted-foreground text-xs">Current CPU</p>
               <p className="mt-1 font-semibold text-xl tabular-nums">
@@ -353,7 +353,7 @@ export function MonitoringTab({
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="flex items-center justify-between p-4">
+          <CardContent className="flex items-center justify-between">
             <div>
               <p className="text-muted-foreground text-xs">Current memory</p>
               <p className="mt-1 font-semibold text-xl tabular-nums">
@@ -364,7 +364,7 @@ export function MonitoringTab({
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="flex items-center justify-between p-4">
+          <CardContent className="flex items-center justify-between">
             <div>
               <p className="text-muted-foreground text-xs">Active containers</p>
               <p className="mt-1 font-semibold text-xl tabular-nums">
@@ -377,7 +377,7 @@ export function MonitoringTab({
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="flex items-center justify-between p-4">
+          <CardContent className="flex items-center justify-between">
             <div>
               <p className="text-muted-foreground text-xs">Network traffic</p>
               <p className="mt-1 font-semibold text-xl tabular-nums">

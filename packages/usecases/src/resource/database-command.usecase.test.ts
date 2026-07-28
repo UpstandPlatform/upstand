@@ -44,7 +44,7 @@ describe("database command use case", () => {
   const defaultEngines = [
     {
       dbType: "postgres",
-      health: "pg_isready -U postgres",
+      health: "pg_isready -U 'postgres'",
       version: "postgres --version",
     },
     { dbType: "mysql", health: "mysqladmin ping", version: "mysql --version" },
@@ -105,7 +105,7 @@ describe("database command use case", () => {
       dbName: "custom_db",
     });
     await useCase.execute({ id: "db-postgres", command: "health" });
-    expect(getCommand()).toBe("pg_isready -U custom_user -d custom_db");
+    expect(getCommand()).toBe("pg_isready -U 'custom_user' -d 'custom_db'");
   });
 
   test("pg_isready includes only -U flag when only dbUser is set", async () => {
@@ -113,7 +113,7 @@ describe("database command use case", () => {
       dbUser: "myuser",
     });
     await useCase.execute({ id: "db-postgres", command: "health" });
-    expect(getCommand()).toBe("pg_isready -U myuser");
+    expect(getCommand()).toBe("pg_isready -U 'myuser'");
   });
 
   test("mysqladmin ping includes password flag when MYSQL_ROOT_PASSWORD is set", async () => {
@@ -121,7 +121,7 @@ describe("database command use case", () => {
       dbRootPassword: "r00tp@ss",
     });
     await useCase.execute({ id: "db-mysql", command: "health" });
-    expect(getCommand()).toContain('-p"r00tp@ss"');
+    expect(getCommand()).toContain("-p'r00tp@ss'");
   });
 
   test("mariadb-admin ping includes password flag when credentials are set", async () => {
@@ -130,7 +130,7 @@ describe("database command use case", () => {
     });
     await useCase.execute({ id: "db-mariadb", command: "health" });
     expect(getCommand()).toStartWith("mariadb-admin ping");
-    expect(getCommand()).toContain('-p"secret"');
+    expect(getCommand()).toContain("-p'secret'");
   });
 
   test("redis-cli includes -a flag when password is set", async () => {
@@ -138,7 +138,7 @@ describe("database command use case", () => {
       dbPassword: "s3cur3",
     });
     await useCase.execute({ id: "db-redis", command: "health" });
-    expect(getCommand()).toBe(`redis-cli -a "s3cur3" ping`);
+    expect(getCommand()).toBe("redis-cli --no-auth-warning -a 's3cur3' ping");
   });
 
   test("mongosh includes -u/-p auth flags when credentials are set", async () => {
@@ -148,8 +148,8 @@ describe("database command use case", () => {
     });
     await useCase.execute({ id: "db-mongodb", command: "health" });
     const cmd = getCommand();
-    expect(cmd).toContain(`-u "root"`);
-    expect(cmd).toContain(`-p "mongosecret"`);
+    expect(cmd).toContain("-u 'root'");
+    expect(cmd).toContain("-p 'mongosecret'");
     expect(cmd).toContain("--authenticationDatabase admin");
     expect(cmd).toContain("db.runCommand({ ping: 1 }).ok");
   });

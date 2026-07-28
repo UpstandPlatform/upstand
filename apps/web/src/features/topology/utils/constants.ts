@@ -1,0 +1,2 @@
+export const ANIMATION_NODE_LIMIT = 80;
+export const DEFAULT_EDGE_STROKE_WIDTH = 2;

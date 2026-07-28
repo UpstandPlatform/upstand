@@ -936,6 +936,10 @@ export class CaddyService {
       ];
       const created = await this.docker.createContainer({
         name: CADDY_CONTAINER_NAME,
+        Labels: {
+          "com.upstand.component": "caddy",
+          "com.upstand.platform": "true",
+        },
         Image: CADDY_IMAGE,
         Env: env,
         Entrypoint: ["/bin/sh", "-ec"],

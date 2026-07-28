@@ -132,6 +132,8 @@ async function initializeCaddyViaSsh(
   const runCmd = [
     "docker create",
     `--name ${CADDY_CONTAINER_NAME}`,
+    "--label com.upstand.component=caddy",
+    "--label com.upstand.platform=true",
     "--restart always",
     "-p 80:80",
     "-p 443:443",

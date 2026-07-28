@@ -119,7 +119,13 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
         );
       }
       host = settings.serverIp;
-      port = body.port && Number.isInteger(body.port) ? body.port : 22;
+      port =
+        typeof body.port === "number" &&
+        Number.isInteger(body.port) &&
+        body.port >= 1 &&
+        body.port <= 65_535
+          ? body.port
+          : 22;
       username = body.username?.trim() || "root";
       privateKey = decryptSecret({
         ciphertext: key.privateKeyCiphertext,
@@ -134,6 +140,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
+      isLocal: false,
       host,
       port,
       username,
@@ -193,11 +200,13 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       resourceId?: string;
       containerId?: string;
       sshKeyId?: string;
+      cols?: number;
+      rows?: number;
     } | null;
     if (!body?.organizationId || !body.resourceId || !body.containerId) {
       return c.json(
         {
-          error: "Organization, resource, container, and SSH key are required",
+          error: "Organization, resource, and container are required",
         },
         400,
       );
@@ -255,93 +264,61 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     if (!selectedContainer) {
       return c.json({ error: "Container is not part of this resource" }, 404);
     }
-    let host = "127.0.0.1";
-    let port = 22;
-    let username = "root";
-    let privateKey: string;
-    let hostKeyFingerprint: string;
-    if (
-      resource.serverId &&
-      !["local", "manager"].includes(resource.serverId)
-    ) {
-      const server = await uow.serverRepository.findById(resource.serverId);
-      if (!server || server.organizationId !== body.organizationId) {
-        return c.json({ error: "Deployment server not found" }, 404);
-      }
-      host = server.ipAddress;
-      port = server.port;
-      username = server.username;
-      const key = server.sshKeyId
-        ? await uow.sshKeyRepository.findById(server.sshKeyId)
-        : null;
-      if (!key)
-        return c.json({ error: "Deployment server has no SSH key" }, 409);
-      if (!server.sshHostKeyFingerprint) {
-        return c.json(
-          { error: "Trust the deployment server SSH host key first" },
-          409,
-        );
-      }
-      privateKey = decryptSecret({
-        ciphertext: key.privateKeyCiphertext,
-        iv: key.privateKeyIv,
-        authTag: key.privateKeyAuthTag,
-        keyVersion: key.privateKeyVersion,
+    const authorizedContainerId = (selectedContainer as { id: string }).id;
+
+    if (targetServerId === "local") {
+      const token = terminalBroker.create({
+        userId: session.user.id,
+        sessionId: session.session.id,
+        twoFactorEnabled: session.user.twoFactorEnabled === true,
+        isLocal: true,
+        containerId: authorizedContainerId,
+        initialCols:
+          typeof body.cols === "number" && body.cols > 0
+            ? body.cols
+            : undefined,
+        initialRows:
+          typeof body.rows === "number" && body.rows > 0
+            ? body.rows
+            : undefined,
       });
-      hostKeyFingerprint = server.sshHostKeyFingerprint;
-    } else {
-      if (!body.sshKeyId) {
-        return c.json(
-          { error: "An SSH key is required for the control-plane terminal" },
-          400,
-        );
-      }
-      const [key, settings] = await Promise.all([
-        uow.sshKeyRepository.findById(body.sshKeyId),
-        uow.webServerSettingsRepository.findGlobal(),
-      ]);
-      if (!key || key.organizationId !== body.organizationId) {
-        return c.json(
-          { error: "SSH key was not found in this organization" },
-          404,
-        );
-      }
-      if (!settings?.serverIp) {
-        return c.json(
-          { error: "Control-plane server IP is not configured" },
-          409,
-        );
-      }
-      host = settings.serverIp;
-      privateKey = decryptSecret({
-        ciphertext: key.privateKeyCiphertext,
-        iv: key.privateKeyIv,
-        authTag: key.privateKeyAuthTag,
-        keyVersion: key.privateKeyVersion,
-      });
-      hostKeyFingerprint =
-        env.UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT || "";
-      if (!hostKeyFingerprint) {
-        return c.json(
-          {
-            error:
-              "Configure the trusted control-plane SSH host fingerprint first",
-          },
-          409,
-        );
-      }
+      return c.json({ token, expiresIn: 60 });
     }
+
+    const server = await uow.serverRepository.findById(targetServerId);
+    if (!server || server.organizationId !== body.organizationId) {
+      return c.json({ error: "Deployment server not found" }, 404);
+    }
+    if (!server.sshKeyId) {
+      return c.json({ error: "Deployment server has no SSH key" }, 409);
+    }
+    if (!server.sshHostKeyFingerprint) {
+      return c.json(
+        { error: "Trust the deployment server SSH host key first" },
+        409,
+      );
+    }
+    const key = await uow.sshKeyRepository.findById(server.sshKeyId);
+    if (!key)
+      return c.json({ error: "Deployment server SSH key was not found" }, 404);
+    const privateKey = decryptSecret({
+      ciphertext: key.privateKeyCiphertext,
+      iv: key.privateKeyIv,
+      authTag: key.privateKeyAuthTag,
+      keyVersion: key.privateKeyVersion,
+    });
 
     const token = terminalBroker.create({
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
-      host,
-      port,
-      username,
+      isLocal: false,
+      host: server.ipAddress,
+      port: server.port,
+      username: server.username,
       privateKey,
-      hostKeyFingerprint,
-      command: `docker exec -it ${body.containerId} /bin/sh -lc 'exec /bin/sh || exec /bin/bash'`,
+      hostKeyFingerprint: server.sshHostKeyFingerprint,
+      command: `docker exec -it ${authorizedContainerId} /bin/sh -c "exec /bin/bash 2>/dev/null || exec /bin/sh"`,
     });
     return c.json({ token, expiresIn: 60 });
   });
@@ -359,6 +336,8 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       serverId?: string;
       containerId?: string;
       sshKeyId?: string;
+      cols?: number;
+      rows?: number;
     } | null;
     if (!body?.organizationId || !body.resourceId || !body.containerId) {
       return c.json(
@@ -393,89 +372,6 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
         403,
       );
     }
-    let host: string;
-    let port: number;
-    let username: string;
-    let privateKey: string;
-    let hostKeyFingerprint: string;
-
-    if (targetServerId !== "local") {
-      const server = await uow.serverRepository.findById(targetServerId);
-      if (!server || server.organizationId !== body.organizationId) {
-        return c.json(
-          { error: "Docker server is not part of this organization" },
-          403,
-        );
-      }
-      if (!server.sshKeyId) {
-        return c.json(
-          { error: "Docker server has no SSH key configured" },
-          409,
-        );
-      }
-      if (!server.sshHostKeyFingerprint) {
-        return c.json(
-          { error: "Trust the Docker server SSH host key first" },
-          409,
-        );
-      }
-      const key = await uow.sshKeyRepository.findById(server.sshKeyId);
-      if (!key)
-        return c.json({ error: "Docker server SSH key was not found" }, 404);
-      host = server.ipAddress;
-      port = server.port;
-      username = server.username;
-      privateKey = decryptSecret({
-        ciphertext: key.privateKeyCiphertext,
-        iv: key.privateKeyIv,
-        authTag: key.privateKeyAuthTag,
-        keyVersion: key.privateKeyVersion,
-      });
-      hostKeyFingerprint = server.sshHostKeyFingerprint;
-    } else {
-      if (!body.sshKeyId) {
-        return c.json(
-          { error: "An SSH key is required for local Docker" },
-          400,
-        );
-      }
-      const [key, settings] = await Promise.all([
-        uow.sshKeyRepository.findById(body.sshKeyId),
-        uow.webServerSettingsRepository.findGlobal(),
-      ]);
-      if (!key || key.organizationId !== body.organizationId) {
-        return c.json(
-          { error: "SSH key was not found in this organization" },
-          404,
-        );
-      }
-      if (!settings?.serverIp) {
-        return c.json(
-          { error: "Control-plane server IP is not configured" },
-          409,
-        );
-      }
-      host = settings.serverIp;
-      port = 22;
-      username = "root";
-      privateKey = decryptSecret({
-        ciphertext: key.privateKeyCiphertext,
-        iv: key.privateKeyIv,
-        authTag: key.privateKeyAuthTag,
-        keyVersion: key.privateKeyVersion,
-      });
-      hostKeyFingerprint =
-        env.UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT || "";
-      if (!hostKeyFingerprint) {
-        return c.json(
-          {
-            error:
-              "Configure the trusted control-plane SSH host fingerprint first",
-          },
-          409,
-        );
-      }
-    }
 
     const containers = await scope
       .resolve(GetDockerInventoryUseCaseToken)
@@ -485,39 +381,86 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
         kind: "containers",
         tail: 150,
       });
-    if (
-      !Array.isArray(containers) ||
-      !containers.some(
-        (container) =>
-          typeof container === "object" &&
-          container !== null &&
-          matchesContainerIdentifier(
-            containerId,
-            (container as { id?: string }).id || "",
-          ) &&
-          Array.isArray((container as { labels?: unknown }).labels) &&
-          containerBelongsToResource(
-            container as { id: string; labels: string[] },
-            resource,
-          ),
-      )
-    ) {
+    const selectedContainer = Array.isArray(containers)
+      ? containers.find(
+          (container) =>
+            typeof container === "object" &&
+            container !== null &&
+            matchesContainerIdentifier(
+              containerId,
+              (container as { id?: string }).id || "",
+            ) &&
+            Array.isArray((container as { labels?: unknown }).labels) &&
+            containerBelongsToResource(
+              container as { id: string; labels: string[] },
+              resource,
+            ),
+        )
+      : undefined;
+    if (!selectedContainer) {
       return c.json(
         { error: "Container was not found on the selected Docker target" },
         404,
       );
     }
+    const authorizedContainerId = (selectedContainer as { id: string }).id;
+
+    if (targetServerId === "local") {
+      const token = terminalBroker.create({
+        userId: session.user.id,
+        sessionId: session.session.id,
+        twoFactorEnabled: session.user.twoFactorEnabled === true,
+        isLocal: true,
+        containerId: authorizedContainerId,
+        initialCols:
+          typeof body.cols === "number" && body.cols > 0
+            ? body.cols
+            : undefined,
+        initialRows:
+          typeof body.rows === "number" && body.rows > 0
+            ? body.rows
+            : undefined,
+      });
+      return c.json({ token, expiresIn: 60 });
+    }
+
+    const server = await uow.serverRepository.findById(targetServerId);
+    if (!server || server.organizationId !== body.organizationId) {
+      return c.json(
+        { error: "Docker server is not part of this organization" },
+        403,
+      );
+    }
+    if (!server.sshKeyId) {
+      return c.json({ error: "Docker server has no SSH key configured" }, 409);
+    }
+    if (!server.sshHostKeyFingerprint) {
+      return c.json(
+        { error: "Trust the Docker server SSH host key first" },
+        409,
+      );
+    }
+    const key = await uow.sshKeyRepository.findById(server.sshKeyId);
+    if (!key)
+      return c.json({ error: "Docker server SSH key was not found" }, 404);
+    const privateKey = decryptSecret({
+      ciphertext: key.privateKeyCiphertext,
+      iv: key.privateKeyIv,
+      authTag: key.privateKeyAuthTag,
+      keyVersion: key.privateKeyVersion,
+    });
 
     const token = terminalBroker.create({
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
-      host,
-      port,
-      username,
+      isLocal: false,
+      host: server.ipAddress,
+      port: server.port,
+      username: server.username,
       privateKey,
-      hostKeyFingerprint,
-      command: `docker exec -it ${containerId} /bin/sh -lc 'exec /bin/sh || exec /bin/bash'`,
+      hostKeyFingerprint: server.sshHostKeyFingerprint,
+      command: `docker exec -it ${authorizedContainerId} /bin/sh`,
     });
     return c.json({ token, expiresIn: 60 });
   });
@@ -526,27 +469,53 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     "/api/terminal/connect",
     upgradeWebSocket((c) => {
       let token: string | null = null;
+      const requestedToken = c.req.query("token");
+      let socketOpen = true;
+      let wsRef: {
+        send(data: string | ArrayBuffer): void;
+        close(code?: number, reason?: string): void;
+      } | null = null;
+      const closeSocket = (code: number, reason: string) => {
+        if (!socketOpen) return;
+        socketOpen = false;
+        try {
+          wsRef?.close(code, reason.slice(0, 120));
+        } catch {
+          // The WebSocket may already have been closed by the client.
+        }
+      };
+      const sendSocket = (data: string | ArrayBuffer): boolean => {
+        if (!socketOpen || !wsRef) return false;
+        try {
+          wsRef.send(data);
+          return true;
+        } catch {
+          closeSocket(1011, "Terminal socket is no longer available");
+          return false;
+        }
+      };
       return {
         onOpen: async (_event, ws) => {
-          const currentSession = await auth.api.getSession({
-            headers: c.req.raw.headers,
-          });
-          if (!currentSession) {
-            ws.close(1008, "Authentication required");
-            return;
-          }
+          wsRef = ws;
           try {
+            const currentSession = await auth.api.getSession({
+              headers: c.req.raw.headers,
+            });
+            if (!currentSession) {
+              closeSocket(1008, "Authentication required");
+              return;
+            }
             token = await terminalBroker.connectForSession(
               currentSession.user.id,
               currentSession.session.id,
               (data) =>
-                ws.send(
+                sendSocket(
                   data.buffer.slice(
                     data.byteOffset,
                     data.byteOffset + data.byteLength,
                   ) as ArrayBuffer,
                 ),
-              (message) => ws.close(1000, message),
+              (message) => closeSocket(1000, message),
               async (identity) => {
                 const refreshedSession = await auth.api.getSession({
                   headers: c.req.raw.headers,
@@ -564,22 +533,57 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
                 }
                 return isStepUpAuthenticationSatisfied(refreshedSession);
               },
+              requestedToken,
             );
-            ws.send(JSON.stringify({ type: "terminal.ready" }));
+            sendSocket(JSON.stringify({ type: "terminal.ready" }));
           } catch (error) {
             const message =
               error instanceof Error
                 ? error.message
                 : "Terminal connection failed";
-            ws.send(JSON.stringify({ type: "terminal.error", message }));
-            ws.close(1011, "Terminal connection failed");
+            if (socketOpen) {
+              sendSocket(JSON.stringify({ type: "terminal.error", message }));
+              closeSocket(1011, "Terminal connection failed");
+            }
           }
         },
         onMessage: (event) => {
-          if (token && typeof event.data === "string")
-            terminalBroker.write(token, event.data);
+          if (!socketOpen || !token) return;
+          let input: string | Uint8Array | null = null;
+          if (typeof event.data === "string") {
+            try {
+              const parsed = JSON.parse(event.data) as {
+                type?: string;
+                cols?: number;
+                rows?: number;
+              };
+              if (
+                parsed &&
+                parsed.type === "resize" &&
+                typeof parsed.cols === "number" &&
+                typeof parsed.rows === "number"
+              ) {
+                terminalBroker.resize(token, parsed.cols, parsed.rows);
+                return;
+              }
+            } catch {
+              // Not JSON, treat as raw terminal input string
+            }
+            input = event.data;
+          } else if (event.data instanceof ArrayBuffer) {
+            input = new Uint8Array(event.data);
+          } else if (event.data instanceof Uint8Array) {
+            input = event.data;
+          } else if (Buffer.isBuffer(event.data)) {
+            input = event.data;
+          }
+
+          if (input !== null) {
+            terminalBroker.write(token, input);
+          }
         },
         onClose: () => {
+          socketOpen = false;
           if (token) terminalBroker.close(token);
         },
       };

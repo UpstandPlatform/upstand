@@ -46,6 +46,58 @@ function commandWorks(command: string, args: string[]): boolean {
   }
 }
 
+function getLocalModeOverride(): "true" | "false" | undefined {
+  const cloud = process.argv.includes("--cloud");
+  const selfHosted = process.argv.includes("--self-hosted");
+  if (cloud && selfHosted) {
+    fail("Choose only one local mode: --cloud or --self-hosted.");
+  }
+  if (cloud) return "true";
+  if (selfHosted) return "false";
+  return undefined;
+}
+
+function ensureLocalSwarmNetwork(env: NodeJS.ProcessEnv, networkName: string) {
+  const swarmState = Bun.spawnSync({
+    cmd: ["docker", "info", "--format", "{{.Swarm.LocalNodeState}}"],
+    cwd: root,
+    env,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  if (swarmState.success && swarmState.stdout.toString().trim() !== "active") {
+    run("docker", ["swarm", "init"], env);
+  }
+
+  const network = Bun.spawnSync({
+    cmd: [
+      "docker",
+      "network",
+      "inspect",
+      "--format",
+      "{{.Driver}} {{.Attachable}}",
+      networkName,
+    ],
+    cwd: root,
+    env,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  if (network.success) {
+    const [driver, attachable] = network.stdout.toString().trim().split(/\s+/);
+    if (driver === "overlay" && attachable === "true") return;
+    fail(
+      `Docker network '${networkName}' already exists but is not an attachable overlay network. Remove or rename that network before starting local parity mode.`,
+    );
+  }
+
+  run(
+    "docker",
+    ["network", "create", "--driver", "overlay", "--attachable", networkName],
+    env,
+  );
+}
+
 async function copyIfMissing(
   examplePath: string,
   targetPath: string,
@@ -158,17 +210,21 @@ async function waitForPostgres(env: NodeJS.ProcessEnv): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  console.log("🔍 Checking development environment requirements...");
+
   if (Bun.version !== requiredBunVersion) {
     fail(
       `This repository requires Bun ${requiredBunVersion}; found Bun ${Bun.version}.`,
     );
   }
+  console.log(`✔ Bun ${Bun.version} verified`);
 
   if (!commandWorks("docker", ["info"])) {
     fail(
-      "Docker Engine is not available. Install Docker Desktop or Docker Engine, start it, and run `bun setup` again.",
+      "Docker Engine is not available. Install Docker Desktop or Docker Engine, start it, and run `bun dev` again.",
     );
   }
+  console.log("✔ Docker Engine active");
 
   const rootEnvCreated = await copyIfMissing(
     path.join(root, ".env.example"),
@@ -182,16 +238,38 @@ async function main(): Promise<void> {
     path.join(webDirectory, ".env.example"),
     path.join(webDirectory, ".env.local"),
   );
+  console.log("✔ Environment configurations verified (.env, .env.local)");
 
   if (!process.argv.includes("--skip-install")) {
-    console.log("Installing workspace dependencies...");
+    console.log("📦 Installing workspace dependencies...");
     run(process.execPath, ["install", "--frozen-lockfile"]);
+    console.log("✔ Dependencies installed");
   }
 
   const env = { ...process.env };
-  const rootEnv = await Bun.file(path.join(root, ".env")).text();
+  let rootEnv = await Bun.file(path.join(root, ".env")).text();
   const serverEnvPath = path.join(serverDirectory, ".env");
-  const serverEnv = await Bun.file(serverEnvPath).text();
+  let serverEnv = await Bun.file(serverEnvPath).text();
+  const modeOverride = getLocalModeOverride();
+  if (modeOverride) {
+    env.IS_CLOUD = modeOverride;
+    rootEnv = replaceEnvValue(rootEnv, "IS_CLOUD", modeOverride);
+    serverEnv = replaceEnvValue(serverEnv, "IS_CLOUD", modeOverride);
+    await Promise.all([
+      Bun.write(path.join(root, ".env"), rootEnv),
+      Bun.write(serverEnvPath, serverEnv),
+    ]);
+    console.log(
+      `✔ Local deployment mode set to ${modeOverride === "true" ? "cloud" : "self-hosted"}`,
+    );
+  }
+  const localNetworkName =
+    readEnvValue(serverEnv, "DOCKER_NETWORK") || "upstand-network";
+  console.log(
+    `🌐 Ensuring local Docker Swarm network '${localNetworkName}'...`,
+  );
+  ensureLocalSwarmNetwork(env, localNetworkName);
+  console.log("✔ Local Swarm network ready");
   const configuredPassword = readEnvValue(rootEnv, "POSTGRES_PASSWORD");
   const serverDatabaseUrl = readEnvValue(serverEnv, "DATABASE_URL");
   const serverPassword = databasePassword(serverDatabaseUrl);
@@ -214,22 +292,35 @@ async function main(): Promise<void> {
         serverEnvPath,
         replaceEnvValue(serverEnv, "DATABASE_URL", migrationDatabaseUrl),
       );
-      console.log("Synchronized the local application database password.");
+      console.log("✔ Synchronized application database credentials");
     }
   }
 
-  console.log("Starting local PostgreSQL and Redis services...");
+  console.log("🐘 Ensuring local PostgreSQL and Redis services are active...");
+  // Stop full application containers if running in Docker so host ports (3000, 3001, 3002, 4000) are freed
+  run(
+    "docker",
+    [
+      "compose",
+      "-f",
+      composeFile,
+      "stop",
+      "server",
+      "web",
+      "schedules",
+      "fumadocs",
+    ],
+    env,
+  );
   run(
     "docker",
     ["compose", "-f", composeFile, "up", "-d", "postgres", "redis"],
     env,
   );
   await waitForPostgres(env);
+  console.log("✔ PostgreSQL & Redis services ready");
 
   if (postgresPassword) {
-    console.log(
-      "Synchronizing the local PostgreSQL password without deleting data...",
-    );
     run(
       "docker",
       [
@@ -251,11 +342,9 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log("Applying the checked-in database migrations...");
+  console.log("🔄 Applying database migrations...");
   run(process.execPath, ["run", "db:migrate"], env);
-  console.log(
-    "\nLocal setup is ready. Run `bun dev` to start the server, web console, and Fumadocs.",
-  );
+  console.log("✔ Database migrations up to date\n");
 }
 
 await main();

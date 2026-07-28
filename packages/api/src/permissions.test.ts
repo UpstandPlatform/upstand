@@ -234,9 +234,11 @@ describe("Permissions and Security System Tests", () => {
 
   describe("Instance Access / Ownership Checks", () => {
     let originalEnvOwner: string | undefined;
+    let originalEnvOwnerEmail: string | undefined;
 
     beforeEach(() => {
       originalEnvOwner = process.env.UPSTAND_INSTANCE_OWNER_USER_ID;
+      originalEnvOwnerEmail = process.env.UPSTAND_INSTANCE_OWNER_EMAIL;
     });
 
     afterEach(() => {
@@ -244,6 +246,11 @@ describe("Permissions and Security System Tests", () => {
         delete process.env.UPSTAND_INSTANCE_OWNER_USER_ID;
       } else {
         process.env.UPSTAND_INSTANCE_OWNER_USER_ID = originalEnvOwner;
+      }
+      if (originalEnvOwnerEmail === undefined) {
+        delete process.env.UPSTAND_INSTANCE_OWNER_EMAIL;
+      } else {
+        process.env.UPSTAND_INSTANCE_OWNER_EMAIL = originalEnvOwnerEmail;
       }
     });
 
@@ -263,6 +270,29 @@ describe("Permissions and Security System Tests", () => {
       await expect(
         requireInstanceOwner("env-owner-123", "session"),
       ).resolves.toBeUndefined();
+    });
+
+    it("accepts user if user matches UPSTAND_INSTANCE_OWNER_EMAIL env override", async () => {
+      delete process.env.UPSTAND_INSTANCE_OWNER_USER_ID;
+      process.env.UPSTAND_INSTANCE_OWNER_EMAIL = "owner@example.com";
+      mockDbRows = [{ email: "owner@example.com" }];
+
+      await expect(
+        requireInstanceOwner("user-owner-id", "session"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("rejects user if user does not match UPSTAND_INSTANCE_OWNER_EMAIL env override", async () => {
+      delete process.env.UPSTAND_INSTANCE_OWNER_USER_ID;
+      process.env.UPSTAND_INSTANCE_OWNER_EMAIL = "owner@example.com";
+      mockDbRows = [{ email: "other@example.com" }];
+
+      expect(
+        requireInstanceOwner("user-other-id", "session"),
+      ).rejects.toMatchObject({
+        code: "FORBIDDEN",
+        message: "Instance owner permission required",
+      });
     });
 
     it("rejects user if user does not match UPSTAND_INSTANCE_OWNER_USER_ID env override", async () => {

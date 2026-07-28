@@ -354,6 +354,8 @@ export interface DockerInventoryReaderPort {
       isLeader: boolean;
       status?: string;
       serverType?: string;
+      role?: string;
+      isLocalNode?: boolean;
     }>
   >;
   getInfo(target: DockerInspectionTarget): Promise<DockerInfo>;

@@ -55,6 +55,7 @@ const validatedEnv = createEnv({
       .url()
       .default("https://api.search.brave.com/res/v1/web/search"),
     UPSTAND_INSTANCE_OWNER_USER_ID: z.string().min(1).optional(),
+    UPSTAND_INSTANCE_OWNER_EMAIL: z.string().min(1).optional(),
     DOCKER_NETWORK: z.string().min(1).default("upstand-network"),
     REDIS_HOST: z.string().optional(),
     REDIS_PORT: z.coerce.number().optional(),

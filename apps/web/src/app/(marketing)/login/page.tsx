@@ -233,7 +233,7 @@ export default function LoginPage() {
             <>
               <div className="space-y-2 text-center">
                 {/* Fixed: added bg-clip-text */}
-                <h1 className="bg-gradient-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text font-extrabold text-3xl text-transparent tracking-tight">
+                <h1 className="bg-linear-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text font-extrabold text-3xl text-transparent tracking-tight">
                   {needsOwnerSetup
                     ? "Set up Upstand"
                     : isSignUp
