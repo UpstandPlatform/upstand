@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.1 - 2026-07-28
+
+Improve topology visibility, terminal workflows, authorization behavior, and local development verification across the Upstand applications.
+
 ## 0.1.0 - 2026-07-26
 
 The first Upstand release in the new `UpstandPlatform/upstand` repository.
