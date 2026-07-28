@@ -4,6 +4,17 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.4 - 2026-07-28
+
+Harden service startup and monitoring callbacks, improve local dashboard route
+reliability, and expand authenticated E2E coverage across topology, resource
+configuration, schedules, backups, deployment history, and lifecycle failure
+boundaries.
+
+Make the production installer use the latest stable GHCR release images by
+default and resolve them to immutable digests. Source builds remain available
+through an explicit opt-in.
+
 ## 0.1.3 - 2026-07-28
 
 Improve dashboard navigation rendering, keep topology selection highlighting linear as graphs grow, use Turbopack for the default Next.js builds, and upgrade the bundled PostgreSQL and Redis images for new deployments.
