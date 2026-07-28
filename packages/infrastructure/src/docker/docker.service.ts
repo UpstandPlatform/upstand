@@ -521,8 +521,8 @@ export class DockerService {
         resource.dockerImage &&
         isSupportedDatabaseImage(dbType, resource.dockerImage, true)
           ? resource.dockerImage
-          : "postgres:16-alpine";
-      targetPath = "/var/lib/postgresql/data";
+          : "postgres:18-alpine";
+      targetPath = envVars.PGDATA || "/var/lib/postgresql/18/docker";
       ports.push(5432);
       defaultEnv.POSTGRES_USER = envVars.POSTGRES_USER || "upstand";
       defaultEnv.POSTGRES_PASSWORD =
@@ -560,7 +560,7 @@ export class DockerService {
         resource.dockerImage &&
         isSupportedDatabaseImage(dbType, resource.dockerImage, true)
           ? resource.dockerImage
-          : "redis:7-alpine";
+          : "redis:8.8-alpine";
       targetPath = "/data";
       ports.push(6379);
     } else if (dbType === "libsql") {

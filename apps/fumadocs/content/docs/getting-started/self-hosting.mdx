@@ -27,8 +27,8 @@ graph TD
             WebUI["upstand-web (Next.js Dashboard)"]
             ServerAPI["upstand-server (Hono API & Workers)"]
             Fumadocs["upstand-docs (Fumadocs Engine)"]
-            DB[(PostgreSQL 16 Engine)]
-            Cache[(Redis 7 Cache & Task Queue)]
+            DB[(PostgreSQL 18 Engine)]
+            Cache[(Redis 8.8 Cache & Task Queue)]
         end
 
         subgraph StorageLayer["Persistent Host Volumes"]
@@ -142,6 +142,15 @@ The installer isolates configuration from secrets to protect credentials:
 
 > [!CAUTION]
 > **Secret Key Management:** Ensure you back up `/etc/upstand/` securely. The cluster master key (`ENCRYPTION_KEY_V1`) is used to encrypt database secrets and credentials at rest; losing it makes stored tokens, passwords, and SSH keys unrecoverable.
+
+---
+
+## Database image upgrades
+
+New installations use PostgreSQL 18 and Redis 8.8. Before upgrading an existing
+installation, follow the [database upgrade runbook](/docs/operations/database-upgrades).
+The installer refuses to deploy over a populated legacy PostgreSQL volume until
+the PostgreSQL dump/restore migration has created `upstand_postgres_data_v18`.
 
 ---
 
@@ -262,7 +271,7 @@ sudo docker stack rm upstand
 > **Data Loss:** This will permanently delete your Postgres database, Redis store, and Caddy runtime state. Backup any important data before running this.
 ```bash
 sudo rm -rf /etc/upstand
-sudo docker volume rm upstand_postgres_data upstand_redis_data upstand_caddy_data upstand_caddy_config
+sudo docker volume rm upstand_postgres_data_v18 upstand_redis_data upstand_caddy_data upstand_caddy_config
 ```
 
 ### 3. Remove the Docker Overlay Network

@@ -339,7 +339,7 @@ export class BackupRuntimeService {
         containerName,
         "-e",
         "POSTGRES_HOST_AUTH_METHOD=trust",
-        "postgres:16-alpine",
+        "postgres:18-alpine",
       ],
       dockerOptions,
     );
@@ -1160,7 +1160,7 @@ export class BackupRuntimeService {
 
     const serviceName = serviceNameFor(resource, schedule.serviceName);
     const volumeName = `upstand-db-data-${resource.id}`;
-    const image = resource.dockerImage || "postgres:16-alpine";
+    const image = resource.dockerImage || "postgres:18-alpine";
     const envValues = parseResourceEnvironmentVariables(resource.envVars);
     const pitrEnv = Object.entries(envValues).filter(([key]) =>
       /^(WALG_|AWS_|PGDATA$)/.test(key),
@@ -1169,6 +1169,8 @@ export class BackupRuntimeService {
       throw new ValidationError(
         "PITR restore requires WALG_S3_PREFIX in the database service environment",
       );
+    const postgresDataPath =
+      envValues.PGDATA || "/var/lib/postgresql/18/docker";
     const replicas = await this.stopService(serviceName);
     const envDir = await mkdtemp(path.join(os.tmpdir(), "upstand-pitr-"));
     const envFile = path.join(envDir, "wal-g.env");
@@ -1191,11 +1193,11 @@ export class BackupRuntimeService {
           "--env-file",
           envFile,
           "-v",
-          `${volumeName}:/var/lib/postgresql/data`,
+          `${volumeName}:${postgresDataPath}`,
           image,
           "sh",
           "-ec",
-          `command -v wal-g >/dev/null 2>&1 || { echo 'The database image must contain wal-g' >&2; exit 42; }; rm -rf /var/lib/postgresql/data/* /var/lib/postgresql/data/.[!.]*; wal-g backup-fetch /var/lib/postgresql/data ${manifest.backupName}; printf '%s\\n' ${recoveryLines.map((line) => JSON.stringify(line)).join(" ")} >> /var/lib/postgresql/data/postgresql.auto.conf; touch /var/lib/postgresql/data/recovery.signal; if command -v chown >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then chown -R postgres:postgres /var/lib/postgresql/data; fi`,
+          `command -v wal-g >/dev/null 2>&1 || { echo 'The database image must contain wal-g' >&2; exit 42; }; mkdir -p ${postgresDataPath}; rm -rf ${postgresDataPath}/* ${postgresDataPath}/.[!.]*; wal-g backup-fetch ${postgresDataPath} ${manifest.backupName}; printf '%s\\n' ${recoveryLines.map((line) => JSON.stringify(line)).join(" ")} >> ${postgresDataPath}/postgresql.auto.conf; touch ${postgresDataPath}/recovery.signal; if command -v chown >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then chown -R postgres:postgres ${postgresDataPath}; fi`,
         ],
         {
           env: { ...process.env, ...this.dockerEnvironment },

@@ -17,11 +17,11 @@ export const ApplicationBuildTypeSchema = z.enum([
 ]);
 
 export const DATABASE_IMAGE_OPTIONS = {
-  postgres: ["postgres:16-alpine", "postgres:17-alpine"],
+  postgres: ["postgres:18-alpine"],
   mysql: ["mysql:8.0", "mysql:8.4"],
   mariadb: ["mariadb:10.11", "mariadb:11"],
   mongodb: ["mongo:6.0", "mongo:7.0"],
-  redis: ["redis:7-alpine", "redis:8-alpine"],
+  redis: ["redis:8.8-alpine"],
   libsql: ["ghcr.io/tursodatabase/libsql-server:latest"],
 } as const;
 
