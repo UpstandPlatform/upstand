@@ -45,9 +45,10 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .turbo/cache
-          key: ${{ runner.os }}-turbo-${{ github.workflow }}-${{ github.ref_name }}-${{ hashFiles('bun.lock', 'turbo.json') }}
+          # Turbo task hashes already include the source and dependency state;
+          # keeping the branch out of this key lets PRs reuse the canary cache.
+          key: ${{ runner.os }}-turbo-${{ github.workflow }}-${{ hashFiles('bun.lock', 'turbo.json') }}
           restore-keys: |
-            ${{ runner.os }}-turbo-${{ github.workflow }}-${{ github.ref_name }}-
             ${{ runner.os }}-turbo-
       - name: Check changed formatting and lint
         env:
@@ -127,3 +128,21 @@ jobs:
           build-args: ${{ matrix.build_args }}
           cache-from: type=gha,scope=ci-${{ matrix.name }}
           cache-to: type=gha,scope=ci-${{ matrix.name }},mode=max,ignore-error=true
+
+  merge-gate:
+    name: Merge gate
+    if: always()
+    needs: [verify, docker-builds]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require validation jobs to pass
+        if: >-
+          needs.verify.result != 'success' ||
+          (needs.docker-builds.result != 'success' && needs.docker-builds.result != 'skipped')
+        run: |
+          echo "verify=${{ needs.verify.result }}"
+          echo "docker-builds=${{ needs.docker-builds.result }}"
+          exit 1
+      - name: Report merge readiness
+        run: echo "Required CI validation passed."
