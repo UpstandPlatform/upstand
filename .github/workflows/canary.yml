@@ -62,6 +62,10 @@ jobs:
             context: apps/monitoring
             file: apps/monitoring/Dockerfile
             scope: upstand-monitoring
+            # Monitoring is a Go image, but its multi-architecture build also
+            # pays the arm64 emulation cost. Stable releases retain
+            # multi-architecture publishing; canary prioritizes fast feedback.
+            platforms: linux/amd64
             build_args: ""
     env:
       NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
