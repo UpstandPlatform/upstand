@@ -154,6 +154,20 @@ detects the host address, and builds the images from the public repository:
 curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash
 ```
 
+The source build uses `https://proxy.golang.org|direct`, so a temporary or
+policy-based HTTP error from the Go module proxy falls back to GitHub. On a
+server that must use an internal Go mirror, override it explicitly before
+running the installer:
+
+```bash
+export GOPROXY='https://go-proxy.example.com|direct'
+curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo -E bash
+```
+
+The `|` separator is intentional: Go only tries the next source for all proxy
+errors when pipe fallback is used. The comma form falls back only for 404 and
+410 responses.
+
 Without URL variables, the dashboard, API, and docs start on the detected host
 IP at ports `3001`, `3000`, and `4000`. Configure the domain and HTTPS from the
 Web Server page first, then disable **Direct IP:port access** there when the
