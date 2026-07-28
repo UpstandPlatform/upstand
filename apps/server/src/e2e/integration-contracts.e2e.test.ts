@@ -21,9 +21,14 @@ describe("local E2E / HTTP and integration contracts", () => {
   test.skipIf(!e2eContext.serverAvailable)(
     "does not expose protected resource data without authentication",
     async () => {
-      const result = await trpc("resource.get", {
-        id: "resource-does-not-exist",
-      });
+      const result = await trpc(
+        "resource.get",
+        {
+          id: "resource-does-not-exist",
+        },
+        "GET",
+        { authenticated: false },
+      );
       expect([401, 403]).toContain(result.response.status);
     },
   );
