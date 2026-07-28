@@ -51,6 +51,9 @@ jobs:
           version: bun run changeset:version
           commit: "chore: prepare release"
           title: "chore: prepare release"
-          branch: changeset-release/canary
+          # The Changesets action prefixes this input with
+          # `changeset-release/`; pass the base branch name so the generated
+          # release branch is exactly `changeset-release/canary`.
+          branch: canary
           commitMode: github-api
           github-token: ${{ secrets.GITHUB_TOKEN }}
