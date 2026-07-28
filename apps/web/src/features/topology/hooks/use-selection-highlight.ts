@@ -26,6 +26,18 @@ export function useSelectionHighlight(
     return { connectedNodes, connectedEdges };
   }, [selectedNodeId, edges]);
 
+  const connectedGroupIds = useMemo(() => {
+    if (!connectedMap) return null;
+
+    const groupIds = new Set<string>();
+    for (const node of nodes) {
+      if (node.parentId && connectedMap.connectedNodes.has(node.id)) {
+        groupIds.add(node.parentId);
+      }
+    }
+    return groupIds;
+  }, [nodes, connectedMap]);
+
   const selectNode = useCallback((nodeId: string | null) => {
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
@@ -77,12 +89,7 @@ export function useSelectionHighlight(
       if (connectedMap) {
         const isConnected = connectedMap.connectedNodes.has(n.id);
         const isGroupOfConnectedChild =
-          n.type === "networkGroup" &&
-          nodes.some(
-            (child) =>
-              child.parentId === n.id &&
-              connectedMap.connectedNodes.has(child.id),
-          );
+          n.type === "networkGroup" && connectedGroupIds?.has(n.id);
 
         if (!isConnected && !isGroupOfConnectedChild) {
           opacity = 0.2;
@@ -103,7 +110,14 @@ export function useSelectionHighlight(
         },
       };
     });
-  }, [nodes, selectedNodeId, connectedMap, matchingNodeIds, hasFilter]);
+  }, [
+    nodes,
+    selectedNodeId,
+    connectedMap,
+    connectedGroupIds,
+    matchingNodeIds,
+    hasFilter,
+  ]);
 
   const styledEdges = useMemo(() => {
     return edges.map((e) => {

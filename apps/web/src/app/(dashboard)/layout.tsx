@@ -308,15 +308,15 @@ function DashboardSidebarGroup({
   group,
   pathname,
   isCollapsed,
+  currentTab,
+  isCloud,
 }: {
   group: NavigationGroup;
   pathname: string;
   isCollapsed: boolean;
+  currentTab: string | null;
+  isCloud: boolean;
 }) {
-  const searchParams = useSearchParams();
-  const currentTab = searchParams.get("tab");
-  const { isCloud } = useSystemConfig();
-
   const filteredItems = group.items.filter((item) => {
     if (isCloud && item.href === "/web-server") return false;
     return true;
@@ -395,6 +395,8 @@ function DashboardSidebarGroup({
 function DashboardSidebar({ pathname }: { pathname: string }) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
+  const currentTab = useSearchParams().get("tab");
+  const { isCloud } = useSystemConfig();
 
   return (
     <Sidebar collapsible="icon">
@@ -409,6 +411,8 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
             group={group}
             isCollapsed={isCollapsed}
             pathname={pathname}
+            currentTab={currentTab}
+            isCloud={isCloud}
           />
         ))}
       </SidebarContent>
