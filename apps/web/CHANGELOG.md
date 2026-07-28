@@ -1,5 +1,11 @@
 # web
 
+## 0.1.3
+
+### Patch Changes
+
+- [#24](https://github.com/UpstandPlatform/upstand/pull/24) [`2394b57`](https://github.com/UpstandPlatform/upstand/commit/2394b57ce9caccb838ec430454d9ea7c6dc8d7eb) Thanks [@mhbdev](https://github.com/mhbdev)! - Improve dashboard navigation rendering, keep topology selection highlighting linear as graphs grow, use Turbopack for the default Next.js builds, and upgrade the bundled PostgreSQL and Redis images for new deployments.
+
 ## 0.1.2
 
 ### Patch Changes
