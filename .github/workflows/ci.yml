@@ -106,7 +106,11 @@ jobs:
         if: github.event_name != 'pull_request'
         run: bun run test
       - name: Build all applications
-        if: github.event_name != 'pull_request'
+        # Canary image builds are the production-shaped application build
+        # validation. Keep this broad build for an explicit manual run, but do
+        # not compile every app once in CI and then compile them again in the
+        # canonical canary image workflow.
+        if: github.event_name == 'workflow_dispatch'
         run: bun run build
 
   docker-builds:

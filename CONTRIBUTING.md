@@ -78,10 +78,12 @@ local hooks provide fast feedback but should not be bypassed to hide a failure.
 The CI lanes are intentionally split to avoid rebuilding the same artifact at
 every branch boundary. Pull requests run formatting, migration checks, type
 checks, and affected package tests. After a merge to `canary`, one full
-application validation runs and the canary image workflow builds and publishes
-the images once. The `canary` to `master` promotion reuses that validated
-integration result; the stable workflow is responsible for the immutable tag
-and production image publication.
+type/test validation runs; the canary image workflow is the production-shaped
+application build and builds and publishes the images once. This avoids
+compiling the applications in CI and immediately compiling them again in
+Docker. The `canary` to `master` promotion reuses that validated integration
+result; the stable workflow is responsible for the immutable tag and
+production image publication.
 
 ```bash
 git fetch origin --prune
