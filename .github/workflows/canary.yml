@@ -40,6 +40,10 @@ jobs:
             context: .
             file: apps/web/Dockerfile
             scope: upstand-web
+            # The Next.js build is platform-independent but very slow under
+            # arm64 emulation. Stable releases remain multi-architecture;
+            # canary web images prioritize fast feedback on amd64 runners.
+            platforms: linux/amd64
             build_args: |
               NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
               NEXT_PUBLIC_UPSTAND_VERSION=canary
@@ -78,7 +82,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platforms || 'linux/amd64,linux/arm64' }}
           tags: ghcr.io/${{ steps.image.outputs.repository }}-${{ matrix.name }}:canary
           build-args: ${{ matrix.build_args }}
           cache-from: type=gha,scope=${{ matrix.scope }}
