@@ -355,17 +355,41 @@ function DuplicateProjectDialog({
   );
 }
 
-function EmptyProjects({ onNew }: { onNew: () => void }) {
+function EmptyProjects({
+  onNew,
+  hasOrganization,
+}: {
+  onNew: () => void;
+  hasOrganization: boolean;
+}) {
+  const handleAction = () => {
+    if (hasOrganization) {
+      onNew();
+      return;
+    }
+
+    // The project API correctly requires an organization. Guide a user who
+    // has not completed organization setup to the existing organization
+    // dialog instead of opening a project form that can only fail.
+    window.dispatchEvent(new CustomEvent("open-create-org-dialog"));
+  };
+
   return (
     <PageEmpty
       icon={FolderIcon}
-      title="No projects yet"
-      description="Create your first project to start deploying apps and services."
+      title={
+        hasOrganization ? "No projects yet" : "Create an organization first"
+      }
+      description={
+        hasOrganization
+          ? "Create your first project to start deploying apps and services."
+          : "Create an organization to start deploying apps and services."
+      }
       action={
         <UpGalTarget definition={createProjectTarget}>
-          <Button onClick={onNew} size="sm" className="mt-1 gap-2">
+          <Button onClick={handleAction} size="sm" className="mt-1 gap-2">
             <PlusIcon data-icon="inline-start" />
-            Create Project
+            {hasOrganization ? "Create Project" : "Create Organization"}
           </Button>
         </UpGalTarget>
       }
@@ -830,7 +854,10 @@ export default function Projects(_props: {
           ))}
         </div>
       ) : (
-        <EmptyProjects onNew={() => setCreateProjectOpen(true)} />
+        <EmptyProjects
+          hasOrganization={organizationState.status === "ready"}
+          onNew={() => setCreateProjectOpen(true)}
+        />
       )}
 
       {/* Modals */}

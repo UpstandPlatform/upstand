@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.2 - 2026-07-28
+
+Make source-based installations resilient when the Go module proxy returns a temporary or policy-based HTTP error.
+
+Guide first-time users to create an organization before creating a project.
+
 ## 0.1.1 - 2026-07-28
 
 Improve topology visibility, terminal workflows, authorization behavior, and local development verification across the Upstand applications.

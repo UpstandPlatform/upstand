@@ -38,32 +38,13 @@ Use throwaway local credentials. Do not commit `.env` files, private keys, produ
 - Preserve rollback behavior and existing database data. Add a migration for schema changes; never edit an applied migration.
 - Add or update tests for changed behavior, especially deployment, update, Caddy, notification, and authorization flows.
 
-## Git Flow for contributors and maintainers
+## Branches, changes, and releases
 
-Upstand uses Git Flow with `canary` as the integration branch and `master` as the release-ready branch. Do not commit directly to either branch. Contributors should start work from the latest `canary`, publish a feature or bug-fix branch, and open a pull request back to `canary`.
+Upstand uses a small GitHub Flow: `canary` is the integration branch and
+`master` is the stable release branch. Do not commit directly to either branch.
+You do not need the Git Flow CLI.
 
-### Install and initialize Git Flow
-
-Install the `git-flow` CLI using your operating system's package manager, then initialize it once in the repository:
-
-```bash
-git flow init
-```
-
-Use these values when prompted:
-
-```text
-Production releases: master
-Development branch: canary
-Feature branches: feature/
-Release branches: release/
-Hotfix branches: hotfix/
-Version tag prefix: v
-```
-
-If Git Flow has already been initialized with the wrong development branch, rerun `git flow init` and select `canary`. Verify the configuration with `git config --get-regexp '^gitflow\.'`.
-
-Before starting work, synchronize both the remote references and your local integration branch:
+Before starting work, synchronize the integration branch:
 
 ```bash
 git fetch origin --prune
@@ -73,71 +54,51 @@ git pull --ff-only origin canary
 
 ### Contributors: features and fixes
 
-Use a feature branch for a feature, refactor, documentation change, or ordinary bug fix. Start it from `canary`:
+Use a short `feat/`, `fix/`, `docs/`, or `chore/` branch for a feature,
+refactor, documentation change, or ordinary bug fix:
 
 ```bash
-git flow feature start short-description
-# edit files, then run the relevant checks
-git add <files>
-git commit -m "feat: describe the change"
-git flow feature publish short-description
+git switch -c feat/short-description
+# edit files, then add a Changeset for user-visible behavior
+bun changeset
+bun run check:staged
+bun run check-types
+bun test packages
+git push -u origin HEAD
 ```
 
-`git flow feature publish` pushes `feature/short-description` to the remote so it can be reviewed. Open the pull request against `canary`, keep committing to the same branch while review is in progress, and do not run `git flow feature finish` before the pull request is merged. After the pull request is merged, remove the local branch if it is no longer needed:
+Open the pull request against `canary`. Keep it small and describe the tests,
+migrations, deployment impact, and rollback plan. CI is the source of truth;
+local hooks provide fast feedback but should not be bypassed to hide a failure.
 
 ```bash
 git fetch origin --prune
 git switch canary
 git pull --ff-only origin canary
-git branch -d feature/short-description
+git branch -d feat/short-description
 ```
 
-Use `git flow feature pull origin short-description` when you need to check out or update another contributor's published feature branch locally. Use `git flow feature track short-description` when the branch already exists remotely but is not present locally.
+### Maintainers: releases
 
-### Maintainers: releases and Changesets
+Changesets owns release intent, version updates, and changelog generation. The
+automated release PR is created after Changesets land on `canary`. Review and
+merge it into `canary`, then promote the resulting commit to `master` through a
+pull request. The stable-tag workflow creates the immutable
+`vMAJOR.MINOR.PATCH` tag and dispatches the reusable image publishing workflow.
 
-Changesets owns release intent, version updates, and changelog generation. The deployable applications (`server`, `schedules`, `web`, and `fumadocs`) are fixed to one release version; the root package version and root `CHANGELOG.md` are synchronized by the version script.
+Never move an existing release tag. A correction becomes the next patch
+release; for example, `v0.1.0` stays immutable and the correction is `v0.1.1`.
+Do not run `changeset publish`, edit generated versions manually, or publish
+mutable Docker tags as a release artifact.
 
-For every user-visible change, add a changeset on the feature branch:
+### Urgent production fixes
 
-```bash
-bun changeset
-```
+Create `fix/urgent-description` from `master`, add a Changeset, open the pull
+request into `master`, and then back-merge the same fix into `canary`. Use this
+only for an active production issue; normal work always starts from `canary`.
 
-Choose the release level and describe the user-visible change. For documentation-only or internal changes that should not change the product version, use `bun changeset --empty`.
-
-After changesets are merged into `canary`, GitHub Actions opens or updates the automated `chore: prepare release` pull request. That pull request runs `bun run changeset:version`, updates application versions, generates package changelogs, updates the root changelog, and removes consumed changesets. Review the generated release PR, migrations, image changes, and rollback notes before merging it.
-
-When the release PR is merged and the release-ready changes reach `master`, GitHub Actions creates the next `vMAJOR.MINOR.PATCH` tag automatically. The existing tag-triggered release workflow then verifies the tag is on `master` and publishes the immutable Docker images. Do not run `changeset publish`, create release tags manually, or edit generated version/changelog files by hand.
-
-### Maintainers: urgent production fixes
-
-Use a hotfix branch when a fix must be released from `master` before the next planned release. Start it from the current production branch:
-
-```bash
-git switch master
-git pull --ff-only origin master
-git flow hotfix start 0.1.75
-# make and test the minimal production fix
-git flow hotfix finish 0.1.75
-git push origin master canary --follow-tags
-```
-
-Finishing a hotfix merges it into both `master` and `canary`, creates the `v0.1.75` tag, and removes the local hotfix branch. Resolve any conflicts carefully so the fix is not lost from either branch. Use a normal feature branch for non-urgent work; do not use a hotfix branch simply because a change is small.
-
-### Command reference
-
-| Situation               | Command                             | Branch/result                                      |
-| ----------------------- | ----------------------------------- | -------------------------------------------------- |
-| Start normal work       | `git flow feature start <name>`     | Creates `feature/<name>` from `canary`             |
-| Publish work for review | `git flow feature publish <name>`   | Pushes the feature branch                          |
-| Add release intent       | `bun changeset`                    | Adds a changeset file to the feature branch       |
-| Prepare the release      | GitHub Actions                    | Opens/updates the version and changelog PR        |
-| Create stable release    | Merge release to `master`         | Creates `v<version>` and starts image publication |
-| Start an urgent fix     | `git flow hotfix start <version>`   | Creates `hotfix/<version>` from `master`           |
-| Complete a hotfix       | `git flow hotfix finish <version>`  | Merges to `master` and `canary`, tags `v<version>` |
-
-Use `git flow <type> list` to inspect local branches and `git flow <type> delete <name>` only after the corresponding pull request or release has been completed and the remote branch is no longer needed.
+See [RELEASING.md](RELEASING.md) for the maintainer checklist, retry commands,
+and rollback procedure.
 
 ## Required checks
 
