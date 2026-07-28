@@ -22,6 +22,10 @@ $env:E2E_AUTH_COOKIE="better-auth.session_token=..."
 $env:E2E_RESOURCE_ID="..."
 ```
 
+For a disposable local run, `E2E_API_KEY` may be used instead of a browser
+session cookie. Use a short-lived key created only in the local test
+organization; never use a production key.
+
 Deployment and container mutation checks additionally require:
 
 ```powershell

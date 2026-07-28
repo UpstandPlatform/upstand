@@ -99,6 +99,7 @@
       "env": [
         "E2E_BASE_URL",
         "E2E_AUTH_COOKIE",
+        "E2E_API_KEY",
         "E2E_RESOURCE_ID",
         "E2E_ORGANIZATION_ID",
         "E2E_BACKUP_DESTINATION_ID",

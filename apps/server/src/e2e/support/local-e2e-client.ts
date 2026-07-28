@@ -12,6 +12,7 @@ export type E2eResource = {
 export type LocalE2eContext = {
   baseUrl: string;
   authCookie?: string;
+  apiKey?: string;
   resourceId?: string;
   organizationId?: string;
   mutationsAllowed: boolean;
@@ -26,15 +27,18 @@ const requestTimeoutMs = Number(process.env.E2E_REQUEST_TIMEOUT_MS ?? 5000);
 export const e2eContext: LocalE2eContext = {
   baseUrl: process.env.E2E_BASE_URL ?? "http://localhost:3000",
   authCookie: process.env.E2E_AUTH_COOKIE,
+  apiKey: process.env.E2E_API_KEY,
   resourceId: process.env.E2E_RESOURCE_ID,
   organizationId: process.env.E2E_ORGANIZATION_ID,
   mutationsAllowed: process.env.E2E_ALLOW_MUTATIONS === "1",
   serverAvailable: false,
   resourceConfigured: Boolean(
-    process.env.E2E_AUTH_COOKIE && process.env.E2E_RESOURCE_ID,
+    (process.env.E2E_AUTH_COOKIE || process.env.E2E_API_KEY) &&
+      process.env.E2E_RESOURCE_ID,
   ),
   organizationConfigured: Boolean(
-    process.env.E2E_AUTH_COOKIE && process.env.E2E_ORGANIZATION_ID,
+    (process.env.E2E_AUTH_COOKIE || process.env.E2E_API_KEY) &&
+      process.env.E2E_ORGANIZATION_ID,
   ),
   backupDestinationId: process.env.E2E_BACKUP_DESTINATION_ID,
 };
@@ -69,6 +73,9 @@ export async function trpc(
       headers: {
         ...(options.authenticated !== false && e2eContext.authCookie
           ? { cookie: e2eContext.authCookie }
+          : {}),
+        ...(options.authenticated !== false && e2eContext.apiKey
+          ? { "x-api-key": e2eContext.apiKey }
           : {}),
         ...(method === "POST" ? { "content-type": "application/json" } : {}),
       },
