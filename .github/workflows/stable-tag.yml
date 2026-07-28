@@ -30,3 +30,12 @@ jobs:
 
       - name: Create release tag when the version advanced
         run: bun run release:tag
+
+      - name: Dispatch Docker release for the stable tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_version="$(node -p "require('./package.json').version")"
+          gh workflow run "Release and Publish Docker Images" \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "v${release_version}"
