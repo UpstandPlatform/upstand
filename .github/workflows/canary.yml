@@ -53,6 +53,10 @@ jobs:
             context: .
             file: apps/fumadocs/Dockerfile
             scope: upstand-fumadocs
+            # Fumadocs is a Next.js build and is prohibitively slow under
+            # arm64 emulation. Stable releases retain multi-architecture
+            # publishing; canary prioritizes fast integration feedback.
+            platforms: linux/amd64
             build_args: ""
           - name: monitoring
             context: apps/monitoring
