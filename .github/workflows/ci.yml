@@ -64,7 +64,19 @@ jobs:
           github.event_name == 'pull_request' &&
           github.head_ref != 'changeset-release/canary' &&
           github.head_ref != 'canary'
-        run: bun run changeset:status --since="origin/${{ github.base_ref }}"
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+
+          # Changesets watches package directories broadly, but Dockerfiles,
+          # workflow files, and other build metadata do not need a version bump.
+          # Keep the release check focused on files that ship in a package.
+          if printf '%s\n' "$changed_files" | grep -Eq \
+            '^(apps|packages)/[^/]+/(src|content|public)/|^(apps|packages)/[^/]+/package\.json$'; then
+            bun run changeset:status --since="origin/${{ github.base_ref }}"
+          else
+            echo "No releasable package files changed; a changeset is not required."
+          fi
       - name: Verify generated database migrations
         env:
           BETTER_AUTH_URL: http://localhost:3000
