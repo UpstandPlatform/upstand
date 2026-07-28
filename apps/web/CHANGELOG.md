@@ -1,5 +1,13 @@
 # web
 
+## 0.1.2
+
+### Patch Changes
+
+- [#17](https://github.com/UpstandPlatform/upstand/pull/17) [`5f71f61`](https://github.com/UpstandPlatform/upstand/commit/5f71f619ed6ebb6ef22c7fcd92b5c16792999014) Thanks [@mhbdev](https://github.com/mhbdev)! - Make source-based installations resilient when the Go module proxy returns a temporary or policy-based HTTP error.
+
+- [#19](https://github.com/UpstandPlatform/upstand/pull/19) [`1ed9271`](https://github.com/UpstandPlatform/upstand/commit/1ed92714c045e8d0877779606ff4fd43b36a1453) Thanks [@mhbdev](https://github.com/mhbdev)! - Guide first-time users to create an organization before creating a project.
+
 ## 0.1.1
 
 ### Patch Changes

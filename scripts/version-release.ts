@@ -68,15 +68,19 @@ const changelogPath = join(root, "CHANGELOG.md");
 const changelog = readFileSync(changelogPath, "utf8");
 const releaseSection = `## ${releaseVersion} - ${new Date().toISOString().slice(0, 10)}\n\n${releaseNotes.join("\n\n")}\n\n`;
 const unreleasedMarker = "## Unreleased\n\n";
+const normalizedChangelog = changelog.replaceAll("\r\n", "\n");
 
-if (!changelog.includes(`## ${releaseVersion} -`)) {
-  if (!changelog.includes(unreleasedMarker)) {
+if (!normalizedChangelog.includes(`## ${releaseVersion} -`)) {
+  if (!normalizedChangelog.includes(unreleasedMarker)) {
     throw new Error("CHANGELOG.md must contain an Unreleased section.");
   }
 
+  const lineEnding = changelog.includes("\r\n") ? "\r\n" : "\n";
   writeFileSync(
     changelogPath,
-    changelog.replace(unreleasedMarker, `${unreleasedMarker}${releaseSection}`),
+    normalizedChangelog
+      .replace(unreleasedMarker, `${unreleasedMarker}${releaseSection}`)
+      .replaceAll("\n", lineEnding),
   );
 }
 
