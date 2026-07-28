@@ -134,6 +134,7 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-upstand-local-development-secret-that-is-at-least-32-characters}
       REDIS_URL: redis://redis:6379
       SCHEDULES_PORT: 3002
+      UPSTAND_SERVER_INTERNAL_URL: http://server:3000
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
     networks:
       - upstand-network

@@ -14,6 +14,7 @@ readonly RECOMMENDED_MEMORY_BYTES=$((4 * 1024 * 1024 * 1024))
 readonly RECOMMENDED_DISK_BYTES=$((30 * 1024 * 1024 * 1024))
 readonly POSTGRES_VOLUME="upstand_postgres_data_v18"
 readonly LEGACY_POSTGRES_VOLUME="upstand_postgres_data"
+readonly STABLE_IMAGE_REPOSITORY="${UPSTAND_IMAGE_REPOSITORY:-ghcr.io/upstandplatform/upstand}"
 # BASH_SOURCE is an array only when Bash executes a file. A curl | bash install
 # has no array element, so use the scalar expansion with a safe $0 fallback.
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE:-$0}")" && pwd)"
@@ -178,15 +179,30 @@ build_source_images() {
   UPSTAND_SERVER_IMAGE="upstand-server:source-${revision}"
   UPSTAND_SCHEDULES_IMAGE="upstand-schedules:source-${revision}"
   UPSTAND_WEB_IMAGE="upstand-web:source-${revision}"
+  UPSTAND_DOCS_IMAGE="upstand-fumadocs:source-${revision}"
   UPSTAND_MONITORING_IMAGE="upstand-monitoring:source-${revision}"
 
   docker build --file "$SOURCE_DIR/apps/server/Dockerfile" --tag "$UPSTAND_SERVER_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/schedules/Dockerfile" --tag "$UPSTAND_SCHEDULES_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/web/Dockerfile" --build-arg "NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL" --tag "$UPSTAND_WEB_IMAGE" "$SOURCE_DIR"
+  docker build --file "$SOURCE_DIR/apps/fumadocs/Dockerfile" --tag "$UPSTAND_DOCS_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/monitoring/Dockerfile" \
     --build-arg "GOPROXY=${GOPROXY:-https://proxy.golang.org|direct}" \
     --tag "$UPSTAND_MONITORING_IMAGE" "$SOURCE_DIR/apps/monitoring"
   SOURCE_BUILD=true
+}
+
+resolve_stable_image() {
+  local component="$1"
+  local image="${STABLE_IMAGE_REPOSITORY}-${component}:latest"
+  local inspect_output digest
+
+  inspect_output="$(docker buildx imagetools inspect "$image" 2>/dev/null)" \
+    || fail "could not resolve the stable image $image; check Docker Buildx and registry connectivity"
+  digest="$(awk '$1 == "Digest:" { print $2; exit }' <<<"$inspect_output")"
+  [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] \
+    || fail "stable image $image did not provide an immutable digest"
+  printf '%s@%s' "$image" "$digest"
 }
 
 ensure_stack_file() {
@@ -384,13 +400,23 @@ write_environment() {
   POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}"
   REDIS_IMAGE="${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}"
 
-  if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" == true || -z "$UPSTAND_SERVER_IMAGE$UPSTAND_SCHEDULES_IMAGE$UPSTAND_WEB_IMAGE$UPSTAND_MONITORING_IMAGE" ]]; then
+  if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" == true ]]; then
     build_source_images
+  else
+    # Stable installations consume the latest published release images by
+    # default. Resolve the mutable channel tag to a digest before writing the
+    # environment file so Swarm deploys remain reproducible.
+    UPSTAND_SERVER_IMAGE="${UPSTAND_SERVER_IMAGE:-$(resolve_stable_image server)}"
+    UPSTAND_SCHEDULES_IMAGE="${UPSTAND_SCHEDULES_IMAGE:-$(resolve_stable_image schedules)}"
+    UPSTAND_WEB_IMAGE="${UPSTAND_WEB_IMAGE:-$(resolve_stable_image web)}"
+    UPSTAND_DOCS_IMAGE="${UPSTAND_DOCS_IMAGE:-$(resolve_stable_image fumadocs)}"
+    UPSTAND_MONITORING_IMAGE="${UPSTAND_MONITORING_IMAGE:-$(resolve_stable_image monitoring)}"
   fi
   if [[ "${SOURCE_BUILD:-false}" != true ]]; then
     require_digest_image UPSTAND_SERVER_IMAGE
     require_digest_image UPSTAND_SCHEDULES_IMAGE
     require_digest_image UPSTAND_WEB_IMAGE
+    require_digest_image UPSTAND_DOCS_IMAGE
     require_digest_image UPSTAND_MONITORING_IMAGE
     require_digest_image POSTGRES_IMAGE
     require_digest_image REDIS_IMAGE
