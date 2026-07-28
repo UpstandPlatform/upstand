@@ -37,6 +37,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           release_version="$(node -p "require('./package.json').version")"
-          gh workflow run "Release and Publish Docker Images" \
+          gh workflow run "Dispatch Release and Publish Docker Images" \
             --repo "$GITHUB_REPOSITORY" \
-            --ref "v${release_version}"
+            --ref canary \
+            -f "release_ref=v${release_version}"
