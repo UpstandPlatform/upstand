@@ -231,6 +231,7 @@ services:
       SSH_KEY_ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_NETWORK: upstand-network
+      UPSTAND_SERVER_INTERNAL_URL: http://server:3000
       SCHEDULES_PORT: 3002
     secrets:
       - postgres_password

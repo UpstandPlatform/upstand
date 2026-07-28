@@ -14,6 +14,7 @@ The server E2E suite is organized into these workflows:
 | `resource-lifecycle.e2e.test.ts` | Container identity, status transitions, and control validation |
 | `deployment-workflows.e2e.test.ts` | Deployment history, observability, rollback, and deploy validation |
 | `configuration-and-resource-types.e2e.test.ts` | Public configuration shape and resource-type behavior |
+| `topology-and-operations.e2e.test.ts` | Topology graph integrity, server filtering, resource configuration, cron schedules, backups, and disposable update/cleanup flows |
 
 Shared setup and HTTP behavior belong in
 `apps/server/src/e2e/support/local-e2e-client.ts`; workflow files should only
@@ -79,10 +80,11 @@ bun run dev:verify
 Remove-Item Env:LOCAL_EXPECTED_MODE
 ```
 
-The web and documentation dev servers explicitly use Turbopack. Source changes
-under `apps/` and `packages/` are watched by the host workflow and by the
-bind-mounted Compose workflow; the latter enables polling for Docker Desktop
-file-system events.
+Production web builds use Turbopack. The web development server uses Webpack
+until the deep dynamic dashboard route issue in the current Next.js Turbopack
+dev server is resolved. Source changes under `apps/` and `packages/` are
+watched by the host workflow and by the bind-mounted Compose workflow; the
+latter enables polling for Docker Desktop file-system events.
 
 For a safe Docker cleanup, use `bun run docker:cleanup`. It removes stopped
 Upstand platform containers, dangling images, and old build cache while keeping

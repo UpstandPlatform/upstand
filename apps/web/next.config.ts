@@ -12,15 +12,6 @@ const nextConfig: NextConfig = {
   reactCompiler: process.env.NODE_ENV === "production",
   output: "standalone",
   devIndicators: false,
-  // Keep a bounded warm route set in development. A short eviction window
-  // forces this large dashboard graph to recompile on every navigation.
-  onDemandEntries:
-    process.env.NODE_ENV === "development"
-      ? {
-          maxInactiveAge: 5 * 60 * 1000,
-          pagesBufferLength: 8,
-        }
-      : undefined,
   // Turbopack must bundle Shiki from the workspace instead of trying to
   // resolve its generated external module name at runtime in Docker dev.
   transpilePackages: ["shiki"],

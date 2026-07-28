@@ -22,9 +22,11 @@ bun dev
 
 `bun setup` is safe to re-run. It creates ignored local environment files for the API and web app from the checked-in examples, installs the frozen lockfile, starts local PostgreSQL 18 and Redis 8.8, waits for PostgreSQL, synchronizes only the local database password without deleting data, and applies the checked-in migrations. The PostgreSQL 18 upgrade intentionally uses the versioned `postgres_data_v18` volume; if you need old local data, follow the database upgrade runbook first. `bun dev` starts the API, web console, and Fumadocs together.
 
-Next.js development and production builds use Turbopack by default. The
-`build:webpack` scripts are an explicit diagnostic fallback only; CI, Docker
-images, and release builds must use the default Turbopack scripts.
+Next.js production builds use Turbopack by default. Local development uses the
+Webpack dev server because the current Next.js Turbopack dev server can return
+404s for deep dynamic dashboard routes in this monorepo. The `build:webpack`
+script remains an explicit diagnostic fallback; CI, Docker images, and release
+builds use the default Turbopack production build.
 
 - Web console: `http://localhost:3001`
 - API Swagger UI: `http://localhost:3000/api/docs/`

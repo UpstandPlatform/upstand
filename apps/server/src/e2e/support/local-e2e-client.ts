@@ -3,6 +3,7 @@ import { expect } from "bun:test";
 export type E2eResource = {
   id: string;
   status: string;
+  description?: string | null;
   type?: string;
   provider?: string;
   composeType?: string | null;
@@ -17,6 +18,7 @@ export type LocalE2eContext = {
   serverAvailable: boolean;
   resourceConfigured: boolean;
   organizationConfigured: boolean;
+  backupDestinationId?: string;
 };
 
 const requestTimeoutMs = Number(process.env.E2E_REQUEST_TIMEOUT_MS ?? 5000);
@@ -34,6 +36,7 @@ export const e2eContext: LocalE2eContext = {
   organizationConfigured: Boolean(
     process.env.E2E_AUTH_COOKIE && process.env.E2E_ORGANIZATION_ID,
   ),
+  backupDestinationId: process.env.E2E_BACKUP_DESTINATION_ID,
 };
 
 export function fetchWithTimeout(input: string, init?: RequestInit) {

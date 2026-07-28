@@ -115,7 +115,11 @@ async function initializeMonitoringOnce(): Promise<void> {
     }
   }
 
-  const callbackHost = networkMode ? "upstand_server" : "host.docker.internal";
+  // Use the canonical Compose/Swarm service name. Underscore aliases are not
+  // consistently published by Docker's embedded DNS across local Compose and
+  // Swarm overlay networks, which can make the agent start healthy but fail to
+  // deliver threshold alerts.
+  const callbackHost = networkMode ? "server" : "host.docker.internal";
   const metricsConfig = {
     server: {
       serverId: "local",
