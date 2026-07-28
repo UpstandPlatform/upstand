@@ -4,7 +4,8 @@ FROM docker/buildx-bin:0.16.2@sha256:8ebd56fb294661fd083dd4f130f56232f04413c3b70
 FROM oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4 AS pruner
 WORKDIR /repo
 COPY . .
-RUN bunx turbo@2.10.5 prune schedules --docker --out-dir /out
+RUN --mount=type=cache,id=upstand-turbo-cli,target=/root/.bun/install/cache \
+    bunx turbo@2.10.5 prune schedules --docker --out-dir /out
 
 FROM oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4 AS builder
 WORKDIR /app

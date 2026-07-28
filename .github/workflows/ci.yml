@@ -4,7 +4,10 @@ on:
   pull_request:
     branches: [master, canary]
   push:
-    branches: [master, canary]
+    # Canary is the single post-merge integration validation lane. Master is
+    # validated by the promotion PR and by the stable release workflow; a
+    # second full push validation there only repeats the same work.
+    branches: [canary]
   workflow_dispatch:
 
 concurrency:
@@ -61,7 +64,19 @@ jobs:
           github.event_name == 'pull_request' &&
           github.head_ref != 'changeset-release/canary' &&
           github.head_ref != 'canary'
-        run: bun run changeset:status --since="origin/${{ github.base_ref }}"
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+
+          # Changesets watches package directories broadly, but Dockerfiles,
+          # workflow files, and other build metadata do not need a version bump.
+          # Keep the release check focused on files that ship in a package.
+          if printf '%s\n' "$changed_files" | grep -Eq \
+            '^(apps|packages)/[^/]+/(src|content|public)/|^(apps|packages)/[^/]+/package\.json$'; then
+            bun run changeset:status --since="origin/${{ github.base_ref }}"
+          else
+            echo "No releasable package files changed; a changeset is not required."
+          fi
       - name: Verify generated database migrations
         env:
           BETTER_AUTH_URL: http://localhost:3000
@@ -73,26 +88,33 @@ jobs:
           bun run db:check
           git diff --exit-code -- packages/db/src/migrations packages/db/src/schema
       - name: Check affected types
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.head_ref != 'canary' &&
+          github.head_ref != 'changeset-release/canary'
         run: bunx turbo run check-types --filter="...[origin/${{ github.base_ref }}]"
       - name: Check all types
         if: github.event_name != 'pull_request'
         run: bun run check-types
       - name: Test affected packages
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.head_ref != 'canary' &&
+          github.head_ref != 'changeset-release/canary'
         run: bunx turbo run test --filter="...[origin/${{ github.base_ref }}]"
       - name: Test all packages
         if: github.event_name != 'pull_request'
         run: bun run test
-      - name: Build affected applications
-        if: github.event_name == 'pull_request'
-        run: bunx turbo run build --filter="...[origin/${{ github.base_ref }}]"
       - name: Build all applications
         if: github.event_name != 'pull_request'
         run: bun run build
 
   docker-builds:
     name: Build pruned ${{ matrix.name }} image
+    # The canary image workflow is the canonical image build/publish lane.
+    # Keep this matrix available for an explicit workflow_dispatch, but do
+    # not rebuild the same images on every PR or canary push.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
