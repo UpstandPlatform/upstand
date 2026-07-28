@@ -1,0 +1,24 @@
+name: Dispatch Release and Publish Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Immutable Git tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  actions: write
+
+jobs:
+  release:
+    uses: ./.github/workflows/release.yml
+    with:
+      release_ref: ${{ inputs.release_ref }}
+    permissions:
+      contents: write
+      packages: write
+      actions: write
