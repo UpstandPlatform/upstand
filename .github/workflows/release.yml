@@ -39,9 +39,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-1.3.14-
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
@@ -62,7 +62,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .turbo/cache
-          key: ${{ runner.os }}-turbo-release-${{ hashFiles('bun.lock', 'turbo.json') }}-${{ github.run_id }}
+          key: ${{ runner.os }}-turbo-release-${{ hashFiles('bun.lock', 'turbo.json') }}
           restore-keys: |
             ${{ runner.os }}-turbo-release-${{ hashFiles('bun.lock', 'turbo.json') }}-
             ${{ runner.os }}-turbo-
@@ -111,6 +111,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write
 
     steps:
       - name: Checkout Code
@@ -148,6 +149,7 @@ jobs:
             ghcr.io/${{ steps.meta.outputs.repo }}-${{ matrix.name }}:${{ steps.meta.outputs.tag }}
           build-args: ${{ matrix.build_args }}
           cache-from: type=gha,scope=${{ matrix.scope }}
+          cache-to: type=gha,scope=${{ matrix.scope }},mode=max
           provenance: mode=max
           sbom: true
 
