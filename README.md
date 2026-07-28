@@ -150,16 +150,17 @@ To install Self-Hosted Upstand on a fresh Linux Swarm manager node:
 
 The installer also supports a zero-configuration bootstrap. When image digests
 and secrets are omitted, it generates random secrets in `/etc/upstand/secrets/`,
-detects the host address, and builds the images from the public repository:
+detects the host address, and pulls the latest stable release images from GHCR.
+The installer resolves the stable channel to immutable digests before deploying:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash
 ```
 
-The source build uses `https://proxy.golang.org|direct`, so a temporary or
-policy-based HTTP error from the Go module proxy falls back to GitHub. On a
-server that must use an internal Go mirror, override it explicitly before
-running the installer:
+To build from source instead, opt in explicitly with `UPSTAND_BUILD_FROM_SOURCE=true`.
+Source builds use `https://proxy.golang.org|direct`, so a temporary or policy-based
+HTTP error from the Go module proxy falls back to GitHub. On a server that must
+use an internal Go mirror, override it explicitly before running the installer:
 
 ```bash
 export GOPROXY='https://go-proxy.example.com|direct'

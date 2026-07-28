@@ -28,3 +28,7 @@ docker-compose.yml
 **/.env
 **/.env.*
 !**/.env.example
+
+# Agent instructions and lock metadata are not application build inputs.
+**/.agents
+skills-lock.json

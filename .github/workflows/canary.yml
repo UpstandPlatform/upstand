@@ -17,8 +17,10 @@ jobs:
       ${{
         (github.event_name == 'workflow_dispatch' &&
         github.ref == 'refs/heads/canary') ||
+        (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'push' &&
         (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_repository.full_name == github.repository)
+        github.event.workflow_run.head_repository.full_name == github.repository))
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -51,11 +53,19 @@ jobs:
             context: .
             file: apps/fumadocs/Dockerfile
             scope: upstand-fumadocs
+            # Fumadocs is a Next.js build and is prohibitively slow under
+            # arm64 emulation. Stable releases retain multi-architecture
+            # publishing; canary prioritizes fast integration feedback.
+            platforms: linux/amd64
             build_args: ""
           - name: monitoring
             context: apps/monitoring
             file: apps/monitoring/Dockerfile
             scope: upstand-monitoring
+            # Monitoring is a Go image, but its multi-architecture build also
+            # pays the arm64 emulation cost. Stable releases retain
+            # multi-architecture publishing; canary prioritizes fast feedback.
+            platforms: linux/amd64
             build_args: ""
     env:
       NEXT_PUBLIC_SERVER_URL: https://api.example.invalid

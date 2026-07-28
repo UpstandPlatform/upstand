@@ -44,6 +44,22 @@ PY
   done
 }
 
+wait_for_http_ready() {
+  url="$1"
+  attempts=120
+  attempt=1
+
+  while ! curl --fail --silent --show-error --max-time 2 "$url" >/dev/null 2>&1
+  do
+    if [ "$attempt" -ge "$attempts" ]; then
+      echo "timed out waiting for HTTP readiness: $url" >&2
+      exit 1
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+}
+
 if [ -z "${DATABASE_URL:-}" ]; then
   export DATABASE_URL="postgresql://${DATABASE_USER:-upstand}:$(url_encode "$POSTGRES_PASSWORD")@${DATABASE_HOST:-localhost}:5432/${DATABASE_NAME:-upstand}"
 fi
@@ -53,5 +69,13 @@ fi
 
 wait_for_tcp "${DATABASE_HOST:-localhost}" 5432
 wait_for_tcp "${REDIS_HOST:-localhost}" 6379
+
+# The server owns the migration lifecycle. In Swarm there is no dependable
+# depends_on ordering, so do not start workers until the migration-backed
+# readiness endpoint is healthy. This prevents schedulers from querying a
+# partially upgraded database during rolling installs.
+if [ -n "${UPSTAND_SERVER_INTERNAL_URL:-}" ]; then
+  wait_for_http_ready "${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready"
+fi
 
 exec "$@"
