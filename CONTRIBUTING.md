@@ -102,6 +102,12 @@ merge it into `canary`, then promote the resulting commit to `master` through a
 pull request. The stable-tag workflow creates the immutable
 `vMAJOR.MINOR.PATCH` tag and dispatches the reusable image publishing workflow.
 
+Production dependency updates need a patch release just like product changes.
+Dependabot adds that Changeset automatically; development-only dependency and
+lockfile updates do not require one. Set a repository `RELEASE_TOKEN` with
+Contents: read/write access when organization policy makes `GITHUB_TOKEN`
+read-only. The automation never checks out or executes pull-request code.
+
 If the Changesets workflow reports that GitHub Actions cannot create or approve
 pull requests, keep the repository token read-only and either enable the
 organization setting that permits Actions to create and approve pull requests,

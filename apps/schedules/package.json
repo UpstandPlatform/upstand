@@ -1,6 +1,6 @@
 {
   "name": "schedules",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -29,7 +29,7 @@
   "devDependencies": {
     "@types/bun": "catalog:",
     "@upstand/config": "workspace:*",
-    "tsdown": "^0.22.9",
+    "tsdown": "^0.22.14",
     "typescript": "catalog:"
   }
 }

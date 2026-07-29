@@ -205,6 +205,7 @@ export default function SecretProviders(_props: {
     const config = buildProviderConfiguration();
 
     testMutation.mutate({
+      organizationId: orgId,
       provider: providerType,
       configuration: config,
     });
@@ -270,6 +271,7 @@ export default function SecretProviders(_props: {
     if (Object.keys(config).length > 0 || !editId) {
       try {
         const testRes = await testMutation.mutateAsync({
+          organizationId: orgId,
           provider: providerType,
           configuration: config,
         });

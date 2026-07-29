@@ -1,6 +1,10 @@
 import { auth } from "@upstand/api/auth";
 import { checkPermission } from "@upstand/api/permissions";
 import { env } from "@upstand/env/server";
+import {
+  readResponseJsonLimited,
+  readResponseTextLimited,
+} from "@upstand/platform/network/response-body";
 import { redis } from "@upstand/redis";
 import {
   assertSafeProviderUrl,
@@ -87,6 +91,8 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
           `https://api.github.com/app-manifests/${code}/conversions`,
           {
             method: "POST",
+            redirect: "error",
+            signal: AbortSignal.timeout(15_000),
             headers: {
               Accept: "application/vnd.github+json",
               "User-Agent": "Upstand",
@@ -95,14 +101,14 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
         );
 
         if (!res.ok) {
-          await res.text();
+          await readResponseTextLimited(res, 4096);
           c.get("log").warn("GitHub App conversion failed", {
             status: res.status,
           });
           return c.text("GitHub App conversion failed", 500);
         }
 
-        const data = (await res.json()) as {
+        const data = await readResponseJsonLimited<{
           name: string;
           html_url: string;
           id: number;
@@ -110,7 +116,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
           client_secret: string;
           webhook_secret: string;
           pem: string;
-        };
+        }>(res);
 
         const configObj = {
           githubAppId: data.id,
@@ -262,18 +268,18 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       });
 
       if (!res.ok) {
-        await res.text();
+        await readResponseTextLimited(res, 4096);
         c.get("log").warn("GitLab OAuth exchange failed", {
           status: res.status,
         });
         return c.text("GitLab OAuth exchange failed", 500);
       }
 
-      const data = (await res.json()) as {
+      const data = await readResponseJsonLimited<{
         access_token: string;
         refresh_token: string;
         expires_in: number;
-      };
+      }>(res);
 
       configObj.accessToken = data.access_token;
       configObj.refreshToken = data.refresh_token;
@@ -330,18 +336,18 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       });
 
       if (!res.ok) {
-        await res.text();
+        await readResponseTextLimited(res, 4096);
         c.get("log").warn("Gitea OAuth exchange failed", {
           status: res.status,
         });
         return c.text("Gitea OAuth exchange failed", 500);
       }
 
-      const data = (await res.json()) as {
+      const data = await readResponseJsonLimited<{
         access_token: string;
         refresh_token?: string;
         expires_in: number;
-      };
+      }>(res);
 
       configObj.accessToken = data.access_token;
       configObj.refreshToken = data.refresh_token || "";

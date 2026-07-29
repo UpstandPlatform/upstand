@@ -4,6 +4,18 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.6 - 2026-07-29
+
+chore(deps): update production dependencies via Dependabot (#25).
+
+Harden tenant isolation, authentication, external network access, archive uploads, and secret-provider workflows.
+
+Improve audit-log pagination and search, bound external response bodies, parallelize topology discovery, and reduce unnecessary dashboard loading and reconciliation work.
+
+## 0.1.5 - 2026-07-29
+
+Avoid reporting expected non-member authorization denials as audit persistence failures, keep zero-configuration installs on the latest stable image release, and reliably provision the monitoring agent when its development image and container share a name.
+
 ## 0.1.4 - 2026-07-28
 
 Harden service startup and monitoring callbacks, improve local dashboard route

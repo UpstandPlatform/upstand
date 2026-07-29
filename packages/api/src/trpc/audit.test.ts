@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { TRPCError } from "@trpc/server";
 import {
+  isExpectedUnauthorizedAuditScopeFailure,
   resolveAuditAction,
   resolveAuditResourceType,
   sanitizeAuditInput,
@@ -32,5 +34,24 @@ describe("audit event normalization", () => {
       options: { replicas: 2, nested: { mode: "safe" } },
       tags: 2,
     });
+  });
+
+  test("does not classify expected non-member denials as audit persistence errors", () => {
+    expect(
+      isExpectedUnauthorizedAuditScopeFailure(
+        new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this organization",
+        }),
+        { success: false, errorCode: "FORBIDDEN" },
+      ),
+    ).toBe(true);
+
+    expect(
+      isExpectedUnauthorizedAuditScopeFailure(
+        new TRPCError({ code: "FORBIDDEN", message: "Permission denied" }),
+        { success: false, errorCode: "FORBIDDEN" },
+      ),
+    ).toBe(false);
   });
 });

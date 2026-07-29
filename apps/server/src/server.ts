@@ -113,7 +113,7 @@ const getCaddySettingsUseCase = caddyInitScope.resolve(
   GetWebServerSettingsUseCaseToken,
 );
 getCaddySettingsUseCase
-  .execute()
+  .execute({ reconcile: true })
   .then(() => {
     caddyReady = true;
     log.info({ message: "Caddy Web Server initialized successfully. ✅" });

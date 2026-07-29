@@ -1,4 +1,8 @@
 import { resolve4, resolve6, resolveCname } from "node:dns/promises";
+import {
+  assertPublicHttpUrl,
+  isBlockedAddress,
+} from "@upstand/platform/network/outbound";
 import { z } from "zod";
 
 export const ValidateDomainInputSchema = z.object({
@@ -196,130 +200,133 @@ function normalizeHost(value: string): string {
   return host;
 }
 
-async function detectCDNViaHttp(host: string): Promise<string | null> {
-  const protocols = ["https://", "http://"];
-  for (const protocol of protocols) {
-    try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 2000); // 2-second timeout
-      const res = await fetch(protocol + host, {
-        method: "HEAD",
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Upstand/1.0",
-        },
-      });
-      clearTimeout(id);
+async function detectCDNViaHttp(
+  host: string,
+  validatePublicUrl: (rawUrl: string) => Promise<URL>,
+  fetcher: typeof fetch,
+): Promise<string | null> {
+  try {
+    const url = await validatePublicUrl(`https://${host}`);
+    const res = await fetcher(url, {
+      method: "HEAD",
+      redirect: "error",
+      signal: AbortSignal.timeout(2_000),
+      headers: {
+        "User-Agent": "Upstand/1.0",
+      },
+    });
 
-      const server = res.headers.get("server")?.toLowerCase() || "";
-      const via = res.headers.get("via")?.toLowerCase() || "";
+    const server = res.headers.get("server")?.toLowerCase() || "";
+    const via = res.headers.get("via")?.toLowerCase() || "";
 
-      if (res.headers.has("cf-ray") || server.includes("cloudflare")) {
-        return "Cloudflare";
-      }
-      if (res.headers.has("x-served-by") || server.includes("fastly")) {
-        return "Fastly";
-      }
-      if (res.headers.has("x-amz-cf-id") || via.includes("cloudfront")) {
-        return "AWS CloudFront";
-      }
-      if (res.headers.has("x-vercel-id") || server.includes("vercel")) {
-        return "Vercel";
-      }
-      if (res.headers.has("x-nf-request-id") || server.includes("netlify")) {
-        return "Netlify";
-      }
-      if (
-        res.headers.has("x-bunny-cache") ||
-        res.headers.has("x-bunny-server-trace") ||
-        server.includes("bunnycdn") ||
-        server.includes("bunny")
-      ) {
-        return "Bunny CDN";
-      }
-      if (
-        res.headers.has("x-akamai-transformed") ||
-        server.includes("akamaighost") ||
-        server.includes("akamai")
-      ) {
-        return "Akamai";
-      }
-      if (
-        res.headers.has("ar-ray") ||
-        server.includes("arvancloud") ||
-        server.includes("arvan")
-      ) {
-        return "Arvancloud";
-      }
-    } catch {
-      // Ignore: connection issue or domain doesn't support the protocol yet
+    if (res.headers.has("cf-ray") || server.includes("cloudflare")) {
+      return "Cloudflare";
     }
+    if (res.headers.has("x-served-by") || server.includes("fastly")) {
+      return "Fastly";
+    }
+    if (res.headers.has("x-amz-cf-id") || via.includes("cloudfront")) {
+      return "AWS CloudFront";
+    }
+    if (res.headers.has("x-vercel-id") || server.includes("vercel")) {
+      return "Vercel";
+    }
+    if (res.headers.has("x-nf-request-id") || server.includes("netlify")) {
+      return "Netlify";
+    }
+    if (
+      res.headers.has("x-bunny-cache") ||
+      res.headers.has("x-bunny-server-trace") ||
+      server.includes("bunnycdn") ||
+      server.includes("bunny")
+    ) {
+      return "Bunny CDN";
+    }
+    if (
+      res.headers.has("x-akamai-transformed") ||
+      server.includes("akamaighost") ||
+      server.includes("akamai")
+    ) {
+      return "Akamai";
+    }
+    if (
+      res.headers.has("ar-ray") ||
+      server.includes("arvancloud") ||
+      server.includes("arvan")
+    ) {
+      return "Arvancloud";
+    }
+  } catch {
+    // DNS results remain useful when the optional HTTP probe fails.
   }
   return null;
 }
 
 export class ValidateDomainUseCase {
+  constructor(
+    private readonly validatePublicUrl = assertPublicHttpUrl,
+    private readonly fetcher = fetch,
+  ) {}
+
   async execute(input: ValidateDomainInput) {
     const host = normalizeHost(input.host);
     let cdnProvider: string | null = null;
     let warning: string | null = null;
 
-    // 1. Try HTTP header check first
-    cdnProvider = await detectCDNViaHttp(host);
-    if (cdnProvider) {
-      warning = `DNS resolves to ${cdnProvider} (detected via HTTP response headers); validate the origin separately.`;
-    }
-
-    // 2. Try resolving CNAME records to match against CDN patterns if not detected yet
-    if (!cdnProvider) {
-      try {
-        const cnames = await resolveCname(host);
-        for (const cname of cnames) {
-          const match = CDN_CNAME_PATTERNS.find((p) => p.pattern.test(cname));
-          if (match) {
-            cdnProvider = match.name;
-            warning = `DNS resolves to ${match.name} (detected via CNAME); validate the origin separately.`;
-            break;
-          }
-        }
-      } catch {
-        // Ignored: CNAME might not exist
-      }
-    }
-
-    // 3. Resolve DNS A and AAAA records in parallel
     try {
-      const results = await Promise.allSettled([
+      const [ipv4Result, ipv6Result, cnameResult] = await Promise.allSettled([
         resolve4(host),
         resolve6(host),
+        resolveCname(host),
       ]);
 
       const ips: string[] = [];
-      for (const result of results) {
+      for (const result of [ipv4Result, ipv6Result]) {
         if (result.status === "fulfilled") {
           ips.push(...result.value);
         }
       }
 
       if (ips.length === 0) {
-        // If both failed, check if we got any specific errors to throw
-        const rejected = results.find((r) => r.status === "rejected") as
-          | PromiseRejectedResult
-          | undefined;
+        const rejected = [ipv4Result, ipv6Result].find(
+          (result) => result.status === "rejected",
+        ) as PromiseRejectedResult | undefined;
         throw rejected
           ? rejected.reason
           : new Error("DNS resolution returned no A or AAAA records");
       }
 
-      // If CDN not yet detected, check resolved IP ranges
-      if (!cdnProvider) {
-        const provider = ips
-          .flatMap((ip) =>
-            CDN_PROVIDERS.filter((candidate) =>
-              candidate.ranges.some((range) => ipv4InCidr(ip, range)),
+      if (ips.every((ip) => !isBlockedAddress(ip))) {
+        cdnProvider = await detectCDNViaHttp(
+          host,
+          this.validatePublicUrl,
+          this.fetcher,
+        );
+        if (cdnProvider) {
+          warning = `DNS resolves to ${cdnProvider} (detected via HTTP response headers); validate the origin separately.`;
+        }
+      }
+
+      if (!cdnProvider && cnameResult.status === "fulfilled") {
+        const match = cnameResult.value
+          .map((cname) =>
+            CDN_CNAME_PATTERNS.find((candidate) =>
+              candidate.pattern.test(cname),
             ),
           )
-          .at(0);
+          .find(Boolean);
+        if (match) {
+          cdnProvider = match.name;
+          warning = `DNS resolves to ${match.name} (detected via CNAME); validate the origin separately.`;
+        }
+      }
+
+      if (!cdnProvider) {
+        const provider = CDN_PROVIDERS.find((candidate) =>
+          ips.some((ip) =>
+            candidate.ranges.some((range) => ipv4InCidr(ip, range)),
+          ),
+        );
         if (provider) {
           cdnProvider = provider.name;
           warning = provider.warning;

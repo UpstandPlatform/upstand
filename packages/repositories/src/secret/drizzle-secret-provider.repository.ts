@@ -4,7 +4,7 @@ import type {
   SecretProvider,
   SecretProviderType,
 } from "@upstand/domain";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { BaseRepository } from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
@@ -24,7 +24,10 @@ export class DrizzleSecretProviderRepository
       .limit(1);
     return row ? this.public(row) : null;
   }
-  async findConfigurationById(id: string): Promise<{
+  async findEnabledConfiguration(
+    id: string,
+    organizationId: string,
+  ): Promise<{
     provider: SecretProviderType;
     encryptedConfiguration: string;
   } | null> {
@@ -34,7 +37,13 @@ export class DrizzleSecretProviderRepository
         encryptedConfiguration: secretProvider.encryptedConfiguration,
       })
       .from(secretProvider)
-      .where(eq(secretProvider.id, id))
+      .where(
+        and(
+          eq(secretProvider.id, id),
+          eq(secretProvider.organizationId, organizationId),
+          eq(secretProvider.enabled, "true"),
+        ),
+      )
       .limit(1);
     return row
       ? {

@@ -5,10 +5,7 @@ import S3Destinations from "./s3-destinations";
 export const dynamic = "force-dynamic";
 
 export default async function S3DestinationsPage() {
-  let session = null;
-  try {
-    session = await getServerSession();
-  } catch {}
+  const session = await getServerSession();
 
   if (!session?.user) {
     redirect("/login");
