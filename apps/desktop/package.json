@@ -8,7 +8,7 @@
   "type": "module",
   "main": "dist/main.cjs",
   "scripts": {
-    "build": "bun build/build.ts",
+    "build": "bun run ./build/build.ts",
     "dev": "bun run build && electron .",
     "package": "bun run build && electron-forge package",
     "make": "bun run build && electron-forge make",
