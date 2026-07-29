@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.1.8
+
+### Patch Changes
+
+- [#55](https://github.com/UpstandPlatform/upstand/pull/55) [`36c6edc`](https://github.com/UpstandPlatform/upstand/commit/36c6edc654ea3ee80f6e3e019496b616c8bd2fde) Thanks [@mhbdev](https://github.com/mhbdev)! - Promote the corrected desktop installer fix as the next Upstand platform patch release.
+
 ## 0.1.7
 
 ### Patch Changes

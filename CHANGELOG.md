@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.8 - 2026-07-29
+
+Promote the corrected desktop installer fix as the next Upstand platform patch release.
+
+Fix Linux desktop installers by aligning the Debian launcher with the packaged executable name.
+
 ## 0.1.7 - 2026-07-29
 
 Add the production desktop client with secure control-plane connection handling,
