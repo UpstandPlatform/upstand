@@ -29,6 +29,8 @@ mock.module("node:dns/promises", () => {
 
 describe("ValidateDomainUseCase", () => {
   const originalFetch = globalThis.fetch;
+  const createUseCase = () =>
+    new ValidateDomainUseCase(async (rawUrl) => new URL(rawUrl));
 
   beforeAll(() => {
     const fetchImplementation = Object.assign(
@@ -59,7 +61,7 @@ describe("ValidateDomainUseCase", () => {
 
   test("rejects malformed hostnames before DNS resolution", async () => {
     await expect(
-      new ValidateDomainUseCase().execute({
+      createUseCase().execute({
         organizationId: "org-1",
         host: "https://bad..example.com",
       }),
@@ -67,7 +69,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("detects CDN via HTTP response headers (Cloudflare)", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "http-cf.example.com",
     });
@@ -77,7 +79,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("detects CDN via HTTP response headers (Arvancloud)", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "http-arvan.example.com",
     });
@@ -87,7 +89,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("detects CDN via IP range (Cloudflare)", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "cloudflare.example.com",
     });
@@ -97,7 +99,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("detects CDN via IP range (Arvancloud)", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "arvan.example.com",
     });
@@ -107,7 +109,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("detects CDN via CNAME pattern (AWS CloudFront)", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "cname-cf.example.com",
     });
@@ -117,7 +119,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("detects CDN via CNAME pattern (Arvancloud)", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "cname-arvan.example.com",
     });
@@ -127,7 +129,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("validates expected IP match", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "expected.example.com",
       expectedIp: "192.168.1.1",
@@ -137,8 +139,31 @@ describe("ValidateDomainUseCase", () => {
     expect(result.resolvedIps).toEqual(["192.168.1.1"]);
   });
 
+  test("does not make HTTP requests to private resolved addresses", async () => {
+    let fetchCalls = 0;
+    const useCase = new ValidateDomainUseCase(
+      async (rawUrl) => new URL(rawUrl),
+      Object.assign(
+        async () => {
+          fetchCalls += 1;
+          return new Response();
+        },
+        { preconnect: () => undefined },
+      ),
+    );
+
+    const result = await useCase.execute({
+      organizationId: "org-1",
+      host: "expected.example.com",
+      expectedIp: "192.168.1.1",
+    });
+
+    expect(result.isValid).toBe(true);
+    expect(fetchCalls).toBe(0);
+  });
+
   test("validates expected IPv6 match", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "expected-ipv6.example.com",
       expectedIp: "2001:db8::1",
@@ -149,7 +174,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("resolves IPv6-only domains", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "ipv6-only.example.com",
     });
@@ -159,7 +184,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("detects mismatch in expected IP", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "unexpected.example.com",
       expectedIp: "192.168.1.1",
@@ -170,7 +195,7 @@ describe("ValidateDomainUseCase", () => {
   });
 
   test("handles resolution failure gracefully", async () => {
-    const result = await new ValidateDomainUseCase().execute({
+    const result = await createUseCase().execute({
       organizationId: "org-1",
       host: "nonexistent.example.com",
     });

@@ -160,16 +160,7 @@ export default function WebServerDashboard(_props: {
     refetch: refetchInfo,
   } = useQuery({
     ...trpc.webServer.getSettings.queryOptions(),
-    refetchInterval: 15000,
-  });
-
-  // biome-ignore lint/correctness/noUnusedVariables: securityAudit is currently commented out in the UI below
-  const { data: securityAudit, refetch: refetchSecurityAudit } = useQuery({
-    ...trpc.webServer.securityAudit.queryOptions({
-      organizationId,
-    }),
-    enabled: organizationState.status === "ready",
-    refetchInterval: 30000,
+    refetchInterval: 30_000,
   });
 
   const { data: webBackupDestinations = [] } = useQuery({
@@ -729,7 +720,6 @@ export default function WebServerDashboard(_props: {
             onClick={() => {
               refetchInfo();
               refetchCaddyLogs();
-              refetchSecurityAudit();
             }}
             className="text-xs"
           >

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IUnitOfWork } from "@upstand/domain";
+import { readResponseTextLimited } from "@upstand/platform/network/response-body";
 import { TriggerBackupRunUseCase } from "@upstand/usecases/backup/trigger-backup-run.usecase";
 import { QueueDeploymentUseCase } from "@upstand/usecases/deployment/queue-deployment.usecase";
 import { resolveDockerServiceForServer } from "@upstand/usecases/resource/docker-client";
@@ -217,7 +218,7 @@ export function registerBackups(
                 clearTimeout(timeoutId);
 
                 statusCode = response.status;
-                const text = await response.text();
+                const text = await readResponseTextLimited(response, 4096);
                 responseBody = text.slice(0, 1000);
 
                 if (response.ok) {

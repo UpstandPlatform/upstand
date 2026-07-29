@@ -3,6 +3,7 @@ import {
   OperationalError,
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
+import { readResponseTextLimited } from "@upstand/platform/network/response-body";
 import type {
   NotificationAction,
   NotificationMessage,
@@ -41,7 +42,9 @@ async function readResponsePrefix(
   maxLength: number,
 ): Promise<string> {
   if (!response.body) {
-    return (await response.text()).slice(0, maxLength);
+    return (
+      await readResponseTextLimited(response, Math.max(maxLength * 4, 4096))
+    ).slice(0, maxLength);
   }
 
   const reader = response.body.getReader();

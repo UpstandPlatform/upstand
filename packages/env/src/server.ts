@@ -15,6 +15,11 @@ dotenv.config({ path: path.join(monorepoRoot, "apps", "server", ".env") });
 dotenv.config({ path: path.join(monorepoRoot, ".env") });
 
 const isTest = process.env.NODE_ENV === "test";
+const skipValidation =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  ["1", "true"].includes(
+    process.env.SKIP_ENV_VALIDATION?.trim().toLowerCase() ?? "",
+  );
 
 const validatedEnv = createEnv({
   server: {
@@ -23,6 +28,13 @@ const validatedEnv = createEnv({
     BETTER_AUTH_URL: isTest ? z.string().optional() : z.url(),
     CORS_ORIGIN: isTest ? z.string().optional() : z.url(),
     TRUSTED_PROXY_CIDRS: z.string().default(""),
+    TRUSTED_PROXY_HEADERS: z
+      .preprocess(
+        (value) => value === "true" || value === "1" || value === true,
+        z.boolean(),
+      )
+      .default(false),
+    AUTH_COOKIE_DOMAIN: z.string().trim().min(1).optional(),
     GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
     IS_CLOUD: z
@@ -66,6 +78,7 @@ const validatedEnv = createEnv({
     UPSTAND_POSTGRES_CONTAINER: z.string().min(1).optional(),
     ENCRYPTION_KEY_V1: isTest ? z.string().optional() : z.string().min(1),
     UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS: z.string().optional(),
+    UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS: z.string().optional(),
     UPSTAND_DOCKER_VERSION: z.string().min(1).optional(),
     UPSTAND_VERSION: z.string().min(1).optional(),
     UPSTAND_WEB_IMAGE: z.string().min(1).optional(),
@@ -82,12 +95,7 @@ const validatedEnv = createEnv({
     OPENROUTER_MODEL: z.string().optional(),
   },
   runtimeEnv: process.env,
-  skipValidation:
-    process.env.NEXT_PHASE === "phase-production-build" ||
-    !!process.env.SKIP_ENV_VALIDATION ||
-    process.env.SKIP_ENV_VALIDATION === "1" ||
-    process.env.SKIP_ENV_VALIDATION === "true" ||
-    !process.env.DATABASE_URL,
+  skipValidation,
   emptyStringAsUndefined: true,
 });
 
@@ -96,7 +104,11 @@ export const env = new Proxy(validatedEnv, {
     if (process.env.NODE_ENV === "test") {
       const val = typeof prop === "string" ? process.env[prop] : undefined;
       if (val !== undefined) {
-        if (prop === "IS_CLOUD" || prop === "UPSTAND_AUTO_UPDATE") {
+        if (
+          prop === "IS_CLOUD" ||
+          prop === "UPSTAND_AUTO_UPDATE" ||
+          prop === "TRUSTED_PROXY_HEADERS"
+        ) {
           return val === "true" || val === "1";
         }
         if (prop === "PORT") {

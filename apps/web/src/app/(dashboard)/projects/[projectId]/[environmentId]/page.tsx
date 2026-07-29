@@ -13,10 +13,7 @@ interface PageProps {
 
 export default async function EnvironmentPage({ params }: PageProps) {
   const { projectId, environmentId } = await params;
-  let session = null;
-  try {
-    session = await getServerSession();
-  } catch {}
+  const session = await getServerSession();
 
   if (!session?.user) {
     redirect("/login");

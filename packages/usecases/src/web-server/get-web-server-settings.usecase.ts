@@ -1,5 +1,6 @@
 import type { IUnitOfWork, WebServerSettings } from "@upstand/domain";
 import { env } from "@upstand/env/server";
+import { readResponseJsonLimited } from "@upstand/platform/network/response-body";
 import type { CaddyStatus } from "../ports/caddy";
 import type { CaddyService } from "./caddy.service";
 
@@ -122,7 +123,7 @@ export class GetWebServerSettingsUseCase {
     private readonly caddyService: CaddyService,
   ) {}
 
-  async execute(): Promise<{
+  async execute(options: { reconcile?: boolean } = {}): Promise<{
     settings: WebServerSettings;
     status: CaddyStatus;
   }> {
@@ -159,11 +160,15 @@ export class GetWebServerSettingsUseCase {
         })) ?? settings;
     }
 
-    if (!settings.serverIp) {
+    if (options.reconcile && !settings.serverIp) {
       let detectedIp = "";
       try {
-        const res = await fetch("https://api.ipify.org?format=json");
-        const data = (await res.json()) as { ip: string };
+        const res = await fetch("https://api.ipify.org?format=json", {
+          redirect: "error",
+          signal: AbortSignal.timeout(3_000),
+        });
+        if (!res.ok) throw new Error(`IP discovery returned ${res.status}`);
+        const data = await readResponseJsonLimited<{ ip: string }>(res, 4096);
         if (data.ip) {
           detectedIp = data.ip;
         }
@@ -180,7 +185,9 @@ export class GetWebServerSettingsUseCase {
             }
             if (detectedIp) break;
           }
-        } catch {}
+        } catch {
+          // Local interface discovery is a best-effort fallback.
+        }
       }
 
       if (detectedIp) {
@@ -195,20 +202,21 @@ export class GetWebServerSettingsUseCase {
       }
     }
 
-    // Reconcile published control-plane ports as well. A later stack deploy
-    // can recreate services from the compose file, so the persisted Web Server
-    // preference must be enforced whenever settings are loaded.
-    await this.caddyService.setControlPlaneIpAccess(
-      settings.ipAccessEnabled ?? true,
-    );
-    await this.caddyService.initializeCaddy(settings);
-    const certificates =
-      (await this.uow.certificateRepository.findAll?.()) ?? [];
-    await this.caddyService.syncResourceConfigs(
-      await this.uow.resourceRepository.findMany(),
-      settings,
-      certificates,
-    );
+    if (options.reconcile) {
+      await this.caddyService.setControlPlaneIpAccess(
+        settings.ipAccessEnabled ?? true,
+      );
+      await this.caddyService.initializeCaddy(settings);
+      const [resources, certificates] = await Promise.all([
+        this.uow.resourceRepository.findMany(),
+        this.uow.certificateRepository.findAll?.() ?? Promise.resolve([]),
+      ]);
+      await this.caddyService.syncResourceConfigs(
+        resources,
+        settings,
+        certificates,
+      );
+    }
     const status = await this.caddyService.getStatus();
     return { settings, status };
   }
