@@ -11,6 +11,7 @@
       "**",
       "!**/.next",
       "!**/dist",
+      "!apps/desktop/out",
       "!**/.turbo",
       "!**/.nx",
       "!**/dev-dist",
@@ -29,6 +30,7 @@
       "!**/.agents",
       "!**/convex/_generated",
       "!packages/usecases/src/template/catalog.json",
+      "!fixtures/openship",
       "!apps/fumadocs/public/images/terminal_view.svg"
     ]
   },

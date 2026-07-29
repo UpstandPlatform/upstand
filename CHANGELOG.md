@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.7 - 2026-07-29
+
+Add the production desktop client with secure control-plane connection handling,
+release installers, and an in-product download path. Validate Railpack
+deployment compatibility with the vendored OpenShip fixture matrix.
+
 ## 0.1.6 - 2026-07-29
 
 chore(deps): update production dependencies via Dependabot (#25).
