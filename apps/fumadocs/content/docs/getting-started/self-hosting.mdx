@@ -84,7 +84,7 @@ The Upstand installer supports two compilation strategies:
   <Step>
     ### Prepare the environment variables
     
-    You can run the installer with no environment variables. It will generate cryptographic secrets under `/etc/upstand/secrets/`, detect a usable host address, and build the release images from the public repository when image digests are not supplied. Missing origins default to the host IP and the published service ports; no synthetic DNS names are assigned.
+    You can run the installer with no environment variables. It will generate cryptographic secrets under `/etc/upstand/secrets/`, detect a usable host address, resolve the latest stable release, and pull its prebuilt GHCR images. Missing origins default to the host IP and the published service ports; no synthetic DNS names are assigned. Source builds require the explicit `UPSTAND_BUILD_FROM_SOURCE=true` opt-in.
 
     For a production deployment with DNS and pre-built immutable images, export your target domains and image digests first:
     
