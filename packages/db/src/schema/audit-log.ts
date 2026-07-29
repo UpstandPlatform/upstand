@@ -3,6 +3,7 @@ import type {
   AuditResourceType,
   JsonObject,
 } from "@upstand/domain";
+import { sql } from "drizzle-orm";
 import { index, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { organization, user } from "./auth";
 
@@ -32,7 +33,18 @@ export const auditLog = pgTable(
   (table) => [
     index("audit_log_org_created_idx").on(
       table.organizationId,
-      table.createdAt,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
+    index("audit_log_search_idx").using(
+      "gin",
+      sql`to_tsvector(
+        'simple',
+        ${table.actorName} || ' ' ||
+        ${table.actorEmail} || ' ' ||
+        coalesce(${table.resourceName}, '') || ' ' ||
+        ${table.route}
+      )`,
     ),
     index("audit_log_org_action_idx").on(table.organizationId, table.action),
     index("audit_log_org_resource_idx").on(

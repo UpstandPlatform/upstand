@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { auth } from "@upstand/api/auth";
 import { checkPermission } from "@upstand/api/permissions";
-import { redis } from "@upstand/redis";
 import {
   hashWebhookToken,
   matchesDockerImageWebhook,
@@ -17,13 +16,23 @@ import {
   UnitOfWorkToken,
 } from "@upstand/usecases/tokens";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import {
   ApplicationArchiveValidationError,
   extractApplicationArchive,
 } from "../../application-archive";
+import { isStepUpAuthenticationSatisfied } from "../../step-up-auth";
 import { logRequestError } from "../error-logging";
 import type { AppEnv } from "../types";
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
+const uploadBodyLimit = bodyLimit({
+  maxSize: MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES,
+  onError: (c) =>
+    c.json({ error: "Archive exceeds the 50 MB upload limit" }, 413),
+});
 
 async function validateSafeTarArchive(
   buffer: Buffer,
@@ -166,10 +175,13 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     }
   });
 
-  app.post("/api/resources/:resourceId/upload", async (c) => {
+  app.post("/api/resources/:resourceId/upload", uploadBodyLimit, async (c) => {
     const requestLog = c.get("log");
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: "Authentication required" }, 401);
+    if (!(await isStepUpAuthenticationSatisfied(session))) {
+      return c.json({ error: "2FA verification required" }, 403);
+    }
 
     const resourceId = c.req.param("resourceId");
     const scope = c.get("scope");
@@ -200,13 +212,12 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
 
     const filename = file.name.toLowerCase();
     if (
-      !filename.endsWith(".zip") &&
       !filename.endsWith(".tar") &&
       !filename.endsWith(".tar.gz") &&
       !filename.endsWith(".tgz")
     ) {
       return c.json(
-        { error: "Only .zip, .tar, .tar.gz, and .tgz archives are supported" },
+        { error: "Only .tar, .tar.gz, and .tgz archives are supported" },
         400,
       );
     }
@@ -219,7 +230,7 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     );
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    if (buffer.byteLength > 50 * 1024 * 1024) {
+    if (buffer.byteLength > MAX_UPLOAD_BYTES) {
       return c.json({ error: "Archive exceeds the 50MB upload limit" }, 413);
     }
     fs.writeFileSync(archivePath, buffer);
@@ -235,8 +246,6 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     } catch (error) {
       const status =
         error instanceof ApplicationArchiveValidationError ? 400 : 500;
-      const errorMessage =
-        error instanceof Error ? error.message : "Extraction failed";
       logRequestError(requestLog, error, {
         message: "Application archive extraction failed",
         resourceId,
@@ -244,7 +253,10 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
       });
       return c.json(
         {
-          error: errorMessage,
+          error:
+            error instanceof ApplicationArchiveValidationError
+              ? error.message
+              : "Archive extraction failed",
         },
         status,
       );
@@ -260,7 +272,7 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     try {
       const queued = await new QueueDeploymentUseCase(uow).execute({
         resourceId,
-        title: "ZIP upload deployment",
+        title: "Archive upload deployment",
         deploymentId,
       });
       return c.json(
@@ -281,64 +293,69 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     }
   });
 
-  app.post("/api/docker/volumes/:volumeName/upload", async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return c.json({ error: "Authentication required" }, 401);
-
-    const organizationId = c.req.query("organizationId");
-    if (!organizationId) {
-      return c.json({ error: "organizationId is required" }, 400);
-    }
-    try {
-      await checkPermission(session.user.id, organizationId, "server:update");
-    } catch {
-      return c.json({ error: "Docker volume upload is not permitted" }, 403);
-    }
-    if (session.user.twoFactorEnabled) {
-      const verified = await redis.get(`2fa-verified:${session.session.id}`);
-      if (!verified) {
-        return c.json({ error: "2FA verification required" }, 403);
-      }
-    }
-
-    const body = await c.req.parseBody();
-    const file = body.file;
-    if (!file || typeof file === "string") {
-      return c.json({ error: "Upload payload ('file') is required" }, 400);
-    }
-    if (!file.name.toLowerCase().endsWith(".tar")) {
-      return c.json(
-        { error: "Only uncompressed .tar archives are supported" },
-        400,
-      );
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    if (buffer.byteLength > 50 * 1024 * 1024) {
-      return c.json({ error: "Volume archives must not exceed 50 MB" }, 413);
-    }
-
-    const archiveError = await validateSafeTarArchive(buffer, "volume");
-    if (archiveError) return c.json({ error: archiveError }, 400);
-
-    const parsed = UploadDockerVolumeInputSchema.parse({
-      organizationId,
-      serverId: c.req.query("serverId") || undefined,
-      volumeName: c.req.param("volumeName"),
-      destination: c.req.query("destination") || "/",
-    });
-    const result = await c
-      .get("scope")
-      .resolve(GetDockerInventoryUseCaseToken)
-      .uploadVolume(parsed, buffer);
-    return c.json(result, 201);
-  });
-
   app.post(
-    "/api/resources/:resourceId/containers/:containerId/upload",
+    "/api/docker/volumes/:volumeName/upload",
+    uploadBodyLimit,
     async (c) => {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       if (!session) return c.json({ error: "Authentication required" }, 401);
+
+      const organizationId = c.req.query("organizationId");
+      if (!organizationId) {
+        return c.json({ error: "organizationId is required" }, 400);
+      }
+      try {
+        await checkPermission(session.user.id, organizationId, "server:update");
+      } catch {
+        return c.json({ error: "Docker volume upload is not permitted" }, 403);
+      }
+      if (!(await isStepUpAuthenticationSatisfied(session))) {
+        return c.json({ error: "2FA verification required" }, 403);
+      }
+
+      const body = await c.req.parseBody();
+      const file = body.file;
+      if (!file || typeof file === "string") {
+        return c.json({ error: "Upload payload ('file') is required" }, 400);
+      }
+      if (!file.name.toLowerCase().endsWith(".tar")) {
+        return c.json(
+          { error: "Only uncompressed .tar archives are supported" },
+          400,
+        );
+      }
+
+      const buffer = Buffer.from(await file.arrayBuffer());
+      if (buffer.byteLength > MAX_UPLOAD_BYTES) {
+        return c.json({ error: "Volume archives must not exceed 50 MB" }, 413);
+      }
+
+      const archiveError = await validateSafeTarArchive(buffer, "volume");
+      if (archiveError) return c.json({ error: archiveError }, 400);
+
+      const parsed = UploadDockerVolumeInputSchema.parse({
+        organizationId,
+        serverId: c.req.query("serverId") || undefined,
+        volumeName: c.req.param("volumeName"),
+        destination: c.req.query("destination") || "/",
+      });
+      const result = await c
+        .get("scope")
+        .resolve(GetDockerInventoryUseCaseToken)
+        .uploadVolume(parsed, buffer);
+      return c.json(result, 201);
+    },
+  );
+
+  app.post(
+    "/api/resources/:resourceId/containers/:containerId/upload",
+    uploadBodyLimit,
+    async (c) => {
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      if (!session) return c.json({ error: "Authentication required" }, 401);
+      if (!(await isStepUpAuthenticationSatisfied(session))) {
+        return c.json({ error: "2FA verification required" }, 403);
+      }
 
       const organizationId = c.req.query("organizationId");
       if (!organizationId) {
@@ -386,7 +403,7 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());
-      if (buffer.byteLength > 50 * 1024 * 1024) {
+      if (buffer.byteLength > MAX_UPLOAD_BYTES) {
         return c.json(
           { error: "Container archives must not exceed 50 MB" },
           413,

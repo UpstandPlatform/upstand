@@ -164,6 +164,14 @@ const callbacks: AuthCallbacks = {
   },
 };
 
+function resolveAuthSecret(): string {
+  if (env.BETTER_AUTH_SECRET) return env.BETTER_AUTH_SECRET;
+  if (env.NODE_ENV === "development" || env.NODE_ENV === "test") {
+    return "upstand-local-development-secret-that-is-at-least-32-characters";
+  }
+  throw new Error("BETTER_AUTH_SECRET is required in production");
+}
+
 export const auth = createAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
@@ -175,10 +183,10 @@ export const auth = createAuth({
   configuration: {
     corsOrigin: env.CORS_ORIGIN || "http://localhost:3001",
     betterAuthUrl: env.BETTER_AUTH_URL || "http://localhost:3000",
-    secret:
-      env.BETTER_AUTH_SECRET ||
-      "upstand-local-development-secret-that-is-at-least-32-characters",
+    secret: resolveAuthSecret(),
     nodeEnv: env.NODE_ENV,
+    trustedProxyHeaders: env.TRUSTED_PROXY_HEADERS,
+    sharedCookieDomain: env.AUTH_COOKIE_DOMAIN,
     googleClientId: env.GOOGLE_CLIENT_ID,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET,
     isCloud: env.IS_CLOUD,

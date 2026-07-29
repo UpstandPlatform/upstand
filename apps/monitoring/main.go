@@ -96,16 +96,6 @@ func main() {
 			for _, m := range dbMetrics {
 				metrics = append(metrics, monitoring.ConvertToSystemMetrics(m))
 			}
-		} else if limit == "all" {
-			dbMetrics, err := db.GetLastNMetrics(0)
-			if err != nil {
-				return c.Status(500).JSON(fiber.Map{
-					"error": "Failed to fetch metrics",
-				})
-			}
-			for _, m := range dbMetrics {
-				metrics = append(metrics, monitoring.ConvertToSystemMetrics(m))
-			}
 		} else {
 			n := parseLimit(limit)
 			dbMetrics, err := db.GetLastNMetrics(n)
@@ -142,8 +132,6 @@ func main() {
 		var metrics []database.ContainerMetric
 		if hasRange {
 			metrics, err = db.GetContainerMetricsInRange(appName, start, end, parseLimit(limit))
-		} else if limit == "all" {
-			metrics, err = db.GetAllMetricsContainer(appName)
 		} else {
 			metrics, err = db.GetLastNContainerMetrics(appName, parseLimit(limit))
 		}
@@ -196,7 +184,7 @@ func main() {
 
 func parseLimit(value string) int {
 	if value == "all" {
-		return 0
+		return 5000
 	}
 	limit, err := strconv.Atoi(value)
 	if err != nil || limit < 1 {

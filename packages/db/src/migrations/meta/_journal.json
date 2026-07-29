@@ -491,6 +491,13 @@
       "when": 1785068614697,
       "tag": "0069_condemned_masked_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1785314222790,
+      "tag": "0070_curly_jack_murdock",
+      "breakpoints": true
     }
   ]
 }

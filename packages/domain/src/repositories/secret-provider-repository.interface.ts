@@ -16,7 +16,10 @@ export interface SecretProviderConfiguration {
 
 export interface ISecretProviderRepository {
   findById(id: string): Promise<SecretProvider | null>;
-  findConfigurationById(id: string): Promise<{
+  findEnabledConfiguration(
+    id: string,
+    organizationId: string,
+  ): Promise<{
     provider: SecretProviderType;
     encryptedConfiguration: string;
   } | null>;

@@ -5,10 +5,7 @@ import GitProviders from "./git-providers";
 export const dynamic = "force-dynamic";
 
 export default async function GitProvidersPage() {
-  let session = null;
-  try {
-    session = await getServerSession();
-  } catch {}
+  const session = await getServerSession();
 
   if (!session?.user) {
     redirect("/login");
