@@ -83,7 +83,7 @@ const dockerComposeServices = [
       selection: { anchor: from + insert.length },
     });
   },
-}));
+})) as unknown as Completion[];
 
 const dockerComposeServiceOptions = [
   {
@@ -136,7 +136,7 @@ const dockerComposeServiceOptions = [
       selection: { anchor: from + insert.length },
     });
   },
-}));
+})) as unknown as Completion[];
 
 function dockerComposeComplete(
   context: CompletionContext,
@@ -499,13 +499,13 @@ export const CodeEditor = ({
 
   const handleFoldAll = () => {
     if (editorViewRef.current) {
-      foldAll(editorViewRef.current);
+      foldAll(editorViewRef.current as never);
     }
   };
 
   const handleUnfoldAll = () => {
     if (editorViewRef.current) {
-      unfoldAll(editorViewRef.current);
+      unfoldAll(editorViewRef.current as never);
     }
   };
 
