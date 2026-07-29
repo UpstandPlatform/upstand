@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.5 - 2026-07-29
+
+Avoid reporting expected non-member authorization denials as audit persistence failures, keep zero-configuration installs on the latest stable image release, and reliably provision the monitoring agent when its development image and container share a name.
+
 ## 0.1.4 - 2026-07-28
 
 Harden service startup and monitoring callbacks, improve local dashboard route

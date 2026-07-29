@@ -1,5 +1,11 @@
 # web
 
+## 0.1.5
+
+### Patch Changes
+
+- [#38](https://github.com/UpstandPlatform/upstand/pull/38) [`e5638aa`](https://github.com/UpstandPlatform/upstand/commit/e5638aa4d507eaf79ee1797141391af021dfbc23) Thanks [@mhbdev](https://github.com/mhbdev)! - Avoid reporting expected non-member authorization denials as audit persistence failures, keep zero-configuration installs on the latest stable image release, and reliably provision the monitoring agent when its development image and container share a name.
+
 ## 0.1.4
 
 ## 0.1.3
