@@ -134,6 +134,24 @@ docker-compose.prod.yml  Production Swarm stack configuration
 
 For database schema changes, update the TypeScript schema and run `bun run db:generate`; Drizzle Kit generates the migration files. Never create migration files manually.
 
+### Desktop shell
+
+The Electron desktop shell packages the existing Upstand dashboard as a secure
+native client. It connects to a self-hosted or cloud control-plane origin; it
+does not duplicate the control plane or Docker engine on the workstation.
+
+```bash
+# Development (connect the dialog to http://localhost:3001 after bun dev)
+bun run --cwd apps/desktop dev
+
+# Produce the platform-native installer artifacts
+bun run --cwd apps/desktop make
+```
+
+The shell keeps the configured origin in the operating-system app-data folder,
+exposes only a small context-isolated IPC API, and sends external links to the
+default browser. Remote origins must use HTTPS.
+
 For major database image upgrades, read the [database upgrade runbook](apps/fumadocs/content/docs/operations/database-upgrades.mdx) before updating a production stack. PostgreSQL major versions require a logical dump/restore or `pg_upgrade`; do not reuse PostgreSQL 16 data files in the PostgreSQL 18 volume.
 
 ---

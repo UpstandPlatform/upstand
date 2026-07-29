@@ -2,6 +2,7 @@
 
 import {
   CodeIcon,
+  Download01Icon,
   Folder01Icon,
   LockPasswordIcon,
   Rocket01Icon,
@@ -78,6 +79,21 @@ export default function Home() {
               nativeButton={false}
             >
               Start deploying
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              render={
+                <a
+                  href="https://github.com/UpstandPlatform/upstand/releases/latest"
+                  target="_blank"
+                  rel="noreferrer"
+                />
+              }
+              nativeButton={false}
+            >
+              <HugeiconsIcon icon={Download01Icon} className="size-4" />
+              Download desktop
             </Button>
             <Button
               size="lg"

@@ -4,10 +4,13 @@ node_modules
 .pnp.js
 
 **/.build
+apps/desktop/out
 
 # Build outputs
 dist
 build
+!apps/desktop/build/
+!apps/desktop/build/build.ts
 **/.next/
 *.tsbuildinfo
 

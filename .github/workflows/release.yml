@@ -166,15 +166,71 @@ jobs:
           provenance: mode=max
           sbom: true
 
+  build-desktop:
+    needs: verify
+    name: Build desktop (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            runner: windows-latest
+          - name: macos
+            runner: macos-latest
+          - name: linux
+            runner: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_ref || github.ref }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.3.14-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build installers
+        run: bun run --cwd apps/desktop make
+
+      - name: Upload desktop release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: apps/desktop/out/make/**
+          if-no-files-found: error
+          retention-days: 7
+
   publish-release:
     if: startsWith(inputs.release_ref || github.ref_name, 'v')
-    needs: build-and-publish
+    needs: [build-and-publish, build-desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
       packages: read
     steps:
+      - name: Download desktop release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: ${{ runner.temp }}/desktop-assets
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -219,16 +275,28 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_ref || github.ref_name }}
           MANIFEST_FILE: ${{ runner.temp }}/upstand-release-manifest.json
         run: |
+          set -euo pipefail
+          mapfile -d '' assets < <(
+            find "$RUNNER_TEMP/desktop-assets" -type f \
+              \( -name '*.deb' -o -name '*.dmg' -o -name '*.exe' -o -name '*.nupkg' -o -name '*.zip' \) \
+              -print0
+          )
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "Desktop release assets were not downloaded" >&2
+            exit 1
+          fi
           if gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_VERSION" \
               --repo "$GITHUB_REPOSITORY" \
               --clobber \
-              "$MANIFEST_FILE#upstand-release-manifest.json"
+              "$MANIFEST_FILE#upstand-release-manifest.json" \
+              "${assets[@]}"
           else
             gh release create "$RELEASE_VERSION" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "Upstand $RELEASE_VERSION" \
               --generate-notes \
-              "$MANIFEST_FILE#upstand-release-manifest.json"
+              "$MANIFEST_FILE#upstand-release-manifest.json" \
+              "${assets[@]}"
           fi
