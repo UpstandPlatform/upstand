@@ -342,37 +342,11 @@ export class SetupServerUseCase {
     log.info({
       message: `[Monitoring Setup] Starting upstand-monitoring-agent container on ${server.ipAddress}...`,
     });
-    const monitoringCommand = [
-      "set -eu",
-      "exec 9>/var/lock/upstand-monitoring-agent.lock",
-      "flock -x 9",
-      `if docker inspect ${shellQuote(containerName)} >/dev/null 2>&1; then`,
-      `  label="$(docker inspect -f '{{index .Config.Labels "com.upstand.component"}}' ${shellQuote(containerName)})"`,
-      `  image="$(docker inspect -f '{{.Config.Image}}' ${shellQuote(containerName)})"`,
-      `  test "$label" = monitoring-agent || test "$image" = ${shellQuote(monitoringImage)} || { echo 'refusing to replace unrelated container ${containerName}' >&2; exit 1; }`,
-      `  docker rm -f ${shellQuote(containerName)} >/dev/null`,
-      "fi",
-      "docker run -d " +
-        `--name ${shellQuote(containerName)} ` +
-        "--label com.upstand.component=monitoring-agent " +
-        "--restart always " +
-        "--cap-drop ALL " +
-        "--security-opt no-new-privileges:true " +
-        "--read-only " +
-        "--tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m " +
-        "--memory 256m " +
-        "--pids-limit 128 " +
-        "--log-opt max-size=10m --log-opt max-file=3 " +
-        "-p 127.0.0.1:3001:3001 " +
-        "-e DB_PATH=/data/monitoring.db " +
-        `-e METRICS_CONFIG=${shellQuote(JSON.stringify(metricsConfig))} ` +
-        "-v /var/run/docker.sock:/var/run/docker.sock:ro " +
-        "-v /proc:/host/proc:ro " +
-        "-v /sys:/host/sys:ro " +
-        "-v /etc/os-release:/etc/os-release:ro " +
-        "-v upstand-monitoring-data:/data " +
-        shellQuote(monitoringImage),
-    ].join("\n");
+    const monitoringCommand = buildMonitoringAgentContainerCommand({
+      containerName,
+      monitoringImage,
+      metricsConfig,
+    });
     await privileged(`sh -ec ${shellQuote(monitoringCommand)}`);
 
     if (remoteTarPath && remoteSrcPath) {
@@ -382,6 +356,50 @@ export class SetupServerUseCase {
       message: `[Monitoring Setup] Monitoring Agent configured successfully on ${server.ipAddress}! ✅`,
     });
   }
+}
+
+export function buildMonitoringAgentContainerCommand(input: {
+  containerName: string;
+  monitoringImage: string;
+  metricsConfig: object;
+}): string {
+  const containerName = shellQuote(input.containerName);
+  const monitoringImage = shellQuote(input.monitoringImage);
+
+  return [
+    "set -eu",
+    "exec 9>/var/lock/upstand-monitoring-agent.lock",
+    "flock -x 9",
+    // Restrict inspection to containers. The development image intentionally
+    // shares this name, and untyped `docker inspect` may resolve that image
+    // before the first monitoring container has been created.
+    `if docker container inspect ${containerName} >/dev/null 2>&1; then`,
+    `  label="$(docker container inspect -f '{{index .Config.Labels "com.upstand.component"}}' ${containerName})"`,
+    `  image="$(docker container inspect -f '{{.Config.Image}}' ${containerName})"`,
+    `  test "$label" = monitoring-agent || test "$image" = ${monitoringImage} || { echo 'refusing to replace unrelated container ${input.containerName}' >&2; exit 1; }`,
+    `  docker container rm -f ${containerName} >/dev/null`,
+    "fi",
+    "docker run -d " +
+      `--name ${containerName} ` +
+      "--label com.upstand.component=monitoring-agent " +
+      "--restart always " +
+      "--cap-drop ALL " +
+      "--security-opt no-new-privileges:true " +
+      "--read-only " +
+      "--tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m " +
+      "--memory 256m " +
+      "--pids-limit 128 " +
+      "--log-opt max-size=10m --log-opt max-file=3 " +
+      "-p 127.0.0.1:3001:3001 " +
+      "-e DB_PATH=/data/monitoring.db " +
+      `-e METRICS_CONFIG=${shellQuote(JSON.stringify(input.metricsConfig))} ` +
+      "-v /var/run/docker.sock:/var/run/docker.sock:ro " +
+      "-v /proc:/host/proc:ro " +
+      "-v /sys:/host/sys:ro " +
+      "-v /etc/os-release:/etc/os-release:ro " +
+      "-v upstand-monitoring-data:/data " +
+      monitoringImage,
+  ].join("\n");
 }
 
 const DOCKER_GPG_KEY_FINGERPRINT = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88";

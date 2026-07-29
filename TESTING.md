@@ -80,11 +80,12 @@ bun run dev:verify
 Remove-Item Env:LOCAL_EXPECTED_MODE
 ```
 
-Production web builds use Turbopack. The web development server uses Webpack
-until the deep dynamic dashboard route issue in the current Next.js Turbopack
-dev server is resolved. Source changes under `apps/` and `packages/` are
-watched by the host workflow and by the bind-mounted Compose workflow; the
-latter enables polling for Docker Desktop file-system events.
+Production builds and the default web development server use Turbopack. The
+explicit `bun run --cwd apps/web dev:webpack` fallback is available when the
+current Next.js Turbopack dev server exhibits its known nested dynamic-route
+404 regression in a Docker/Bun workspace. Source changes under `apps/` and
+`packages/` are watched by the host workflow and by the bind-mounted Compose
+workflow; the latter enables polling for Docker Desktop file-system events.
 
 For a safe Docker cleanup, use `bun run docker:cleanup`. It removes stopped
 Upstand platform containers, dangling images, and old build cache while keeping

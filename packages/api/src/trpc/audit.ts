@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import {
   type AUDIT_ACTIONS,
   AUDIT_RESOURCE_TYPES,
@@ -14,6 +15,18 @@ export type AuditOutcome = {
   success: boolean;
   errorCode?: string;
 };
+
+export function isExpectedUnauthorizedAuditScopeFailure(
+  error: unknown,
+  outcome: AuditOutcome,
+) {
+  return (
+    !outcome.success &&
+    error instanceof TRPCError &&
+    error.code === "FORBIDDEN" &&
+    error.message === "You are not a member of this organization"
+  );
+}
 
 export async function recordAuditEvent(
   ctx: Context,
@@ -74,6 +87,11 @@ export async function recordAuditEvent(
       userAgent: ctx.honoContext.req.header("user-agent") ?? null,
     });
   } catch (error) {
+    // A failed request from a user who is not a member of the target
+    // organization cannot produce an audit record. This is an expected
+    // authorization outcome, not an audit persistence failure.
+    if (isExpectedUnauthorizedAuditScopeFailure(error, outcome)) return;
+
     ctx.honoContext
       .get("log")
       .error(error instanceof Error ? error : String(error), {
