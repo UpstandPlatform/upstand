@@ -5,6 +5,9 @@ on:
     branches-ignore:
       - master
       - canary
+      # Changesets uses this transient GitHub API commit ref while preparing
+      # a release PR. The ref is removed before this workflow can check it out.
+      - changesets-ghcommit-temp/**
   pull_request:
     branches: [master, canary]
     types: [opened, synchronize, reopened]
