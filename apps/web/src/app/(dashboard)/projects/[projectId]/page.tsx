@@ -12,10 +12,7 @@ interface PageProps {
 
 export default async function ProjectPage({ params }: PageProps) {
   const { projectId } = await params;
-  let session = null;
-  try {
-    session = await getServerSession();
-  } catch {}
+  const session = await getServerSession();
 
   if (!session?.user) {
     redirect("/login");

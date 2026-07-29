@@ -132,6 +132,11 @@ export const secretRouter = router({
   testConnection: twoFactorVerifiedProcedure
     .input(TestSecretProviderConnectionInputSchema)
     .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "environment:update",
+      );
       return ctx.scope
         .resolve(TestSecretProviderConnectionUseCaseToken)
         .execute(input);
@@ -139,13 +144,15 @@ export const secretRouter = router({
   sync: twoFactorVerifiedProcedure
     .input(SyncSecretProviderInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await resolveSecretScopeAndCheckPermission(
+      const organizationId = await resolveSecretScopeAndCheckPermission(
         ctx,
         input.scopeType,
         input.scopeId,
         "resource:update",
       );
-      return ctx.scope.resolve(SyncSecretProviderUseCaseToken).execute(input);
+      return ctx.scope
+        .resolve(SyncSecretProviderUseCaseToken)
+        .execute({ ...input, organizationId });
     }),
   rotate: twoFactorVerifiedProcedure
     .input(RotateSecretsInputSchema)

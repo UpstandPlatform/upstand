@@ -86,12 +86,15 @@ export type ListAuditLogsInput = {
   from?: Date;
   to?: Date;
   limit: number;
-  offset: number;
+  pagination?: "cursor" | "offset";
+  cursor?: string;
+  offset?: number;
 };
 
 export type ListAuditLogsResult = {
   items: AuditLogRecord[];
-  total: number;
+  total?: number;
+  nextCursor?: string;
 };
 
 export interface IAuditLogRepository {

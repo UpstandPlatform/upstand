@@ -1,3 +1,4 @@
+import { readResponseBodyLimited } from "@upstand/platform/network/response-body";
 import { assertSafeProviderUrl } from "./provider-config";
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -39,13 +40,14 @@ export async function requestJsonWithResponse<T>(
     redirect: "error",
   }).finally(() => clearTimeout(timeout));
 
+  const body = await readResponseBodyLimited(response, MAX_RESPONSE_BYTES);
   if (!response.ok) {
-    throw new Error(await createError(response));
-  }
-
-  const body = await response.arrayBuffer();
-  if (body.byteLength > MAX_RESPONSE_BYTES) {
-    throw new Error("Git provider response is too large");
+    const boundedResponse = new Response(new TextDecoder().decode(body), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+    throw new Error(await createError(boundedResponse));
   }
   return { data: JSON.parse(new TextDecoder().decode(body)) as T, response };
 }

@@ -12,6 +12,8 @@ const inputSchema = z.object({
   search: z.string().trim().max(120).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
+  pagination: z.enum(["cursor", "offset"]).default("cursor"),
+  cursor: z.string().trim().min(3).max(300).optional(),
   page: z.number().int().min(1).default(1),
   pageSize: z.number().int().min(1).max(100).default(50),
 });
@@ -32,6 +34,8 @@ export const auditLogRouter = router({
       from: input.from,
       to: input.to,
       limit: input.pageSize,
+      pagination: input.pagination,
+      cursor: input.cursor,
       offset: (input.page - 1) * input.pageSize,
     });
   }),

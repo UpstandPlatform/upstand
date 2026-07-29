@@ -9,6 +9,7 @@ export function useResourceDetail({
   projectId,
   environmentId,
   resourceId,
+  activeTab,
   selectedLogContainerId,
   selectedContainerId,
   containerModalOpen,
@@ -18,6 +19,7 @@ export function useResourceDetail({
   projectId: string;
   environmentId: string;
   resourceId: string;
+  activeTab: string;
   selectedLogContainerId?: string;
   selectedContainerId?: string;
   containerModalOpen?: boolean;
@@ -31,15 +33,11 @@ export function useResourceDetail({
     ...trpc.project.get.queryOptions({ id: projectId }),
   });
 
-  const envQuery = useQuery({
-    ...trpc.environment.get.queryOptions({ id: environmentId }),
-  });
-
   const sshKeysQuery = useQuery({
     ...trpc.sshKey.list.queryOptions({
       organizationId: projectQuery.data?.organizationId as string,
     }),
-    enabled: !!projectQuery.data?.organizationId,
+    enabled: !!projectQuery.data?.organizationId && activeTab === "general",
   });
 
   const serversQuery = useQuery({
@@ -53,14 +51,14 @@ export function useResourceDetail({
     ...trpc.gitProvider.list.queryOptions({
       organizationId: projectQuery.data?.organizationId as string,
     }),
-    enabled: !!projectQuery.data?.organizationId,
+    enabled: !!projectQuery.data?.organizationId && activeTab === "general",
   });
 
   const certificatesQuery = useQuery({
     ...trpc.certificate.list.queryOptions({
       organizationId: projectQuery.data?.organizationId as string,
     }),
-    enabled: !!projectQuery.data?.organizationId,
+    enabled: !!projectQuery.data?.organizationId && activeTab === "domains",
   });
 
   const resourceQuery = useQuery({
@@ -71,7 +69,7 @@ export function useResourceDetail({
 
   const routingTargetsQuery = useQuery({
     ...trpc.resource.getRoutingTargets.queryOptions({ id: resourceId }),
-    enabled: !isDeleted && !!resourceId,
+    enabled: !isDeleted && !!resourceId && activeTab === "domains",
     staleTime: 15_000,
   });
 
@@ -83,13 +81,22 @@ export function useResourceDetail({
 
   const secretsQuery = useQuery({
     ...trpc.resource.getSecrets.queryOptions({ id: resourceId }),
-    enabled: !isDeleted && Boolean(resourceId),
+    enabled:
+      !isDeleted &&
+      Boolean(resourceId) &&
+      ["general", "environment", "advanced", "containers"].includes(activeTab),
   });
 
   const deploymentsQuery = useQuery({
     ...trpc.deployment.getByResource.queryOptions({ resourceId }),
-    enabled: !isDeleted && Boolean(resourceId),
-    refetchInterval: isDeleted ? false : 3000,
+    enabled:
+      !isDeleted &&
+      Boolean(resourceId) &&
+      ["general", "deployments"].includes(activeTab),
+    refetchInterval:
+      !isDeleted && ["general", "deployments"].includes(activeTab)
+        ? 3000
+        : false,
   });
 
   const logsQuery = useQuery({
@@ -99,8 +106,8 @@ export function useResourceDetail({
         selectedLogContainerId === "all" ? undefined : selectedLogContainerId,
       since: logsSince,
     }),
-    enabled: !isDeleted,
-    refetchInterval: isDeleted ? false : 4000,
+    enabled: !isDeleted && activeTab === "logs",
+    refetchInterval: !isDeleted && activeTab === "logs" ? 4000 : false,
   });
 
   const statsQuery = useQuery({
@@ -183,7 +190,6 @@ export function useResourceDetail({
 
   return {
     project: projectQuery.data,
-    env: envQuery.data,
     sshKeys: sshKeysQuery.data ?? [],
     servers: serversQuery.data ?? [],
     gitProviders: gitProvidersQuery.data ?? [],

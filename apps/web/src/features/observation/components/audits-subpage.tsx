@@ -34,7 +34,6 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { PageEmpty } from "@/components/dashboard/page-empty";
-import { PagePagination } from "@/components/dashboard/page-pagination";
 import { TableSkeleton } from "@/components/dashboard/page-skeleton";
 import { Copy, Eye, FileClock, Search } from "@/components/huge-icons";
 import { CodeBlock } from "@/components/shared/code-block";
@@ -142,8 +141,13 @@ export function AuditsSubpage() {
   const [search, setSearch] = useState("");
   const [action, setAction] = useState("all");
   const [resourceType, setResourceType] = useState("all");
-  const [page, setPage] = useState(1);
+  const [cursors, setCursors] = useState<Array<string | undefined>>([
+    undefined,
+  ]);
   const pageSize = 50;
+  const page = cursors.length;
+  const cursor = cursors.at(-1);
+  const resetPagination = () => setCursors([undefined]);
 
   const logs = useQuery({
     ...trpc.auditLog.list.queryOptions({
@@ -152,7 +156,8 @@ export function AuditsSubpage() {
       action: action === "all" ? undefined : (action as never),
       resourceType:
         resourceType === "all" ? undefined : (resourceType as never),
-      page,
+      pagination: "cursor",
+      cursor,
       pageSize,
     }),
     enabled: organizationState.status === "ready",
@@ -174,7 +179,7 @@ export function AuditsSubpage() {
               value={search}
               onChange={(event) => {
                 setSearch(event.target.value);
-                setPage(1);
+                resetPagination();
               }}
             />
           </InputGroup>
@@ -183,7 +188,7 @@ export function AuditsSubpage() {
             onValueChange={(value) => {
               if (value) {
                 setAction(value);
-                setPage(1);
+                resetPagination();
               }
             }}
           >
@@ -203,7 +208,7 @@ export function AuditsSubpage() {
             onValueChange={(value) => {
               if (value) {
                 setResourceType(value);
-                setPage(1);
+                resetPagination();
               }
             }}
           >
@@ -309,15 +314,36 @@ export function AuditsSubpage() {
             </Table>
           </div>
         ) : null}
-        {logs.data && logs.data.items.length > 0 && (
-          <PagePagination
-            className="mt-4 px-2"
-            page={page}
-            pageSize={pageSize}
-            total={logs.data.total}
-            onPageChange={setPage}
-          />
-        )}
+        {logs.data && (page > 1 || logs.data.nextCursor) ? (
+          <div className="mt-4 flex items-center justify-end gap-3 px-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page === 1 || logs.isFetching}
+              onClick={() =>
+                setCursors((current) =>
+                  current.length > 1 ? current.slice(0, -1) : current,
+                )
+              }
+            >
+              Previous
+            </Button>
+            <span className="text-muted-foreground text-sm">Page {page}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!logs.data.nextCursor || logs.isFetching}
+              onClick={() => {
+                const nextCursor = logs.data?.nextCursor;
+                if (nextCursor) {
+                  setCursors((current) => [...current, nextCursor]);
+                }
+              }}
+            >
+              Next
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
 
       <Sheet

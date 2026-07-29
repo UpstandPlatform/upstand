@@ -5,10 +5,7 @@ import WebServerDashboard from "./web-server";
 export const dynamic = "force-dynamic";
 
 export default async function WebServerPage() {
-  let session = null;
-  try {
-    session = await getServerSession();
-  } catch {}
+  const session = await getServerSession();
 
   if (!session?.user) {
     redirect("/login");
