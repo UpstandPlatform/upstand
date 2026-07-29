@@ -19,7 +19,7 @@ jobs:
     # can safely add the release note to the same reviewed pull request.
     if: >-
       github.repository == 'UpstandPlatform/upstand' &&
-      github.event.pull_request.user.login == 'app/dependabot'
+      github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
