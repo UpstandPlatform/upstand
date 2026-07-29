@@ -4,6 +4,10 @@ const withMDX = createMDX();
 
 /** @type {import('next').NextConfig} */
 const config = {
+  experimental: {
+    // Next's type generator requires the TypeScript CLI with TypeScript 7.
+    useTypeScriptCli: true,
+  },
   typescript: {
     ignoreBuildErrors:
       process.env.SKIP_TYPECHECK === "1" ||

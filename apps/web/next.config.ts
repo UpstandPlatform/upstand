@@ -2,6 +2,10 @@ import "@upstand/env/web";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Next's type generator requires the TypeScript CLI with TypeScript 7.
+    useTypeScriptCli: true,
+  } as NonNullable<NextConfig["experimental"]>,
   typescript: {
     ignoreBuildErrors:
       process.env.SKIP_TYPECHECK === "1" ||
