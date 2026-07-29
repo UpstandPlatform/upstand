@@ -1,0 +1,12 @@
+{
+  "extends": ["//"],
+  "tags": ["host"],
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "outputs": []
+    }
+  }
+}

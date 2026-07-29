@@ -2,7 +2,7 @@ name: Changesets Release PR
 
 on:
   push:
-    branches: [canary]
+    branches: [master, canary]
     paths:
       - ".changeset/**"
       - "apps/*/package.json"
@@ -51,10 +51,10 @@ jobs:
           version: bun run changeset:version
           commit: "chore: prepare release"
           title: "chore: prepare release"
-          # The Changesets action prefixes this input with
-          # `changeset-release/`; pass the base branch name so the generated
-          # release branch is exactly `changeset-release/canary`.
-          branch: canary
+          # The Changesets action prefixes this input with `changeset-release/`.
+          # Using the merged branch ensures both the canary lane and stable
+          # master lane receive a release PR from their consumed changesets.
+          branch: ${{ github.ref_name }}
           commitMode: github-api
           # Prefer a narrowly scoped RELEASE_TOKEN when the organization
           # disables pull-request creation for GITHUB_TOKEN. If the

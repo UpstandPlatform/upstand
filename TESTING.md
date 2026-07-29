@@ -31,7 +31,20 @@ bun run test --filter=server
 
 # Only local server E2E tests
 bun run test:e2e --filter=server
+
+# Run deployment-pipeline contracts against the vendored OpenShip fixtures
+bun run test --filter=@upstand/infrastructure
 ```
+
+## Deployment fixture contracts
+
+`fixtures/openship/deploy` is a verbatim, source-only copy of OpenShip's
+deployment fixtures. The infrastructure test suite keeps the entire language
+matrix present and drives each fixture through Upstand's Railpack invocation,
+asserting the generated BuildKit commands and scoped build environment without
+requiring Docker, a network download, or a cloud account. Real Docker smoke
+deployments remain an opt-in environment test because they download language
+toolchains and create containers.
 
 The E2E tests skip safely when the API is not available. To enable authenticated
 resource checks, provide `E2E_AUTH_COOKIE` and `E2E_RESOURCE_ID`. To enable

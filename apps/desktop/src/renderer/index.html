@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connect Upstand Desktop</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { display: grid; min-height: 100vh; margin: 0; place-items: center; }
+      main { width: min(440px, calc(100vw - 48px)); }
+      h1 { font-size: 2rem; margin: 0 0 .75rem; } p { color: #a1a1aa; line-height: 1.5; }
+      form { display: grid; gap: .75rem; margin-top: 2rem; } input, button { border-radius: .6rem; font: inherit; padding: .8rem .9rem; }
+      input { background: #18181b; border: 1px solid #3f3f46; color: inherit; } button { background: #fafafa; border: 0; color: #18181b; cursor: pointer; font-weight: 650; }
+      #error { color: #fca5a5; min-height: 1.25rem; margin: .25rem 0 0; }
+      small { color: #71717a; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Connect to Upstand</h1>
+      <p>Use this secure desktop shell with a self-hosted or cloud Upstand control plane. Local development instances may use HTTP; remote instances require HTTPS.</p>
+      <form id="connection-form">
+        <label for="origin">Control plane URL</label>
+        <input id="origin" name="origin" type="url" autocomplete="url" placeholder="https://upstand.example.com" required />
+        <button type="submit">Open Upstand</button>
+        <p id="error" role="alert"></p>
+        <small id="version"></small>
+      </form>
+    </main>
+    <script>
+      const form = document.querySelector('#connection-form');
+      const input = document.querySelector('#origin');
+      const error = document.querySelector('#error');
+      window.upstandDesktop.connection.get().then((connection) => { if (connection) input.value = connection.origin; });
+      window.upstandDesktop.app.version().then((version) => { document.querySelector('#version').textContent = `Upstand Desktop v${version}`; });
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault(); error.textContent = '';
+        try { await window.upstandDesktop.connection.set(input.value); }
+        catch (reason) { error.textContent = reason instanceof Error ? reason.message : 'Unable to connect.'; }
+      });
+    </script>
+  </body>
+</html>
