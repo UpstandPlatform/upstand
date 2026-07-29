@@ -63,7 +63,11 @@ jobs:
         if: >-
           github.event_name == 'pull_request' &&
           github.head_ref != 'changeset-release/canary' &&
-          github.head_ref != 'canary'
+          github.head_ref != 'canary' &&
+          !(
+            github.base_ref == 'master' &&
+            startsWith(github.head_ref, 'release/promote-')
+          )
         run: |
           set -euo pipefail
           # Changesets watches package directories broadly, but Dockerfiles,
