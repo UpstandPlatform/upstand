@@ -23,6 +23,8 @@ export interface AuthConfiguration {
   betterAuthUrl: string;
   secret: string;
   nodeEnv: string;
+  trustedProxyHeaders?: boolean;
+  sharedCookieDomain?: string;
   googleClientId?: string;
   googleClientSecret?: string;
   isCloud?: boolean;
@@ -65,17 +67,38 @@ async function readJsonRecord(request: JsonRequest): Promise<UnknownRecord> {
   return isUnknownRecord(body) ? body : {};
 }
 
-function getSharedCookieDomain(
+export function resolveSharedCookieDomain(
   configuration: AuthConfiguration,
 ): string | undefined {
+  const configuredDomain = configuration.sharedCookieDomain
+    ?.trim()
+    .toLowerCase()
+    .replace(/^\./, "");
+  if (!configuredDomain) return undefined;
+
   const dashboardHost = new URL(configuration.corsOrigin).hostname;
   const apiHost = new URL(configuration.betterAuthUrl).hostname;
-  if (dashboardHost === apiHost) return undefined;
+  const usesDomain = (host: string) =>
+    host === configuredDomain || host.endsWith(`.${configuredDomain}`);
+  if (!configuredDomain.includes(".") || !usesDomain(dashboardHost)) {
+    throw new Error("AUTH_COOKIE_DOMAIN does not match the dashboard hostname");
+  }
+  if (!usesDomain(apiHost)) {
+    throw new Error("AUTH_COOKIE_DOMAIN does not match the API hostname");
+  }
+  return dashboardHost === apiHost ? undefined : configuredDomain;
+}
 
-  // Protected pages are rendered by the dashboard hostname while sessions are
-  // issued by the API hostname. Only sibling subdomains may share a cookie.
-  const domain = dashboardHost.split(".").slice(1).join(".");
-  return domain && apiHost.endsWith(`.${domain}`) ? domain : undefined;
+export function resolveTrustedOrigins(
+  configuration: Pick<AuthConfiguration, "corsOrigin" | "betterAuthUrl">,
+): string[] {
+  return Array.from(
+    new Set(
+      [configuration.corsOrigin, configuration.betterAuthUrl].map(
+        (origin) => new URL(origin).origin,
+      ),
+    ),
+  );
 }
 
 const organizationAccessControl = createAccessControl(ORGANIZATION_STATEMENT);
@@ -96,7 +119,7 @@ export function createAuth(options: {
 }) {
   const { database, secondaryStorage, configuration, callbacks, stepUp } =
     options;
-  const sharedCookieDomain = getSharedCookieDomain(configuration);
+  const sharedCookieDomain = resolveSharedCookieDomain(configuration);
   // The self-hosted installer can intentionally run the first boot on direct
   // HTTP origins when DNS/TLS are not configured yet. Secure cookies are
   // correct for HTTPS production deployments, but browsers reject them over
@@ -106,33 +129,11 @@ export function createAuth(options: {
     [configuration.betterAuthUrl, configuration.corsOrigin].every((origin) =>
       origin?.startsWith("https://"),
     );
+  const trustedOrigins = resolveTrustedOrigins(configuration);
 
   const auth = betterAuth({
     database,
-    trustedOrigins: (request?: Request) => {
-      const origins = [configuration.corsOrigin, configuration.betterAuthUrl];
-      if (request) {
-        try {
-          const url = new URL(request.url);
-          origins.push(url.origin);
-
-          const forwardedHost = request.headers.get("x-forwarded-host");
-          if (forwardedHost) {
-            const proto = request.headers.get("x-forwarded-proto") || "https";
-            origins.push(`${proto}://${forwardedHost}`);
-          }
-
-          const host = request.headers.get("host");
-          if (host) {
-            const proto = request.headers.get("x-forwarded-proto") || "https";
-            origins.push(`${proto}://${host}`);
-          }
-        } catch {
-          // Ignore malformed request URLs
-        }
-      }
-      return Array.from(new Set(origins.filter(Boolean)));
-    },
+    trustedOrigins,
     emailAndPassword: {
       enabled: true,
       // The dashboard's local bootstrap and normal sign-up flow expect the
@@ -178,7 +179,7 @@ export function createAuth(options: {
     },
     advanced: {
       useSecureCookies: secureCookies,
-      trustedProxyHeaders: true,
+      trustedProxyHeaders: configuration.trustedProxyHeaders ?? false,
       crossSubDomainCookies: sharedCookieDomain
         ? {
             enabled: true,

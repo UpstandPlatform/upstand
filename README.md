@@ -148,10 +148,12 @@ In self-hosted mode, you can deploy applications, databases, and Docker Compose 
 
 To install Self-Hosted Upstand on a fresh Linux Swarm manager node:
 
-The installer also supports a zero-configuration bootstrap. When image digests
-and secrets are omitted, it generates random secrets in `/etc/upstand/secrets/`,
-detects the host address, and pulls the latest stable release images from GHCR.
-The installer resolves the stable channel to immutable digests before deploying:
+The installer also supports a zero-configuration bootstrap. When image tags,
+digests, and secrets are omitted, it generates random secrets in
+`/etc/upstand/secrets/`, detects the host address, resolves the latest stable
+release, downloads the matching production stack file, and pulls the release
+images from GHCR. It resolves the stable channel to immutable digests before
+deploying:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash

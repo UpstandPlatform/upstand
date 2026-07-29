@@ -40,6 +40,7 @@ export const UpdateSecretProviderInputSchema = z.object({
   enabled: z.boolean().optional(),
 });
 export const TestSecretProviderConnectionInputSchema = z.object({
+  organizationId: z.string().min(1),
   provider: z.enum(["vault", "aws-secrets-manager", "onepassword"]),
   configuration: z.record(z.string(), z.string()).default({}),
 });
@@ -276,23 +277,22 @@ export class SyncSecretProviderUseCase {
     private readonly external: ExternalSecretProviderPort,
   ) {}
   async execute(
-    input: z.infer<typeof SyncSecretProviderInputSchema>,
-  ): Promise<Record<string, string>> {
-    const provider = await this.uow.secretProviderRepository.findById(
-      input.providerId,
-    );
-    if (!provider?.enabled)
-      throw new Error("Secret provider not found or disabled");
+    input: z.infer<typeof SyncSecretProviderInputSchema> & {
+      organizationId: string;
+    },
+  ): Promise<{ syncedKeys: string[] }> {
     const stored =
-      await this.uow.secretProviderRepository.findConfigurationById(
+      await this.uow.secretProviderRepository.findEnabledConfiguration(
         input.providerId,
+        input.organizationId,
       );
-    if (!stored) throw new Error("Secret provider configuration not found");
+    if (!stored) throw new Error("Secret provider not found or disabled");
     const values = await this.external.read(
       stored.provider,
       decryptConfiguration(stored.encryptedConfiguration),
     );
-    return this.apply(input.scopeType, input.scopeId, values, input.merge);
+    await this.apply(input.scopeType, input.scopeId, values, input.merge);
+    return { syncedKeys: Object.keys(values).sort() };
   }
 
   private async apply(
@@ -300,7 +300,7 @@ export class SyncSecretProviderUseCase {
     scopeId: string,
     values: Record<string, string>,
     merge: boolean,
-  ): Promise<Record<string, string>> {
+  ): Promise<void> {
     let merged: Record<string, string>;
     if (scopeType === "environment") {
       const current = await this.uow.environmentRepository.findById(scopeId);
@@ -327,7 +327,6 @@ export class SyncSecretProviderUseCase {
       scopeId,
       "Sync external secrets",
     );
-    return merged;
   }
 }
 

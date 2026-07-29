@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 umask 077
 
-# Production Docker Swarm installer. It deliberately does not guess a public
-# address or pull mutable application tags: both are unsafe cluster defaults.
+# Production Docker Swarm installer. Stable installs resolve the latest
+# published release images to immutable digests before deploying.
 
 readonly INSTALL_DIR="/etc/upstand"
 readonly ENV_FILE="$INSTALL_DIR/.env"
@@ -205,10 +205,38 @@ resolve_stable_image() {
   printf '%s@%s' "$image" "$digest"
 }
 
+resolve_stable_release_ref() {
+  local repository="${UPSTAND_REPOSITORY:-https://github.com/upstandplatform/upstand.git}"
+  local raw_repository="${repository%.git}"
+  local release_json release_ref
+
+  [[ "$raw_repository" == https://github.com/*/* ]] \
+    || fail "UPSTAND_REPOSITORY must be a public HTTPS GitHub repository URL"
+  raw_repository="${raw_repository#https://github.com/}"
+
+  release_json="$(curl --fail --show-error --silent --location \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28' \
+    "https://api.github.com/repos/${raw_repository}/releases/latest")" \
+    || fail "could not resolve the latest stable release; check GitHub connectivity"
+  release_ref="$(sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"(v[0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' <<<"$release_json" | head -n1)"
+  [[ "$release_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || fail "GitHub latest release did not provide a stable semver tag"
+  printf '%s' "$release_ref"
+}
+
 ensure_stack_file() {
   install -d -m 0700 "$INSTALL_DIR"
   local repository="${UPSTAND_REPOSITORY:-https://github.com/upstandplatform/upstand.git}"
-  local ref="${UPSTAND_REF:-${UPSTAND_VERSION:-master}}"
+  local ref="${UPSTAND_REF:-${UPSTAND_VERSION:-}}"
+  if [[ -z "$ref" ]]; then
+    if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" == true ]]; then
+      ref="master"
+    else
+      ref="$(resolve_stable_release_ref)"
+      UPSTAND_VERSION="$ref"
+    fi
+  fi
   local raw_repository="${repository%.git}"
   raw_repository="${raw_repository#https://github.com/}"
   curl --fail --show-error --silent --location \

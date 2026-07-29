@@ -1,0 +1,119 @@
+name: Add Changeset for Dependabot Production Updates
+
+on:
+  pull_request_target:
+    branches: [canary]
+    types: [opened, reopened, synchronize]
+
+concurrency:
+  group: dependabot-changeset-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  add-changeset:
+    # This workflow deliberately never checks out or runs pull-request code.
+    # Dependabot branches live in this repository, so a narrowly scoped token
+    # can safely add the release note to the same reviewed pull request.
+    if: >-
+      github.repository == 'UpstandPlatform/upstand' &&
+      github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Add a patch Changeset for production dependency updates
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        with:
+          github-token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          script: |
+            const pullRequest = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const manifestPattern = /^(?:apps|packages)\/[^/]+\/package\.json$/;
+            const ignoredKeys = new Set([
+              "devDependencies",
+              "scripts",
+              "packageManager",
+            ]);
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: pullRequest.number,
+              per_page: 100,
+            });
+            const manifests = files
+              .map(({ filename }) => filename)
+              .filter((filename) => filename === "package.json" || manifestPattern.test(filename));
+
+            if (manifests.length === 0) {
+              core.info("No package manifests changed.");
+              return;
+            }
+
+            const getManifest = async (ref, path) => {
+              const response = await github.rest.repos.getContent({
+                owner,
+                repo,
+                path,
+                ref,
+              });
+              if (Array.isArray(response.data) || response.data.type !== "file") {
+                throw new Error(`${path} is not a file at ${ref}`);
+              }
+              return JSON.parse(Buffer.from(response.data.content, "base64").toString("utf8"));
+            };
+            const productionManifestChanged = async (path) => {
+              try {
+                const [base, head] = await Promise.all([
+                  getManifest(pullRequest.base.sha, path),
+                  getManifest(pullRequest.head.sha, path),
+                ]);
+                for (const key of ignoredKeys) {
+                  delete base[key];
+                  delete head[key];
+                }
+                return JSON.stringify(base) !== JSON.stringify(head);
+              } catch {
+                // A manifest that cannot be compared must be release-reviewed.
+                return true;
+              }
+            };
+
+            if (!(await Promise.all(manifests.map(productionManifestChanged))).some(Boolean)) {
+              core.info("Only development dependency metadata changed.");
+              return;
+            }
+
+            const path = `.changeset/dependabot-production-${pullRequest.number}.md`;
+            try {
+              await github.rest.repos.getContent({ owner, repo, path, ref: pullRequest.head.ref });
+              core.info("A generated Changeset is already present.");
+              return;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            const body = [
+              "---",
+              '"server": patch',
+              '"schedules": patch',
+              '"web": patch',
+              '"fumadocs": patch',
+              "---",
+              "",
+              `chore(deps): update production dependencies via Dependabot (#${pullRequest.number}).`,
+              "",
+            ].join("\n");
+            await github.rest.repos.createOrUpdateFileContents({
+              owner,
+              repo,
+              path,
+              branch: pullRequest.head.ref,
+              message: `chore: add release note for Dependabot PR #${pullRequest.number}`,
+              content: Buffer.from(body).toString("base64"),
+            });
+            core.notice(`Added ${path} to ${pullRequest.head.ref}.`);

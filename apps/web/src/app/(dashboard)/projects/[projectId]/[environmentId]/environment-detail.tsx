@@ -1936,10 +1936,7 @@ export default function EnvironmentDetail({
             organizationId={project.organizationId}
             scopeType="environment"
             scopeId={environmentId}
-            onSuccess={(syncedVars) => {
-              if (syncedVars) {
-                setEnvList(recordToKeyValuePairs(syncedVars));
-              }
+            onSuccess={() => {
               void queryClient.invalidateQueries({
                 queryKey: trpc.environment.get.queryKey({ id: environmentId }),
               });

@@ -30,10 +30,10 @@ import {
 } from "@upstand/ui/components/tabs";
 import { cn } from "@upstand/ui/lib/utils";
 import type { Route } from "next";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { EditableEntityIcon } from "@/components/editable-entity-icon";
-import { ContainerFileExplorer } from "@/components/file-explorer/container-file-explorer";
 import {
   Activity,
   Clock,
@@ -45,17 +45,10 @@ import {
   Tag01Icon,
   Terminal,
 } from "@/components/huge-icons";
-import { ResourceAdvancedSettings } from "@/components/resource/resource-advanced-settings";
-import { ShowDockerLogs } from "@/components/shared/docker-logs";
-import { BackupPanel } from "@/features/backups";
 import type { authClient } from "@/lib/auth-client";
-import { ConsoleTab } from "./components/console-tab";
 import { ContainersTab } from "./components/containers-tab";
-import { CronJobsTab } from "./components/cron-jobs-tab";
 import { DeploymentsTab } from "./components/deployments-tab";
-import { DomainsTab } from "./components/domains-tab";
 import { EnvironmentTab } from "./components/environment-tab";
-import { GeneralTab } from "./components/general-tab";
 import { MonitoringTab } from "./components/monitoring-tab";
 import { TagsTab } from "./components/tags-tab";
 import { useResourceDetail } from "./hooks/use-resource-detail";
@@ -63,6 +56,37 @@ import {
   determineResourceRuntimeStatus,
   type ResourceRuntimeStatus,
 } from "./utils/resource-status";
+
+const BackupPanel = dynamic(() =>
+  import("@/features/backups").then((module) => module.BackupPanel),
+);
+const ConsoleTab = dynamic(() =>
+  import("./components/console-tab").then((module) => module.ConsoleTab),
+);
+const ContainerFileExplorer = dynamic(() =>
+  import("@/components/file-explorer/container-file-explorer").then(
+    (module) => module.ContainerFileExplorer,
+  ),
+);
+const CronJobsTab = dynamic(() =>
+  import("./components/cron-jobs-tab").then((module) => module.CronJobsTab),
+);
+const DomainsTab = dynamic(() =>
+  import("./components/domains-tab").then((module) => module.DomainsTab),
+);
+const GeneralTab = dynamic(() =>
+  import("./components/general-tab").then((module) => module.GeneralTab),
+);
+const ResourceAdvancedSettings = dynamic(() =>
+  import("@/components/resource/resource-advanced-settings").then(
+    (module) => module.ResourceAdvancedSettings,
+  ),
+);
+const ShowDockerLogs = dynamic(() =>
+  import("@/components/shared/docker-logs").then(
+    (module) => module.ShowDockerLogs,
+  ),
+);
 
 const TYPE_ICONS: Record<string, IconSvgElement> = {
   application: ComputerIcon,
@@ -189,6 +213,7 @@ export default function ResourceDetail({
     projectId,
     environmentId,
     resourceId,
+    activeTab,
     selectedLogContainerId,
     selectedContainerId: selectedContainerId || undefined,
     containerModalOpen,
@@ -200,9 +225,7 @@ export default function ResourceDetail({
     return logsData.trim().split("\n");
   }, [logsData]);
 
-  const containerList = useMemo(() => {
-    return liveContainers ?? [];
-  }, [liveContainers]);
+  const containerList = liveContainers ?? [];
 
   if (loadingResource || !resource) {
     return (

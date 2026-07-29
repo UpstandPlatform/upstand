@@ -31,7 +31,7 @@ interface SecretSyncDialogProps {
   organizationId: string;
   scopeType: "environment" | "resource";
   scopeId: string;
-  onSuccess?: (syncedVars?: Record<string, string>) => void;
+  onSuccess?: (result?: { syncedKeys: string[] }) => void;
 }
 
 export function SecretSyncDialog({
@@ -55,7 +55,7 @@ export function SecretSyncDialog({
   const syncMutation = useMutation({
     ...trpc.secret.sync.mutationOptions(),
     onSuccess: (data) => {
-      const keysCount = Object.keys(data).length;
+      const keysCount = data.syncedKeys.length;
       toast.success(
         `Successfully synced ${keysCount} secret variable${keysCount === 1 ? "" : "s"} from external provider. Workload redeployment queued.`,
       );

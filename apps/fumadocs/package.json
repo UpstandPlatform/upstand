@@ -1,6 +1,6 @@
 {
   "name": "fumadocs",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "private": true,
   "scripts": {
     "build": "next build",
@@ -14,24 +14,24 @@
     "format": "biome format --write"
   },
   "dependencies": {
-    "@ai-sdk/react": "^4.0.34",
+    "@ai-sdk/react": "^4.0.44",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@upstand/env": "workspace:*",
     "ai": "^7.0.14",
     "class-variance-authority": "^0.7.1",
-    "cnfast": "^0.0.8",
+    "cnfast": "^0.1.0",
     "evlog": "catalog:",
     "flexsearch": "^0.8.212",
-    "fumadocs-core": "16.11.5",
+    "fumadocs-core": "16.13.0",
     "fumadocs-mdx": "15.2.0",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.11.1",
     "hast-util-to-jsx-runtime": "^2.3.6",
-    "lucide-react": "^1.25.0",
+    "lucide-react": "^1.27.0",
     "mermaid": "^11.16.0",
-    "next": "^16.2.11",
+    "next": "^16.2.12",
     "next-themes": "^0.4.6",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.1",
     "remark-rehype": "^11.1.2",
@@ -39,17 +39,17 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.4",
+    "@biomejs/biome": "^2.5.6",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/hast": "^3.0.5",
     "@types/mdx": "^2.0.14",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/unist": "^3.0.3",
-    "postcss": "^8.5.16",
+    "postcss": "^8.5.24",
     "tailwindcss": "^4.3.2",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vite": "^8.1.5"
   }
 }

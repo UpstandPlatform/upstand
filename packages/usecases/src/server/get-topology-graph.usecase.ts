@@ -60,6 +60,29 @@ type TopologyServer = Pick<Server, "id" | "name" | "ipAddress" | "status">;
 const BUILTIN_NETWORKS = new Set(["bridge", "host", "none"]);
 const ANONYMOUS_VOLUME = /^[a-f0-9]{64}$/i;
 
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, values.length) },
+    async () => {
+      for (;;) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= values.length) return;
+        const value = values[index];
+        if (value !== undefined) results[index] = await mapper(value);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 function parsePorts(value: string): Array<{
   host: number;
   container: number;
@@ -192,10 +215,9 @@ export class GetTopologyGraphUseCase {
     const edges: TopologyEdge[] = [];
     const nodeIds = new Set(nodes.map((node) => node.id));
 
-    for (const server of selectedServers) {
-      const serverNodeId = `server:${server.id}`;
-      const [containersResult, networksResult, volumesResult, swarmResult] =
-        await Promise.allSettled([
+    const inventories = new Map(
+      await mapWithConcurrency(selectedServers, 4, async (server) => {
+        const results = await Promise.allSettled([
           this.getDockerInventory.execute({
             organizationId: input.organizationId,
             serverId: server.id,
@@ -221,6 +243,22 @@ export class GetTopologyGraphUseCase {
             tail: 1000,
           }),
         ]);
+        return [server.id, results] as const;
+      }),
+    );
+
+    for (const server of selectedServers) {
+      const serverNodeId = `server:${server.id}`;
+      const [containersResult, networksResult, volumesResult, swarmResult] =
+        inventories.get(server.id) ?? [];
+      if (
+        !containersResult ||
+        !networksResult ||
+        !volumesResult ||
+        !swarmResult
+      ) {
+        continue;
+      }
 
       const containers =
         containersResult.status === "fulfilled"

@@ -3,7 +3,13 @@ import type {
   SecretProviderConfiguration,
   SecretProviderType,
 } from "@upstand/domain";
+import { env } from "@upstand/env/server";
+import { assertPublicHttpUrl } from "@upstand/platform/network/outbound";
+import { readResponseJsonLimited } from "@upstand/platform/network/response-body";
 import type { ExternalSecretProviderPort } from "@upstand/usecases";
+
+const SECRET_PROVIDER_TIMEOUT_MS = 5_000;
+const MAX_SECRET_PROVIDER_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -15,6 +21,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function safeProviderOrigin(rawUrl: string): Promise<string> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("Secret provider URL is invalid");
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    throw new Error("Secret provider URL is not allowed");
+  }
+
+  const host = url.hostname.toLowerCase();
+  const allowlistedHosts = (env.UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowlistedHosts.includes(host)) return url.origin;
+
+  return (await assertPublicHttpUrl(url.origin)).origin;
+}
+
+function providerRequestInit(headers: Record<string, string>): RequestInit {
+  return {
+    headers,
+    redirect: "error",
+    signal: AbortSignal.timeout(SECRET_PROVIDER_TIMEOUT_MS),
+  };
 }
 
 function objectToValues(value: unknown): Record<string, string> {
@@ -42,22 +81,26 @@ export class SecretProviderRegistry implements ExternalSecretProviderPort {
   ): Promise<{ success: boolean; message: string }> {
     try {
       if (provider === "vault") {
-        const address = stringValue(configuration.address)?.replace(/\/$/, "");
+        const configuredAddress = stringValue(configuration.address);
         const path = stringValue(configuration.path);
         const token = stringValue(configuration.token);
-        if (!address || !path || !token) {
+        if (!configuredAddress || !path || !token) {
           return {
             success: false,
             message:
               "Vault requires Vault Address, Secret Path, and Vault Token.",
           };
         }
-        const response = await fetch(`${address}/v1/${path}`, {
-          headers: { "X-Vault-Token": token, Accept: "application/json" },
-        }).catch((err: unknown) => {
-          throw new Error(
-            `Unable to connect to Vault at ${address}. If Upstand is running in Docker, use http://host.docker.internal:8200 instead of http://localhost:8200 (${errorMessage(err)}).`,
-          );
+        const address = await safeProviderOrigin(configuredAddress);
+        const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+        const response = await fetch(
+          `${address}/v1/${encodedPath}`,
+          providerRequestInit({
+            "X-Vault-Token": token,
+            Accept: "application/json",
+          }),
+        ).catch(() => {
+          throw new Error("Unable to connect to Vault.");
         });
         if (response.status === 403 || response.status === 401) {
           return {
@@ -78,29 +121,26 @@ export class SecretProviderRegistry implements ExternalSecretProviderPort {
       }
 
       if (provider === "onepassword") {
-        const host = stringValue(configuration.connectHost)?.replace(/\/$/, "");
+        const configuredHost = stringValue(configuration.connectHost);
         const token = stringValue(configuration.connectToken);
         const vaultId = stringValue(configuration.vaultId);
         const itemId = stringValue(configuration.itemId);
-        if (!host || !token || !vaultId || !itemId) {
+        if (!configuredHost || !token || !vaultId || !itemId) {
           return {
             success: false,
             message:
               "1Password Connect requires Connect Host, Token, Vault ID, and Item ID.",
           };
         }
+        const host = await safeProviderOrigin(configuredHost);
         const response = await fetch(
           `${host}/v1/vaults/${encodeURIComponent(vaultId)}/items/${encodeURIComponent(itemId)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: "application/json",
-            },
-          },
-        ).catch((err: unknown) => {
-          throw new Error(
-            `Unable to connect to 1Password Connect at ${host} (${errorMessage(err)}).`,
-          );
+          providerRequestInit({
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+          }),
+        ).catch(() => {
+          throw new Error("Unable to connect to 1Password Connect.");
         });
         if (!response.ok) {
           return {
@@ -142,20 +182,27 @@ export class SecretProviderRegistry implements ExternalSecretProviderPort {
   private async readVault(
     config: SecretProviderConfiguration,
   ): Promise<Record<string, string>> {
-    const address = stringValue(config.address)?.replace(/\/$/, "");
+    const configuredAddress = stringValue(config.address);
     const path = stringValue(config.path);
     const token = stringValue(config.token);
-    if (!address || !path || !token)
+    if (!configuredAddress || !path || !token)
       throw new Error("Vault requires address, path, and token");
-    const response = await fetch(`${address}/v1/${path}`, {
-      headers: { "X-Vault-Token": token, Accept: "application/json" },
-    }).catch((err: unknown) => {
-      throw new Error(
-        `Unable to connect to Vault at ${address}. If Upstand is running in Docker, try using http://host.docker.internal:8200 instead of http://localhost:8200 (${errorMessage(err)}).`,
-      );
+    const address = await safeProviderOrigin(configuredAddress);
+    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    const response = await fetch(
+      `${address}/v1/${encodedPath}`,
+      providerRequestInit({
+        "X-Vault-Token": token,
+        Accept: "application/json",
+      }),
+    ).catch(() => {
+      throw new Error("Unable to connect to Vault.");
     });
     if (!response.ok) throw new Error(`Vault returned HTTP ${response.status}`);
-    const body: unknown = await response.json();
+    const body: unknown = await readResponseJsonLimited(
+      response,
+      MAX_SECRET_PROVIDER_RESPONSE_BYTES,
+    );
     if (!isRecord(body)) return {};
     const data: unknown = body.data;
     if (!isRecord(data)) return {};
@@ -165,26 +212,30 @@ export class SecretProviderRegistry implements ExternalSecretProviderPort {
   private async readOnePassword(
     config: SecretProviderConfiguration,
   ): Promise<Record<string, string>> {
-    const host = stringValue(config.connectHost)?.replace(/\/$/, "");
+    const configuredHost = stringValue(config.connectHost);
     const token = stringValue(config.connectToken);
     const vaultId = stringValue(config.vaultId);
     const itemId = stringValue(config.itemId);
-    if (!host || !token || !vaultId || !itemId)
+    if (!configuredHost || !token || !vaultId || !itemId)
       throw new Error(
         "1Password Connect requires connectHost, connectToken, vaultId, and itemId",
       );
+    const host = await safeProviderOrigin(configuredHost);
     const response = await fetch(
       `${host}/v1/vaults/${encodeURIComponent(vaultId)}/items/${encodeURIComponent(itemId)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-        },
-      },
-    );
+      providerRequestInit({
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      }),
+    ).catch(() => {
+      throw new Error("Unable to connect to 1Password Connect.");
+    });
     if (!response.ok)
       throw new Error(`1Password Connect returned HTTP ${response.status}`);
-    const body: unknown = await response.json();
+    const body: unknown = await readResponseJsonLimited(
+      response,
+      MAX_SECRET_PROVIDER_RESPONSE_BYTES,
+    );
     if (!isRecord(body) || !Array.isArray(body.fields)) return {};
 
     const values: Array<readonly [string, string]> = [];
@@ -251,6 +302,8 @@ export class SecretProviderRegistry implements ExternalSecretProviderPort {
       .digest("hex");
     const response = await fetch(`https://${host}/`, {
       method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(SECRET_PROVIDER_TIMEOUT_MS),
       headers: {
         "Content-Type": "application/x-amz-json-1.1",
         Host: host,
@@ -259,10 +312,15 @@ export class SecretProviderRegistry implements ExternalSecretProviderPort {
         Authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
       },
       body,
+    }).catch(() => {
+      throw new Error("Unable to connect to AWS Secrets Manager.");
     });
     if (!response.ok)
       throw new Error(`AWS Secrets Manager returned HTTP ${response.status}`);
-    const result = (await response.json()) as { SecretString?: string };
+    const result = (await readResponseJsonLimited(
+      response,
+      MAX_SECRET_PROVIDER_RESPONSE_BYTES,
+    )) as { SecretString?: string };
     if (!result.SecretString)
       throw new Error("AWS secret has no SecretString payload");
     try {

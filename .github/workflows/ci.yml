@@ -63,16 +63,18 @@ jobs:
         if: >-
           github.event_name == 'pull_request' &&
           github.head_ref != 'changeset-release/canary' &&
-          github.head_ref != 'canary'
+          github.head_ref != 'canary' &&
+          !(
+            github.base_ref == 'master' &&
+            startsWith(github.head_ref, 'release/promote-')
+          )
         run: |
           set -euo pipefail
-          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
-
           # Changesets watches package directories broadly, but Dockerfiles,
-          # workflow files, and other build metadata do not need a version bump.
-          # Keep the release check focused on files that ship in a package.
-          if printf '%s\n' "$changed_files" | grep -Eq \
-            '^(apps|packages)/[^/]+/(src|content|public)/|^(apps|packages)/[^/]+/package\.json$'; then
+          # workflow files, lockfiles, and development-only dependency updates
+          # do not change a shipped artifact. The helper still requires a
+          # Changeset for source and production-manifest changes.
+          if [[ "$(bun scripts/requires-changeset.ts "origin/${{ github.base_ref }}")" == "true" ]]; then
             bun run changeset:status --since="origin/${{ github.base_ref }}"
           else
             echo "No releasable package files changed; a changeset is not required."

@@ -80,12 +80,19 @@ function createUow() {
     },
     secretProviderRepository: {
       findById: async (id: string) => (id === provider.id ? provider : null),
-      findConfigurationById: async () => ({
-        provider: provider.provider,
-        encryptedConfiguration: JSON.stringify(
-          encryptSecret(JSON.stringify({ address: "https://vault.example" })),
-        ),
-      }),
+      findEnabledConfiguration: async (id: string, organizationId: string) =>
+        id === provider.id &&
+        organizationId === provider.organizationId &&
+        provider.enabled
+          ? {
+              provider: provider.provider,
+              encryptedConfiguration: JSON.stringify(
+                encryptSecret(
+                  JSON.stringify({ address: "https://vault.example" }),
+                ),
+              ),
+            }
+          : null,
     },
     transaction: async (work: (tx: never) => Promise<unknown>) =>
       work(uow as never),
@@ -135,13 +142,14 @@ describe("secret workflows", () => {
       external,
     ).execute({
       providerId: "provider-1",
+      organizationId: "organization-1",
       scopeType: "resource",
       scopeId: resource.id,
       merge: true,
     });
 
     expect(receivedConfiguration).toEqual({ address: "https://vault.example" });
-    expect(result).toEqual({ KEEP: "overridden", FROM_VAULT: "new" });
+    expect(result).toEqual({ syncedKeys: ["FROM_VAULT", "KEEP"] });
     expect(parseResourceEnvironmentVariables(getResource().envVars)).toEqual({
       KEEP: "overridden",
       FROM_VAULT: "new",
@@ -152,9 +160,8 @@ describe("secret workflows", () => {
   test("does not call an external provider when it is disabled", async () => {
     const { uow } = createUow();
     (uow.secretProviderRepository
-      .findById as unknown as () => Promise<unknown>) = async () => ({
-      enabled: false,
-    });
+      .findEnabledConfiguration as unknown as () => Promise<unknown>) =
+      async () => null;
     let calls = 0;
     const external = {
       read: async () => {
@@ -166,6 +173,29 @@ describe("secret workflows", () => {
     await expect(
       new SyncSecretProviderUseCase(uow as never, external).execute({
         providerId: "provider-1",
+        organizationId: "organization-1",
+        scopeType: "resource",
+        scopeId: resource.id,
+        merge: true,
+      }),
+    ).rejects.toThrow("Secret provider not found or disabled");
+    expect(calls).toBe(0);
+  });
+
+  test("does not read a provider owned by another organization", async () => {
+    const { uow } = createUow();
+    let calls = 0;
+    const external = {
+      read: async () => {
+        calls += 1;
+        return {};
+      },
+    };
+
+    await expect(
+      new SyncSecretProviderUseCase(uow as never, external).execute({
+        providerId: "provider-1",
+        organizationId: "organization-2",
         scopeType: "resource",
         scopeId: resource.id,
         merge: true,

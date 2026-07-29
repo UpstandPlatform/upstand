@@ -14,10 +14,12 @@ export type LocalE2eContext = {
   authCookie?: string;
   apiKey?: string;
   resourceId?: string;
+  remoteServerId?: string;
   organizationId?: string;
   mutationsAllowed: boolean;
   serverAvailable: boolean;
   resourceConfigured: boolean;
+  remoteServerConfigured: boolean;
   organizationConfigured: boolean;
   backupDestinationId?: string;
 };
@@ -29,12 +31,18 @@ export const e2eContext: LocalE2eContext = {
   authCookie: process.env.E2E_AUTH_COOKIE,
   apiKey: process.env.E2E_API_KEY,
   resourceId: process.env.E2E_RESOURCE_ID,
+  remoteServerId: process.env.E2E_REMOTE_SERVER_ID,
   organizationId: process.env.E2E_ORGANIZATION_ID,
   mutationsAllowed: process.env.E2E_ALLOW_MUTATIONS === "1",
   serverAvailable: false,
   resourceConfigured: Boolean(
     (process.env.E2E_AUTH_COOKIE || process.env.E2E_API_KEY) &&
       process.env.E2E_RESOURCE_ID,
+  ),
+  remoteServerConfigured: Boolean(
+    (process.env.E2E_AUTH_COOKIE || process.env.E2E_API_KEY) &&
+      process.env.E2E_ORGANIZATION_ID &&
+      process.env.E2E_REMOTE_SERVER_ID,
   ),
   organizationConfigured: Boolean(
     (process.env.E2E_AUTH_COOKIE || process.env.E2E_API_KEY) &&
