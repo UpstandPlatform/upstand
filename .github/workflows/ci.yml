@@ -62,7 +62,7 @@ jobs:
         # contain consumed changesets plus generated versions/changelogs.
         if: >-
           github.event_name == 'pull_request' &&
-          github.head_ref != 'changeset-release/canary' &&
+          !startsWith(github.head_ref, 'changeset-release/') &&
           github.head_ref != 'canary'
         run: |
           set -euo pipefail
@@ -89,7 +89,7 @@ jobs:
         if: >-
           github.event_name == 'pull_request' &&
           github.head_ref != 'canary' &&
-          github.head_ref != 'changeset-release/canary'
+          !startsWith(github.head_ref, 'changeset-release/')
         run: bunx turbo run check-types --filter="...[origin/${{ github.base_ref }}]"
       - name: Check all types
         if: github.event_name != 'pull_request'
@@ -98,7 +98,7 @@ jobs:
         if: >-
           github.event_name == 'pull_request' &&
           github.head_ref != 'canary' &&
-          github.head_ref != 'changeset-release/canary'
+          !startsWith(github.head_ref, 'changeset-release/')
         run: bunx turbo run test --filter="...[origin/${{ github.base_ref }}]"
       - name: Test all packages
         if: github.event_name != 'pull_request'

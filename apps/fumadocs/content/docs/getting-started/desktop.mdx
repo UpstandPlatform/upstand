@@ -1,0 +1,39 @@
+---
+title: Desktop client
+description: Run Upstand in a secure native desktop shell.
+---
+
+Upstand Desktop is an Electron shell around an existing Upstand control plane.
+It provides a native application window while retaining the same dashboard,
+authentication, permissions, deployment history, and audit trail as the web
+client. It is intended for cloud and self-hosted installations; Docker Swarm,
+PostgreSQL, Redis, and deployment workers continue to run on the control plane.
+
+## Connect
+
+On its first launch, the app asks for the control-plane origin. Use the public
+HTTPS origin for a deployed instance, or `http://localhost:3001` while running
+the local development stack. The client accepts HTTP only for loopback
+addresses; remote instances must use HTTPS.
+
+The selected origin is persisted in the desktop application-data directory. Use
+**Upstand → Change connection…** in the native menu to select another instance.
+
+## Build installers
+
+```bash
+bun run --cwd apps/desktop make
+```
+
+Electron Forge produces platform-native installer artifacts. Windows uses a
+Squirrel installer; macOS produces a DMG/ZIP; Linux produces Debian and ZIP
+packages when the respective maker prerequisites are present.
+
+## Security model
+
+- The renderer is sandboxed with Node integration disabled.
+- The preload bridge exposes only connection management, app version, and
+  explicit external-link operations.
+- In-app navigation is confined to the configured control-plane origin.
+- Links to other web origins open in the system browser; non-web schemes are
+  rejected.

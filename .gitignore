@@ -4,6 +4,7 @@ node_modules
 .pnp.js
 
 **/.build
+apps/desktop/out
 
 # Build outputs
 dist

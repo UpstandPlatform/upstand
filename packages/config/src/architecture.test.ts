@@ -123,6 +123,7 @@ const packageRoles: Record<string, ArchitectureRole> = {
   "@upstand/repositories": "infrastructure",
   "@upstand/ui": "interface",
   "@upstand/usecases": "application",
+  desktop: "host",
   fumadocs: "host",
   schedules: "host",
   server: "host",
