@@ -49,10 +49,10 @@ services:
       resources:
         reservations:
           cpus: "0.25"
-          memory: 256M
+          memory: 512M
         limits:
-          cpus: "1.0"
-          memory: 1G
+          cpus: "2.0"
+          memory: 2G
     logging:
       driver: "json-file"
       options:
@@ -111,11 +111,11 @@ services:
         monitor: 30s
       resources:
         reservations:
-          cpus: "0.10"
-          memory: 128M
+          cpus: "0.25"
+          memory: 256M
         limits:
-          cpus: "0.75"
-          memory: 512M
+          cpus: "1.0"
+          memory: 1G
     logging:
       driver: "json-file"
       options:

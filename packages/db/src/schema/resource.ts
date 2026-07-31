@@ -66,6 +66,7 @@ export const resource = pgTable(
   },
   (table) => [
     index("resource_environment_idx").on(table.environmentId),
+    index("resource_environment_type_idx").on(table.environmentId, table.type),
     index("resource_server_idx").on(table.serverId),
     index("resource_build_server_idx").on(table.buildServerId),
     index("resource_build_registry_idx").on(table.buildRegistryId),

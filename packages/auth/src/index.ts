@@ -197,6 +197,20 @@ export function createAuth(options: {
       window: 10,
       max: 100,
       storage: "secondary-storage",
+      customRules: {
+        "/sign-in/email": {
+          window: 60,
+          max: 10,
+        },
+        "/two-factor/verify-totp": {
+          window: 60,
+          max: 5,
+        },
+        "/two-factor/verify-backup-code": {
+          window: 60,
+          max: 5,
+        },
+      },
     },
     secondaryStorage,
     databaseHooks: {

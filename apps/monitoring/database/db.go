@@ -21,6 +21,9 @@ func InitDB() (*DB, error) {
 		return nil, err
 	}
 
+	_, _ = db.Exec("PRAGMA journal_mode=WAL;")
+	_, _ = db.Exec("PRAGMA synchronous=NORMAL;")
+
 	// Create metrics table if it doesn't exist
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS server_metrics (

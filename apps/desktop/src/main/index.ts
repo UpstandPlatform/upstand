@@ -416,26 +416,52 @@ function installMenu(): void {
   );
 }
 
+function validateIpcSender(event: Electron.IpcMainInvokeEvent): void {
+  const senderUrl = event.senderFrame?.url;
+  if (!senderUrl) return;
+  try {
+    const url = new URL(senderUrl);
+    if (url.protocol === "data:") return;
+    if (url.protocol === "file:") return;
+    if (isAllowedNavigation(senderUrl, connection)) return;
+  } catch {
+    // Ignore invalid URLs
+  }
+  throw new Error("Unauthorized IPC invocation sender frame");
+}
+
 /**
  * All ipcMain.handle registrations live here so they can run BEFORE the
  * first navigation. The preload script fires as soon as any page (including
  * the loading screen) starts loading, so handlers must already exist.
  */
 function registerIpcHandlers(): void {
-  ipcMain.handle("connection:get", () => connection);
-  ipcMain.handle("connection:set", (_event, origin: string) =>
-    setConnection(origin),
-  );
-  ipcMain.handle("connection:clear", async () => {
+  ipcMain.handle("connection:get", (event) => {
+    validateIpcSender(event);
+    return connection;
+  });
+  ipcMain.handle("connection:set", (event, origin: string) => {
+    validateIpcSender(event);
+    return setConnection(origin);
+  });
+  ipcMain.handle("connection:clear", async (event) => {
+    validateIpcSender(event);
     await saveConnection(null);
     connection = getLocalDashboardOrigin()
       ? { origin: getLocalDashboardOrigin() }
       : null;
     await loadCurrentView();
   });
-  ipcMain.handle("local-api:get", () => getLocalApiOrigin());
-  ipcMain.handle("app:version", () => app.getVersion());
-  ipcMain.handle("app:open-external", async (_event, value: string) => {
+  ipcMain.handle("local-api:get", (event) => {
+    validateIpcSender(event);
+    return getLocalApiOrigin();
+  });
+  ipcMain.handle("app:version", (event) => {
+    validateIpcSender(event);
+    return app.getVersion();
+  });
+  ipcMain.handle("app:open-external", async (event, value: string) => {
+    validateIpcSender(event);
     await openExternalWebUrl(value);
   });
 

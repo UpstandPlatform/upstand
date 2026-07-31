@@ -7,6 +7,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
+import { organization } from "./auth";
 import { resource } from "./resource";
 import { s3Destination } from "./s3-destination";
 
@@ -17,7 +18,9 @@ export const backupSchedule = pgTable(
     resourceId: text("resource_id").references(() => resource.id, {
       onDelete: "cascade",
     }),
-    organizationId: text("organization_id").notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
     destinationId: text("destination_id")
       .notNull()
       .references(() => s3Destination.id, { onDelete: "restrict" }),
@@ -67,7 +70,9 @@ export const backupRun = pgTable(
     resourceId: text("resource_id").references(() => resource.id, {
       onDelete: "cascade",
     }),
-    organizationId: text("organization_id").notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
     destinationId: text("destination_id")
       .notNull()
       .references(() => s3Destination.id, { onDelete: "restrict" }),

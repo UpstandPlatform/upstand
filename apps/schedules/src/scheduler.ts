@@ -114,12 +114,13 @@ export class ScheduledDockerCleanup {
             });
 
             // Enforce a 5-minute timeout for remote execution
+            let timerHandle: ReturnType<typeof setTimeout> | undefined;
             const cleanupPromise = this.dockerCleanupService.run(
               "all",
               remote.environment,
             );
-            const timeoutPromise = new Promise<never>((_, reject) =>
-              setTimeout(
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timerHandle = setTimeout(
                 () =>
                   reject(
                     new Error(
@@ -127,10 +128,14 @@ export class ScheduledDockerCleanup {
                     ),
                   ),
                 300_000,
-              ),
-            );
+              );
+            });
 
-            await Promise.race([cleanupPromise, timeoutPromise]);
+            try {
+              await Promise.race([cleanupPromise, timeoutPromise]);
+            } finally {
+              if (timerHandle) clearTimeout(timerHandle);
+            }
             this.completedTargets.add(server.id);
             await publishDockerCleanupNotification(publisher, {
               success: true,

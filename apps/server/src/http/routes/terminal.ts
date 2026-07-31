@@ -356,6 +356,11 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       });
     }
 
+    const safeContainerId = authorizedContainerId.replace(
+      /[^a-zA-Z0-9_.-]/g,
+      "",
+    );
+
     const token = terminalBroker.create({
       userId: session.user.id,
       sessionId: session.session.id,
@@ -367,7 +372,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       privateKey,
       password,
       hostKeyFingerprint: server.sshHostKeyFingerprint,
-      command: `docker exec -it ${authorizedContainerId} /bin/sh -c "exec /bin/bash 2>/dev/null || exec /bin/sh"`,
+      command: `docker exec -it ${safeContainerId} /bin/sh -c "exec /bin/bash 2>/dev/null || exec /bin/sh"`,
     });
     return c.json({ token, expiresIn: 60 });
   });
@@ -525,6 +530,11 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       });
     }
 
+    const safeContainerId = authorizedContainerId.replace(
+      /[^a-zA-Z0-9_.-]/g,
+      "",
+    );
+
     const token = terminalBroker.create({
       userId: session.user.id,
       sessionId: session.session.id,
@@ -536,7 +546,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       privateKey,
       password,
       hostKeyFingerprint: server.sshHostKeyFingerprint,
-      command: `docker exec -it ${authorizedContainerId} /bin/sh`,
+      command: `docker exec -it ${safeContainerId} /bin/sh`,
     });
     return c.json({ token, expiresIn: 60 });
   });
