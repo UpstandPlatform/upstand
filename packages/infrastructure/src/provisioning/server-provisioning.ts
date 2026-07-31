@@ -211,8 +211,10 @@ async function initializeCaddyViaSsh(
 async function execute(
   client: Client,
   command: string,
+  timeoutMs = 600_000,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     client.exec(command, (error, stream) => {
       if (error) return reject(error);
       let stdout = "";
@@ -222,15 +224,30 @@ async function execute(
       const finish = (code: number | null) => {
         if (finished) return;
         finished = true;
+        if (timer) clearTimeout(timer);
         resolve({ code, stdout, stderr });
         stream.destroy();
       };
+      timer = setTimeout(() => {
+        if (!finished) {
+          finished = true;
+          stream.destroy();
+          reject(
+            new Error(
+              `SSH command execution timed out after ${timeoutMs / 1000}s`,
+            ),
+          );
+        }
+      }, timeoutMs);
       stream.on("exit", (code: number | null) => {
         exitCode = code;
         setTimeout(() => finish(code), 20);
       });
       stream.on("close", () => finish(exitCode));
-      stream.on("error", reject);
+      stream.on("error", (err: unknown) => {
+        if (timer) clearTimeout(timer);
+        reject(err);
+      });
       stream.on("data", (data: Buffer | string) => {
         stdout += data.toString();
       });

@@ -1,0 +1,3 @@
+ALTER TABLE "secret_version" ADD COLUMN "organization_id" text;--> statement-breakpoint
+ALTER TABLE "secret_version" ADD CONSTRAINT "secret_version_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "secret_version_org_scope_idx" ON "secret_version" USING btree ("organization_id","scope_type","scope_id");

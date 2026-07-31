@@ -657,6 +657,11 @@ export class DeploymentWorker {
       if (!resource) {
         throw new Error("Resource not found");
       }
+      if (executionLeaseLost) {
+        throw new Error(
+          "Deployment canceled: execution lease was lost to another worker.",
+        );
+      }
       const deployedResource = { ...resource };
 
       let previewDeploymentRecord: PreviewDeployment | null = null;

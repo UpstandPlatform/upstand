@@ -8,6 +8,8 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+import { organization } from "./auth";
+
 export const outbox = pgTable(
   "outbox",
   {
@@ -16,7 +18,9 @@ export const outbox = pgTable(
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     aggregateType: text("aggregate_type"),
     aggregateId: text("aggregate_id"),
-    organizationId: text("organization_id"),
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "cascade",
+    }),
     idempotencyKey: text("idempotency_key").notNull(),
     status: text("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),

@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/UpstandPlatform/upstand/apps/monitoring/config"
@@ -178,8 +181,21 @@ func main() {
 		port = 3001
 	}
 
+	// Trap OS signals for graceful shutdown
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		<-sigChan
+		log.Println("Gracefully shutting down monitoring server...")
+		if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
+			log.Printf("Error during server shutdown: %v", err)
+		}
+	}()
+
 	log.Printf("Server starting on port %d", port)
-	log.Fatal(app.Listen(":" + strconv.Itoa(port)))
+	if err := app.Listen(":" + strconv.Itoa(port)); err != nil {
+		log.Printf("Server listen error: %v", err)
+	}
 }
 
 func parseLimit(value string) int {

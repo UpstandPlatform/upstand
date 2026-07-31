@@ -11,11 +11,8 @@ export class DeleteServerUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: DeleteServerInput): Promise<boolean> {
-    const assignedResources = (
-      await this.uow.resourceRepository.findMany()
-    ).filter(
-      (resource) =>
-        resource.serverId === input.id || resource.buildServerId === input.id,
+    const assignedResources = await this.uow.resourceRepository.findByServerId(
+      input.id,
     );
     if (assignedResources.length > 0) {
       throw new ValidationError(

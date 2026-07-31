@@ -74,6 +74,10 @@ function createUow() {
     },
     resourceRepository: {
       findMany: async () => [...resources.values()],
+      findByServerId: async (serverId: string) =>
+        [...resources.values()].filter(
+          (res) => res.serverId === serverId || res.buildServerId === serverId,
+        ),
     },
   } as unknown as IUnitOfWork;
   return { uow, servers, resources };

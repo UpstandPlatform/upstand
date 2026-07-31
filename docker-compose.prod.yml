@@ -197,13 +197,10 @@ services:
         monitor: 45s
       resources:
         reservations:
-          # Keep the default compatible with a single-CPU Swarm manager. The
-          # remaining services reserve 0.70 CPUs in total, so 0.25 leaves
-          # scheduler headroom while still giving the API a useful minimum.
-          cpus: "0.25"
+          cpus: "0.50"
           memory: 512M
         limits:
-          cpus: "1.0"
+          cpus: "2.0"
           memory: 2G
     ports:
       - target: 3000
@@ -305,6 +302,7 @@ services:
 
   web:
     image: ${UPSTAND_WEB_IMAGE:?UPSTAND_WEB_IMAGE is required}
+    stop_grace_period: 1m
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:?NEXT_PUBLIC_SERVER_URL is required}

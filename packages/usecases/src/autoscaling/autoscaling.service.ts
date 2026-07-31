@@ -160,14 +160,27 @@ export class AutoscalingService {
   }
 
   async reconcileAll(): Promise<AutoscalingDecision[]> {
+    const allResources = await this.uow.resourceRepository.findMany();
+    const candidateResources = allResources.filter((resource) => {
+      if (resource.type === "compose" || resource.type === "database")
+        return false;
+      const config = parseResourceAdvancedConfig(
+        resource.advancedConfig,
+      ).autoscaling;
+      return config.enabled;
+    });
+
     const decisions: AutoscalingDecision[] = [];
-    for (const resource of await this.uow.resourceRepository.findMany()) {
-      try {
-        const decision = await this.reconcileResource(resource);
-        if (decision) decisions.push(decision);
-      } catch {
-        // A missing service or unavailable monitoring agent should not stop the
-        // reconciliation loop for other resources.
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < candidateResources.length; i += BATCH_SIZE) {
+      const batch = candidateResources.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((resource) => this.reconcileResource(resource)),
+      );
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value) {
+          decisions.push(result.value);
+        }
       }
     }
     return decisions;

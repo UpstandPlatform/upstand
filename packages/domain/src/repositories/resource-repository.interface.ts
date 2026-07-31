@@ -6,6 +6,7 @@ export interface IResourceRepository {
   findByWebhookTokenHash(hash: string): Promise<Resource | null>;
   findByEnvironmentId(environmentId: string): Promise<Resource[]>;
   findByDockerRegistryId(registryId: string): Promise<Resource[]>;
+  findByServerId(serverId: string): Promise<Resource[]>;
   checkDuplicateServiceKey(
     appName: string,
     excludeResourceId?: string,

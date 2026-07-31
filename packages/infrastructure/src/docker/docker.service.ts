@@ -180,6 +180,47 @@ function getUrlRedactions(value: string): string[] {
   return redactions;
 }
 
+function followProgressWithTimeout(
+  modem: {
+    followProgress: (stream: any, onFinished: any, onProgress?: any) => void;
+  },
+  stream: NodeJS.ReadableStream,
+  onProgress?: (event: {
+    status?: string;
+    progress?: string;
+    id?: string;
+  }) => void,
+  timeoutMs = 120_000,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let timer = setTimeout(() => {
+      stopReadableStream(stream);
+      reject(new Error("Image pull timed out due to stream inactivity"));
+    }, timeoutMs);
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        stopReadableStream(stream);
+        reject(new Error("Image pull timed out due to stream inactivity"));
+      }, timeoutMs);
+    };
+
+    modem.followProgress(
+      stream,
+      (err: unknown) => {
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve();
+      },
+      (event: { status?: string; progress?: string; id?: string }) => {
+        resetTimer();
+        if (onProgress) onProgress(event);
+      },
+    );
+  });
+}
+
 export class DockerService {
   private readonly docker: Docker;
   private readonly commandEnvironment: Record<string, string | undefined>;
@@ -595,19 +636,13 @@ export class DockerService {
     if (onLog) onLog(`Pulling database image: ${image}...\n`);
     try {
       const stream = await this.docker.pull(image);
-      await new Promise<void>((resolve, reject) => {
-        this.docker.modem.followProgress(
-          stream,
-          (err) => (err ? reject(err) : resolve()),
-          (event) => {
-            if (onLog && event) {
-              const status = event.status || "";
-              const progress = event.progress ? ` ${event.progress}` : "";
-              const id = event.id ? ` [${event.id}]` : "";
-              onLog(`${status}${progress}${id}\n`);
-            }
-          },
-        );
+      await followProgressWithTimeout(this.docker.modem, stream, (event) => {
+        if (onLog && event) {
+          const status = event.status || "";
+          const progress = event.progress ? ` ${event.progress}` : "";
+          const id = event.id ? ` [${event.id}]` : "";
+          onLog(`${status}${progress}${id}\n`);
+        }
       });
     } catch (err: unknown) {
       if (onLog)
@@ -764,19 +799,13 @@ export class DockerService {
       const stream = await this.docker.pull(resource.dockerImage, {
         ...(registryAuth ? { authconfig: registryAuth } : {}),
       });
-      await new Promise<void>((resolve, reject) => {
-        this.docker.modem.followProgress(
-          stream,
-          (err) => (err ? reject(err) : resolve()),
-          (event) => {
-            if (onLog && event) {
-              const status = event.status || "";
-              const progress = event.progress ? ` ${event.progress}` : "";
-              const id = event.id ? ` [${event.id}]` : "";
-              onLog(`${status}${progress}${id}\n`);
-            }
-          },
-        );
+      await followProgressWithTimeout(this.docker.modem, stream, (event) => {
+        if (onLog && event) {
+          const status = event.status || "";
+          const progress = event.progress ? ` ${event.progress}` : "";
+          const id = event.id ? ` [${event.id}]` : "";
+          onLog(`${status}${progress}${id}\n`);
+        }
       });
     } catch (err: unknown) {
       if (onLog)

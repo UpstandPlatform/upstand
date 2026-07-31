@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   validateArchiveDestination,
@@ -64,5 +63,5 @@ describe("browser helpers", () => {
 
 afterEach(() => {
   // Keep the test environment isolated when a helper test fails.
-  delete globalThis.document;
+  delete (globalThis as { document?: unknown }).document;
 });

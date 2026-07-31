@@ -60,13 +60,19 @@ export const aiRouter = router({
       const sanitizedRequest = input.request
         .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
         .trim();
+      const normalizedRequest = sanitizedRequest
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ");
       const dangerousPatterns = [
-        /ignore previous instructions/i,
-        /override system prompt/i,
-        /bypass safety controls/i,
+        /ignore\s+previous\s+instructions/i,
+        /override\s+system\s+prompt/i,
+        /bypass\s+safety\s+controls/i,
+        /disregard\s+prior\s+directives/i,
+        /system\s+prompt\s+override/i,
       ];
       for (const pattern of dangerousPatterns) {
-        if (pattern.test(sanitizedRequest)) {
+        if (pattern.test(sanitizedRequest) || pattern.test(normalizedRequest)) {
           throw new UpGalError(
             "validation",
             "Prompt contains disallowed instruction patterns.",

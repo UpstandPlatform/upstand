@@ -561,6 +561,20 @@
       "when": 1785493343766,
       "tag": "0079_gorgeous_ricochet",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1785493912499,
+      "tag": "0080_chubby_frank_castle",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1785494698267,
+      "tag": "0081_dry_speed_demon",
+      "breakpoints": true
     }
   ]
 }

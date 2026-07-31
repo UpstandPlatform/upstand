@@ -43,7 +43,9 @@ export const resource = pgTable(
     tagPattern: text("tag_pattern"),
     webhookTokenHash: text("webhook_token_hash").unique(),
     webhookTokenPrefix: text("webhook_token_prefix"),
-    serverId: text("server_id"),
+    serverId: text("server_id").references(() => server.id, {
+      onDelete: "set null",
+    }),
     buildServerId: text("build_server_id").references(() => server.id, {
       onDelete: "set null",
     }),

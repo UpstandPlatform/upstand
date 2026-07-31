@@ -167,6 +167,8 @@ function ensureRemoteDockerProxy(
         hostHash: "sha256",
         hostVerifier: hostVerifierForFingerprint(trustedFingerprint),
       });
+    socket.setTimeout(60000);
+    socket.once("timeout", fail);
     socket.once("error", fail);
   });
 

@@ -81,7 +81,21 @@ const validatedEnv = createEnv({
     UPSTAND_BASE_URL: z.url().optional(),
     APP_URL: z.url().optional(),
     UPSTAND_POSTGRES_CONTAINER: z.string().min(1).optional(),
-    ENCRYPTION_KEY_V1: isTest ? z.string().optional() : z.string().min(1),
+    ENCRYPTION_KEY_V1: isTest
+      ? z.string().optional()
+      : z.string().refine(
+          (val) => {
+            try {
+              return Buffer.from(val, "base64").length === 32;
+            } catch {
+              return false;
+            }
+          },
+          {
+            message:
+              "ENCRYPTION_KEY_V1 must be a valid 32-byte base64-encoded string",
+          },
+        ),
     UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS: z.string().optional(),
     UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS: z.string().optional(),
     UPSTAND_DOCKER_VERSION: z.string().min(1).optional(),

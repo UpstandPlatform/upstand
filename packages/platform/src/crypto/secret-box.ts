@@ -20,8 +20,16 @@ function getMasterKey(keyVersion: number): Buffer {
   if (keyVersion !== 1) {
     throw new Error(`Unsupported encryption key version ${keyVersion}`);
   }
-  const raw =
-    env.ENCRYPTION_KEY_V1 || "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=";
+  let raw = env.ENCRYPTION_KEY_V1;
+  if (!raw) {
+    if (process.env.NODE_ENV === "test") {
+      raw = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=";
+    } else {
+      throw new Error(
+        "ENCRYPTION_KEY_V1 environment variable is missing. It must be a 32-byte base64-encoded string.",
+      );
+    }
+  }
   const key = Buffer.from(raw, "base64");
   if (key.length !== 32)
     throw new Error("Encryption key must be 32 bytes, base64-encoded");

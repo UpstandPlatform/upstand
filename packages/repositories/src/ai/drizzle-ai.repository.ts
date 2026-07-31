@@ -22,7 +22,7 @@ import type {
   SaveAITavilySettings,
   UpdateAIProviderConfig,
 } from "@upstand/domain";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Executor } from "../shared/types";
 
 export class DrizzleAIRepository implements IAIRepository {
@@ -452,30 +452,25 @@ export class DrizzleAIRepository implements IAIRepository {
         throw new Error("AI conversation is not owned by this user.");
       }
     }
-    for (const message of messages) {
-      const [saved] = await this.executor
+    if (messages.length > 0) {
+      const valuesToInsert = messages.map((message) => ({
+        id: message.id,
+        conversationId,
+        role: message.role,
+        parts: message.parts as JsonValue[],
+        createdAt: message.createdAt,
+      }));
+      await this.executor
         .insert(aiMessage)
-        .values({
-          id: message.id,
-          conversationId,
-          role: message.role,
-          parts: message.parts as JsonValue[],
-          createdAt: message.createdAt,
-        })
+        .values(valuesToInsert)
         .onConflictDoUpdate({
           target: aiMessage.id,
           set: {
-            role: message.role,
-            parts: message.parts as JsonValue[],
+            role: sql`excluded.role`,
+            parts: sql`excluded.parts`,
           },
           where: eq(aiMessage.conversationId, conversationId),
-        })
-        .returning({ id: aiMessage.id });
-      if (!saved) {
-        throw new Error(
-          `AI message ${message.id} belongs to another conversation.`,
-        );
-      }
+        });
     }
     await this.executor
       .update(aiConversation)

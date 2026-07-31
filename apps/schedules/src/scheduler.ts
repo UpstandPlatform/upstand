@@ -95,58 +95,80 @@ export class ScheduledDockerCleanup {
       }
 
       const servers = await uow.serverRepository.findMany();
-      for (const server of servers.filter(
-        (candidate: Server) => candidate.enableDockerCleanup,
-      )) {
-        if (this.completedTargets.has(server.id)) continue;
+      const eligibleServers = servers.filter(
+        (candidate: Server) =>
+          candidate.enableDockerCleanup &&
+          !this.completedTargets.has(candidate.id),
+      );
 
-        let remote: Awaited<
-          ReturnType<typeof resolveDockerCliEnvironmentForServer>
-        > | null = null;
-        try {
-          remote = await resolveDockerCliEnvironmentForServer(server.id, uow);
-          log.info({
-            message: `Running scheduled Docker cleanup on remote server '${server.name}'... 🧹`,
-            serverId: server.id,
-          });
-          await this.dockerCleanupService.run("all", remote.environment);
-          this.completedTargets.add(server.id);
-          await publishDockerCleanupNotification(publisher, {
-            success: true,
-            idempotencyKey: `docker-cleanup:${server.id}:${date}`,
-            title: `🧹 Docker cleanup completed on ${server.name}`,
-            message: `Upstand completed the scheduled cleanup of unused Docker resources on ${server.name}.`,
-            metadata: {
-              date,
-              scope: "remote",
+      await Promise.allSettled(
+        eligibleServers.map(async (server: Server) => {
+          let remote: Awaited<
+            ReturnType<typeof resolveDockerCliEnvironmentForServer>
+          > | null = null;
+          try {
+            remote = await resolveDockerCliEnvironmentForServer(server.id, uow);
+            log.info({
+              message: `Running scheduled Docker cleanup on remote server '${server.name}'... 🧹`,
               serverId: server.id,
-              serverName: server.name,
-            },
-          });
-        } catch (error: unknown) {
-          const message = getCleanupErrorMessage(error);
-          await publishDockerCleanupNotification(publisher, {
-            success: false,
-            idempotencyKey: `docker-cleanup-failed:${server.id}:${date}`,
-            title: `🧹 Docker cleanup failed on ${server.name}`,
-            message,
-            metadata: {
-              date,
-              scope: "remote",
+            });
+
+            // Enforce a 5-minute timeout for remote execution
+            const cleanupPromise = this.dockerCleanupService.run(
+              "all",
+              remote.environment,
+            );
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      "Remote Docker cleanup timed out after 5 minutes",
+                    ),
+                  ),
+                300_000,
+              ),
+            );
+
+            await Promise.race([cleanupPromise, timeoutPromise]);
+            this.completedTargets.add(server.id);
+            await publishDockerCleanupNotification(publisher, {
+              success: true,
+              idempotencyKey: `docker-cleanup:${server.id}:${date}`,
+              title: `🧹 Docker cleanup completed on ${server.name}`,
+              message: `Upstand completed the scheduled cleanup of unused Docker resources on ${server.name}.`,
+              metadata: {
+                date,
+                scope: "remote",
+                serverId: server.id,
+                serverName: server.name,
+              },
+            });
+          } catch (error: unknown) {
+            const message = getCleanupErrorMessage(error);
+            await publishDockerCleanupNotification(publisher, {
+              success: false,
+              idempotencyKey: `docker-cleanup-failed:${server.id}:${date}`,
+              title: `🧹 Docker cleanup failed on ${server.name}`,
+              message,
+              metadata: {
+                date,
+                scope: "remote",
+                serverId: server.id,
+                serverName: server.name,
+                error: message,
+              },
+            });
+            log.error({
+              message: "Failed to run scheduled remote Docker cleanup",
               serverId: server.id,
-              serverName: server.name,
-              error: message,
-            },
-          });
-          log.error({
-            message: "Failed to run scheduled remote Docker cleanup",
-            serverId: server.id,
-            err: error,
-          });
-        } finally {
-          remote?.cleanup();
-        }
-      }
+              err: error,
+            });
+          } finally {
+            remote?.cleanup();
+          }
+        }),
+      );
 
       const hasPendingTargets =
         Boolean(

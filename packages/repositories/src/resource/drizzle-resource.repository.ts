@@ -74,6 +74,19 @@ export class DrizzleResourceRepository implements IResourceRepository {
     return this.hydrate(rows);
   }
 
+  async findByServerId(serverId: string): Promise<Resource[]> {
+    const rows = await this.executor
+      .select()
+      .from(resource)
+      .where(
+        or(
+          eq(resource.serverId, serverId),
+          eq(resource.buildServerId, serverId),
+        ),
+      );
+    return this.hydrate(rows);
+  }
+
   async checkDuplicateServiceKey(
     appName: string,
     excludeResourceId?: string,
