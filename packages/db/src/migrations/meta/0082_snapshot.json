@@ -1,5 +1,5 @@
 {
-  "id": "fb251715-2b78-4166-83ad-ec183d066d59",
+  "id": "ada13c61-4fc4-4259-a318-343c4908c786",
   "prevId": "977571fe-723b-4d5e-a406-7c69646befa8",
   "version": "7",
   "dialect": "postgresql",
@@ -2416,15 +2416,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "backup_run_organization_id_organization_id_fk": {
-          "name": "backup_run_organization_id_organization_id_fk",
-          "tableFrom": "backup_run",
-          "tableTo": "organization",
-          "columnsFrom": ["organization_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "backup_run_destination_id_s3_destination_id_fk": {
           "name": "backup_run_destination_id_s3_destination_id_fk",
           "tableFrom": "backup_run",
@@ -2668,15 +2659,6 @@
           "tableFrom": "backup_schedule",
           "tableTo": "resource",
           "columnsFrom": ["resource_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "backup_schedule_organization_id_organization_id_fk": {
-          "name": "backup_schedule_organization_id_organization_id_fk",
-          "tableFrom": "backup_schedule",
-          "tableTo": "organization",
-          "columnsFrom": ["organization_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

@@ -124,36 +124,6 @@ function ThemeToggle() {
   );
 }
 
-// function RuntimeStatus() {
-//   const { capabilities, isPending } = useSystemConfig();
-//   const mode = capabilities?.mode ?? "self-hosted";
-//   const label =
-//     mode === "desktop"
-//       ? "Local Desktop"
-//       : mode === "cloud"
-//         ? "Cloud control plane"
-//         : "Self-hosted";
-//   return (
-//     <Badge
-//       className="hidden max-w-44 truncate rounded-full px-2.5 font-normal sm:inline-flex"
-//       variant={isPending ? "outline" : "secondary"}
-//       title={
-//         isPending
-//           ? "Loading control-plane capabilities"
-//           : `Connected to ${label}`
-//       }
-//     >
-//       <span
-//         className={cn(
-//           "mr-1.5 size-1.5 rounded-full bg-emerald-500",
-//           isPending && "bg-amber-500",
-//         )}
-//       />
-//       {isPending ? "Connecting…" : label}
-//     </Badge>
-//   );
-// }
-
 function WorkspaceSidebar() {
   const pathname = usePathname();
   const { capabilities } = useSystemConfig();

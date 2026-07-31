@@ -71,6 +71,7 @@ import { DesktopChrome } from "@/components/workspace/desktop-chrome";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 import { useSystemConfig } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
+import { cn } from "@/lib/utils";
 import { trpc } from "@/utils/trpc";
 
 const GlobalSearch = dynamic(
@@ -386,7 +387,7 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
   const { isCloud } = useSystemConfig();
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar className={cn("in-[.is-desktop]:pt-9")} collapsible="icon">
       <OrganizationSwitcher className="min-h-13.75 w-full rounded-none border-none p-[11.5px]" />
 
       <Separator />
@@ -404,7 +405,7 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
         ))}
       </SidebarContent>
 
-      <SidebarFooter className="p-0">
+      <SidebarFooter className="border-t p-0">
         <UserButton className="w-full rounded-none border-none" />
       </SidebarFooter>
     </Sidebar>

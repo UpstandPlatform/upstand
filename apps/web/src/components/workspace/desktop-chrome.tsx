@@ -4,21 +4,23 @@ import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
   Cancel01Icon,
+  GearsFreeIcons,
   Menu01Icon,
   RefreshIcon,
   SquareIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Badge } from "@upstand/ui/components/badge";
 import { Button } from "@upstand/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@upstand/ui/components/dropdown-menu";
 import { cn } from "@upstand/ui/lib/utils";
 import { useCallback, useEffect, useState } from "react";
+import { useSystemConfig } from "@/hooks/use-system-config";
 
 type NavState = { canGoBack: boolean; canGoForward: boolean };
 
@@ -47,6 +49,36 @@ const getBridge = (): DesktopBridge | undefined => {
     (window as unknown as { upstandDesktop?: DesktopBridge }).upstandDesktop
   );
 };
+
+function RuntimeStatus() {
+  const { capabilities, isPending } = useSystemConfig();
+  const mode = capabilities?.mode ?? "self-hosted";
+  const label =
+    mode === "desktop"
+      ? "Local Desktop"
+      : mode === "cloud"
+        ? "Cloud control plane"
+        : "Self-hosted";
+  return (
+    <Badge
+      className="hidden max-w-44 truncate rounded-full px-2.5 font-normal sm:inline-flex"
+      variant={isPending ? "outline" : "secondary"}
+      title={
+        isPending
+          ? "Loading control-plane capabilities"
+          : `Connected to ${label}`
+      }
+    >
+      <span
+        className={cn(
+          "mr-1.5 size-1.5 rounded-full bg-emerald-500",
+          isPending && "bg-amber-500",
+        )}
+      />
+      {isPending ? "Connecting…" : label}
+    </Badge>
+  );
+}
 
 export function DesktopChrome() {
   const [ready, setReady] = useState(false);
@@ -142,6 +174,7 @@ export function DesktopChrome() {
         >
           <HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
         </Button>
+        <RuntimeStatus />
       </nav>
 
       <div
@@ -177,15 +210,8 @@ export function DesktopChrome() {
               <DropdownMenuItem
                 onClick={() => void getBridge()?.window?.toggleDevTools?.()}
               >
-                Toggle Developer Tools
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  window.location.assign("/workspace/settings");
-                }}
-              >
-                Settings
+                <HugeiconsIcon icon={GearsFreeIcons} className="mr-2 size-4" />
+                Dev Tools
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
