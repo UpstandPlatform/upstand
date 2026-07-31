@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { env } from "@upstand/env/server";
 import { log } from "evlog";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 
 export interface UpdateStatusResult {
   currentVersion: string;
@@ -127,7 +128,7 @@ export class GetUpdateStatusUseCase {
     // Cloud control planes are updated by the hosting rollout. Exposing the
     // self-hosted mutation here would let a tenant race that rollout and
     // could also make the UI suggest that a managed instance is stale.
-    if (env.IS_CLOUD) {
+    if (requiresRemoteServerPlacement()) {
       const managedVersion =
         process.env.UPSTAND_VERSION || env.UPSTAND_VERSION || "managed";
       return {

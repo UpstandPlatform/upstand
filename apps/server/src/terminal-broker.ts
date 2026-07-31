@@ -21,7 +21,8 @@ export type RemoteTerminalSessionInput = {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  privateKey?: string;
+  password?: string;
   hostKeyFingerprint: string;
   command?: string;
   initialCols?: number;
@@ -51,7 +52,8 @@ type RemoteTerminalSession = BaseTerminalSession & {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  privateKey?: string;
+  password?: string;
   hostKeyFingerprint: string;
   command?: string;
   initialCols?: number;
@@ -180,6 +182,7 @@ export class TerminalBroker {
         port: session.port,
         username: session.username,
         privateKey: session.privateKey,
+        password: session.password,
         hostKeyFingerprint: session.hostKeyFingerprint,
         command: session.command,
         initialCols: session.initialCols,
@@ -414,6 +417,7 @@ export class TerminalBroker {
           port: session.port,
           username: session.username,
           privateKey: session.privateKey,
+          password: session.password,
           hostHash: "sha256",
           hostVerifier: hostVerifierForFingerprint(session.hostKeyFingerprint),
           readyTimeout: 20_000,

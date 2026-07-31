@@ -15,6 +15,7 @@ import { AIRepositoryToken } from "@upstand/repositories/tokens";
 import {
   CreateTemplateInputSchema,
   DeployTemplateInputSchema,
+  getConfiguredControlPlaneMode,
   getNativeTemplate,
   listNativeTemplates,
   validateTemplateComposeFile,
@@ -81,6 +82,7 @@ import { log, type RequestLogger } from "evlog";
 import { createEvlogIntegration } from "evlog/ai";
 import { z } from "zod";
 import type { RequestLog } from "../context";
+import { requireInstanceOwner } from "../instance-access";
 import { checkPermission } from "../permissions";
 import { connectUpGalMCPApps } from "./mcp-apps";
 import { listUpGalModelCatalog } from "./model-catalog";
@@ -1561,7 +1563,10 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     get_web_server_logs: readTool(
       "Read recent Upstand web-server logs.",
       webServerLogsSchema,
-      async ({ tail }) => run(GetWebServerLogsUseCaseToken).execute(tail),
+      async ({ tail }) => {
+        await requireInstanceOwner(context.userId, "session");
+        return run(GetWebServerLogsUseCaseToken).execute(tail);
+      },
       z.string(),
     ),
     get_update_status: readTool(
@@ -1781,6 +1786,7 @@ export async function getUpGalToolNamesForUser(
   userId: string,
   organizationId: string,
 ): Promise<UpGalToolName[]> {
+  const isCloud = getConfiguredControlPlaneMode() === "cloud";
   const allowed: UpGalToolName[] = [];
   for (const [name] of UPGAL_TOOL_METADATA) {
     try {
@@ -1789,6 +1795,17 @@ export async function getUpGalToolNamesForUser(
         organizationId,
         UPGAL_TOOL_CAPABILITIES[name],
       );
+      if (name === "get_web_server_logs") {
+        await requireInstanceOwner(userId, "session");
+      }
+      if (
+        isCloud &&
+        (name === "get_swarm_info" ||
+          name === "get_swarm_nodes" ||
+          name === "get_swarm_containers")
+      ) {
+        await requireInstanceOwner(userId, "session");
+      }
       allowed.push(name);
     } catch {
       // A missing capability removes only this tool from the agent surface.

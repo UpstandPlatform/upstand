@@ -91,7 +91,8 @@ const PAGE_ROUTES: readonly PageRoute[] = [
   },
   {
     pattern: /^\/web-server\/?$/,
-    description: "Caddy web server configuration, routes, and logs.",
+    description:
+      "Caddy application-proxy configuration, domain mappings, routes, certificates, and access logs.",
   },
   {
     pattern: /^\/certificates\/?$/,

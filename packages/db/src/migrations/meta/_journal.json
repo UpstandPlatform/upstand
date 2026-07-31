@@ -498,6 +498,62 @@
       "when": 1785314222790,
       "tag": "0070_curly_jack_murdock",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1785329918107,
+      "tag": "0071_late_wilson_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1785331435844,
+      "tag": "0072_furry_shiva",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1785332067547,
+      "tag": "0073_tiresome_the_call",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1785337917846,
+      "tag": "0074_lucky_reaper",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1785419234680,
+      "tag": "0075_small_silver_fox",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1785419668514,
+      "tag": "0076_sleepy_malice",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1785421704973,
+      "tag": "0077_workable_mulholland_black",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1785492659950,
+      "tag": "0078_married_dark_beast",
+      "breakpoints": true
     }
   ]
 }

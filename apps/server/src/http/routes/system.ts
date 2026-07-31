@@ -2,6 +2,10 @@ import { getRateLimiterHealth } from "@upstand/api";
 import { env } from "@upstand/env/server";
 import { pingRedis, redis } from "@upstand/redis";
 import {
+  getPlatformCapabilities,
+  resolveControlPlaneMode,
+} from "@upstand/usecases";
+import {
   GetSetupStatusUseCaseToken,
   UnitOfWorkToken,
 } from "@upstand/usecases/tokens";
@@ -20,7 +24,16 @@ export function registerSetupStatusRoute(app: Hono<AppEnv>): void {
       .get("scope")
       .resolve(GetSetupStatusUseCaseToken)
       .execute();
-    return c.json({ ...status, isCloud: env.IS_CLOUD });
+    const platformMode = resolveControlPlaneMode({
+      platform: env.UPSTAND_PLATFORM,
+      isCloud: env.IS_CLOUD,
+    });
+    return c.json({
+      ...status,
+      isCloud: platformMode === "cloud",
+      platformMode,
+      capabilities: getPlatformCapabilities(platformMode),
+    });
   });
 }
 
@@ -32,7 +45,12 @@ export function registerSystemRoutes(
   app.get("/health/live", (c) => c.json({ status: "alive" }));
 
   app.get("/health/ready", async (c) => {
-    const redisReady = await pingRedis(redis);
+    const platformMode = resolveControlPlaneMode({
+      platform: env.UPSTAND_PLATFORM,
+      isCloud: env.IS_CLOUD,
+    });
+    const redisReady =
+      platformMode === "desktop" ? true : await pingRedis(redis);
     const rateLimiterHealth = getRateLimiterHealth();
     let databaseReady = false;
     try {
@@ -47,8 +65,8 @@ export function registerSystemRoutes(
 
     const ready =
       !dependencies.isShuttingDown() &&
-      dependencies.isCaddyReady() &&
-      redisReady &&
+      (platformMode === "desktop" || dependencies.isCaddyReady()) &&
+      (platformMode === "desktop" || redisReady) &&
       databaseReady;
     return c.json(
       {

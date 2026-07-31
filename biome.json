@@ -30,7 +30,7 @@
       "!**/.agents",
       "!**/convex/_generated",
       "!packages/usecases/src/template/catalog.json",
-      "!fixtures/openship",
+      "!fixtures/deploy",
       "!apps/fumadocs/public/images/terminal_view.svg"
     ]
   },

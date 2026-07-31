@@ -15,6 +15,18 @@ import type {
 import type { ExternalSecretProviderPort } from "./ports/external-secrets";
 import type { ManagedUserProvisioner } from "./ports/managed-user-provisioner";
 
+import type {
+  IProxyDetector,
+  IProxyImporter,
+  IProxyTakeoverManager,
+} from "./ports/proxy";
+
+export const ProxyDetectorToken = createToken<IProxyDetector>("IProxyDetector");
+export const ProxyImporterToken = createToken<IProxyImporter>("IProxyImporter");
+export const ProxyTakeoverManagerToken = createToken<IProxyTakeoverManager>(
+  "IProxyTakeoverManager",
+);
+
 // Application composition token. The domain exposes the IUnitOfWork contract,
 // while the DI token belongs to the outer composition layer.
 export const UnitOfWorkToken = createToken<IUnitOfWork>("IUnitOfWork");
@@ -294,6 +306,10 @@ export const GeneralSchedulerToken =
   createToken<UseCases.GeneralScheduler>("GeneralScheduler");
 export const GetSchedulesUseCaseToken =
   createToken<UseCases.GetSchedulesUseCase>("GetSchedulesUseCase");
+export const GetOrganizationSchedulesUseCaseToken =
+  createToken<UseCases.GetOrganizationSchedulesUseCase>(
+    "GetOrganizationSchedulesUseCase",
+  );
 export const GetScheduleLogsUseCaseToken =
   createToken<UseCases.GetScheduleLogsUseCase>("GetScheduleLogsUseCase");
 export const SyncUpstandConfigUseCaseToken =
@@ -470,3 +486,9 @@ export const RetryNotificationDeliveryUseCaseToken =
   );
 export const ScanServerHostKeyUseCaseToken =
   createToken<UseCases.ScanServerHostKeyUseCase>("ScanServerHostKeyUseCase");
+export const DetectProxyUseCaseToken =
+  createToken<UseCases.DetectProxyUseCase>("DetectProxyUseCase");
+export const ScanProxySitesUseCaseToken =
+  createToken<UseCases.ScanProxySitesUseCase>("ScanProxySitesUseCase");
+export const TakeoverProxyUseCaseToken =
+  createToken<UseCases.TakeoverProxyUseCase>("TakeoverProxyUseCase");

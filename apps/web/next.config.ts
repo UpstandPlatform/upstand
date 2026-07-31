@@ -16,6 +16,14 @@ const nextConfig: NextConfig = {
   reactCompiler: process.env.NODE_ENV === "production",
   output: "standalone",
   devIndicators: false,
+  allowedDevOrigins: [
+    "localhost",
+    "127.0.0.1",
+    "localhost:3000",
+    "127.0.0.1:3000",
+    "localhost:3001",
+    "127.0.0.1:3001",
+  ],
   // Turbopack must bundle Shiki from the workspace instead of trying to
   // resolve its generated external module name at runtime in Docker dev.
   transpilePackages: ["shiki"],

@@ -3,9 +3,9 @@ import {
   type IUnitOfWork,
   ValidationError,
 } from "@upstand/domain";
-import { env } from "@upstand/env/server";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { z } from "zod";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 
 export const UpdateDockerRegistryInputSchema = z.object({
   id: z.string().min(1, "Registry ID is required"),
@@ -27,7 +27,7 @@ export class UpdateDockerRegistryUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: UpdateDockerRegistryInput): Promise<DockerRegistry> {
-    if (env.IS_CLOUD) {
+    if (requiresRemoteServerPlacement()) {
       if (
         input.serverId === null ||
         (input.serverId && ["local", "manager"].includes(input.serverId))

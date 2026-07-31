@@ -43,7 +43,8 @@ export interface RemoteDockerConnection {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  privateKey?: string;
+  password?: string;
   hostKeyFingerprint?: string;
 }
 
@@ -86,9 +87,10 @@ function ensureRemoteDockerProxy(
   if (!trustedFingerprint) {
     throw new Error("Remote Docker SSH host key is not trusted");
   }
+  const credentialKey = connection.privateKey || connection.password || "";
   const key = createHash("sha256")
     .update(
-      `${connection.host}:${connection.port}:${connection.username}:${connection.privateKey}`,
+      `${connection.host}:${connection.port}:${connection.username}:${credentialKey}`,
     )
     .digest("hex");
   const existing = remoteDockerProxies.get(key);
@@ -161,6 +163,7 @@ function ensureRemoteDockerProxy(
         port: connection.port,
         username: connection.username,
         privateKey: connection.privateKey,
+        password: connection.password,
         hostHash: "sha256",
         hostVerifier: hostVerifierForFingerprint(trustedFingerprint),
       });
@@ -236,22 +239,45 @@ export async function resolveDockerCliEnvironmentForServer(
   if (!server) {
     throw new Error("Target deployment server was not found");
   }
-  if (!server.sshKeyId) {
-    throw new Error("Target deployment server has no SSH key configured");
+
+  let privateKey: string | undefined;
+  let password: string | undefined;
+
+  if (server.authType === "password") {
+    if (
+      !server.passwordCiphertext ||
+      !server.passwordIv ||
+      !server.passwordAuthTag ||
+      server.passwordVersion == null
+    ) {
+      throw new Error("Target deployment server password credentials missing");
+    }
+    password = decryptSecret({
+      ciphertext: server.passwordCiphertext,
+      iv: server.passwordIv,
+      authTag: server.passwordAuthTag,
+      keyVersion: server.passwordVersion,
+    });
+  } else {
+    if (!server.sshKeyId) {
+      throw new Error("Target deployment server has no SSH key configured");
+    }
+    const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
+    if (!sshKey) throw new Error("Target deployment server SSH key not found");
+    privateKey = decryptSecret({
+      ciphertext: sshKey.privateKeyCiphertext,
+      iv: sshKey.privateKeyIv,
+      authTag: sshKey.privateKeyAuthTag,
+      keyVersion: sshKey.privateKeyVersion,
+    });
   }
-  const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
-  if (!sshKey) throw new Error("Target deployment server SSH key not found");
-  const privateKey = decryptSecret({
-    ciphertext: sshKey.privateKeyCiphertext,
-    iv: sshKey.privateKeyIv,
-    authTag: sshKey.privateKeyAuthTag,
-    keyVersion: sshKey.privateKeyVersion,
-  });
+
   return createRemoteDockerCliEnvironment({
     host: server.ipAddress,
     port: server.port,
     username: server.username,
     privateKey,
+    password,
     hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
   });
 }
@@ -270,27 +296,48 @@ export async function resolveDockerServiceForServer(
     throw new Error("Target deployment server was not found");
   }
 
-  if (!server.sshKeyId) {
-    throw new Error("Target deployment server has no SSH key configured");
-  }
+  let privateKey: string | undefined;
+  let password: string | undefined;
 
-  const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
-  if (!sshKey) {
-    throw new Error("Target deployment server SSH key not found");
-  }
+  if (server.authType === "password") {
+    if (
+      !server.passwordCiphertext ||
+      !server.passwordIv ||
+      !server.passwordAuthTag ||
+      server.passwordVersion == null
+    ) {
+      throw new Error("Target deployment server password credentials missing");
+    }
+    password = decryptSecret({
+      ciphertext: server.passwordCiphertext,
+      iv: server.passwordIv,
+      authTag: server.passwordAuthTag,
+      keyVersion: server.passwordVersion,
+    });
+  } else {
+    if (!server.sshKeyId) {
+      throw new Error("Target deployment server has no SSH key configured");
+    }
 
-  const privateKey = decryptSecret({
-    ciphertext: sshKey.privateKeyCiphertext,
-    iv: sshKey.privateKeyIv,
-    authTag: sshKey.privateKeyAuthTag,
-    keyVersion: sshKey.privateKeyVersion,
-  });
+    const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
+    if (!sshKey) {
+      throw new Error("Target deployment server SSH key not found");
+    }
+
+    privateKey = decryptSecret({
+      ciphertext: sshKey.privateKeyCiphertext,
+      iv: sshKey.privateKeyIv,
+      authTag: sshKey.privateKeyAuthTag,
+      keyVersion: sshKey.privateKeyVersion,
+    });
+  }
 
   const connection = {
     host: server.ipAddress,
     port: server.port,
     username: server.username,
     privateKey,
+    password,
     hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
   };
 
@@ -385,57 +432,82 @@ export function createDockerInfrastructureResolver(): DockerInfrastructureResolv
 
 function ensureDockerProxy() {
   if (proxyStarted) return;
-
-  const client = new net.Socket();
-  client.connect(PROXY_PORT, "127.0.0.1", () => {
-    proxyStarted = true;
-    client.destroy();
-  });
-
-  client.on("error", () => {
-    // Start proxy
-    const code = `
-      const net = require("net");
-      const PIPE_PATH = "//./pipe/docker_engine";
-      const PORT = ${PROXY_PORT};
-      const server = net.createServer((socket) => {
-        const pipe = net.connect(PIPE_PATH);
-        socket.pipe(pipe);
-        pipe.pipe(socket);
-        socket.on("error", () => {});
-        pipe.on("error", () => {});
+  const checkCode = `
+    const net = require("net");
+    const PORT = ${PROXY_PORT};
+    let attempts = 0;
+    function check() {
+      const socket = new net.Socket();
+      socket.connect(PORT, "127.0.0.1", () => {
+        socket.destroy();
+        process.exit(0);
       });
-      server.listen(PORT, "127.0.0.1");
-    `;
-
-    const child = spawn(process.execPath, ["-e", code], {
-      detached: true,
-      stdio: "ignore",
-    });
-    child.unref();
-
-    // Synchronously wait for the proxy to start listening (up to 2 seconds)
-    const checkCode = `
-      const net = require("net");
-      const PORT = ${PROXY_PORT};
-      let attempts = 0;
-      function check() {
-        const socket = new net.Socket();
-        socket.connect(PORT, "127.0.0.1", () => {
-          socket.destroy();
-          process.exit(0);
-        });
-        socket.on("error", () => {
-          attempts++;
-          if (attempts > 50) {
-            process.exit(1);
-          }
-          setTimeout(check, 20);
-        });
-      }
-      check();
-    `;
-    spawnSync(process.execPath, ["-e", checkCode], { timeout: 2000 });
+      socket.on("error", () => {
+        attempts++;
+        if (attempts > 50) process.exit(1);
+        setTimeout(check, 20);
+      });
+    }
+    check();
+  `;
+  if (
+    spawnSync(process.execPath, ["-e", checkCode], { timeout: 2_000 })
+      .status === 0
+  ) {
     proxyStarted = true;
+    return;
+  }
+
+  const code = `
+    const net = require("net");
+    const PIPE_PATH = "//./pipe/docker_engine";
+    const PORT = ${PROXY_PORT};
+    const server = net.createServer((socket) => {
+      const pipe = net.connect(PIPE_PATH);
+      const buffered = [];
+      let pipeReady = false;
+      let socketEnded = false;
+
+      socket.on("data", (chunk) => {
+        if (pipeReady) {
+          pipe.write(chunk);
+        } else {
+          buffered.push(chunk);
+        }
+      });
+      socket.on("end", () => {
+        socketEnded = true;
+        if (pipeReady) pipe.end();
+      });
+      socket.on("error", () => pipe.destroy());
+
+      pipe.on("connect", () => {
+        pipeReady = true;
+        for (const chunk of buffered) pipe.write(chunk);
+        buffered.length = 0;
+        if (socketEnded) pipe.end();
+      });
+      pipe.on("data", (chunk) => socket.write(chunk));
+      pipe.on("end", () => socket.end());
+      pipe.on("close", () => socket.end());
+      pipe.on("error", () => socket.destroy());
+    });
+    server.on("error", () => process.exit(1));
+    server.listen(PORT, "127.0.0.1");
+  `;
+  // Bun's TCP implementation can connect to the named pipe but cannot
+  // reliably proxy Docker's long-lived HTTP stream on Windows. Use the
+  // installed Node runtime for this tiny bridge while keeping the caller Bun.
+  const child = spawn("node", ["-e", code], {
+    detached: true,
+    stdio: "ignore",
   });
+  child.unref();
+  if (
+    spawnSync(process.execPath, ["-e", checkCode], { timeout: 2_000 })
+      .status !== 0
+  ) {
+    throw new Error("Unable to start the local Docker named-pipe proxy");
+  }
+  proxyStarted = true;
 }

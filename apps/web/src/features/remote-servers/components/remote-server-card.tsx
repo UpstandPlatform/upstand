@@ -30,6 +30,7 @@ export interface RemoteServerItem {
   name: string;
   description?: string | null;
   serverType: ServerType;
+  authType?: string;
   sshKeyId?: string | null;
   ipAddress: string;
   port: number;
@@ -105,11 +106,18 @@ export function RemoteServerCard({
         ? "Set up server again"
         : "Set up server";
 
+  const authLabel = server.authType === "password" ? "Password" : "SSH Key";
+
   return (
     <Card className="flex h-full flex-col justify-between">
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <CardTitle className="truncate text-base">{server.name}</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="truncate text-base">{server.name}</CardTitle>
+            <span className="inline-flex items-center rounded-md bg-secondary/80 px-2 py-0.5 font-medium text-secondary-foreground text-xs">
+              {authLabel}
+            </span>
+          </div>
           <CardDescription className="mt-1 line-clamp-2">
             {server.description || "Remote deployment environment"}
           </CardDescription>

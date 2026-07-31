@@ -2,12 +2,15 @@
 
 import {
   AnalyticsUpIcon,
+  AppStoreIcon,
   Briefcase01Icon,
   CloudServerIcon,
   ContainerIcon,
   Folder01Icon,
+  JobSearchIcon,
   Rocket01Icon,
   Search01Icon,
+  Settings01Icon,
   Shield01Icon,
   UserIcon,
 } from "@hugeicons/core-free-icons";
@@ -23,7 +26,7 @@ import {
   CommandList,
 } from "@upstand/ui/components/command";
 import type { Route } from "next";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
 import { trpc } from "@/utils/trpc";
@@ -34,6 +37,12 @@ const QUICK_NAVIGATION = [
     description: "Applications and environments",
     href: "/projects",
     icon: Folder01Icon,
+  },
+  {
+    label: "Apps",
+    description: "Catalog and installed Apps",
+    href: "/workspace/apps",
+    icon: AppStoreIcon,
   },
   {
     label: "Deployments",
@@ -48,6 +57,12 @@ const QUICK_NAVIGATION = [
     icon: CloudServerIcon,
   },
   {
+    label: "Jobs",
+    description: "Schedules and automation",
+    href: "/workspace/jobs",
+    icon: JobSearchIcon,
+  },
+  {
     label: "Docker inventory",
     description: "Containers, images, and volumes",
     href: "/docker",
@@ -58,6 +73,12 @@ const QUICK_NAVIGATION = [
     description: "System health and metrics",
     href: "/monitoring",
     icon: AnalyticsUpIcon,
+  },
+  {
+    label: "Settings",
+    description: "Workspace and control-plane settings",
+    href: "/workspace/settings",
+    icon: Settings01Icon,
   },
 ] as const;
 
@@ -75,6 +96,7 @@ const RESULT_LABELS = {
 
 export function GlobalSearch() {
   const router = useRouter();
+  const pathname = usePathname();
   const organizationState = useRequiredActiveOrganization();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -135,7 +157,15 @@ export function GlobalSearch() {
 
   const navigateTo = (href: string) => {
     closeSearch();
-    router.push(href as Route);
+    const workspaceHref = pathname.startsWith("/workspace")
+      ? ({
+          "/projects": "/workspace/projects",
+          "/observation?tab=deployments": "/workspace/deployments",
+          "/remote-servers": "/workspace/servers",
+          "/observation?tab=cron-jobs": "/workspace/jobs",
+        }[href] ?? href)
+      : href;
+    router.push(workspaceHref as Route);
   };
 
   const openSettings = (page: string) => {

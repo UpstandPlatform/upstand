@@ -6,6 +6,8 @@ export interface DeploymentHistoryResult {
   resourceId: string;
   resourceName: string;
   resourceType: string;
+  environmentId: string | null;
+  projectId: string | null;
   environmentName: string;
   projectName: string;
   serverId: string | null;
@@ -98,6 +100,8 @@ export class GetDeploymentsUseCase {
         resourceId: dep.resourceId,
         resourceName: resource?.name || "Unknown Service",
         resourceType: resource?.type || "unknown",
+        environmentId: env?.id ?? null,
+        projectId: proj?.id ?? null,
         environmentName: env?.name || "Unknown Env",
         projectName: proj?.name || "Unknown Project",
         serverId: dep.serverId || null,

@@ -34,6 +34,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { DesktopChrome } from "@/components/workspace/desktop-chrome";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -43,12 +45,13 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("font-sans", inter.variable)}
+      className={cn("font-sans", inter.variable, "no-scrollbar")}
     >
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={` ${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <Providers>
+          <DesktopChrome />
           <TooltipProvider>{children}</TooltipProvider>
         </Providers>
       </body>

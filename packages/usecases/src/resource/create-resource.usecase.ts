@@ -14,10 +14,10 @@ import {
   serializeResourceAdvancedConfig,
   ValidationError,
 } from "@upstand/domain";
-import { env } from "@upstand/env/server";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { log } from "evlog";
 import { z } from "zod";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 import {
   assertBuildServerSupportsResource,
   assertDeploymentServerSupportsResource,
@@ -82,7 +82,7 @@ export class CreateResourceUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: CreateResourceInput): Promise<Resource> {
-    if (env.IS_CLOUD) {
+    if (requiresRemoteServerPlacement()) {
       if (!input.serverId || ["local", "manager"].includes(input.serverId)) {
         throw new ValidationError(
           "Please select a target server for deployment.",
@@ -181,7 +181,7 @@ export class CreateResourceUseCase {
         }
       }
 
-      if (env.IS_CLOUD) {
+      if (requiresRemoteServerPlacement()) {
         if (!input.serverId || ["local", "manager"].includes(input.serverId)) {
           throw new ValidationError(
             "Local server deployments are disabled in Cloud mode. Please select a valid remote server.",

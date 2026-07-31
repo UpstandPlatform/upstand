@@ -1,9 +1,9 @@
 ---
 title: Infrastructure operations
-description: Provision hosts, manage Docker Swarm, inspect Docker inventory, operate Caddy, and maintain the control plane safely.
+description: Provision hosts, manage Docker Swarm, inspect Docker inventory, operate the managed edge and Caddy backend, and maintain the control plane safely.
 ---
 
-Upstand provides operational management for compute hosts, Docker Swarm clusters, Caddy reverse proxy ingress, and background monitoring workers.
+Upstand provides operational management for compute hosts, Docker Swarm clusters, the managed OpenResty public edge, the Caddy application proxy, and background monitoring workers.
 
 ---
 
@@ -38,7 +38,7 @@ flowchart TD
     end
 
     subgraph TargetHosts["Infrastructure Compute Hosts"]
-        Host1["Manager Node (Caddy Ingress + Swarm)"]
+        Host1["Manager Node (OpenResty Edge + Caddy + Swarm)"]
         Host2["Worker Node (Container Workloads)"]
         Host3["Remote Server (SSH Isolated Host)"]
         DeployWorker -->|Docker Socket| Host1
@@ -55,7 +55,7 @@ For detailed queue worker specifications and job conventions, see [Schedules, Wo
 
 Use **Infrastructure → Remote Servers** to add a host with a name, SSH address/port, username, and organization SSH key. Choose a role before provisioning:
 
-- **Deploy**: Swarm, Caddy ingress, and monitoring.
+- **Deploy**: Swarm, the public OpenResty edge, Caddy application proxy, and monitoring.
 - **Build**: Docker build capacity and monitoring.
 - **Database**: Swarm database capacity and monitoring.
 
@@ -69,9 +69,16 @@ The wizard saves connection details, runs setup, and reports status. Removing a 
 
 **Docker Inventory** provides read and operational views for containers, images, volumes, networks, and Swarm services. Inspect raw Docker responses and bounded logs when needed. Stop/remove controls are destructive and should be used only after confirming the selected server and object.
 
-## Web Server and Caddy
+## Managed edge, Web Server, and Caddy
 
-The Web Server page manages Caddy settings, environment values, snippets, previews, logs, health checks, backup settings, Docker cleanup, and GPU detection/configuration. Upstand validates generated Caddy configuration before applying a reload so invalid routing does not replace the active configuration.
+The Web Server page manages the OpenResty edge takeover state, routes, rules,
+traffic, adoption, and migration workflows. Its compatibility section retains
+the existing Caddy settings, environment values, snippets, previews, logs,
+health checks, backup settings, Docker cleanup, and GPU detection/configuration.
+When edge backend mode is enabled, OpenResty owns public `:80` and `:443`,
+while Caddy is reconciled to internal backend ports (`8080`/`8443` by default).
+Existing domain mappings continue through the Caddy fallback; an explicit
+managed-edge route takes precedence for its host/path.
 
 Daily Docker cleanup is configurable from the Web Server page. Cleanup affects unused host Docker state; do not enable it until you understand which images, volumes, containers, and build cache are considered unused by the operation.
 

@@ -95,20 +95,6 @@ export default function Home() {
               <HugeiconsIcon icon={Download01Icon} className="size-4" />
               Download desktop
             </Button>
-            <Button
-              size="lg"
-              variant="ghost"
-              render={
-                <a
-                  href="https://github.com/UpstandPlatform/upstand"
-                  target="_blank"
-                  rel="noreferrer"
-                />
-              }
-              nativeButton={false}
-            >
-              View on GitHub
-            </Button>
           </div>
         </section>
 

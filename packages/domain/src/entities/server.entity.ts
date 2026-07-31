@@ -3,6 +3,9 @@ import { z } from "zod";
 export const ServerTypeSchema = z.enum(["deploy", "build", "database"]);
 export type ServerType = z.infer<typeof ServerTypeSchema>;
 
+export const ServerAuthTypeSchema = z.enum(["ssh_key", "password"]);
+export type ServerAuthType = z.infer<typeof ServerAuthTypeSchema>;
+
 export const ServerStatusSchema = z.enum([
   "idle",
   "setting_up",
@@ -17,7 +20,12 @@ export const ServerSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional(),
   serverType: ServerTypeSchema,
+  authType: ServerAuthTypeSchema.default("ssh_key"),
   sshKeyId: z.string().nullable().optional(),
+  passwordCiphertext: z.string().nullable().optional(),
+  passwordIv: z.string().nullable().optional(),
+  passwordAuthTag: z.string().nullable().optional(),
+  passwordVersion: z.number().nullable().optional(),
   sshHostKeyFingerprint: z.string().nullable().optional(),
   ipAddress: z.string(),
   port: z.number(),
@@ -37,7 +45,12 @@ export interface CreateServerDTO {
   name: string;
   description?: string | null;
   serverType: ServerType;
+  authType?: ServerAuthType;
   sshKeyId?: string | null;
+  passwordCiphertext?: string | null;
+  passwordIv?: string | null;
+  passwordAuthTag?: string | null;
+  passwordVersion?: number | null;
   sshHostKeyFingerprint?: string | null;
   ipAddress: string;
   port: number;

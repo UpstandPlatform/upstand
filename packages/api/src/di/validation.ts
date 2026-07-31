@@ -130,6 +130,7 @@ const STARTUP_TOKENS: readonly Token[] = [
   dependencies.DeleteSshKeyUseCaseToken,
   dependencies.GetResourcesUseCaseToken,
   dependencies.GetSchedulesUseCaseToken,
+  dependencies.GetOrganizationSchedulesUseCaseToken,
   dependencies.GetScheduleLogsUseCaseToken,
   dependencies.SyncUpstandConfigUseCaseToken,
   dependencies.GetSwarmInfoUseCaseToken,

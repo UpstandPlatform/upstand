@@ -10,7 +10,7 @@ const CADDY_NETWORK = "upstand-network";
 
 export function createServerProvisioningPort(): ServerProvisioningPort {
   return {
-    connect: async ({ server, privateKey, hostKeyFingerprint }) => {
+    connect: async ({ server, privateKey, password, hostKeyFingerprint }) => {
       const client = new Client();
       await new Promise<void>((resolve, reject) => {
         client
@@ -21,6 +21,7 @@ export function createServerProvisioningPort(): ServerProvisioningPort {
             port: server.port,
             username: server.username,
             privateKey,
+            password,
             hostHash: "sha256",
             hostVerifier: hostVerifierForFingerprint(hostKeyFingerprint),
             readyTimeout: 20_000,
@@ -80,6 +81,10 @@ async function initializeCaddyViaSsh(
   // Generate the initial Caddyfile and base64-encode it for the bootstrap env var.
   const caddyfileContent = generateCaddyfileContent(settings);
   const bootstrapConfig = Buffer.from(caddyfileContent).toString("base64");
+  const caddyHttpPort = settings.httpPort ?? 80;
+  const caddyHttpsPort = settings.httpsPort ?? 443;
+  const publishedHttpPort = 80;
+  const publishedHttpsPort = 443;
 
   // 1. Create required named volumes (idempotent).
   const volumes = [
@@ -113,16 +118,43 @@ async function initializeCaddyViaSsh(
   );
 
   if (inspect.code === 0) {
-    // Container already exists – make sure it is running and on the overlay network.
-    await execute(
+    const bindings = await execute(
       client,
-      `docker start ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
+      `docker inspect --format '{{json .HostConfig.PortBindings}}' ${CADDY_CONTAINER_NAME}`,
     );
-    await execute(
-      client,
-      `docker network connect ${CADDY_NETWORK} ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
-    );
-    return;
+    let expectedBindings = true;
+    try {
+      const parsed = JSON.parse(bindings.stdout.trim()) as Record<
+        string,
+        Array<{ HostPort?: string }>
+      >;
+      const expected = [
+        [`${caddyHttpPort}/tcp`, String(publishedHttpPort)],
+        [`${caddyHttpsPort}/tcp`, String(publishedHttpsPort)],
+        ...(settings.enableHttp3 === false
+          ? []
+          : [[`${caddyHttpsPort}/udp`, String(publishedHttpsPort)]]),
+      ] as const;
+      expectedBindings = expected.every(([target, hostPort]) =>
+        parsed[target]?.some((binding) => binding.HostPort === hostPort),
+      );
+    } catch {
+      expectedBindings = false;
+    }
+    if (!expectedBindings) {
+      await execute(client, `docker rm -f ${CADDY_CONTAINER_NAME}`);
+    } else {
+      // Container already exists – make sure it is running and on the overlay network.
+      await execute(
+        client,
+        `docker start ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
+      );
+      await execute(
+        client,
+        `docker network connect ${CADDY_NETWORK} ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
+      );
+      return;
+    }
   }
 
   // 4. Create the container (mirrors CaddyService.initializeCaddy exactly).
@@ -135,9 +167,11 @@ async function initializeCaddyViaSsh(
     "--label com.upstand.component=caddy",
     "--label com.upstand.platform=true",
     "--restart always",
-    "-p 80:80",
-    "-p 443:443",
-    "-p 443:443/udp",
+    `-p ${publishedHttpPort}:${caddyHttpPort}`,
+    `-p ${publishedHttpsPort}:${caddyHttpsPort}`,
+    ...(settings.enableHttp3 === false
+      ? []
+      : [`-p ${publishedHttpsPort}:${caddyHttpsPort}/udp`]),
     "-v upstand-caddy-runtime:/etc/caddy",
     "-v upstand-caddy-data:/data",
     "-v upstand-caddy-config:/config",

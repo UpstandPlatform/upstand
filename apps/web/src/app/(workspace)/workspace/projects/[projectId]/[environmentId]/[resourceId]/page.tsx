@@ -1,0 +1,27 @@
+import { redirect } from "next/navigation";
+import ResourceDetail from "@/features/resources";
+import { getServerSession } from "@/lib/server-session";
+
+export const dynamic = "force-dynamic";
+
+export default async function WorkspaceResourcePage({
+  params,
+}: {
+  params: Promise<{
+    projectId: string;
+    environmentId: string;
+    resourceId: string;
+  }>;
+}) {
+  const { projectId, environmentId, resourceId } = await params;
+  const session = await getServerSession();
+  if (!session?.user) redirect("/login");
+  return (
+    <ResourceDetail
+      projectId={projectId}
+      environmentId={environmentId}
+      resourceId={resourceId}
+      session={session}
+    />
+  );
+}

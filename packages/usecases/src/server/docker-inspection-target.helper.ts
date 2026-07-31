@@ -1,5 +1,6 @@
 import type { IUnitOfWork } from "@upstand/domain";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 import type { DockerInspectionTarget } from "../ports/docker";
 
 export async function resolveDockerInspectionTarget(
@@ -11,10 +12,16 @@ export async function resolveDockerInspectionTarget(
   options: {
     localName?: string;
     localServerIds?: readonly string[];
+    allowLocalInCloud?: boolean;
   } = {},
 ): Promise<DockerInspectionTarget> {
   const localServerIds = options.localServerIds ?? ["local"];
   if (!input.serverId || localServerIds.includes(input.serverId)) {
+    if (requiresRemoteServerPlacement() && !options.allowLocalInCloud) {
+      throw new Error(
+        "Local server target is not available in cloud mode. Please specify a remote server ID.",
+      );
+    }
     return { kind: "local", name: options.localName ?? "Local Docker" };
   }
   const server = await uow.serverRepository.findById(input.serverId);
@@ -30,6 +37,7 @@ export async function resolveDockerInspectionTarget(
     host: server.ipAddress,
     port: server.port,
     username: server.username,
+    hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
     privateKey: decryptSecret({
       ciphertext: key.privateKeyCiphertext,
       iv: key.privateKeyIv,

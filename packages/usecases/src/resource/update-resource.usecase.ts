@@ -12,13 +12,13 @@ import {
   serializeResourceAdvancedConfig,
   ValidationError,
 } from "@upstand/domain";
-import { env } from "@upstand/env/server";
 import {
   decryptSecret,
   encryptSecret,
 } from "@upstand/platform/crypto/secret-box";
 import { log } from "evlog";
 import { z } from "zod";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 import {
   assertBuildServerSupportsResource,
   assertDeploymentServerSupportsResource,
@@ -430,7 +430,7 @@ export class UpdateResourceUseCase {
         );
       }
     }
-    if (env.IS_CLOUD) {
+    if (requiresRemoteServerPlacement()) {
       if (
         input.serverId === null ||
         (input.serverId && ["local", "manager"].includes(input.serverId))

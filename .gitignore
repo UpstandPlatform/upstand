@@ -58,5 +58,6 @@ coverage
 *.tgz
 .cache
 .builds/
+.docker/
 tmp
 temp

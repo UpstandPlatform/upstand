@@ -7,6 +7,8 @@
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
       body { display: grid; min-height: 100vh; margin: 0; place-items: center; }
+      .drag-handle { position: fixed; top: 0; left: 0; right: 0; height: 36px; -webkit-app-region: drag; }
+      main, form, input, button, a { -webkit-app-region: no-drag; }
       main { width: min(440px, calc(100vw - 48px)); }
       h1 { font-size: 2rem; margin: 0 0 .75rem; } p { color: #a1a1aa; line-height: 1.5; }
       form { display: grid; gap: .75rem; margin-top: 2rem; } input, button { border-radius: .6rem; font: inherit; padding: .8rem .9rem; }
@@ -16,9 +18,10 @@
     </style>
   </head>
   <body>
+    <div class="drag-handle"></div>
     <main>
       <h1>Connect to Upstand</h1>
-      <p>Use this secure desktop shell with a self-hosted or cloud Upstand control plane. Local development instances may use HTTP; remote instances require HTTPS.</p>
+      <p>Connect this desktop client to a self-hosted or cloud Upstand control plane. Once connected, the workspace dashboard opens automatically.</p>
       <form id="connection-form">
         <label for="origin">Control plane URL</label>
         <input id="origin" name="origin" type="url" autocomplete="url" placeholder="https://upstand.example.com" required />

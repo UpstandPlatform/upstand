@@ -8,7 +8,6 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { queryClient } from "@/utils/trpc";
-
 import { ThemeProvider } from "./theme-provider";
 
 export default function Providers({ children }: { children: React.ReactNode }) {

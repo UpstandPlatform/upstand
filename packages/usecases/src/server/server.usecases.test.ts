@@ -235,6 +235,39 @@ describe("server use cases", () => {
     ).rejects.toThrow("Cannot change this server");
   });
 
+  test("validates credential requirements for ssh_key vs password authType", () => {
+    expect(
+      CreateServerInputSchema.safeParse({
+        organizationId: "org-1",
+        name: "SSH Server",
+        serverType: "deploy",
+        authType: "ssh_key",
+        ipAddress: "203.0.113.10",
+      }).success,
+    ).toBeFalse();
+
+    expect(
+      CreateServerInputSchema.safeParse({
+        organizationId: "org-1",
+        name: "Password Server",
+        serverType: "deploy",
+        authType: "password",
+        ipAddress: "203.0.113.10",
+      }).success,
+    ).toBeFalse();
+
+    expect(
+      CreateServerInputSchema.safeParse({
+        organizationId: "org-1",
+        name: "Valid Password Server",
+        serverType: "deploy",
+        authType: "password",
+        password: "secret-password-123",
+        ipAddress: "203.0.113.10",
+      }).success,
+    ).toBeTrue();
+  });
+
   test("prevents deleting a server while it is assigned to a resource", async () => {
     const { uow, resources } = createUow();
     resources.set("resource-1", {

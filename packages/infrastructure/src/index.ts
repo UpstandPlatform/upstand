@@ -13,6 +13,13 @@ export {
 export { NotificationTransportRegistry } from "./notification/notification-transport";
 export { BullMqOutboxJobPublisher } from "./outbox/bullmq-outbox-job-publisher";
 export { createServerProvisioningPort } from "./provisioning/server-provisioning";
+export { scanApacheProxy } from "./proxy/import/apache-importer";
+export { scanCaddyProxy } from "./proxy/import/caddy-importer";
+export { scanNginxProxy } from "./proxy/import/nginx-importer";
+export { scanTraefikProxy } from "./proxy/import/traefik-importer";
+export { DefaultProxyDetector } from "./proxy/proxy-detector";
+export { DefaultProxyImporter } from "./proxy/proxy-importer";
+export { DefaultProxyTakeoverManager } from "./proxy/proxy-takeover-manager";
 export type {
   RateLimitCheckOptions,
   RateLimiterHealth,

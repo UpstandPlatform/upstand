@@ -67,6 +67,12 @@ jobs:
             # multi-architecture publishing; canary prioritizes fast feedback.
             platforms: linux/amd64
             build_args: ""
+          - name: edge
+            context: apps/edge
+            file: apps/edge/Dockerfile
+            scope: upstand-edge
+            platforms: linux/amd64,linux/arm64
+            build_args: ""
     env:
       NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
     permissions:

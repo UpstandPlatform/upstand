@@ -3,6 +3,18 @@ import { getServerApiUrl } from "@/lib/server-url";
 
 type SystemConfig = {
   isCloud: boolean;
+  platformMode: "desktop" | "self-hosted" | "cloud";
+  capabilities: {
+    mode: "desktop" | "self-hosted" | "cloud";
+    localRuntime: boolean;
+    remoteServers: boolean;
+    localEdge: boolean;
+    remoteEdge: boolean;
+    scheduler: boolean;
+    redis: boolean;
+    cloudConnection: boolean;
+    jobs: boolean;
+  };
 };
 
 async function fetchSystemConfig(): Promise<SystemConfig> {
@@ -15,9 +27,33 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
     throw new Error("Unable to load system configuration");
   }
 
-  const payload = (await response.json()) as { isCloud?: unknown };
+  const payload = (await response.json()) as {
+    isCloud?: unknown;
+    platformMode?: unknown;
+    capabilities?: SystemConfig["capabilities"];
+  };
+  const platformMode =
+    payload.platformMode === "desktop" ||
+    payload.platformMode === "cloud" ||
+    payload.platformMode === "self-hosted"
+      ? payload.platformMode
+      : payload.isCloud === true
+        ? "cloud"
+        : "self-hosted";
   return {
-    isCloud: payload.isCloud === true,
+    isCloud: platformMode === "cloud",
+    platformMode,
+    capabilities: payload.capabilities ?? {
+      mode: platformMode,
+      localRuntime: platformMode !== "cloud",
+      remoteServers: true,
+      localEdge: platformMode !== "cloud",
+      remoteEdge: true,
+      scheduler: true,
+      redis: platformMode !== "desktop",
+      cloudConnection: platformMode !== "cloud",
+      jobs: true,
+    },
   };
 }
 
@@ -34,5 +70,7 @@ export function useSystemConfig() {
   return {
     ...query,
     isCloud: query.data?.isCloud === true,
+    platformMode: query.data?.platformMode ?? "self-hosted",
+    capabilities: query.data?.capabilities,
   };
 }

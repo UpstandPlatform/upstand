@@ -102,6 +102,55 @@ function caddySettingsWithDefaults(settings: CaddySettings = {}) {
   return effectiveSettings;
 }
 
+function expectedCaddyPortBindings(effectiveSettings: {
+  httpPort: number;
+  httpsPort: number;
+  enableHttp3: boolean;
+}): Record<string, Array<{ HostPort: string }>> {
+  const httpHostPort = "80";
+  const httpsHostPort = "443";
+  const bindings: Record<string, Array<{ HostPort: string }>> = {
+    [`${effectiveSettings.httpPort}/tcp`]: [{ HostPort: httpHostPort }],
+    [`${effectiveSettings.httpsPort}/tcp`]: [{ HostPort: httpsHostPort }],
+  };
+  if (effectiveSettings.enableHttp3) {
+    bindings[`${effectiveSettings.httpsPort}/udp`] = [
+      { HostPort: httpsHostPort },
+    ];
+  }
+  return bindings;
+}
+
+function hasExpectedCaddyPortBindings(
+  container: { HostConfig?: { PortBindings?: unknown } } | null,
+  effectiveSettings: {
+    httpPort: number;
+    httpsPort: number;
+    enableHttp3: boolean;
+  },
+): boolean {
+  const rawBindings = container?.HostConfig?.PortBindings;
+  if (!rawBindings || typeof rawBindings !== "object") return true;
+  const bindings = rawBindings as Record<string, Array<{ HostPort?: string }>>;
+  const expectedBindings = expectedCaddyPortBindings(effectiveSettings);
+  const expected = Object.entries(expectedBindings).every(
+    ([target, expected]) =>
+      bindings[target]?.some(
+        (binding) => binding.HostPort === expected[0]?.HostPort,
+      ) ?? false,
+  );
+  if (!expected) return false;
+
+  const managedTargets = [
+    `${effectiveSettings.httpPort}/tcp`,
+    `${effectiveSettings.httpsPort}/tcp`,
+    `${effectiveSettings.httpsPort}/udp`,
+  ];
+  return managedTargets.every((target) =>
+    target in expectedBindings ? target in bindings : !(target in bindings),
+  );
+}
+
 function parseCaddyEnvironment(value?: string): string[] {
   if (!value) return [];
 
@@ -866,6 +915,7 @@ export class CaddyService {
 
       let container = await this.findContainer();
       const existingContainer = container ? await container.inspect() : null;
+      const effectiveSettings = caddySettingsWithDefaults(settings);
       const hasManagedVolumes = [
         ["/etc/caddy", CADDY_RUNTIME_VOLUME],
         ["/data", CADDY_DATA_VOLUME],
@@ -879,7 +929,11 @@ export class CaddyService {
             mount.Name === volume,
         ),
       );
-      const shouldRecreate = forceRecreate || (container && !hasManagedVolumes);
+      const shouldRecreate =
+        forceRecreate ||
+        (container && !hasManagedVolumes) ||
+        (container &&
+          !hasExpectedCaddyPortBindings(existingContainer, effectiveSettings));
 
       if (container && shouldRecreate) {
         if (existingContainer?.State.Running) await container.stop();
@@ -904,12 +958,8 @@ export class CaddyService {
         return;
       }
 
-      const effectiveSettings = caddySettingsWithDefaults(settings);
       const extraPorts = parseExtraPortMappings(settings.caddyPorts);
-      const publicPorts: Record<string, Array<{ HostPort: string }>> = {
-        [`${effectiveSettings.httpPort}/tcp`]: [{ HostPort: "80" }],
-        [`${effectiveSettings.httpsPort}/tcp`]: [{ HostPort: "443" }],
-      };
+      const publicPorts = expectedCaddyPortBindings(effectiveSettings);
       const exposedPorts: Record<string, Record<string, never>> = {
         [`${effectiveSettings.httpPort}/tcp`]: {},
         [`${effectiveSettings.httpsPort}/tcp`]: {},
@@ -917,9 +967,6 @@ export class CaddyService {
 
       if (effectiveSettings.enableHttp3) {
         exposedPorts[`${effectiveSettings.httpsPort}/udp`] = {};
-        publicPorts[`${effectiveSettings.httpsPort}/udp`] = [
-          { HostPort: "443" },
-        ];
       }
       for (const port of extraPorts) {
         const key = `${port.targetPort}/${port.protocol}`;

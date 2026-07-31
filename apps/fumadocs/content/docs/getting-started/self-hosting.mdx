@@ -19,8 +19,9 @@ graph TD
     end
 
     subgraph Host["Production Host / Virtual Machine"]
-        subgraph IngressLayer["Ingress Proxy (Port 80 / 443)"]
-            Caddy["Caddy Reverse Proxy (Automatic TLS / ACME)"]
+        subgraph IngressLayer["Public Ingress (Port 80 / 443)"]
+            Edge["OpenResty Managed Edge"]
+            Caddy["Caddy Application Proxy (Compatibility Backend)"]
         end
 
         subgraph SwarmCluster["Docker Swarm Stack: upstand"]
@@ -39,7 +40,8 @@ graph TD
     end
 
     Client --> DNS
-    DNS --> Caddy
+    DNS --> Edge
+    Edge --> Caddy
     Caddy -->|"Proxy Server API (port 3000)"| ServerAPI
     Caddy -->|"Proxy Web Dashboard (port 3001)"| WebUI
     Caddy -->|"Proxy Fumadocs (port 4000)"| Fumadocs
@@ -47,7 +49,7 @@ graph TD
     ServerAPI --> Cache
     DB --> VolData
     ServerAPI --> VolSecrets
-    Caddy --> VolCaddy
+            Caddy --> VolCaddy
 ```
 
 ---
@@ -63,7 +65,7 @@ Prepare a fresh Linux Virtual Machine matching these requirements:
    - `api.example.com` (for the Hono/tRPC API server)
    - `docs.example.com` (for the documentation app)
 4. **Firewall Rules**:
-   - Open public TCP **80** and **443** for Caddy HTTPS certificate generation.
+   - Open public TCP **80** and **443** for the managed OpenResty edge. Caddy remains behind the edge on internal backend ports and keeps its existing domain-routing behavior.
    - Until a domain is configured, the dashboard, API, and documentation are also reachable on TCP **3001**, **3000**, and **4000** respectively.
    - For multi-node Swarms, restrict TCP **2377** (cluster management), TCP/UDP **7946** (node communication), and UDP **4789** (overlay network ingress) to your internal cluster network.
 
@@ -129,7 +131,7 @@ The Upstand installer supports two compilation strategies:
   </Step>
 </Steps>
 
-After the first boot, open the dashboard at `http://<server-ip>:3001`. The API is at `http://<server-ip>:3000` and documentation is at `http://<server-ip>:4000`. On **Web Server**, configure the server domain and HTTPS certificate. Once that domain is working over HTTPS, clear **Direct IP:port access** and save; Upstand then removes the published control-plane ports while keeping the Caddy domain route active.
+After the first boot, open the dashboard at `http://<server-ip>:3001`. The API is at `http://<server-ip>:3000` and documentation is at `http://<server-ip>:4000`. On **Web Server**, configure the server domain and HTTPS certificate. The managed edge owns public `:80/:443` and forwards legacy Caddy mappings to the backend; explicit edge routes can add policy before Caddy. Once the domain is working over HTTPS, clear **Direct IP:port access** and save; Upstand then removes the published control-plane ports while keeping the Caddy domain route active.
 
 ---
 

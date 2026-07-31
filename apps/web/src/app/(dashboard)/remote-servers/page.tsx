@@ -62,7 +62,9 @@ export default function RemoteServersPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [serverType, setServerType] = useState<ServerType>("deploy");
+  const [authType, setAuthType] = useState<"ssh_key" | "password">("ssh_key");
   const [sshKeyId, setSshKeyId] = useState("");
+  const [password, setPassword] = useState("");
   const [ipAddress, setIpAddress] = useState("");
   const [port, setPort] = useState(22);
   const [username, setUsername] = useState("root");
@@ -151,7 +153,9 @@ export default function RemoteServersPage() {
     setName("");
     setDescription("");
     setServerType("deploy");
+    setAuthType("ssh_key");
     setSshKeyId("");
+    setPassword("");
     setIpAddress("");
     setPort(22);
     setUsername("root");
@@ -160,8 +164,16 @@ export default function RemoteServersPage() {
 
   const handleSubmit = (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (!name || !ipAddress || !sshKeyId) {
-      toast.error("Name, IP Address, and SSH Key are required");
+    if (!name || !ipAddress) {
+      toast.error("Name and IP Address are required");
+      return;
+    }
+    if (authType === "ssh_key" && !sshKeyId) {
+      toast.error("SSH Key is required for SSH key authentication");
+      return;
+    }
+    if (authType === "password" && !editingServerId && !password) {
+      toast.error("Password is required for password authentication");
       return;
     }
     const input = {
@@ -169,7 +181,9 @@ export default function RemoteServersPage() {
       name,
       description: description || null,
       serverType,
-      sshKeyId,
+      authType,
+      sshKeyId: authType === "ssh_key" ? sshKeyId : null,
+      password: authType === "password" && password ? password : undefined,
       ipAddress,
       port,
       username,
@@ -219,6 +233,7 @@ export default function RemoteServersPage() {
     name: string;
     description?: string | null;
     serverType: ServerType;
+    authType?: string;
     sshKeyId?: string | null;
     ipAddress: string;
     port: number;
@@ -229,7 +244,9 @@ export default function RemoteServersPage() {
     setName(server.name);
     setDescription(server.description ?? "");
     setServerType(server.serverType);
+    setAuthType(server.authType === "password" ? "password" : "ssh_key");
     setSshKeyId(server.sshKeyId ?? "");
+    setPassword("");
     setIpAddress(server.ipAddress);
     setPort(server.port);
     setUsername(server.username);
@@ -628,27 +645,67 @@ export default function RemoteServersPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="sshKeyId">Select an SSH Key</Label>
+              <Label htmlFor="authType">Authentication Method</Label>
               <Select
-                items={(sshKeys ?? []).map((key) => ({
-                  value: key.id,
-                  label: `${key.name} (${key.algorithm})`,
-                }))}
-                value={sshKeyId}
-                onValueChange={(value) => setSshKeyId(value ?? "")}
+                items={[
+                  { value: "ssh_key", label: "SSH Key" },
+                  { value: "password", label: "Password" },
+                ]}
+                value={authType}
+                onValueChange={(val) =>
+                  val && setAuthType(val as "ssh_key" | "password")
+                }
               >
-                <SelectTrigger id="sshKeyId" className="w-full">
-                  <SelectValue placeholder="Choose an SSH key" />
+                <SelectTrigger id="authType" className="w-full">
+                  <SelectValue placeholder="Select auth method" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sshKeys?.map((key) => (
-                    <SelectItem key={key.id} value={key.id}>
-                      {key.name} ({key.algorithm})
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="ssh_key">SSH Key</SelectItem>
+                  <SelectItem value="password">Password</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {authType === "ssh_key" ? (
+              <div className="space-y-2">
+                <Label htmlFor="sshKeyId">Select an SSH Key</Label>
+                <Select
+                  items={(sshKeys ?? []).map((key) => ({
+                    value: key.id,
+                    label: `${key.name} (${key.algorithm})`,
+                  }))}
+                  value={sshKeyId}
+                  onValueChange={(value) => setSshKeyId(value ?? "")}
+                >
+                  <SelectTrigger id="sshKeyId" className="w-full">
+                    <SelectValue placeholder="Choose an SSH key" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sshKeys?.map((key) => (
+                      <SelectItem key={key.id} value={key.id}>
+                        {key.name} ({key.algorithm})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="password">SSH Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  required={!editingServerId}
+                  placeholder={
+                    editingServerId
+                      ? "Leave blank to keep existing password"
+                      : "Enter SSH password"
+                  }
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="ipAddress">IP Address</Label>

@@ -155,6 +155,8 @@ services:
       - encryption_key
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       upstand-network:
         aliases:
@@ -233,6 +235,8 @@ services:
       DOCKER_NETWORK: upstand-network
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000
       SCHEDULES_PORT: 3002
+      UPSTAND_OPENRESTY_MANAGEMENT_URL: ${UPSTAND_OPENRESTY_MANAGEMENT_URL:-http://host.docker.internal:8090}
+      UPSTAND_OPENRESTY_MANAGEMENT_TOKEN: ${EDGE_MANAGEMENT_TOKEN:?EDGE_MANAGEMENT_TOKEN is required}
     secrets:
       - postgres_password
       - redis_password
@@ -240,6 +244,8 @@ services:
       - encryption_key
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       upstand-network:
         aliases:

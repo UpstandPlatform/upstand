@@ -116,6 +116,11 @@ jobs:
             file: apps/monitoring/Dockerfile
             scope: upstand-monitoring
             build_args: ""
+          - name: edge
+            context: apps/edge
+            file: apps/edge/Dockerfile
+            scope: upstand-edge
+            build_args: ""
     permissions:
       contents: read
       packages: write
@@ -251,7 +256,7 @@ jobs:
           manifest_file="$RUNNER_TEMP/upstand-release-manifest.json"
           images='[]'
 
-          for name in server schedules web fumadocs monitoring; do
+          for name in server schedules web fumadocs monitoring edge; do
             image="ghcr.io/${repo}-${name}:${RELEASE_VERSION}"
             inspect="$(docker buildx imagetools inspect "$image")"
             digest="$(awk '$1 == "Digest:" { print $2; exit }' <<< "$inspect")"

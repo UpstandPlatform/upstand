@@ -32,16 +32,42 @@ export class SetupServerUseCase {
       throw new Error("Server not found");
     }
 
-    if (!server.sshKeyId) {
-      throw new Error("Server does not have an SSH Key configured");
-    }
     if (!server.sshHostKeyFingerprint) {
       throw new Error("Trust the server SSH host key before provisioning it");
     }
 
-    const sshKey = await this.uow.sshKeyRepository.findById(server.sshKeyId);
-    if (!sshKey) {
-      throw new Error("Configured SSH Key not found");
+    let privateKey: string | undefined;
+    let password: string | undefined;
+
+    if (server.authType === "password") {
+      if (
+        !server.passwordCiphertext ||
+        !server.passwordIv ||
+        !server.passwordAuthTag ||
+        server.passwordVersion == null
+      ) {
+        throw new Error("Server password credentials are not configured");
+      }
+      password = decryptSecret({
+        ciphertext: server.passwordCiphertext,
+        iv: server.passwordIv,
+        authTag: server.passwordAuthTag,
+        keyVersion: server.passwordVersion,
+      });
+    } else {
+      if (!server.sshKeyId) {
+        throw new Error("Server does not have an SSH Key configured");
+      }
+      const sshKey = await this.uow.sshKeyRepository.findById(server.sshKeyId);
+      if (!sshKey) {
+        throw new Error("Configured SSH Key not found");
+      }
+      privateKey = decryptSecret({
+        ciphertext: sshKey.privateKeyCiphertext,
+        iv: sshKey.privateKeyIv,
+        authTag: sshKey.privateKeyAuthTag,
+        keyVersion: sshKey.privateKeyVersion,
+      });
     }
 
     // Update status to setting_up
@@ -50,20 +76,16 @@ export class SetupServerUseCase {
       setupError: null,
     });
 
-    // Decrypt the private key
-    const privateKey = decryptSecret({
-      ciphertext: sshKey.privateKeyCiphertext,
-      iv: sshKey.privateKeyIv,
-      authTag: sshKey.privateKeyAuthTag,
-      keyVersion: sshKey.privateKeyVersion,
-    });
-
-    return this.runSetup(server, privateKey, server.sshHostKeyFingerprint);
+    return this.runSetup(
+      server,
+      { privateKey, password },
+      server.sshHostKeyFingerprint,
+    );
   }
 
   private async runSetup(
     server: Server,
-    privateKey: string,
+    credentials: { privateKey?: string; password?: string },
     hostKeyFingerprint: string,
   ): Promise<{ success: boolean; message: string }> {
     let session: ServerProvisioningSession | null = null;
@@ -83,7 +105,8 @@ export class SetupServerUseCase {
     try {
       session = await this.provisioning.connect({
         server,
-        privateKey,
+        privateKey: credentials.privateKey,
+        password: credentials.password,
         hostKeyFingerprint,
       });
       const connectedSession = session;

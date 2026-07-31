@@ -13,7 +13,10 @@ import { DrizzleNotificationDeliveryRepository } from "./notification/drizzle-no
 import { DrizzleOutboxRepository } from "./outbox/drizzle-outbox.repository";
 import { DrizzlePreviewDeploymentRepository } from "./preview-deployment/drizzle-preview-deployment.repository";
 import { DrizzleProjectRepository } from "./project/drizzle-project.repository";
+import { DrizzleProxyTakeoverJournalRepository } from "./proxy/drizzle-proxy-takeover-journal.repository";
+
 import { DrizzleResourceRepository } from "./resource/drizzle-resource.repository";
+
 import { DrizzleResourceRuntimeRepository } from "./resource/drizzle-resource-runtime.repository";
 import { DrizzleS3DestinationRepository } from "./s3-destination/drizzle-s3-destination.repository";
 import { DrizzleScheduleRepository } from "./schedule/drizzle-schedule.repository";
@@ -64,6 +67,7 @@ export class DrizzleUnitOfWork implements IUnitOfWork {
   public readonly secretVersionRepository: DrizzleSecretVersionRepository;
   public readonly secretProviderRepository: DrizzleSecretProviderRepository;
   public readonly secretRotationScheduleRepository: DrizzleSecretRotationScheduleRepository;
+  public readonly proxyTakeoverJournalRepository: DrizzleProxyTakeoverJournalRepository;
 
   constructor(private readonly executor: Executor) {
     this.auditLogRepository = new DrizzleAuditLogRepository(this.executor);
@@ -129,6 +133,8 @@ export class DrizzleUnitOfWork implements IUnitOfWork {
     );
     this.secretRotationScheduleRepository =
       new DrizzleSecretRotationScheduleRepository(this.executor);
+    this.proxyTakeoverJournalRepository =
+      new DrizzleProxyTakeoverJournalRepository(this.executor);
   }
 
   async transaction<T>(work: (uow: IUnitOfWork) => Promise<T>): Promise<T> {

@@ -1,6 +1,30 @@
 name: upstand-local
 
 services:
+  edge:
+    profiles: [edge]
+    build:
+      context: ./apps/edge
+    container_name: upstand-edge-local
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./.docker/edge/certs:/etc/openresty/certs
+      - ./.docker/edge/logs:/var/log/openresty
+    environment:
+      EDGE_UPSTREAM: upstand-caddy:80
+      EDGE_HTTPS_UPSTREAM: upstand-caddy:443
+      EDGE_ALLOW_FALLBACK: "true"
+      EDGE_MANAGEMENT_TOKEN: ${EDGE_MANAGEMENT_TOKEN:-upstand-local-edge-management-token}
+    networks:
+      - upstand-network
+      - local-ingress
+    depends_on:
+      server:
+        condition: service_healthy
+
   postgres:
     image: postgres:18-alpine
     container_name: upstand-postgres-local
@@ -258,7 +282,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "node -e \"fetch('http://127.0.0.1:4000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+          "node -e \"fetch('http://127.0.0.1:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
         ]
       interval: 10s
       timeout: 5s

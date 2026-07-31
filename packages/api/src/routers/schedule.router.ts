@@ -7,10 +7,12 @@ import {
   GetSchedulesInputSchema,
   UpdateScheduleInputSchema,
 } from "@upstand/domain";
+import { GetOrganizationSchedulesInputSchema } from "@upstand/usecases";
 import {
   CreateScheduleUseCaseToken,
   DeleteScheduleUseCaseToken,
   GeneralSchedulerToken,
+  GetOrganizationSchedulesUseCaseToken,
   GetScheduleLogsUseCaseToken,
   GetSchedulesUseCaseToken,
   UnitOfWorkToken,
@@ -34,6 +36,18 @@ async function authorizeResource(
 }
 
 export const scheduleRouter = router({
+  listForOrganization: twoFactorVerifiedProcedure
+    .input(GetOrganizationSchedulesInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "resource:view",
+      );
+      return ctx.scope
+        .resolve(GetOrganizationSchedulesUseCaseToken)
+        .execute(input);
+    }),
   list: twoFactorVerifiedProcedure
     .input(GetSchedulesInputSchema)
     .query(async ({ ctx, input }) => {

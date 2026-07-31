@@ -23,7 +23,10 @@ const skipValidation =
 
 const validatedEnv = createEnv({
   server: {
-    DATABASE_URL: isTest ? z.string().optional() : z.string().min(1),
+    DATABASE_URL:
+      isTest || process.env.UPSTAND_PLATFORM === "desktop"
+        ? z.string().optional()
+        : z.string().min(1),
     BETTER_AUTH_SECRET: isTest ? z.string().optional() : z.string().min(32),
     BETTER_AUTH_URL: isTest ? z.string().optional() : z.url(),
     CORS_ORIGIN: isTest ? z.string().optional() : z.url(),
@@ -43,6 +46,8 @@ const validatedEnv = createEnv({
         z.boolean(),
       )
       .default(false),
+    UPSTAND_PLATFORM: z.enum(["desktop", "self-hosted", "cloud"]).optional(),
+    PGLITE_DATA_DIR: z.string().min(1).optional(),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
@@ -91,6 +96,9 @@ const validatedEnv = createEnv({
     UPSTAND_SERVER_UPSTREAM: z.string().optional(),
     UPSTAND_WEB_UPSTREAM: z.string().optional(),
     UPSTAND_FUMADOCS_UPSTREAM: z.string().optional(),
+    UPSTAND_EDGE_BACKEND: z.boolean().default(false),
+    UPSTAND_EDGE_BACKEND_HTTP_PORT: z.number().default(8080),
+    UPSTAND_EDGE_BACKEND_HTTPS_PORT: z.number().default(8443),
     OPENROUTER_API_KEY: z.string().optional(),
     OPENROUTER_MODEL: z.string().optional(),
   },

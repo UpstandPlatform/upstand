@@ -1,9 +1,31 @@
 ---
-title: Domains, Caddy & Automatic HTTPS
-description: Learn how to manage public routing, SSL certificates, headers, and reverse proxies using Caddy.
+title: Domains, Managed Edge, Caddy & Automatic HTTPS
+description: Learn how to manage public routing, edge rules, SSL certificates, headers, and reverse proxies using OpenResty and Caddy.
 ---
 
-Upstand orchestrates a central **Caddy Web Server** container to serve as the entry point for all public domain routing.
+Upstand orchestrates a managed **OpenResty edge** as the public `:80`/`:443`
+entry point. The existing **Caddy Web Server** remains the application proxy
+behind it, preserving domain mappings, middleware, certificates, and reload
+semantics. With `EDGE_ALLOW_FALLBACK=true`, host/path requests without an
+explicit managed-edge route are passed to Caddy.
+
+Explicit managed-edge routes are evaluated first. They are useful for
+edge-native rate limits, country rules, and traffic policies; they bypass the
+Caddy mapping for the matching host/path, so configure their upstream and TLS
+policy deliberately.
+
+OpenResty is the only reverse proxy Upstand owns on the public listener. Caddy
+is retained as the private compatibility backend for existing domain mappings;
+Upstand does not start parallel Traefik or Nginx public edges. If a host already
+has one of those proxies, stop or migrate it through the takeover workflow
+before assigning ports 80/443 to the managed edge.
+
+The edge image includes a vendored GeoLite2-Country database and the
+`lua-resty-maxminddb` lookup binding. Country rules use the client address seen
+by OpenResty, never an arbitrary forwarded header. The database is refreshed by
+maintainers with `bun run update:geoip` and is not downloaded on a customer
+server at runtime. If the database cannot be opened, country rules fail closed
+and the edge health endpoint reports `geoIpAvailable: false`.
 
 ---
 
@@ -28,7 +50,7 @@ Upstand configures and reloads certificates dynamically. You can choose between 
 - Automatically completes ACME HTTP-01 or TLS-ALPN-01 challenges.
 - Optional ACME contact email for certificate expiration alerts and account registration.
 - Caddy caches certificates, private keys, and renewal statuses in a persistent volume.
-- **Prerequisites**: DNS must resolve to the server IP and TCP ports **80** and **443** must be open publicly.
+- **Prerequisites**: DNS must resolve to the edge host and TCP ports **80** and **443** must be open publicly. In edge backend mode, Caddy uses internal host ports `8080` and `8443` by default, so those ports should not be exposed publicly.
 
 ### ZeroSSL
 - Issues certificates via ZeroSSL ACME endpoints with ACME contact email registration.
@@ -81,7 +103,7 @@ Operators can define reusable Caddy configuration snippets under **Web Server â†
 }
 ```
 
-- **IP Allowlisting & Geo-Blocking**: Block or restrict route access based on client IP CIDR ranges or Cloudflare country headers (`{http.request.header.CF-IPCountry}`).
+- **IP Allowlisting & Geo-Blocking**: Managed-edge routes can block or restrict access using client IP CIDRs or GeoLite2 country rules. Requests that intentionally stay on the Caddy compatibility fallback can still use provider headers such as `{http.request.header.CF-IPCountry}`.
 - **Snippet Import**: Import any defined snippet directly on domain mapping cards by selecting it from the **Caddy Snippets** dropdown menu.
 
 ---
@@ -116,12 +138,15 @@ The global Web Server settings page exposes a CodeMirror editor for:
 sequenceDiagram
     autonumber
     actor Client as Browser Client
+    participant Edge as OpenResty Managed Edge
     participant Caddy as Caddy Reverse Proxy
     participant ACME as Let's Encrypt / ACME CA
     participant Swarm as Docker Swarm Overlay Network
     participant App as Target Service Container
 
-    Client->>Caddy: HTTPS Request (api.example.com)
+    Client->>Edge: HTTPS Request (api.example.com)
+    Edge->>Edge: Match explicit edge route or use Caddy fallback
+    Edge->>Caddy: Forward to Caddy HTTPS backend (8443)
     alt Certificate Exists & Valid
         Caddy->>Caddy: Terminate TLS (AES-GCM / ChaCha20)
     else Certificate Missing / Expired

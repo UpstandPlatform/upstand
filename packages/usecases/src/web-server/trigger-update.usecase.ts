@@ -2,6 +2,7 @@ import { env } from "@upstand/env/server";
 import { log } from "evlog";
 import { z } from "zod";
 import type { NotificationPublisher } from "../notification/publish-notification.usecase";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 import { getDockerInstance } from "../resource/docker-client";
 import { GetUpdateStatusUseCase } from "./get-update-status.usecase";
 
@@ -24,7 +25,7 @@ export class TriggerUpdateUseCase {
   constructor(private readonly notificationPublisher?: NotificationPublisher) {}
 
   async execute(input: TriggerUpdateInput): Promise<{ success: boolean }> {
-    if (env.IS_CLOUD) {
+    if (requiresRemoteServerPlacement()) {
       throw new Error(
         "Cloud Upstand instances are updated by the managed release rollout.",
       );

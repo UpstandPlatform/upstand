@@ -1,5 +1,6 @@
 import type { ServiceScope } from "@circulo-ai/di";
 import {
+  getConfiguredControlPlaneMode,
   InitSwarmInputSchema,
   RemoveSwarmNodeInputSchema,
   RotateSwarmJoinTokenInputSchema,
@@ -20,6 +21,7 @@ import { z } from "zod";
 import type { AuthenticatedContext } from "../context";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
+import { requireInstanceOwnerContext } from "../instance-access";
 import { authorizeContextCapability } from "../permissions";
 
 const SwarmOrganizationInputSchema = z.object({
@@ -27,9 +29,12 @@ const SwarmOrganizationInputSchema = z.object({
 });
 
 async function requireClusterOwner(
-  ctx: Parameters<typeof authorizeContextCapability>[0],
+  ctx: AuthenticatedContext,
   organizationId: string,
 ) {
+  if (getConfiguredControlPlaneMode() === "cloud") {
+    await requireInstanceOwnerContext(ctx);
+  }
   await authorizeContextCapability(ctx, organizationId, "swarm:manage");
 }
 

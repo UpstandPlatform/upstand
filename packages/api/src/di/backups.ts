@@ -314,6 +314,13 @@ export function registerBackups(
       ),
   );
   services.addTransient(
+    dependencies.GetOrganizationSchedulesUseCaseToken,
+    (c) =>
+      new dependencies.GetOrganizationSchedulesUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
     dependencies.GetScheduleLogsUseCaseToken,
     (c) =>
       new dependencies.GetScheduleLogsUseCase(

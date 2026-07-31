@@ -3,6 +3,7 @@ const networkName = process.env.DOCKER_NETWORK || "upstand-network";
 const apiBaseUrl = process.env.LOCAL_API_URL || "http://localhost:3000";
 const webBaseUrl = process.env.LOCAL_WEB_URL || "http://localhost:3001";
 const docsBaseUrl = process.env.LOCAL_DOCS_URL || "http://localhost:4000";
+const edgeBaseUrl = process.env.LOCAL_EDGE_URL || "http://localhost:80";
 const timeoutMs = Number(process.env.LOCAL_VERIFY_TIMEOUT_MS || 60_000);
 const expectedMode = process.env.LOCAL_EXPECTED_MODE;
 const runtime = process.env.LOCAL_RUNTIME || "compose";
@@ -99,6 +100,7 @@ if (runtime === "compose") {
     "--services",
   ]);
   const expectedServices = [
+    "edge",
     "fumadocs",
     "postgres",
     "redis",
@@ -143,8 +145,20 @@ await waitForEndpoint(
 );
 await waitForEndpoint(
   "Documentation site",
-  `${docsBaseUrl}/`,
+  `${docsBaseUrl}/health`,
   async (response) => response.ok,
+);
+await waitForEndpoint(
+  "Managed edge",
+  `${edgeBaseUrl}/__upstand_edge_health`,
+  async (response) => {
+    if (!response.ok) return false;
+    const body = (await response.json()) as {
+      ready?: unknown;
+      geoIpAvailable?: unknown;
+    };
+    return body.ready === true && body.geoIpAvailable === true;
+  },
 );
 
 console.log("\nLocal parity verification passed.");

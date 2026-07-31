@@ -11,6 +11,7 @@ import type {
   INotificationChannelRepository,
   INotificationDeliveryRepository,
   IProjectRepository,
+  IProxyTakeoverJournalRepository,
   IResourceRepository,
   IS3DestinationRepository,
   ISecretProviderRepository,
@@ -67,3 +68,7 @@ export const NotificationDeliveryRepositoryToken =
   );
 export const MonitoringSettingsRepositoryToken =
   createToken<IMonitoringSettingsRepository>("IMonitoringSettingsRepository");
+export const ProxyTakeoverJournalRepositoryToken =
+  createToken<IProxyTakeoverJournalRepository>(
+    "IProxyTakeoverJournalRepository",
+  );

@@ -20,9 +20,14 @@ export const server = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     serverType: text("server_type").notNull(), // 'deploy' | 'database'
+    authType: text("auth_type").notNull().default("ssh_key"), // 'ssh_key' | 'password'
     sshKeyId: text("ssh_key_id").references(() => sshKey.id, {
       onDelete: "set null",
     }),
+    passwordCiphertext: text("password_ciphertext"),
+    passwordIv: text("password_iv"),
+    passwordAuthTag: text("password_auth_tag"),
+    passwordVersion: integer("password_version"),
     sshHostKeyFingerprint: text("ssh_host_key_fingerprint"),
     ipAddress: text("ip_address").notNull(),
     port: integer("port").notNull().default(22),

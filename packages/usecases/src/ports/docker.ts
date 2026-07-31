@@ -247,6 +247,7 @@ export type DockerInspectionTarget =
       port: number;
       username: string;
       privateKey: string;
+      hostKeyFingerprint?: string;
     };
 
 export interface DockerInfo {

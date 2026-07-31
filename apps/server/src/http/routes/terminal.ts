@@ -51,7 +51,8 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     let host: string;
     let port: number;
     let username: string;
-    let privateKey: string;
+    let privateKey: string | undefined;
+    let password: string | undefined;
     let hostKeyFingerprint: string;
 
     if (body.serverId) {
@@ -59,28 +60,48 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       if (!server || server.organizationId !== body.organizationId) {
         return c.json({ error: "Server not found in this organization" }, 404);
       }
-      if (!server.sshKeyId) {
-        return c.json(
-          { error: "Server does not have an SSH key configured" },
-          409,
-        );
-      }
       if (!server.sshHostKeyFingerprint) {
         return c.json({ error: "Trust the server SSH host key first" }, 409);
       }
-      const key = await uow.sshKeyRepository.findById(server.sshKeyId);
-      if (!key) {
-        return c.json({ error: "Configured SSH key not found" }, 404);
+      if (server.authType === "password") {
+        if (
+          !server.passwordCiphertext ||
+          !server.passwordIv ||
+          !server.passwordAuthTag ||
+          server.passwordVersion == null
+        ) {
+          return c.json(
+            { error: "Server password credentials are missing" },
+            409,
+          );
+        }
+        password = decryptSecret({
+          ciphertext: server.passwordCiphertext,
+          iv: server.passwordIv,
+          authTag: server.passwordAuthTag,
+          keyVersion: server.passwordVersion,
+        });
+      } else {
+        if (!server.sshKeyId) {
+          return c.json(
+            { error: "Server does not have an SSH key configured" },
+            409,
+          );
+        }
+        const key = await uow.sshKeyRepository.findById(server.sshKeyId);
+        if (!key) {
+          return c.json({ error: "Configured SSH key not found" }, 404);
+        }
+        privateKey = decryptSecret({
+          ciphertext: key.privateKeyCiphertext,
+          iv: key.privateKeyIv,
+          authTag: key.privateKeyAuthTag,
+          keyVersion: key.privateKeyVersion,
+        });
       }
       host = server.ipAddress;
       port = server.port;
       username = server.username;
-      privateKey = decryptSecret({
-        ciphertext: key.privateKeyCiphertext,
-        iv: key.privateKeyIv,
-        authTag: key.privateKeyAuthTag,
-        keyVersion: key.privateKeyVersion,
-      });
       hostKeyFingerprint = server.sshHostKeyFingerprint;
     } else {
       if (!body.sshKeyId) {
@@ -145,6 +166,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       port,
       username,
       privateKey,
+      password,
       hostKeyFingerprint,
     });
     return c.json({ token, expiresIn: 60 });
@@ -289,24 +311,50 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     if (!server || server.organizationId !== body.organizationId) {
       return c.json({ error: "Deployment server not found" }, 404);
     }
-    if (!server.sshKeyId) {
-      return c.json({ error: "Deployment server has no SSH key" }, 409);
-    }
     if (!server.sshHostKeyFingerprint) {
       return c.json(
         { error: "Trust the deployment server SSH host key first" },
         409,
       );
     }
-    const key = await uow.sshKeyRepository.findById(server.sshKeyId);
-    if (!key)
-      return c.json({ error: "Deployment server SSH key was not found" }, 404);
-    const privateKey = decryptSecret({
-      ciphertext: key.privateKeyCiphertext,
-      iv: key.privateKeyIv,
-      authTag: key.privateKeyAuthTag,
-      keyVersion: key.privateKeyVersion,
-    });
+    let privateKey: string | undefined;
+    let password: string | undefined;
+
+    if (server.authType === "password") {
+      if (
+        !server.passwordCiphertext ||
+        !server.passwordIv ||
+        !server.passwordAuthTag ||
+        server.passwordVersion == null
+      ) {
+        return c.json(
+          { error: "Deployment server password credentials missing" },
+          409,
+        );
+      }
+      password = decryptSecret({
+        ciphertext: server.passwordCiphertext,
+        iv: server.passwordIv,
+        authTag: server.passwordAuthTag,
+        keyVersion: server.passwordVersion,
+      });
+    } else {
+      if (!server.sshKeyId) {
+        return c.json({ error: "Deployment server has no SSH key" }, 409);
+      }
+      const key = await uow.sshKeyRepository.findById(server.sshKeyId);
+      if (!key)
+        return c.json(
+          { error: "Deployment server SSH key was not found" },
+          404,
+        );
+      privateKey = decryptSecret({
+        ciphertext: key.privateKeyCiphertext,
+        iv: key.privateKeyIv,
+        authTag: key.privateKeyAuthTag,
+        keyVersion: key.privateKeyVersion,
+      });
+    }
 
     const token = terminalBroker.create({
       userId: session.user.id,
@@ -317,6 +365,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       port: server.port,
       username: server.username,
       privateKey,
+      password,
       hostKeyFingerprint: server.sshHostKeyFingerprint,
       command: `docker exec -it ${authorizedContainerId} /bin/sh -c "exec /bin/bash 2>/dev/null || exec /bin/sh"`,
     });
@@ -431,24 +480,50 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
         403,
       );
     }
-    if (!server.sshKeyId) {
-      return c.json({ error: "Docker server has no SSH key configured" }, 409);
-    }
     if (!server.sshHostKeyFingerprint) {
       return c.json(
         { error: "Trust the Docker server SSH host key first" },
         409,
       );
     }
-    const key = await uow.sshKeyRepository.findById(server.sshKeyId);
-    if (!key)
-      return c.json({ error: "Docker server SSH key was not found" }, 404);
-    const privateKey = decryptSecret({
-      ciphertext: key.privateKeyCiphertext,
-      iv: key.privateKeyIv,
-      authTag: key.privateKeyAuthTag,
-      keyVersion: key.privateKeyVersion,
-    });
+    let privateKey: string | undefined;
+    let password: string | undefined;
+
+    if (server.authType === "password") {
+      if (
+        !server.passwordCiphertext ||
+        !server.passwordIv ||
+        !server.passwordAuthTag ||
+        server.passwordVersion == null
+      ) {
+        return c.json(
+          { error: "Docker server password credentials missing" },
+          409,
+        );
+      }
+      password = decryptSecret({
+        ciphertext: server.passwordCiphertext,
+        iv: server.passwordIv,
+        authTag: server.passwordAuthTag,
+        keyVersion: server.passwordVersion,
+      });
+    } else {
+      if (!server.sshKeyId) {
+        return c.json(
+          { error: "Docker server has no SSH key configured" },
+          409,
+        );
+      }
+      const key = await uow.sshKeyRepository.findById(server.sshKeyId);
+      if (!key)
+        return c.json({ error: "Docker server SSH key was not found" }, 404);
+      privateKey = decryptSecret({
+        ciphertext: key.privateKeyCiphertext,
+        iv: key.privateKeyIv,
+        authTag: key.privateKeyAuthTag,
+        keyVersion: key.privateKeyVersion,
+      });
+    }
 
     const token = terminalBroker.create({
       userId: session.user.id,
@@ -459,6 +534,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       port: server.port,
       username: server.username,
       privateKey,
+      password,
       hostKeyFingerprint: server.sshHostKeyFingerprint,
       command: `docker exec -it ${authorizedContainerId} /bin/sh`,
     });

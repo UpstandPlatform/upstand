@@ -32,19 +32,36 @@ bun run test --filter=server
 # Only local server E2E tests
 bun run test:e2e --filter=server
 
-# Run deployment-pipeline contracts against the vendored OpenShip fixtures
+# Run first-party deployment fixture and pipeline tests
 bun run test --filter=@upstand/infrastructure
 ```
 
-## Deployment fixture contracts
+## First-party deployment fixture pipelines
 
-`fixtures/openship/deploy` is a verbatim, source-only copy of OpenShip's
-deployment fixtures. The infrastructure test suite keeps the entire language
-matrix present and drives each fixture through Upstand's Railpack invocation,
-asserting the generated BuildKit commands and scoped build environment without
-requiring Docker, a network download, or a cloud account. Real Docker smoke
-deployments remain an opt-in environment test because they download language
-toolchains and create containers.
+`fixtures/deploy` is first-party Upstand source code used to exercise
+our deployment behavior. The historical directory name does not make these
+fixtures an upstream compatibility suite. Extend and modify them to cover
+Upstand features, including `upstand.json` project configuration, rather than
+pinning them to an external repository or commit.
+
+Deployment fixture tests must use the real Upstand composition and pipeline
+boundaries. A complete scenario should create a project, create an environment,
+configure application and database resources, build and deploy through the
+actual use-case/API, queue/outbox, scheduler, repository, and infrastructure
+flow, and verify the resulting database state, deployment history, logs,
+resource transitions, generated configuration, and mocked remote-server state.
+
+Mock external boundaries such as Docker/Swarm, SSH, Git, registries, S3, DNS,
+email, and third-party HTTP services behind the same interfaces used in
+production. Do not mock the pipeline, use cases, routers, repositories,
+schedulers, or queue processing being tested. Do not limit coverage to private
+service methods or expected command arrays.
+
+The scenario matrix must cover self-hosted and cloud modes, multiple mocked
+remote servers, application and database storage, relevant configuration
+variants, authorization/organization behavior, and real `upstand.json` input.
+Real Docker or cloud smoke tests can remain opt-in, but they do not replace the
+deterministic mocked end-to-end suite required in CI.
 
 The E2E tests skip safely when the API is not available. To enable authenticated
 resource checks, provide `E2E_AUTH_COOKIE` and `E2E_RESOURCE_ID`. To enable
@@ -57,6 +74,12 @@ The containerized local stack uses the same attachable Docker overlay network
 and health-gated service dependencies as the self-hosted deployment path. This
 lets topology, Docker discovery, and service-to-service URLs be exercised in
 the same shape before deployment.
+
+The full Compose commands enable the `edge` profile. OpenResty binds host
+ports `80/443`, exposes its token-protected management API to the control plane
+on port `8090`, and forwards legacy domain mappings to Caddy. If those host
+ports are occupied, stop the conflicting service or run the host-process
+workflow instead; do not expose Caddy's backend ports publicly.
 
 ```powershell
 # Prepare the local Swarm network and dependencies
@@ -71,6 +94,10 @@ bun run local:verify
 # Stop the stack when finished
 bun run docker:local:down
 ```
+
+To start only PostgreSQL and Redis for host-process development, use
+`bun run db:start`; the edge profile is intentionally not started by that
+command.
 
 `bun dev` remains the fast host-process workflow. It prepares the same Docker
 network and runs PostgreSQL/Redis in containers, while the API and frontend run

@@ -9,9 +9,9 @@
   "main": "dist/main.cjs",
   "scripts": {
     "build": "bun run ./build/build.ts",
-    "dev": "bun run build && electron .",
-    "package": "bun run build && electron-forge package",
-    "make": "bun run build && electron-forge make",
+    "dev": "bun run ./scripts/dev.ts",
+    "package": "bun run ./build/build.ts --package && electron-forge package",
+    "make": "bun run ./build/build.ts --package && electron-forge make",
     "check-types": "tsc --noEmit",
     "lint": "biome check .",
     "test": "bun test test"

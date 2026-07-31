@@ -6,6 +6,10 @@ export const ProjectSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional(),
   organizationId: z.string(),
+  isApp: z.boolean().optional(),
+  appCatalogId: z.string().nullable().optional(),
+  appVersion: z.string().nullable().optional(),
+  appVerified: z.boolean().nullable().optional(),
   icon: EntityIconSchema,
   archivedAt: z.date().nullable().optional(),
   createdAt: z.date(),
@@ -19,6 +23,10 @@ export interface CreateProjectDTO {
   name: string;
   description?: string | null;
   organizationId: string;
+  isApp?: boolean;
+  appCatalogId?: string | null;
+  appVersion?: string | null;
+  appVerified?: boolean | null;
   icon?: string | null;
   archivedAt?: Date | null;
 }
@@ -28,4 +36,8 @@ export interface UpdateProjectDTO {
   description?: string | null;
   icon?: string | null;
   archived?: boolean;
+  isApp?: boolean;
+  appCatalogId?: string | null;
+  appVersion?: string | null;
+  appVerified?: boolean | null;
 }

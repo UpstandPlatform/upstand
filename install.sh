@@ -179,7 +179,6 @@ build_source_images() {
   UPSTAND_SERVER_IMAGE="upstand-server:source-${revision}"
   UPSTAND_SCHEDULES_IMAGE="upstand-schedules:source-${revision}"
   UPSTAND_WEB_IMAGE="upstand-web:source-${revision}"
-  UPSTAND_DOCS_IMAGE="upstand-fumadocs:source-${revision}"
   UPSTAND_MONITORING_IMAGE="upstand-monitoring:source-${revision}"
 
   docker build --file "$SOURCE_DIR/apps/server/Dockerfile" --tag "$UPSTAND_SERVER_IMAGE" "$SOURCE_DIR"
@@ -322,8 +321,10 @@ write_environment() {
   local requested_web_image="${UPSTAND_WEB_IMAGE:-}"
   local requested_docs_image="${UPSTAND_DOCS_IMAGE:-}"
   local requested_monitoring_image="${UPSTAND_MONITORING_IMAGE:-}"
+  local requested_edge_image="${UPSTAND_EDGE_IMAGE:-}"
   local requested_auto_update="${UPSTAND_AUTO_UPDATE:-}"
   local requested_version="${UPSTAND_VERSION:-}"
+  local requested_edge_management_token="${EDGE_MANAGEMENT_TOKEN:-}"
   local direct_origins="${UPSTAND_DIRECT_ORIGINS:-false}"
 
   if [[ -f "$ENV_FILE" ]]; then
@@ -364,6 +365,7 @@ write_environment() {
   POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -hex 32)}"
   REDIS_PASSWORD="${REDIS_PASSWORD:-$(openssl rand -hex 32)}"
   BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(openssl rand -hex 32)}"
+  EDGE_MANAGEMENT_TOKEN="${requested_edge_management_token:-${EDGE_MANAGEMENT_TOKEN:-$(openssl rand -hex 32)}}"
   ENCRYPTION_KEY_V1="${ENCRYPTION_KEY_V1:-${SSH_KEY_ENCRYPTION_KEY_V1:-$(openssl rand -base64 32 | tr -d '\n')}}"
   printf '%s' "$POSTGRES_PASSWORD" >"$INSTALL_DIR/secrets/postgres_password"
   printf '%s' "$REDIS_PASSWORD" >"$INSTALL_DIR/secrets/redis_password"
@@ -386,6 +388,7 @@ write_environment() {
   UPSTAND_WEB_IMAGE="${requested_web_image:-${UPSTAND_WEB_IMAGE:-}}"
   UPSTAND_DOCS_IMAGE="${requested_docs_image:-${UPSTAND_DOCS_IMAGE:-}}"
   UPSTAND_MONITORING_IMAGE="${requested_monitoring_image:-${UPSTAND_MONITORING_IMAGE:-}}"
+  UPSTAND_EDGE_IMAGE="${requested_edge_image:-${UPSTAND_EDGE_IMAGE:-}}"
   UPSTAND_AUTO_UPDATE="${requested_auto_update:-${UPSTAND_AUTO_UPDATE:-false}}"
 
   local advertise_ip
@@ -439,6 +442,7 @@ write_environment() {
     UPSTAND_WEB_IMAGE="${UPSTAND_WEB_IMAGE:-$(resolve_stable_image web)}"
     UPSTAND_DOCS_IMAGE="${UPSTAND_DOCS_IMAGE:-$(resolve_stable_image fumadocs)}"
     UPSTAND_MONITORING_IMAGE="${UPSTAND_MONITORING_IMAGE:-$(resolve_stable_image monitoring)}"
+    UPSTAND_EDGE_IMAGE="${UPSTAND_EDGE_IMAGE:-$(resolve_stable_image edge)}"
   fi
   if [[ "${SOURCE_BUILD:-false}" != true ]]; then
     require_digest_image UPSTAND_SERVER_IMAGE
@@ -446,6 +450,7 @@ write_environment() {
     require_digest_image UPSTAND_WEB_IMAGE
     require_digest_image UPSTAND_DOCS_IMAGE
     require_digest_image UPSTAND_MONITORING_IMAGE
+    require_digest_image UPSTAND_EDGE_IMAGE
     require_digest_image POSTGRES_IMAGE
     require_digest_image REDIS_IMAGE
   fi
@@ -464,8 +469,14 @@ UPSTAND_SCHEDULES_IMAGE=$UPSTAND_SCHEDULES_IMAGE
 UPSTAND_WEB_IMAGE=$UPSTAND_WEB_IMAGE
 UPSTAND_DOCS_IMAGE=$UPSTAND_DOCS_IMAGE
 UPSTAND_MONITORING_IMAGE=$UPSTAND_MONITORING_IMAGE
+UPSTAND_EDGE_IMAGE=$UPSTAND_EDGE_IMAGE
 UPSTAND_AUTO_UPDATE=$UPSTAND_AUTO_UPDATE
 UPSTAND_VERSION=$requested_version
+EDGE_MANAGEMENT_TOKEN=$EDGE_MANAGEMENT_TOKEN
+UPSTAND_EDGE_BACKEND=true
+UPSTAND_EDGE_BACKEND_HTTP_PORT=${UPSTAND_EDGE_BACKEND_HTTP_PORT:-8080}
+UPSTAND_EDGE_BACKEND_HTTPS_PORT=${UPSTAND_EDGE_BACKEND_HTTPS_PORT:-8443}
+UPSTAND_OPENRESTY_MANAGEMENT_URL=${UPSTAND_OPENRESTY_MANAGEMENT_URL:-http://host.docker.internal:8090}
 IS_CLOUD=${IS_CLOUD:-false}
 UPSTAND_DIRECT_ORIGINS=$direct_origins
 POSTGRES_IMAGE=${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
