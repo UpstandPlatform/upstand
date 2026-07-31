@@ -380,6 +380,7 @@ export const parseResourceAdvancedConfig = (
 
 export const DockerfileBuildConfigSchema = z.object({
   type: z.literal("dockerfile"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   dockerfilePath: RelativeBuildPathSchema.default("Dockerfile"),
   dockerContextPath: RelativeBuildPathSchema.default("."),
@@ -391,6 +392,7 @@ export const DockerfileBuildConfigSchema = z.object({
 
 export const RailpackBuildConfigSchema = z.object({
   type: z.literal("railpack"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   railpackVersion: z
     .string()
@@ -404,23 +406,27 @@ export const RailpackBuildConfigSchema = z.object({
 
 export const NixpacksBuildConfigSchema = z.object({
   type: z.literal("nixpacks"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   publishDirectory: RelativeBuildPathSchema.optional(),
 });
 
 export const HerokuBuildpacksBuildConfigSchema = z.object({
   type: z.literal("heroku-buildpacks"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   herokuVersion: z.enum(["24", "26"]).default("24"),
 });
 
 export const PaketoBuildpacksBuildConfigSchema = z.object({
   type: z.literal("paketo-buildpacks"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
 });
 
 export const StaticBuildConfigSchema = z.object({
   type: z.literal("static"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   publishDirectory: RelativeBuildPathSchema,
   spa: z.boolean().default(false),
@@ -440,6 +446,7 @@ export type ApplicationBuildConfig = z.infer<
 >;
 
 export const DEFAULT_APPLICATION_BUILD_CONFIG: ApplicationBuildConfig = {
+  autoDetect: true,
   type: "dockerfile",
   buildPath: ".",
   dockerfilePath: "Dockerfile",

@@ -7,25 +7,28 @@ import {
 } from "@upstand/domain";
 
 describe("Application Build Configuration Pipeline", () => {
-  test("parses default Dockerfile configuration", () => {
+  test("parses default Dockerfile configuration with autoDetect enabled", () => {
     const parsed = parseApplicationBuildConfig(null);
     expect(parsed).toEqual(DEFAULT_APPLICATION_BUILD_CONFIG);
     expect(parsed.type).toBe("dockerfile");
+    expect(parsed.autoDetect).toBe(true);
     if (parsed.type === "dockerfile") {
       expect(parsed.dockerfilePath).toBe("Dockerfile");
       expect(parsed.buildPath).toBe(".");
     }
   });
 
-  test("parses and serializes Static build configuration with SPA mode", () => {
+  test("parses and serializes Static build configuration with SPA mode and autoDetect", () => {
     const staticConfig = ApplicationBuildConfigSchema.parse({
       type: "static",
+      autoDetect: true,
       buildPath: "./dist",
       publishDirectory: "out",
       spa: true,
     });
 
     expect(staticConfig.type).toBe("static");
+    expect(staticConfig.autoDetect).toBe(true);
     if (staticConfig.type === "static") {
       expect(staticConfig.publishDirectory).toBe("out");
       expect(staticConfig.spa).toBe(true);
@@ -36,16 +39,18 @@ describe("Application Build Configuration Pipeline", () => {
     expect(reParsed).toEqual(staticConfig);
   });
 
-  test("parses Railpack configuration with semver version validation", () => {
+  test("parses Railpack configuration with semver version validation and explicit autoDetect false", () => {
     const railpack = parseApplicationBuildConfig(
       JSON.stringify({
         type: "railpack",
+        autoDetect: false,
         buildPath: ".",
         railpackVersion: "0.15.4",
       }),
     );
 
     expect(railpack.type).toBe("railpack");
+    expect(railpack.autoDetect).toBe(false);
     if (railpack.type === "railpack") {
       expect(railpack.railpackVersion).toBe("0.15.4");
     }

@@ -105,7 +105,7 @@ export class GetDeploymentsUseCase {
         environmentName: env?.name || "Unknown Env",
         projectName: proj?.name || "Unknown Project",
         serverId: dep.serverId || null,
-        serverName: dep.serverName || "Dokploy Server",
+        serverName: dep.serverName || "Upstand Server",
         title: dep.title,
         status: dep.status,
         logs: dep.logs,

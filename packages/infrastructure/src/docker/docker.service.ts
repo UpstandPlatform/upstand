@@ -19,7 +19,11 @@ import {
 import { env } from "@upstand/env/server";
 import { isBlockedAddress } from "@upstand/platform/network/outbound";
 import { redis } from "@upstand/redis";
-import { assertSafeGitRef, assertSafeGitUrl } from "@upstand/usecases";
+import {
+  assertSafeGitRef,
+  assertSafeGitUrl,
+  detectApplicationBuildConfig,
+} from "@upstand/usecases";
 import type {
   ContainerRuntimeStats,
   ConvergenceOptions,
@@ -972,9 +976,21 @@ export class DockerService {
     }
 
     try {
-      const buildConfig = parseApplicationBuildConfig(
+      let buildConfig = parseApplicationBuildConfig(
         currentResource.buildConfig,
       );
+
+      if (buildConfig.autoDetect !== false) {
+        const detectedConfig = detectApplicationBuildConfig(
+          clonePath,
+          buildConfig.buildPath,
+        );
+        onLog(
+          `[Auto-Detect] Auto build-configuration detection active: detected '${detectedConfig.type}' based on application source code.\n`,
+        );
+        buildConfig = detectedConfig;
+      }
+
       const buildPath = this.resolveBuildPath(
         clonePath,
         buildConfig.buildPath,

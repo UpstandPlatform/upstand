@@ -157,7 +157,7 @@ export type LocalDeploymentTargetResolver =
 
 const defaultLocalDeploymentTarget: LocalDeploymentTargetResolver =
   async () => ({
-    name: "Dokploy Server",
+    name: "Upstand Server",
     ip: "127.0.0.1",
   });
 
@@ -194,7 +194,7 @@ export class QueueDeploymentUseCase {
 
       // 1. Resolve target serverId
       let serverId = resource.serverId;
-      let serverName = "Dokploy Server";
+      let serverName = "Upstand Server";
       let serverIp = "127.0.0.1";
 
       if (!serverId) {

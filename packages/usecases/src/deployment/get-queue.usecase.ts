@@ -74,7 +74,7 @@ export class GetQueueUseCase {
       const server = serverMap.get(serverId);
       const serverName =
         server?.hostname ||
-        (serverId === "local" ? "Dokploy Server" : `Server ${serverId}`);
+        (serverId === "local" ? "Upstand Server" : `Server ${serverId}`);
       const queueName = getDeploymentQueueName(serverId);
       const queue = new Queue(queueName, { connection: redis });
 
@@ -159,7 +159,7 @@ export class GetQueueUseCase {
         resourceId: resource.id,
         resourceName: resource.name,
         serverId: deployment.serverId || resource.serverId || "local",
-        serverName: deployment.serverName || "Dokploy Server",
+        serverName: deployment.serverName || "Upstand Server",
       });
     }
 

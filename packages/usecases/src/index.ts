@@ -24,6 +24,7 @@ export * from "./deployment/build-registry";
 export * from "./deployment/deployment-queue-name";
 // Deployments & Queues
 export * from "./deployment/deployment-worker";
+export * from "./deployment/detect-build-config";
 export * from "./deployment/docker-image-webhook";
 export * from "./deployment/get-deployment-server-settings.usecase";
 export * from "./deployment/get-deployments.usecase";

@@ -73,6 +73,7 @@ export function parseJsonObject(
 }
 
 const defaultDockerfileBuildConfig = (): ApplicationBuildConfig => ({
+  autoDetect: true,
   type: "dockerfile",
   buildPath: ".",
   dockerfilePath: "Dockerfile",
@@ -107,19 +108,26 @@ export function parseResourceCredentials(
 
 export function createBuildConfig(
   type: ApplicationBuildConfig["type"],
+  autoDetect = true,
 ): ApplicationBuildConfig {
   switch (type) {
     case "dockerfile":
-      return defaultDockerfileBuildConfig();
+      return { ...defaultDockerfileBuildConfig(), autoDetect };
     case "railpack":
-      return { type, buildPath: ".", railpackVersion: "0.15.4" };
+      return { autoDetect, type, buildPath: ".", railpackVersion: "0.15.4" };
     case "nixpacks":
-      return { type, buildPath: "." };
+      return { autoDetect, type, buildPath: "." };
     case "heroku-buildpacks":
-      return { type, buildPath: ".", herokuVersion: "24" };
+      return { autoDetect, type, buildPath: ".", herokuVersion: "24" };
     case "paketo-buildpacks":
-      return { type, buildPath: "." };
+      return { autoDetect, type, buildPath: "." };
     case "static":
-      return { type, buildPath: ".", publishDirectory: "dist", spa: true };
+      return {
+        autoDetect,
+        type,
+        buildPath: ".",
+        publishDirectory: "dist",
+        spa: true,
+      };
   }
 }
