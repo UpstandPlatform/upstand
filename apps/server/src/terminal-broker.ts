@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { hostVerifierForFingerprint } from "@upstand/platform/ssh/host-key";
+import { redis } from "@upstand/redis";
 import { Client, type ClientChannel } from "ssh2";
 import { isValidContainerIdentifier } from "./container-ownership";
 
@@ -161,35 +162,38 @@ export class TerminalBroker {
 
     const token = randomUUID();
     const expiresAt = Date.now() + SESSION_TTL_MS;
-    if (session.isLocal) {
-      this.sessions.set(token, {
-        userId: session.userId,
-        sessionId: session.sessionId,
-        twoFactorEnabled: session.twoFactorEnabled,
-        isLocal: true,
-        containerId: session.containerId,
-        initialCols: session.initialCols,
-        initialRows: session.initialRows,
-        expiresAt,
-      });
-    } else {
-      this.sessions.set(token, {
-        userId: session.userId,
-        sessionId: session.sessionId,
-        twoFactorEnabled: session.twoFactorEnabled,
-        isLocal: false,
-        host: session.host,
-        port: session.port,
-        username: session.username,
-        privateKey: session.privateKey,
-        password: session.password,
-        hostKeyFingerprint: session.hostKeyFingerprint,
-        command: session.command,
-        initialCols: session.initialCols,
-        initialRows: session.initialRows,
-        expiresAt,
-      });
-    }
+    const payload: TerminalSession = session.isLocal
+      ? {
+          userId: session.userId,
+          sessionId: session.sessionId,
+          twoFactorEnabled: session.twoFactorEnabled,
+          isLocal: true,
+          containerId: session.containerId,
+          initialCols: session.initialCols,
+          initialRows: session.initialRows,
+          expiresAt,
+        }
+      : {
+          userId: session.userId,
+          sessionId: session.sessionId,
+          twoFactorEnabled: session.twoFactorEnabled,
+          isLocal: false,
+          host: session.host,
+          port: session.port,
+          username: session.username,
+          privateKey: session.privateKey,
+          password: session.password,
+          hostKeyFingerprint: session.hostKeyFingerprint,
+          command: session.command,
+          initialCols: session.initialCols,
+          initialRows: session.initialRows,
+          expiresAt,
+        };
+
+    this.sessions.set(token, payload);
+    redis
+      .set(`term:session:${token}`, JSON.stringify(payload), "EX", 60)
+      .catch(() => {});
     return token;
   }
 
@@ -199,8 +203,19 @@ export class TerminalBroker {
     onClose: (message: string) => void,
     validateSession: (identity: TerminalSessionIdentity) => Promise<boolean>,
   ): Promise<void> {
-    const session = this.sessions.get(token);
-    this.sessions.delete(token);
+    let session: TerminalSession | undefined;
+    try {
+      const stored = await redis.getdel(`term:session:${token}`);
+      if (stored) {
+        session = JSON.parse(stored) as TerminalSession;
+      }
+    } catch {
+      // Redis error fallback to local in-memory store
+    }
+    if (!session) {
+      session = this.sessions.get(token);
+      this.sessions.delete(token);
+    }
     if (!session || session.expiresAt < Date.now()) {
       throw new Error(
         "Terminal session expired. Open a new terminal and try again.",

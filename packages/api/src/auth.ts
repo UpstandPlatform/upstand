@@ -165,11 +165,18 @@ const callbacks: AuthCallbacks = {
 };
 
 function resolveAuthSecret(): string {
-  if (env.BETTER_AUTH_SECRET) return env.BETTER_AUTH_SECRET;
-  if (env.NODE_ENV === "development" || env.NODE_ENV === "test") {
+  if (env.BETTER_AUTH_SECRET) {
+    if (env.BETTER_AUTH_SECRET.length < 32) {
+      throw new Error("BETTER_AUTH_SECRET must be at least 32 characters long");
+    }
+    return env.BETTER_AUTH_SECRET;
+  }
+  if (env.NODE_ENV === "test") {
     return "upstand-local-development-secret-that-is-at-least-32-characters";
   }
-  throw new Error("BETTER_AUTH_SECRET is required in production");
+  throw new Error(
+    "BETTER_AUTH_SECRET is required. Configure a secret of at least 32 characters in environment variables.",
+  );
 }
 
 export const auth = createAuth({

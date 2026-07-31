@@ -57,10 +57,26 @@ export const aiRouter = router({
         input.organizationId,
         "ai:manage",
       );
+      const sanitizedRequest = input.request
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+        .trim();
+      const dangerousPatterns = [
+        /ignore previous instructions/i,
+        /override system prompt/i,
+        /bypass safety controls/i,
+      ];
+      for (const pattern of dangerousPatterns) {
+        if (pattern.test(sanitizedRequest)) {
+          throw new UpGalError(
+            "validation",
+            "Prompt contains disallowed instruction patterns.",
+          );
+        }
+      }
       return generateComposeTemplate(
         input.organizationId,
         ctx.scope,
-        input.request,
+        sanitizedRequest,
         ctx.log,
       );
     }),
