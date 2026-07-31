@@ -186,13 +186,13 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
-        order: stop-first
+        order: start-first
         failure_action: rollback
         monitor: 45s
       rollback_config:
         parallelism: 1
         delay: 5s
-        order: stop-first
+        order: start-first
         failure_action: pause
         monitor: 45s
       resources:
@@ -272,13 +272,13 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
-        order: stop-first
+        order: start-first
         failure_action: rollback
         monitor: 45s
       rollback_config:
         parallelism: 1
         delay: 5s
-        order: stop-first
+        order: start-first
         failure_action: pause
         monitor: 45s
       resources:
@@ -335,13 +335,13 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
-        order: stop-first
+        order: start-first
         failure_action: rollback
         monitor: 45s
       rollback_config:
         parallelism: 1
         delay: 5s
-        order: stop-first
+        order: start-first
         failure_action: pause
         monitor: 45s
       resources:

@@ -176,11 +176,11 @@ async function initializeCaddyViaSsh(
     "-v upstand-caddy-data:/data",
     "-v upstand-caddy-config:/config",
     "-v upstand-caddy-logs:/var/log/caddy",
-    `-e UPSTAND_CADDYFILE_B64=${bootstrapConfig}`,
+    `-e UPSTAND_CADDYFILE_B64="${bootstrapConfig}"`,
     "--entrypoint /bin/sh",
     CADDY_IMAGE,
     "-ec",
-    `'if [ ! -s /etc/caddy/Caddyfile ]; then printf "%s" "$UPSTAND_CADDYFILE_B64" | base64 -d > /etc/caddy/Caddyfile; fi; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'`,
+    `"if [ ! -s /etc/caddy/Caddyfile ]; then printf '%s' \\"$UPSTAND_CADDYFILE_B64\\" | base64 -d > /etc/caddy/Caddyfile; fi; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"`,
   ].join(" ");
 
   const create = await execute(client, runCmd);

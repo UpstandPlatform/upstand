@@ -25,6 +25,19 @@ export class GetAccountStatusUseCase {
       this.uow.projectRepository.findByOrganizationId(input.organizationId),
       this.uow.serverRepository.findByOrganizationId(input.organizationId),
     ]);
+
+    if (projects.length === 0) {
+      return {
+        organizationId: input.organizationId,
+        projectCount: 0,
+        environmentCount: 0,
+        resourceCount: 0,
+        serverCount: servers.length,
+        recentDeploymentCount: 0,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
     const environments = (
       await Promise.all(
         projects.map((project) =>
@@ -32,6 +45,19 @@ export class GetAccountStatusUseCase {
         ),
       )
     ).flat();
+
+    if (environments.length === 0) {
+      return {
+        organizationId: input.organizationId,
+        projectCount: projects.length,
+        environmentCount: 0,
+        resourceCount: 0,
+        serverCount: servers.length,
+        recentDeploymentCount: 0,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
     const resources = (
       await Promise.all(
         environments.map((environment) =>
@@ -39,13 +65,15 @@ export class GetAccountStatusUseCase {
         ),
       )
     ).flat();
-    const deployments = (
-      await Promise.all(
-        resources.map((resource) =>
-          this.uow.deploymentRepository.findByResourceId(resource.id),
-        ),
-      )
-    ).flat();
+
+    const resourceIds = resources.map((r) => r.id);
+    const deployments =
+      resourceIds.length > 0
+        ? await this.uow.deploymentRepository.findRecentByResourceIds(
+            resourceIds,
+          )
+        : [];
+
     return {
       organizationId: input.organizationId,
       projectCount: projects.length,

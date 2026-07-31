@@ -47,15 +47,23 @@ export class OutboxRuntime {
 
   private startMaintenance(): void {
     if (this.publishTimer) return;
-    this.publishTimer = setInterval(
-      () => void this.publishBatch(),
-      PUBLISH_INTERVAL_MS,
-    );
+    this.publishTimer = setInterval(() => {
+      this.publishBatch().catch((error: unknown) => {
+        log.error({
+          message: "Unhandled error in OutboxRuntime publishBatch timer",
+          err: error,
+        });
+      });
+    }, PUBLISH_INTERVAL_MS);
     this.publishTimer.unref?.();
-    this.retentionTimer = setInterval(
-      () => void this.prunePublished(),
-      RETENTION_INTERVAL_MS,
-    );
+    this.retentionTimer = setInterval(() => {
+      this.prunePublished().catch((error: unknown) => {
+        log.warn({
+          message: "Unhandled error in OutboxRuntime prunePublished timer",
+          err: error,
+        });
+      });
+    }, RETENTION_INTERVAL_MS);
     this.retentionTimer.unref?.();
   }
 

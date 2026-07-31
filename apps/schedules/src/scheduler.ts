@@ -32,9 +32,24 @@ export class ScheduledDockerCleanup {
   ) {}
 
   start(): void {
-    this.timer = setInterval(() => void this.run(), 60 * 60 * 1000);
+    this.timer = setInterval(
+      () => {
+        this.run().catch((error: unknown) => {
+          log.error({
+            message: "Unhandled error in ScheduledDockerCleanup timer",
+            err: error,
+          });
+        });
+      },
+      60 * 60 * 1000,
+    );
     this.timer.unref?.();
-    void this.run();
+    void this.run().catch((error: unknown) => {
+      log.error({
+        message: "Unhandled error in ScheduledDockerCleanup initial run",
+        err: error,
+      });
+    });
   }
 
   stop(): void {
@@ -247,9 +262,26 @@ export class UpstandUpdateNotificationScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
 
   start(): void {
-    this.timer = setInterval(() => void this.run(), 15 * 60 * 1000);
+    this.timer = setInterval(
+      () => {
+        this.run().catch((error: unknown) => {
+          log.error({
+            message:
+              "Unhandled error in UpstandUpdateNotificationScheduler timer",
+            err: error,
+          });
+        });
+      },
+      15 * 60 * 1000,
+    );
     this.timer.unref?.();
-    void this.run();
+    void this.run().catch((error: unknown) => {
+      log.error({
+        message:
+          "Unhandled error in UpstandUpdateNotificationScheduler initial run",
+        err: error,
+      });
+    });
   }
 
   stop(): void {
@@ -318,9 +350,21 @@ export class AutoscalingRuntime {
   }
 
   start(): void {
-    this.timer = setInterval(() => void this.runOnce(), 30_000);
+    this.timer = setInterval(() => {
+      this.runOnce().catch((error: unknown) => {
+        log.error({
+          message: "Unhandled error in AutoscalingRuntime timer",
+          err: error,
+        });
+      });
+    }, 30_000);
     this.timer.unref?.();
-    void this.runOnce();
+    void this.runOnce().catch((error: unknown) => {
+      log.error({
+        message: "Unhandled error in AutoscalingRuntime initial run",
+        err: error,
+      });
+    });
   }
 
   stop(): void {
@@ -335,9 +379,21 @@ export class StaleDeploymentScheduler {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.run(), 60_000);
+    this.timer = setInterval(() => {
+      this.run().catch((error: unknown) => {
+        log.error({
+          message: "Unhandled error in StaleDeploymentScheduler timer",
+          err: error,
+        });
+      });
+    }, 60_000);
     this.timer.unref?.();
-    void this.run();
+    void this.run().catch((error: unknown) => {
+      log.error({
+        message: "Unhandled error in StaleDeploymentScheduler initial run",
+        err: error,
+      });
+    });
   }
 
   stop(): void {

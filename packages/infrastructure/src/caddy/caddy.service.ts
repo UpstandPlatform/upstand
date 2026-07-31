@@ -187,10 +187,17 @@ function parseCaddyEnvironment(value?: string): string[] {
 
 function validateManagedDirectives(value: string | null | undefined): void {
   if (!value) return;
-  const forbidden = value.match(/^\s*(admin|http_port|https_port)\b/im)?.[1];
+  const forbidden = value.match(
+    /^\s*(admin|http_port|https_port|import|storage|auto_https)\b/im,
+  )?.[1];
   if (forbidden) {
     throw new Error(
-      `${forbidden} is managed by Upstand so public listeners and the private Caddy admin API remain reliable`,
+      `The '${forbidden}' directive is managed by Upstand and cannot be included in custom Caddy configuration snippets`,
+    );
+  }
+  if (/\bimport\s+["']?\//i.test(value)) {
+    throw new Error(
+      "File imports are forbidden in custom Caddy configuration snippets",
     );
   }
 }

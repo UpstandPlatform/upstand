@@ -17,11 +17,34 @@ export class DrizzleDeploymentRepository
     super(executor, deployment);
   }
 
+  private get listColumns() {
+    return {
+      id: deployment.id,
+      resourceId: deployment.resourceId,
+      status: deployment.status,
+      title: deployment.title,
+      logs: sql<string>`''`,
+      serverId: deployment.serverId,
+      serverName: deployment.serverName,
+      sourceRevision: deployment.sourceRevision,
+      executionToken: deployment.executionToken,
+      attempt: deployment.attempt,
+      maxAttempts: deployment.maxAttempts,
+      heartbeatAt: deployment.heartbeatAt,
+      retryAt: deployment.retryAt,
+      lastError: deployment.lastError,
+      createdAt: deployment.createdAt,
+      updatedAt: deployment.updatedAt,
+    };
+  }
+
   async findRecent(limit = 500): Promise<Deployment[]> {
-    return super.findMany({
-      orderBy: desc(deployment.createdAt),
-      limit: Math.max(1, Math.min(limit, 1_000)),
-    });
+    const rows = await this.executor
+      .select(this.listColumns)
+      .from(deployment)
+      .orderBy(desc(deployment.createdAt))
+      .limit(Math.max(1, Math.min(limit, 1_000)));
+    return rows as Deployment[];
   }
 
   async findRecentByResourceIds(
@@ -29,27 +52,33 @@ export class DrizzleDeploymentRepository
     limit = 500,
   ): Promise<Deployment[]> {
     if (resourceIds.length === 0) return [];
-    return super.findMany({
-      where: inArray(deployment.resourceId, [...resourceIds]),
-      orderBy: desc(deployment.createdAt),
-      limit: Math.max(1, Math.min(limit, 1_000)),
-    });
+    const rows = await this.executor
+      .select(this.listColumns)
+      .from(deployment)
+      .where(inArray(deployment.resourceId, [...resourceIds]))
+      .orderBy(desc(deployment.createdAt))
+      .limit(Math.max(1, Math.min(limit, 1_000)));
+    return rows as Deployment[];
   }
 
   async findByStatus(status: string, limit = 500): Promise<Deployment[]> {
-    return super.findMany({
-      where: eq(deployment.status, status),
-      orderBy: desc(deployment.createdAt),
-      limit: Math.max(1, Math.min(limit, 1_000)),
-    });
+    const rows = await this.executor
+      .select(this.listColumns)
+      .from(deployment)
+      .where(eq(deployment.status, status))
+      .orderBy(desc(deployment.createdAt))
+      .limit(Math.max(1, Math.min(limit, 1_000)));
+    return rows as Deployment[];
   }
 
   async findByResourceId(resourceId: string): Promise<Deployment[]> {
-    return super.findMany({
-      where: eq(deployment.resourceId, resourceId),
-      orderBy: desc(deployment.createdAt),
-      limit: 500,
-    });
+    const rows = await this.executor
+      .select(this.listColumns)
+      .from(deployment)
+      .where(eq(deployment.resourceId, resourceId))
+      .orderBy(desc(deployment.createdAt))
+      .limit(500);
+    return rows as Deployment[];
   }
 
   async claimForExecution(

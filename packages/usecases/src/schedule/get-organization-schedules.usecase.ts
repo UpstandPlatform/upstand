@@ -32,32 +32,61 @@ export class GetOrganizationSchedulesUseCase {
       )
     ).flat();
 
-    const resources = await Promise.all(
-      schedules.map((schedule) =>
-        schedule.resourceId
-          ? this.uow.resourceRepository.findById(schedule.resourceId)
-          : Promise.resolve(null),
+    if (schedules.length === 0) return [];
+
+    const uniqueResourceIds = [
+      ...new Set(
+        schedules
+          .map((s) => s.resourceId)
+          .filter((id): id is string => Boolean(id)),
       ),
+    ];
+
+    const resourceEntities = await Promise.all(
+      uniqueResourceIds.map((id) => this.uow.resourceRepository.findById(id)),
     );
-    const environments = await Promise.all(
-      resources.map((resource) =>
-        resource
-          ? this.uow.environmentRepository.findById(resource.environmentId)
-          : Promise.resolve(null),
-      ),
-    );
-    const projects = await Promise.all(
-      environments.map((environment) =>
-        environment
-          ? this.uow.projectRepository.findById(environment.projectId)
-          : Promise.resolve(null),
-      ),
+    const resourceMap = new Map(
+      resourceEntities
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .map((r) => [r.id, r]),
     );
 
-    return schedules.map((schedule, index) => {
-      const resource = resources[index];
-      const environment = environments[index];
-      const project = projects[index];
+    const uniqueEnvIds = [
+      ...new Set(
+        [...resourceMap.values()].map((r) => r.environmentId).filter(Boolean),
+      ),
+    ];
+
+    const envEntities = await Promise.all(
+      uniqueEnvIds.map((id) => this.uow.environmentRepository.findById(id)),
+    );
+    const envMap = new Map(
+      envEntities
+        .filter((e): e is NonNullable<typeof e> => e !== null)
+        .map((e) => [e.id, e]),
+    );
+
+    const uniqueProjectIds = [
+      ...new Set([...envMap.values()].map((e) => e.projectId).filter(Boolean)),
+    ];
+
+    const projectEntities = await Promise.all(
+      uniqueProjectIds.map((id) => this.uow.projectRepository.findById(id)),
+    );
+    const projectMap = new Map(
+      projectEntities
+        .filter((p): p is NonNullable<typeof p> => p !== null)
+        .map((p) => [p.id, p]),
+    );
+
+    return schedules.map((schedule) => {
+      const resource = schedule.resourceId
+        ? resourceMap.get(schedule.resourceId)
+        : null;
+      const environment = resource ? envMap.get(resource.environmentId) : null;
+      const project = environment
+        ? projectMap.get(environment.projectId)
+        : null;
       return {
         ...schedule,
         resourceName: resource?.name ?? null,

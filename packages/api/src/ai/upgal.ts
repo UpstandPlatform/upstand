@@ -1178,6 +1178,20 @@ async function assertResource(context: UpGalContext, resourceId: string) {
   return resource;
 }
 
+async function assertServer(context: UpGalContext, serverId: string) {
+  const uow = resolve<IUnitOfWork>(context.scope, UnitOfWorkToken);
+  const server = await uow.serverRepository.findById(serverId);
+  if (!server || server.organizationId !== context.organizationId) {
+    throw new Error("Server is not part of the active organization.");
+  }
+  return server;
+}
+
+function truncateOutput(text: string, maxLength = 4000): string {
+  if (!text || text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}\n... [output truncated (${text.length - maxLength} characters omitted)]`;
+}
+
 function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
   const run = <T>(token: TokenLike<T>) => resolve(context.scope, token);
   const dockerRead = (
@@ -1565,7 +1579,8 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       webServerLogsSchema,
       async ({ tail }) => {
         await requireInstanceOwner(context.userId, "session");
-        return run(GetWebServerLogsUseCaseToken).execute(tail);
+        const logs = await run(GetWebServerLogsUseCaseToken).execute(tail);
+        return truncateOutput(logs);
       },
       z.string(),
     ),
@@ -1677,21 +1692,34 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     exec_container_command: mutationTool(
       "Run a shell command inside a Docker container. This requires approval.",
       execContainerCommandSchema,
-      async (input) =>
-        run(ExecContainerCommandUseCaseToken).execute({
+      async (input) => {
+        await assertResource(context, input.resourceId);
+        if (input.serverId && input.serverId !== "local") {
+          await assertServer(context, input.serverId);
+        }
+        const res = await run(ExecContainerCommandUseCaseToken).execute({
           organizationId: context.organizationId,
           ...input,
-        }),
+        });
+        return { output: truncateOutput(res.output) };
+      },
       execCommandOutputSchema,
     ),
     exec_server_terminal_command: mutationTool(
       "Run a terminal command on the server. This requires approval.",
       execServerTerminalCommandSchema,
-      async (input) =>
-        run(ExecServerTerminalCommandUseCaseToken).execute({
+      async (input) => {
+        if (!input.serverId || input.serverId === "local") {
+          await requireInstanceOwner(context.userId, "session");
+        } else {
+          await assertServer(context, input.serverId);
+        }
+        const res = await run(ExecServerTerminalCommandUseCaseToken).execute({
           organizationId: context.organizationId,
           ...input,
-        }),
+        });
+        return { output: truncateOutput(res.output) };
+      },
       execCommandOutputSchema,
     ),
     list_schedules: readTool(

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -43,6 +44,9 @@ export const outbox = pgTable(
       table.availableAt,
       table.createdAt,
     ),
+    index("outbox_pending_idx")
+      .on(table.availableAt, table.createdAt)
+      .where(sql`status = 'pending'`),
     index("outbox_aggregate_idx").on(table.aggregateType, table.aggregateId),
     index("outbox_organization_idx").on(table.organizationId, table.createdAt),
   ],
