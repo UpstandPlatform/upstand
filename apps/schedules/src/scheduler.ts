@@ -1,5 +1,6 @@
 import type { Server } from "@upstand/domain";
 import { DockerCleanupService } from "@upstand/infrastructure";
+import { redis } from "@upstand/redis";
 import {
   AccessLogCleanupScheduler,
   AutoscalingService,
@@ -65,6 +66,25 @@ export class ScheduledDockerCleanup {
     const date = getLocalDateKey(now);
     if (now.getHours() < 3 || this.lastRunDate === date) return;
 
+    const lockKey = `scheduler:docker-cleanup:${date}`;
+    const lockToken = `${process.pid}:${Date.now()}:${Math.random()}`;
+    try {
+      const acquired = await redis.set(
+        lockKey,
+        lockToken,
+        "PX",
+        20 * 60 * 1000,
+        "NX",
+      );
+      if (acquired !== "OK") return;
+    } catch (error) {
+      log.error({
+        message: "Unable to acquire distributed Docker cleanup lock",
+        err: error,
+      });
+      return;
+    }
+
     if (this.activeDate !== date) {
       this.activeDate = date;
       this.completedTargets.clear();
@@ -128,26 +148,36 @@ export class ScheduledDockerCleanup {
               serverId: server.id,
             });
 
-            // Enforce a 5-minute timeout for remote execution
+            // Enforce a 5-minute timeout for remote execution and abort the
+            // child process instead of merely stopping our wait for it.
+            const abortController = new AbortController();
+            let timedOut = false;
             let timerHandle: ReturnType<typeof setTimeout> | undefined;
-            const cleanupPromise = this.dockerCleanupService.run(
-              "all",
-              remote.environment,
-            );
-            const timeoutPromise = new Promise<never>((_, reject) => {
-              timerHandle = setTimeout(
-                () =>
-                  reject(
-                    new Error(
-                      "Remote Docker cleanup timed out after 5 minutes",
-                    ),
-                  ),
-                300_000,
-              );
-            });
 
             try {
-              await Promise.race([cleanupPromise, timeoutPromise]);
+              timerHandle = setTimeout(() => {
+                timedOut = true;
+                abortController.abort();
+              }, 300_000);
+              await this.dockerCleanupService.run(
+                "all",
+                remote.environment,
+                {},
+                abortController.signal,
+              );
+              if (timedOut) {
+                throw new Error(
+                  "Remote Docker cleanup timed out after 5 minutes",
+                );
+              }
+            } catch (error) {
+              if (timedOut) {
+                throw new Error(
+                  "Remote Docker cleanup timed out after 5 minutes",
+                  { cause: error },
+                );
+              }
+              throw error;
             } finally {
               if (timerHandle) clearTimeout(timerHandle);
             }
@@ -207,6 +237,16 @@ export class ScheduledDockerCleanup {
     } finally {
       this.running = false;
       await scope.dispose();
+      try {
+        if ((await redis.get(lockKey)) === lockToken) {
+          await redis.del(lockKey);
+        }
+      } catch (error) {
+        log.warn({
+          message: "Unable to release distributed Docker cleanup lock",
+          err: error,
+        });
+      }
     }
   }
 }

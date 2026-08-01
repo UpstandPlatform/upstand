@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { secretVersion } from "@upstand/db";
+import { environment, project, resource, secretVersion } from "@upstand/db";
 import type {
   ISecretVersionRepository,
   SecretScopeType,
@@ -49,30 +49,98 @@ function encodeSecret(
   return JSON.stringify(encryptSecret(value));
 }
 
+const secretVersionMetadataSelection = {
+  id: secretVersion.id,
+  scopeType: secretVersion.scopeType,
+  scopeId: secretVersion.scopeId,
+  version: secretVersion.version,
+  source: secretVersion.source,
+  createdBy: secretVersion.createdBy,
+  createdAt: secretVersion.createdAt,
+};
+
+const secretVersionPayloadSelection = {
+  scopeType: secretVersion.scopeType,
+  scopeId: secretVersion.scopeId,
+  version: secretVersion.version,
+  credentials: secretVersion.credentials,
+  buildSecrets: secretVersion.buildSecrets,
+  buildEnvVars: secretVersion.buildEnvVars,
+  envVars: secretVersion.envVars,
+  source: secretVersion.source,
+  createdBy: secretVersion.createdBy,
+};
+
 export class DrizzleSecretVersionRepository
   implements ISecretVersionRepository
 {
   constructor(private readonly executor: Executor) {}
 
+  private async resolveOrganizationId(
+    scopeType: SecretScopeType,
+    scopeId: string,
+  ): Promise<string> {
+    const [row] =
+      scopeType === "resource"
+        ? await this.executor
+            .select({ organizationId: project.organizationId })
+            .from(resource)
+            .innerJoin(environment, eq(resource.environmentId, environment.id))
+            .innerJoin(project, eq(environment.projectId, project.id))
+            .where(eq(resource.id, scopeId))
+            .limit(1)
+        : await this.executor
+            .select({ organizationId: project.organizationId })
+            .from(environment)
+            .innerJoin(project, eq(environment.projectId, project.id))
+            .where(eq(environment.id, scopeId))
+            .limit(1);
+    if (!row) throw new Error("Secret scope not found");
+    return row.organizationId;
+  }
+
   async findByScope(
     scopeType: SecretScopeType,
     scopeId: string,
+    organizationId: string,
   ): Promise<SecretVersion[]> {
+    if (scopeType === "resource") {
+      return (await this.executor
+        .select(secretVersionMetadataSelection)
+        .from(secretVersion)
+        .innerJoin(
+          resource,
+          and(
+            eq(secretVersion.scopeType, "resource"),
+            eq(secretVersion.scopeId, resource.id),
+          ),
+        )
+        .innerJoin(environment, eq(resource.environmentId, environment.id))
+        .innerJoin(project, eq(environment.projectId, project.id))
+        .where(
+          and(
+            eq(secretVersion.scopeId, scopeId),
+            eq(project.organizationId, organizationId),
+          ),
+        )
+        .orderBy(desc(secretVersion.version))) as SecretVersion[];
+    }
+
     return (await this.executor
-      .select({
-        id: secretVersion.id,
-        scopeType: secretVersion.scopeType,
-        scopeId: secretVersion.scopeId,
-        version: secretVersion.version,
-        source: secretVersion.source,
-        createdBy: secretVersion.createdBy,
-        createdAt: secretVersion.createdAt,
-      })
+      .select(secretVersionMetadataSelection)
       .from(secretVersion)
+      .innerJoin(
+        environment,
+        and(
+          eq(secretVersion.scopeType, "environment"),
+          eq(secretVersion.scopeId, environment.id),
+        ),
+      )
+      .innerJoin(project, eq(environment.projectId, project.id))
       .where(
         and(
-          eq(secretVersion.scopeType, scopeType),
           eq(secretVersion.scopeId, scopeId),
+          eq(project.organizationId, organizationId),
         ),
       )
       .orderBy(desc(secretVersion.version))) as SecretVersion[];
@@ -82,18 +150,50 @@ export class DrizzleSecretVersionRepository
     scopeType: SecretScopeType,
     scopeId: string,
     version: number,
+    organizationId: string,
   ): Promise<SecretVersionPayload | null> {
-    const [row] = await this.executor
-      .select()
-      .from(secretVersion)
-      .where(
-        and(
-          eq(secretVersion.scopeType, scopeType),
-          eq(secretVersion.scopeId, scopeId),
-          eq(secretVersion.version, version),
-        ),
-      )
-      .limit(1);
+    const query =
+      scopeType === "resource"
+        ? this.executor
+            .select(secretVersionPayloadSelection)
+            .from(secretVersion)
+            .innerJoin(
+              resource,
+              and(
+                eq(secretVersion.scopeType, "resource"),
+                eq(secretVersion.scopeId, resource.id),
+              ),
+            )
+            .innerJoin(environment, eq(resource.environmentId, environment.id))
+            .innerJoin(project, eq(environment.projectId, project.id))
+            .where(
+              and(
+                eq(secretVersion.scopeId, scopeId),
+                eq(secretVersion.version, version),
+                eq(project.organizationId, organizationId),
+              ),
+            )
+            .limit(1)
+        : this.executor
+            .select(secretVersionPayloadSelection)
+            .from(secretVersion)
+            .innerJoin(
+              environment,
+              and(
+                eq(secretVersion.scopeType, "environment"),
+                eq(secretVersion.scopeId, environment.id),
+              ),
+            )
+            .innerJoin(project, eq(environment.projectId, project.id))
+            .where(
+              and(
+                eq(secretVersion.scopeId, scopeId),
+                eq(secretVersion.version, version),
+                eq(project.organizationId, organizationId),
+              ),
+            )
+            .limit(1);
+    const [row] = await query;
     return row
       ? {
           scopeType: row.scopeType as SecretScopeType,
@@ -110,10 +210,15 @@ export class DrizzleSecretVersionRepository
   }
 
   async append(payload: SecretVersionPayload): Promise<SecretVersion> {
+    const organizationId = await this.resolveOrganizationId(
+      payload.scopeType,
+      payload.scopeId,
+    );
     const [row] = await this.executor
       .insert(secretVersion)
       .values({
         id: randomUUID(),
+        organizationId,
         ...payload,
         credentials: encodeSecret(payload.credentials) ?? payload.credentials,
         buildSecrets:

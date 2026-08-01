@@ -24,6 +24,15 @@ export type UpGalMCPAppConnection = {
 };
 
 function configuredServers(logger: Pick<RequestLog, "warn">) {
+  if (!env.UPGAL_ALLOW_GLOBAL_MCP) {
+    return [];
+  }
+
+  if (env.IS_CLOUD) {
+    logger.warn("Global MCP integrations are disabled in cloud mode");
+    return [];
+  }
+
   const raw = env.UPGAL_MCP_SERVERS?.trim();
   if (!raw) return [];
 

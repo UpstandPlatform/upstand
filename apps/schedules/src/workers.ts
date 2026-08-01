@@ -27,6 +27,7 @@ import { getServiceProvider } from "./di";
 const PUBLISH_INTERVAL_MS = 1_000;
 const RETENTION_INTERVAL_MS = 60 * 60_000;
 const PUBLISHED_RETENTION_MS = 30 * 24 * 60 * 60_000;
+const SCHEDULE_LOG_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
 export class OutboxRuntime {
   private started = false;
@@ -121,10 +122,20 @@ export class OutboxRuntime {
       const deleted = await uow.outboxRepository.prunePublished(
         new Date(Date.now() - PUBLISHED_RETENTION_MS),
       );
+      const deletedScheduleLogs =
+        await uow.scheduleLogRepository.deleteOlderThan?.(
+          new Date(Date.now() - SCHEDULE_LOG_RETENTION_MS),
+        );
       if (deleted > 0) {
         log.info({
           message: "Published transactional outbox messages pruned",
           deleted,
+        });
+      }
+      if ((deletedScheduleLogs ?? 0) > 0) {
+        log.info({
+          message: "Old schedule logs pruned",
+          deleted: deletedScheduleLogs,
         });
       }
     } catch (error: unknown) {

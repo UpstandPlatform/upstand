@@ -40,6 +40,17 @@ describe("authorization catalog", () => {
     ]);
     expect(capabilityRequiresRecentTwoFactor("resource:delete")).toBe(true);
     expect(capabilityRequiresRecentTwoFactor("resource:view")).toBe(false);
+    expect(capabilityRequiresRecentTwoFactor("resource:secrets:view")).toBe(
+      true,
+    );
+    expect(capabilitiesForRole("member")).not.toContain(
+      "resource:secrets:view",
+    );
+    expect(CAPABILITY_CATALOG["resource:secrets:view"]).toMatchObject({
+      apiKey: false,
+      customRole: false,
+      scope: "organization",
+    });
   });
 
   test("keeps exposed permission scopes derived from the catalog", () => {

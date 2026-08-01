@@ -324,6 +324,10 @@ services:
   web:
     image: ${UPSTAND_WEB_IMAGE:?UPSTAND_WEB_IMAGE is required}
     stop_grace_period: 1m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:?NEXT_PUBLIC_SERVER_URL is required}
@@ -372,6 +376,7 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
+          pids: 512
     logging:
       driver: "json-file"
       options:
@@ -381,6 +386,10 @@ services:
   fumadocs:
     image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
     stop_grace_period: 1m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       upstand-network:
         aliases:
@@ -418,6 +427,14 @@ services:
         order: start-first
         failure_action: pause
         monitor: 45s
+      resources:
+        reservations:
+          cpus: "0.15"
+          memory: 128M
+        limits:
+          cpus: "0.5"
+          memory: 512M
+          pids: 256
     logging:
       driver: "json-file"
       options:

@@ -173,6 +173,13 @@ export const CAPABILITY_CATALOG = {
     assurance: "standard",
     roles: ownerAdminMember,
   },
+  "resource:secrets:view": {
+    scope: "organization",
+    apiKey: false,
+    customRole: false,
+    assurance: "recent-2fa",
+    roles: ownerAdmin,
+  },
   "resource:update": {
     scope: "resource",
     apiKey: true,

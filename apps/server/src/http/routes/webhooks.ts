@@ -9,6 +9,7 @@ import {
 import type { CaddyResource } from "@upstand/usecases/ports/caddy";
 import { UnitOfWorkToken } from "@upstand/usecases/tokens";
 import type { Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 
@@ -20,6 +21,13 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
       path: "webhooks",
       profile: "webhooks",
       onRejected: (c, message) => c.json({ error: message }, 429),
+    }),
+  );
+  app.use(
+    "/api/webhooks/*",
+    bodyLimit({
+      maxSize: MAX_WEBHOOK_BODY_BYTES,
+      onError: (c) => c.json({ error: "Webhook payload is too large" }, 413),
     }),
   );
 

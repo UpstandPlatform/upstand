@@ -108,9 +108,18 @@ export const projectRouter = router({
   deleteProject: twoFactorVerifiedProcedure
     .input(DeleteProjectInputSchema)
     .mutation(async ({ ctx, input }) => {
+      const project = await ctx.scope
+        .resolve(GetProjectUseCaseToken)
+        .execute({ id: input.id });
+      if (!project || project.organizationId !== input.organizationId) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
       await checkPermission(
         ctx.session.user.id,
-        input.organizationId,
+        project.organizationId,
         "project:delete",
       );
 

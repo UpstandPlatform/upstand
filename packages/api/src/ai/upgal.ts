@@ -11,6 +11,7 @@ import {
   type Resource,
   toJsonValue,
 } from "@upstand/domain";
+import { env } from "@upstand/env/server";
 import { AIRepositoryToken } from "@upstand/repositories/tokens";
 import {
   CreateTemplateInputSchema,
@@ -2215,7 +2216,7 @@ export async function createUpGalResponse(
         ? "user-approval"
         : undefined,
     toolsContext,
-    stopWhen: stepCountIs(12),
+    stopWhen: stepCountIs(env.UPGAL_MAX_STEPS),
     maxRetries: 2,
     timeout: { stepMs: 120_000, toolMs: 45_000 },
     telemetry: {

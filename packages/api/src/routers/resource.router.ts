@@ -207,7 +207,7 @@ export const resourceRouter = router({
       await checkPermission(
         ctx.session.user.id,
         project.organizationId,
-        "resource:view",
+        "resource:secrets:view",
       );
 
       return {

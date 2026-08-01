@@ -21,8 +21,11 @@ import {
 import { auth } from "@upstand/api/auth";
 import { authorizeMcpTool, checkPermission } from "@upstand/api/permissions";
 import { isJsonObject } from "@upstand/domain";
+import { env } from "@upstand/env/server";
+import { redis } from "@upstand/redis";
 import { AIRepositoryToken } from "@upstand/repositories/tokens";
 import type { Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
@@ -32,6 +35,22 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
   const MAX_AI_REQUEST_BYTES = 512 * 1024;
   const MAX_AI_MESSAGES = 100;
   const MAX_MCP_REQUEST_BYTES = 256 * 1024;
+  const aiBodyLimit = bodyLimit({
+    maxSize: MAX_AI_REQUEST_BYTES,
+    onError: (c) => c.json({ error: "UpGal request is too large" }, 413),
+  });
+  const mcpBodyLimit = bodyLimit({
+    maxSize: MAX_MCP_REQUEST_BYTES,
+    onError: (c) =>
+      c.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "MCP request is too large" },
+        },
+        413,
+      ),
+  });
 
   app.use(
     "/api/ai/chat",
@@ -50,6 +69,8 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       },
     }),
   );
+
+  app.use("/api/ai/chat", aiBodyLimit);
 
   app.post("/api/ai/chat", async (c) => {
     const requestLog = c.get("log");
@@ -87,6 +108,31 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: "UpGal conversation is too large" }, 413);
     }
     await checkPermission(session.user.id, body.organizationId, "ai:view");
+
+    if (env.NODE_ENV !== "test") {
+      const budgetKey = `upgal:daily-runs:${body.organizationId}:${new Date()
+        .toISOString()
+        .slice(0, 10)}`;
+      let runCount: number;
+      try {
+        runCount = await redis.incr(budgetKey);
+        if (runCount === 1) {
+          await redis.expire(budgetKey, 90_000);
+        }
+      } catch (error) {
+        requestLog.error(error instanceof Error ? error : String(error), {
+          message: "Unable to enforce UpGal daily budget",
+          organizationId: body.organizationId,
+        });
+        return c.json({ error: "UpGal is temporarily unavailable" }, 503);
+      }
+      if (runCount > env.UPGAL_DAILY_RUN_LIMIT) {
+        return c.json(
+          { error: "UpGal daily organization run limit exceeded" },
+          429,
+        );
+      }
+    }
     const conversationId = body.conversationId || randomUUID();
     const ownedConversation = await getConversationForUser(
       conversationId,
@@ -200,6 +246,8 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       },
     }),
   );
+
+  app.use("/api/mcp*", mcpBodyLimit);
 
   // ---------------------------------------------------------------------------
   // MCP Endpoints — supports both transports & all endpoint path aliases:
@@ -397,14 +445,15 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       });
     }
 
-    // tools/list — return every tool this API key has access to (all 63 tools).
-    // Mutating tools carry destructiveHint: true & readOnlyHint: false.
+    // tools/list — return only externally executable, read-only tools.
+    // Mutating tools require the dashboard approval workflow and are not
+    // advertised to external MCP clients.
     // -------------------------------------------------------------------------
     if (body.method === "tools/list") {
       const tools = (
         await Promise.all(
           UPGAL_TOOL_METADATA.map(async ([name, description, mutation]) =>
-            (await canUseMcpTool(name))
+            !mutation && (await canUseMcpTool(name))
               ? { name, description, mutation }
               : null,
           ),

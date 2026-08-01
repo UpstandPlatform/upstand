@@ -66,8 +66,9 @@ export function registerHttpMiddleware(
     [
       env.CORS_ORIGIN,
       env.BETTER_AUTH_URL,
-      "http://localhost:3001",
-      "http://127.0.0.1:3001",
+      ...(process.env.NODE_ENV === "production"
+        ? []
+        : ["http://localhost:3001", "http://127.0.0.1:3001"]),
     ]
       .filter((origin): origin is string => Boolean(origin))
       .map((origin) => {

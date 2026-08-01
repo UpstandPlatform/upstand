@@ -44,15 +44,18 @@ type CommandResult = { stdout: string; stderr: string };
 type CommandExecutor = (
   args: string[],
   environment: Record<string, string | undefined>,
+  signal?: AbortSignal,
 ) => Promise<CommandResult>;
 
 async function executeDocker(
   args: string[],
   environment: Record<string, string | undefined>,
+  signal?: AbortSignal,
 ): Promise<CommandResult> {
   return execFileAsync("docker", args, {
     env: { ...process.env, ...environment },
     maxBuffer: 2 * 1024 * 1024,
+    signal,
   });
 }
 
@@ -63,6 +66,7 @@ export class DockerCleanupService {
     action: DockerCleanupAction,
     environment: Record<string, string | undefined> = {},
     options: Partial<DockerCleanupOptions> = {},
+    signal?: AbortSignal,
   ): Promise<{ action: DockerCleanupAction; output: string[] }> {
     const parsed = DockerCleanupActionSchema.parse(action);
     const cleanupOptions = DockerCleanupOptionsSchema.parse(options);
@@ -96,7 +100,7 @@ export class DockerCleanupService {
                   : []),
               ]
             : ACTION_ARGS[current];
-      const result = await this.execute(args, environment);
+      const result = await this.execute(args, environment, signal);
       output.push(
         `${current}: ${[result.stdout, result.stderr]
           .filter(Boolean)

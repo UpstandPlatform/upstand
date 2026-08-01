@@ -158,7 +158,6 @@ jobs:
           file: ${{ matrix.file }}
           push: true
           tags: |
-            ghcr.io/${{ steps.meta.outputs.repo }}-${{ matrix.name }}:latest
             ghcr.io/${{ steps.meta.outputs.repo }}-${{ matrix.name }}:${{ steps.meta.outputs.tag }}
           build-args: ${{ matrix.build_args }}
           cache-from: type=gha,scope=${{ matrix.scope }}
@@ -286,11 +285,8 @@ jobs:
             exit 1
           fi
           if gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_VERSION" \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber \
-              "$MANIFEST_FILE#upstand-release-manifest.json" \
-              "${assets[@]}"
+            echo "Release $RELEASE_VERSION already exists; refusing to overwrite immutable release assets" >&2
+            exit 1
           else
             gh release create "$RELEASE_VERSION" \
               --repo "$GITHUB_REPOSITORY" \

@@ -68,6 +68,14 @@ const validatedEnv = createEnv({
     UPSTAND_MONITORING_IMAGE: z.string().min(1).optional(),
     DB_MIGRATIONS_PATH: z.string().min(1).optional(),
     UPGAL_MCP_SERVERS: z.string().optional(),
+    UPGAL_ALLOW_GLOBAL_MCP: z
+      .preprocess(
+        (val) => val === "true" || val === "1" || val === true,
+        z.boolean(),
+      )
+      .default(false),
+    UPGAL_DAILY_RUN_LIMIT: z.coerce.number().int().positive().default(100),
+    UPGAL_MAX_STEPS: z.coerce.number().int().min(1).max(12).default(8),
     UPGAL_ALLOW_CUSTOM_BASE_URL: z
       .preprocess(
         (val) => val === "true" || val === "1" || val === true,

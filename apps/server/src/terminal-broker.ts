@@ -6,6 +6,7 @@ import {
 } from "@upstand/platform/crypto/secret-box";
 import { hostVerifierForFingerprint } from "@upstand/platform/ssh/host-key";
 import { redis } from "@upstand/redis";
+import { log } from "evlog";
 import { Client, type ClientChannel } from "ssh2";
 import { isValidContainerIdentifier } from "./container-ownership";
 
@@ -199,7 +200,13 @@ export class TerminalBroker {
     const encrypted = encryptSecret(JSON.stringify(payload));
     redis
       .set(`term:session:${token}`, JSON.stringify(encrypted), "EX", 60)
-      .catch(() => {});
+      .catch((error: unknown) => {
+        log.warn({
+          message:
+            "Terminal hand-off could not be persisted to Redis; process-local fallback is active",
+          err: error,
+        });
+      });
     return token;
   }
 

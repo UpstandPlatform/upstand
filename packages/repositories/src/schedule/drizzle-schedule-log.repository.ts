@@ -14,7 +14,7 @@ import type {
   IScheduleLogRepository,
   ScheduleLog,
 } from "@upstand/domain";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { BaseRepository } from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
@@ -75,6 +75,14 @@ export class DrizzleScheduleLogRepository
     return true;
   }
 
+  async deleteOlderThan(cutoff: Date): Promise<number> {
+    const deleted = await this.executor
+      .delete(scheduleLog)
+      .where(lt(scheduleLog.executedAt, cutoff))
+      .returning({ id: scheduleLog.id });
+    return deleted.length;
+  }
+
   async getObservabilityMetrics(
     input: GetCronJobObservabilityInput,
   ): Promise<CronJobObservabilityResult> {
@@ -124,7 +132,10 @@ export class DrizzleScheduleLogRepository
     const logs =
       scheduleIds.length > 0
         ? await this.findMany({
-            where: gte(scheduleLog.executedAt, cutoffDate),
+            where: and(
+              gte(scheduleLog.executedAt, cutoffDate),
+              inArray(scheduleLog.scheduleId, scheduleIds),
+            ),
             orderBy: desc(scheduleLog.executedAt),
           })
         : [];

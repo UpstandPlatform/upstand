@@ -99,6 +99,9 @@ export const UpdateSecretRotationScheduleInputSchema = z.object({
 });
 
 type RotateSecretsInput = z.infer<typeof RotateSecretsInputSchema>;
+type AuthorizedSecretScopeInput = {
+  organizationId: string;
+};
 
 async function enqueueSecretScopeDeployments(
   uow: IUnitOfWork,
@@ -164,11 +167,13 @@ async function rotateSecretScope(
 export class ListSecretVersionsUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
   execute(
-    input: z.infer<typeof ListSecretVersionsInputSchema>,
+    input: z.infer<typeof ListSecretVersionsInputSchema> &
+      AuthorizedSecretScopeInput,
   ): Promise<SecretVersion[]> {
     return this.uow.secretVersionRepository.findByScope(
       input.scopeType,
       input.scopeId,
+      input.organizationId,
     );
   }
 }
@@ -177,12 +182,14 @@ export class GetSecretVersionUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   execute(
-    input: z.infer<typeof RestoreSecretVersionInputSchema>,
+    input: z.infer<typeof RestoreSecretVersionInputSchema> &
+      AuthorizedSecretScopeInput,
   ): Promise<SecretVersionPayload | null> {
     return this.uow.secretVersionRepository.findByScopeVersion(
       input.scopeType,
       input.scopeId,
       input.version,
+      input.organizationId,
     );
   }
 }
@@ -190,12 +197,14 @@ export class GetSecretVersionUseCase {
 export class RestoreSecretVersionUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
   async execute(
-    input: z.infer<typeof RestoreSecretVersionInputSchema>,
+    input: z.infer<typeof RestoreSecretVersionInputSchema> &
+      AuthorizedSecretScopeInput,
   ): Promise<void> {
     const payload = await this.uow.secretVersionRepository.findByScopeVersion(
       input.scopeType,
       input.scopeId,
       input.version,
+      input.organizationId,
     );
     if (!payload) throw new Error("Secret version not found");
     if (input.scopeType === "environment") {

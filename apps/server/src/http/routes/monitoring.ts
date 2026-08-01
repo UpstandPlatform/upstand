@@ -5,9 +5,27 @@ import {
   UnitOfWorkToken,
 } from "@upstand/usecases/tokens";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 
 export function registerMonitoringRoutes(app: Hono<AppEnv>): void {
+  app.use(
+    "/api/monitoring/alerts",
+    createHttpRateLimitMiddleware({
+      path: "monitoring-alerts",
+      profile: "webhooks",
+      onRejected: (c, message) => c.json({ error: message }, 429),
+    }),
+  );
+  app.use(
+    "/api/monitoring/alerts",
+    bodyLimit({
+      maxSize: 32 * 1024,
+      onError: (c) => c.json({ error: "Monitoring alert is too large" }, 413),
+    }),
+  );
+
   // Webhook for receiving threshold alerts from Go Monitoring Agent.
   app.post("/api/monitoring/alerts", async (c) => {
     const requestLog = c.get("log");

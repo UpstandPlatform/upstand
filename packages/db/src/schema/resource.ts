@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { dockerRegistry } from "./docker-registry";
 import { environment } from "./environment";
@@ -72,6 +73,12 @@ export const resource = pgTable(
     index("resource_build_registry_idx").on(table.buildRegistryId),
     index("resource_rollback_registry_idx").on(table.rollbackRegistryId),
     index("resource_app_name_idx").on(table.appName),
+    uniqueIndex("resource_normalized_service_key_uidx")
+      .using(
+        "btree",
+        sql`regexp_replace(lower(trim(${table.appName})), '[^a-z0-9_-]', '-', 'g')`,
+      )
+      .where(sql`${table.appName} IS NOT NULL`),
   ],
 );
 

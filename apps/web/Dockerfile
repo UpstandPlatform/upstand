@@ -36,4 +36,6 @@ ENV HOSTNAME=0.0.0.0
 ENV PORT=3001
 EXPOSE 3001
 
+USER node
+
 CMD ["node", "apps/web/server.js"]
