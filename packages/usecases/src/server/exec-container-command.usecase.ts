@@ -63,7 +63,7 @@ export class ExecContainerCommandUseCase {
     const ownedContainers = containers.filter((container) =>
       containerBelongsToResource(container, resource),
     );
-    let selected = input.containerId
+    const selected = input.containerId
       ? ownedContainers.find(
           (container) =>
             matchesContainerIdentifier(
@@ -76,20 +76,6 @@ export class ExecContainerCommandUseCase {
             ),
         )
       : ownedContainers[0];
-
-    if (!selected && containers.length > 0) {
-      const resName = (resource.appName || resource.name).toLowerCase();
-      selected = containers.find((c) => {
-        const cleanName = (c.name || "").replace(/^\//, "").toLowerCase();
-        return (
-          cleanName.includes(resName) ||
-          (input.containerId &&
-            (c.id === input.containerId ||
-              c.id.startsWith(input.containerId) ||
-              input.containerId.startsWith(c.id)))
-        );
-      });
-    }
 
     if (!selected) {
       throw new Error("Container is not part of the requested resource.");

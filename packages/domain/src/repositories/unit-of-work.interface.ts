@@ -12,7 +12,6 @@ import type { INotificationDeliveryRepository } from "./notification-delivery-re
 import type { IOutboxRepository } from "./outbox-repository.interface";
 import type { IPreviewDeploymentRepository } from "./preview-deployment-repository.interface";
 import type { IProjectRepository } from "./project-repository.interface";
-import type { IProxyTakeoverJournalRepository } from "./proxy-takeover-journal-repository.interface";
 import type { IResourceRepository } from "./resource-repository.interface";
 import type { IResourceRuntimeRepository } from "./resource-runtime-repository.interface";
 import type { IS3DestinationRepository } from "./s3-destination-repository.interface";
@@ -63,6 +62,5 @@ export interface IUnitOfWork {
   readonly secretVersionRepository: ISecretVersionRepository;
   readonly secretProviderRepository: ISecretProviderRepository;
   readonly secretRotationScheduleRepository?: ISecretRotationScheduleRepository;
-  readonly proxyTakeoverJournalRepository?: IProxyTakeoverJournalRepository;
   transaction<T>(work: (uow: IUnitOfWork) => Promise<T>): Promise<T>;
 }

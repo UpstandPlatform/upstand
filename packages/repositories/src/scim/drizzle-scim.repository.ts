@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { member, organization, session, user } from "@upstand/db/schema/auth";
+import { member, organization, user } from "@upstand/db/schema/auth";
 import { scimProvider } from "@upstand/db/schema/scim";
 import type {
   CreateScimProviderInput,
@@ -298,7 +298,10 @@ export class DrizzleScimRepository
         )
         .returning({ id: member.id });
       if (deleted.length === 0) return false;
-      await tx.delete(session).where(eq(session.userId, userId));
+      // Sessions are user-global in Better Auth and do not carry an
+      // organization scope. Deprovisioning one membership must not log the
+      // user out of every other organization. Authorization checks will deny
+      // the removed membership on the next request.
       return true;
     });
   }

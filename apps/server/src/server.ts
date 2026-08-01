@@ -58,7 +58,28 @@ initLogger({
   drain,
 });
 
-await runDatabaseMigrations();
+async function waitForMigrationBarrier() {
+  if (!env.UPSTAND_SKIP_MIGRATIONS || !env.UPSTAND_MIGRATION_ID) return;
+
+  const key = `upstand:migrations:ready:${env.UPSTAND_MIGRATION_ID}`;
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    try {
+      if ((await redis.get(key)) === "ready") return;
+    } catch {
+      // Redis readiness is checked again on the next attempt.
+    }
+    await Bun.sleep(1_000);
+  }
+
+  throw new Error("Timed out waiting for the deployment database migration");
+}
+
+await waitForMigrationBarrier();
+
+if (!env.UPSTAND_SKIP_MIGRATIONS) {
+  await runDatabaseMigrations();
+}
 
 const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
   exclude: [
@@ -105,6 +126,25 @@ registerApiTransports(app);
 registerSystemRoutes(app, {
   isShuttingDown: () => shuttingDown,
   isCaddyReady: () => caddyReady,
+  isSchedulesReady: async () => {
+    const endpoint = env.UPSTAND_SCHEDULES_INTERNAL_URL;
+    if (!endpoint) return true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1_000);
+    try {
+      const response = await fetch(
+        `${endpoint.replace(/\/$/, "")}/health/ready`,
+        {
+          signal: controller.signal,
+        },
+      );
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  },
 });
 
 // Initialize Caddy Web Server on Startup

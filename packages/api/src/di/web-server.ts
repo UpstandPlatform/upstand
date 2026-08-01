@@ -45,47 +45,4 @@ export function registerWebServer(services: ServiceCollection) {
         c.resolve(dependencies.PublishNotificationUseCaseToken),
       ),
   );
-
-  // Proxy Engine & Migration Registrations
-  services.addSingleton(
-    dependencies.ProxyDetectorToken,
-    () => new dependencies.DefaultProxyDetector(),
-  );
-  services.addSingleton(
-    dependencies.ProxyImporterToken,
-    () => new dependencies.DefaultProxyImporter(),
-  );
-  services.addTransient(
-    dependencies.ProxyTakeoverManagerToken,
-    (c) =>
-      new dependencies.DefaultProxyTakeoverManager(
-        c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.ProxyDetectorToken),
-        c.resolve(dependencies.ProxyImporterToken),
-      ),
-  );
-  services.addTransient(
-    dependencies.DetectProxyUseCaseToken,
-    (c) =>
-      new dependencies.DetectProxyUseCase(
-        c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.ProxyDetectorToken),
-      ),
-  );
-  services.addTransient(
-    dependencies.ScanProxySitesUseCaseToken,
-    (c) =>
-      new dependencies.ScanProxySitesUseCase(
-        c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.ProxyImporterToken),
-      ),
-  );
-  services.addTransient(
-    dependencies.TakeoverProxyUseCaseToken,
-    (c) =>
-      new dependencies.TakeoverProxyUseCase(
-        c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.ProxyTakeoverManagerToken),
-      ),
-  );
 }

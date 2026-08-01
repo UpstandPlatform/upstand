@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import {
+  decryptSecret,
+  type EncryptedPayload,
+  encryptSecret,
+} from "@upstand/platform/crypto/secret-box";
 import { hostVerifierForFingerprint } from "@upstand/platform/ssh/host-key";
 import { redis } from "@upstand/redis";
 import { Client, type ClientChannel } from "ssh2";
@@ -191,8 +196,9 @@ export class TerminalBroker {
         };
 
     this.sessions.set(token, payload);
+    const encrypted = encryptSecret(JSON.stringify(payload));
     redis
-      .set(`term:session:${token}`, JSON.stringify(payload), "EX", 60)
+      .set(`term:session:${token}`, JSON.stringify(encrypted), "EX", 60)
       .catch(() => {});
     return token;
   }
@@ -207,15 +213,15 @@ export class TerminalBroker {
     try {
       const stored = await redis.getdel(`term:session:${token}`);
       if (stored) {
-        session = JSON.parse(stored) as TerminalSession;
+        session = JSON.parse(
+          decryptSecret(JSON.parse(stored) as EncryptedPayload),
+        ) as TerminalSession;
       }
     } catch {
-      // Redis error fallback to local in-memory store
+      // Fall back to the process-local payload when Redis is unavailable.
     }
-    if (!session) {
-      session = this.sessions.get(token);
-      this.sessions.delete(token);
-    }
+    if (!session) session = this.sessions.get(token);
+    this.sessions.delete(token);
     if (!session || session.expiresAt < Date.now()) {
       throw new Error(
         "Terminal session expired. Open a new terminal and try again.",

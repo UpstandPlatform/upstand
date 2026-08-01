@@ -1,30 +1,6 @@
 name: upstand-local
 
 services:
-  edge:
-    profiles: [edge]
-    build:
-      context: ./apps/edge
-    container_name: upstand-edge-local
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./.docker/edge/certs:/etc/openresty/certs
-      - ./.docker/edge/logs:/var/log/openresty
-    environment:
-      EDGE_UPSTREAM: upstand-caddy:80
-      EDGE_HTTPS_UPSTREAM: upstand-caddy:443
-      EDGE_ALLOW_FALLBACK: "true"
-      EDGE_MANAGEMENT_TOKEN: ${EDGE_MANAGEMENT_TOKEN:-upstand-local-edge-management-token}
-    networks:
-      - upstand-network
-      - local-ingress
-    depends_on:
-      server:
-        condition: service_healthy
-
   postgres:
     image: postgres:18-alpine
     container_name: upstand-postgres-local
@@ -42,7 +18,6 @@ services:
       - postgres_data_v18:/var/lib/postgresql
     networks:
       - upstand-network
-      - local-ingress
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -102,7 +77,6 @@ services:
           # Keep local Compose compatible with the service name used by the
           # monitoring agent and generated Caddy configuration.
           - upstand_server
-      local-ingress: {}
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,7 +136,6 @@ services:
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
     networks:
       - upstand-network
-      - local-ingress
     depends_on:
       postgres:
         condition: service_healthy
@@ -218,7 +191,6 @@ services:
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000
     networks:
       - upstand-network
-      - local-ingress
     depends_on:
       server:
         condition: service_healthy
@@ -274,7 +246,6 @@ services:
       CHOKIDAR_USEPOLLING: "true"
     networks:
       - upstand-network
-      - local-ingress
     depends_on:
       server:
         condition: service_healthy
@@ -301,7 +272,6 @@ services:
       - redis_data:/data
     networks:
       - upstand-network
-      - local-ingress
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -319,5 +289,3 @@ networks:
   upstand-network:
     external: true
     name: ${DOCKER_NETWORK:-upstand-network}
-  local-ingress:
-    driver: bridge

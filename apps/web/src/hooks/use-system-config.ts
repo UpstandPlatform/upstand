@@ -8,8 +8,6 @@ type SystemConfig = {
     mode: "desktop" | "self-hosted" | "cloud";
     localRuntime: boolean;
     remoteServers: boolean;
-    localEdge: boolean;
-    remoteEdge: boolean;
     scheduler: boolean;
     redis: boolean;
     cloudConnection: boolean;
@@ -56,8 +54,6 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
       mode: platformMode,
       localRuntime: platformMode !== "cloud",
       remoteServers: true,
-      localEdge: platformMode !== "cloud",
-      remoteEdge: true,
       scheduler: true,
       redis: platformMode !== "desktop",
       cloudConnection: platformMode !== "cloud",

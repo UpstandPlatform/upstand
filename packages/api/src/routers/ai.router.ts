@@ -31,13 +31,7 @@ const providerFormSchema = z.object({
   baseUrl: z.url().optional().or(z.literal("")),
   temperature: z.number().min(0).max(2).nullable().optional(),
   reasoningEnabled: z.boolean().default(false),
-  maxOutputTokens: z
-    .number()
-    .int()
-    .min(256)
-    .max(1_000_000)
-    .nullable()
-    .optional(),
+  maxOutputTokens: z.number().int().min(256).max(32_768).nullable().optional(),
 });
 
 // ── Router ────────────────────────────────────────────────────────────────────

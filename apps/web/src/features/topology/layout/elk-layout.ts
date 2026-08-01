@@ -61,8 +61,8 @@ function smoothUturns(points: Point[]): Point[] {
       ) {
         const abDir = Math.sign(b.x - a.x);
         const cdDir = Math.sign(d.x - c.x);
-        const stubLen = Math.abs(b.y - c.y);
-        if (abDir !== 0 && cdDir !== 0 && abDir !== cdDir && stubLen < 30) {
+        const segmentGap = Math.abs(b.y - c.y);
+        if (abDir !== 0 && cdDir !== 0 && abDir !== cdDir && segmentGap < 30) {
           if (Math.abs(a.x - d.x) < 0.5) {
             result.splice(i + 1, 2);
           } else {
@@ -80,8 +80,8 @@ function smoothUturns(points: Point[]): Point[] {
       ) {
         const abDir = Math.sign(b.y - a.y);
         const cdDir = Math.sign(d.y - c.y);
-        const stubLen = Math.abs(b.x - c.x);
-        if (abDir !== 0 && cdDir !== 0 && abDir !== cdDir && stubLen < 30) {
+        const segmentGap = Math.abs(b.x - c.x);
+        if (abDir !== 0 && cdDir !== 0 && abDir !== cdDir && segmentGap < 30) {
           if (Math.abs(a.y - d.y) < 0.5) {
             result.splice(i + 1, 2);
           } else {

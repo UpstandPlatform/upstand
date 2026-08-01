@@ -74,7 +74,6 @@ describe("API router contract", () => {
       "sso",
       "containerFileManager",
       "topology",
-      "proxy",
       "platform",
     ];
 

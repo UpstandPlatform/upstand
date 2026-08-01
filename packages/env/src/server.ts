@@ -58,6 +58,7 @@ const validatedEnv = createEnv({
       )
       .default(false),
     UPSTAND_SERVER_IMAGE: z.string().min(1).optional(),
+    UPSTAND_SCHEDULES_INTERNAL_URL: z.url().optional(),
     SERVER_ID: z.string().min(1).optional(),
     UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT: z
       .string()
@@ -67,6 +68,19 @@ const validatedEnv = createEnv({
     UPSTAND_MONITORING_IMAGE: z.string().min(1).optional(),
     DB_MIGRATIONS_PATH: z.string().min(1).optional(),
     UPGAL_MCP_SERVERS: z.string().optional(),
+    UPGAL_ALLOW_CUSTOM_BASE_URL: z
+      .preprocess(
+        (val) => val === "true" || val === "1" || val === true,
+        z.boolean(),
+      )
+      .default(false),
+    UPSTAND_SKIP_MIGRATIONS: z
+      .preprocess(
+        (val) => val === "true" || val === "1" || val === true,
+        z.boolean(),
+      )
+      .default(false),
+    UPSTAND_MIGRATION_ID: z.string().min(1).optional(),
     UPGAL_WEB_SEARCH_API_KEY: z.string().optional(),
     UPGAL_WEB_SEARCH_BASE_URL: z
       .url()
@@ -110,9 +124,6 @@ const validatedEnv = createEnv({
     UPSTAND_SERVER_UPSTREAM: z.string().optional(),
     UPSTAND_WEB_UPSTREAM: z.string().optional(),
     UPSTAND_FUMADOCS_UPSTREAM: z.string().optional(),
-    UPSTAND_EDGE_BACKEND: z.boolean().default(false),
-    UPSTAND_EDGE_BACKEND_HTTP_PORT: z.number().default(8080),
-    UPSTAND_EDGE_BACKEND_HTTPS_PORT: z.number().default(8443),
     OPENROUTER_API_KEY: z.string().optional(),
     OPENROUTER_MODEL: z.string().optional(),
   },

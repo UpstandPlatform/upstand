@@ -21,9 +21,7 @@ describe("platform types", () => {
   test("keeps cloud control planes remote-only", () => {
     const capabilities = getPlatformCapabilities("cloud");
     expect(capabilities.localRuntime).toBe(false);
-    expect(capabilities.localEdge).toBe(false);
     expect(capabilities.remoteServers).toBe(true);
-    expect(capabilities.remoteEdge).toBe(true);
     expect(capabilities.acmeCertificates).toBe(true);
     expect(capabilities.localGitCli).toBe(false);
     expect(capabilities.swarmManagement).toBe(false);

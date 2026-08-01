@@ -13,7 +13,6 @@ export * from "./notification";
 export * from "./outbox";
 export * from "./preview-deployment";
 export * from "./project";
-export * from "./proxy";
 export * from "./resource";
 export * from "./s3-destination";
 export * from "./schedule";

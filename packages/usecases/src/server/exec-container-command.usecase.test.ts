@@ -76,4 +76,30 @@ describe("container command authorization", () => {
       }),
     ).rejects.toThrow("Container is not part of the requested resource");
   });
+
+  test("does not use a similarly named container as an authorization fallback", async () => {
+    const docker = {
+      execContainerCommand: async () => ({ output: "must not run" }),
+    };
+    const uow = createUow();
+    (uow.projectRepository.findById as unknown as () => Promise<unknown>) =
+      async () => ({ organizationId: "org-1" });
+    const useCase = new ExecContainerCommandUseCase(
+      uow,
+      docker as never,
+      {
+        listContainers: async () => [
+          { id: "victim-container", name: "/resource-1-worker" },
+        ],
+      } as never,
+    );
+
+    await expect(
+      useCase.execute({
+        organizationId: "org-1",
+        resourceId: "resource-1",
+        command: "id",
+      }),
+    ).rejects.toThrow("Container is not part of the requested resource");
+  });
 });

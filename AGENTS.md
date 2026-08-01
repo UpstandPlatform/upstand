@@ -89,7 +89,7 @@ consumers must import those canonical tokens.
   network calls as security-sensitive. Preserve existing validation,
   authorization, audit, rollback, and cleanup behavior when changing them.
 - Do not add fake success states, silent fallbacks that hide failures, or
-  untracked TODOs for user-facing behavior.
+  untracked unfinished work items for user-facing behavior.
 
 ## Database and generated files
 

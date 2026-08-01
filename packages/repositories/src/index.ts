@@ -14,7 +14,6 @@ export * from "./notification/drizzle-notification-delivery.repository";
 export * from "./outbox/drizzle-outbox.repository";
 export * from "./preview-deployment/drizzle-preview-deployment.repository";
 export * from "./project/drizzle-project.repository";
-export * from "./proxy/drizzle-proxy-takeover-journal.repository";
 export * from "./resource/drizzle-resource.repository";
 export * from "./resource/drizzle-resource-runtime.repository";
 export * from "./s3-destination/drizzle-s3-destination.repository";

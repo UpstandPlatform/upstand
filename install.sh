@@ -265,10 +265,17 @@ detect_advertise_address() {
 }
 
 ensure_docker() {
-  if ! command -v docker >/dev/null 2>&1; then
-    require_command curl
-    curl --fail --show-error --silent --location https://get.docker.com | sh
+  if command -v docker >/dev/null 2>&1; then
+    return
   fi
+
+  if [[ "${UPSTAND_ALLOW_DOCKER_INSTALL:-false}" != "true" ]]; then
+    fail "Docker is not installed. Install Docker Engine from your operating system's signed package repository, or set UPSTAND_ALLOW_DOCKER_INSTALL=true to explicitly permit the upstream installer script."
+  fi
+
+  require_command curl
+  log "Docker not found; installing Docker Engine because UPSTAND_ALLOW_DOCKER_INSTALL=true..."
+  curl --fail --show-error --silent --location https://get.docker.com | sh
 
   if command -v systemctl >/dev/null 2>&1; then
     systemctl enable --now docker
@@ -321,10 +328,9 @@ write_environment() {
   local requested_web_image="${UPSTAND_WEB_IMAGE:-}"
   local requested_docs_image="${UPSTAND_DOCS_IMAGE:-}"
   local requested_monitoring_image="${UPSTAND_MONITORING_IMAGE:-}"
-  local requested_edge_image="${UPSTAND_EDGE_IMAGE:-}"
   local requested_auto_update="${UPSTAND_AUTO_UPDATE:-}"
+  local requested_migration_id="${UPSTAND_MIGRATION_ID:-}"
   local requested_version="${UPSTAND_VERSION:-}"
-  local requested_edge_management_token="${EDGE_MANAGEMENT_TOKEN:-}"
   local direct_origins="${UPSTAND_DIRECT_ORIGINS:-false}"
 
   if [[ -f "$ENV_FILE" ]]; then
@@ -345,11 +351,13 @@ write_environment() {
     IS_CLOUD="$MODE_OVERRIDE"
   fi
 
-  # A first-run install should be usable without requiring DNS setup up front.
-  # When origins are not supplied, keep the control plane reachable directly by
-  # the detected host IP and its published service ports. Caddy/domain setup
-  # can be enabled later from the Web Server page.
+  # Production installs must establish an explicit HTTPS origin before the
+  # control plane is exposed. The insecure direct-IP bootstrap remains
+  # available only as an explicit operator opt-in for isolated development
+  # hosts.
   if [[ -z "${BETTER_AUTH_URL:-}" || -z "${CORS_ORIGIN:-}" || -z "${NEXT_PUBLIC_SERVER_URL:-}" ]]; then
+    [[ "${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}" == true ]] \
+      || fail "set BETTER_AUTH_URL, CORS_ORIGIN, and NEXT_PUBLIC_SERVER_URL to HTTPS origins; use UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true only on an isolated development host"
     direct_origins=true
     BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://${advertise_address}:3000}"
     CORS_ORIGIN="${CORS_ORIGIN:-http://${advertise_address}:3001}"
@@ -365,7 +373,6 @@ write_environment() {
   POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -hex 32)}"
   REDIS_PASSWORD="${REDIS_PASSWORD:-$(openssl rand -hex 32)}"
   BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(openssl rand -hex 32)}"
-  EDGE_MANAGEMENT_TOKEN="${requested_edge_management_token:-${EDGE_MANAGEMENT_TOKEN:-$(openssl rand -hex 32)}}"
   ENCRYPTION_KEY_V1="${ENCRYPTION_KEY_V1:-${SSH_KEY_ENCRYPTION_KEY_V1:-$(openssl rand -base64 32 | tr -d '\n')}}"
   printf '%s' "$POSTGRES_PASSWORD" >"$INSTALL_DIR/secrets/postgres_password"
   printf '%s' "$REDIS_PASSWORD" >"$INSTALL_DIR/secrets/redis_password"
@@ -388,8 +395,10 @@ write_environment() {
   UPSTAND_WEB_IMAGE="${requested_web_image:-${UPSTAND_WEB_IMAGE:-}}"
   UPSTAND_DOCS_IMAGE="${requested_docs_image:-${UPSTAND_DOCS_IMAGE:-}}"
   UPSTAND_MONITORING_IMAGE="${requested_monitoring_image:-${UPSTAND_MONITORING_IMAGE:-}}"
-  UPSTAND_EDGE_IMAGE="${requested_edge_image:-${UPSTAND_EDGE_IMAGE:-}}"
   UPSTAND_AUTO_UPDATE="${requested_auto_update:-${UPSTAND_AUTO_UPDATE:-false}}"
+  # Each deployment gets a fresh barrier key. Reusing the previous key would
+  # let a new server race past a failed or still-running migration.
+  UPSTAND_MIGRATION_ID="${requested_migration_id:-upstand-$(date +%s)-$$}"
 
   local advertise_ip
   advertise_ip="$(detect_advertise_address)"
@@ -407,6 +416,10 @@ write_environment() {
   [[ "$BETTER_AUTH_URL" == http://* || "$BETTER_AUTH_URL" == https://* ]] || fail "BETTER_AUTH_URL must use HTTP or HTTPS"
   [[ "$CORS_ORIGIN" == http://* || "$CORS_ORIGIN" == https://* ]] || fail "CORS_ORIGIN must use HTTP or HTTPS"
   [[ "$NEXT_PUBLIC_SERVER_URL" == http://* || "$NEXT_PUBLIC_SERVER_URL" == https://* ]] || fail "NEXT_PUBLIC_SERVER_URL must use HTTP or HTTPS"
+  if [[ "${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}" != true ]]; then
+    [[ "$BETTER_AUTH_URL" == https://* && "$CORS_ORIGIN" == https://* && "$NEXT_PUBLIC_SERVER_URL" == https://* ]] \
+      || fail "production origins must all use HTTPS"
+  fi
 
   if [[ "$direct_origins" == true ]]; then
     UPSTAND_DASHBOARD_HOST=""
@@ -442,7 +455,6 @@ write_environment() {
     UPSTAND_WEB_IMAGE="${UPSTAND_WEB_IMAGE:-$(resolve_stable_image web)}"
     UPSTAND_DOCS_IMAGE="${UPSTAND_DOCS_IMAGE:-$(resolve_stable_image fumadocs)}"
     UPSTAND_MONITORING_IMAGE="${UPSTAND_MONITORING_IMAGE:-$(resolve_stable_image monitoring)}"
-    UPSTAND_EDGE_IMAGE="${UPSTAND_EDGE_IMAGE:-$(resolve_stable_image edge)}"
   fi
   if [[ "${SOURCE_BUILD:-false}" != true ]]; then
     require_digest_image UPSTAND_SERVER_IMAGE
@@ -450,7 +462,6 @@ write_environment() {
     require_digest_image UPSTAND_WEB_IMAGE
     require_digest_image UPSTAND_DOCS_IMAGE
     require_digest_image UPSTAND_MONITORING_IMAGE
-    require_digest_image UPSTAND_EDGE_IMAGE
     require_digest_image POSTGRES_IMAGE
     require_digest_image REDIS_IMAGE
   fi
@@ -469,21 +480,13 @@ UPSTAND_SCHEDULES_IMAGE=$UPSTAND_SCHEDULES_IMAGE
 UPSTAND_WEB_IMAGE=$UPSTAND_WEB_IMAGE
 UPSTAND_DOCS_IMAGE=$UPSTAND_DOCS_IMAGE
 UPSTAND_MONITORING_IMAGE=$UPSTAND_MONITORING_IMAGE
-UPSTAND_EDGE_IMAGE=$UPSTAND_EDGE_IMAGE
 UPSTAND_AUTO_UPDATE=$UPSTAND_AUTO_UPDATE
+UPSTAND_MIGRATION_ID=$UPSTAND_MIGRATION_ID
 UPSTAND_VERSION=$requested_version
-EDGE_MANAGEMENT_TOKEN=$EDGE_MANAGEMENT_TOKEN
-UPSTAND_EDGE_BACKEND=true
-UPSTAND_EDGE_BACKEND_HTTP_PORT=${UPSTAND_EDGE_BACKEND_HTTP_PORT:-8080}
-UPSTAND_EDGE_BACKEND_HTTPS_PORT=${UPSTAND_EDGE_BACKEND_HTTPS_PORT:-8443}
-UPSTAND_OPENRESTY_MANAGEMENT_URL=${UPSTAND_OPENRESTY_MANAGEMENT_URL:-http://host.docker.internal:8090}
 IS_CLOUD=${IS_CLOUD:-false}
 UPSTAND_DIRECT_ORIGINS=$direct_origins
 POSTGRES_IMAGE=${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
 REDIS_IMAGE=${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
-UPSTAND_SERVER_PORT=${UPSTAND_SERVER_PORT:-3000}
-UPSTAND_WEB_PORT=${UPSTAND_WEB_PORT:-3001}
-UPSTAND_DOCS_PORT=${UPSTAND_DOCS_PORT:-4000}
 EOF
   chmod 0600 "$ENV_FILE"
 }
@@ -516,6 +519,23 @@ deploy_stack() {
       --resolve-image always \
       upstand
   fi
+  wait_for_migration
+}
+
+wait_for_migration() {
+  local deadline=$((SECONDS + 600))
+  while ((SECONDS < deadline)); do
+    local state
+    state="$(docker service ps upstand_migrate --no-trunc --format '{{.CurrentState}}' 2>/dev/null | head -n1 || true)"
+    if [[ "$state" == Complete* ]]; then
+      return 0
+    fi
+    if [[ "$state" == Failed* || "$state" == Rejected* || "$state" == "Shutdown"* ]]; then
+      fail "database migration service failed: $state"
+    fi
+    sleep 2
+  done
+  fail "timed out waiting for database migration service"
 }
 
 configure_registry_auth() {
@@ -539,7 +559,7 @@ cleanup_registry_auth() {
 
 wait_for_stack() {
   local deadline=$((SECONDS + 600))
-  local services=(postgres redis server web)
+  local services=(postgres redis server schedules web fumadocs)
 
   while ((SECONDS < deadline)); do
     local converged=true

@@ -14,9 +14,7 @@ Upstand enforces network isolation using Docker Swarm attachable overlay network
 ```mermaid
 graph TD
     subgraph IngressNetwork["Shared Application Ingress Network (upstand-network)"]
-        Edge["OpenResty Managed Edge (:80/:443)"]
-        Caddy["Caddy Application Proxy"]
-        Edge --> Caddy
+        Caddy["Caddy Application Proxy (:80/:443)"]
     end
 
     subgraph ResourceA["Resource A: Production App"]
@@ -40,7 +38,7 @@ graph TD
 ```
 
 ### Network Security Dual-Overlay Model
-1. **Shared Ingress Overlay (`upstand-network`)**: Connects the Caddy application proxy container to application services. The managed OpenResty edge uses the host listener and forwards to Caddy; it does not need to join every resource network.
+1. **Shared Ingress Overlay (`upstand-network`)**: Connects the Caddy application proxy container to application services. Caddy owns the public listeners and routes traffic to the selected resource without joining every resource network.
 2. **Per-Resource Isolated Overlay (`upstand-resource-<resource-id>`)**: Created automatically for each resource/stack. Private container-to-container communication (such as an application container talking to its database container) stays strictly isolated inside `upstand-resource-<id>`, preventing cross-tenant or cross-resource container snooping.
 
 ---

@@ -29,7 +29,7 @@ jobs:
       RELEASE_REF: ${{ inputs.release_ref || github.ref }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.release_ref || github.ref }}
           fetch-depth: 0
@@ -40,11 +40,11 @@ jobs:
           git merge-base --is-ancestor "$(git rev-parse "${RELEASE_REF}^{commit}")" origin/master
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.3.14
       - name: Cache Bun downloads
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}
@@ -67,7 +67,7 @@ jobs:
           bash -n apps/server/docker-entrypoint.sh
 
       - name: Restore Turbo cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .turbo/cache
           key: ${{ runner.os }}-turbo-release-${{ hashFiles('bun.lock', 'turbo.json') }}
@@ -116,11 +116,6 @@ jobs:
             file: apps/monitoring/Dockerfile
             scope: upstand-monitoring
             build_args: ""
-          - name: edge
-            context: apps/edge
-            file: apps/edge/Dockerfile
-            scope: upstand-edge
-            build_args: ""
     permissions:
       contents: read
       packages: write
@@ -128,19 +123,19 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.release_ref || github.ref }}
           fetch-depth: 0
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -157,7 +152,7 @@ jobs:
           echo "repo=${REPO_LOWER}" >> "$GITHUB_OUTPUT"
 
       - name: Build and Push ${{ matrix.name }}
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -190,17 +185,17 @@ jobs:
       contents: read
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.release_ref || github.ref }}
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.3.14
 
       - name: Cache Bun downloads
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}
@@ -214,7 +209,7 @@ jobs:
         run: bun run --cwd apps/desktop make
 
       - name: Upload desktop release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-${{ matrix.name }}
           path: apps/desktop/out/make/**
@@ -231,16 +226,16 @@ jobs:
       packages: read
     steps:
       - name: Download desktop release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: desktop-*
           path: ${{ runner.temp }}/desktop-assets
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -256,7 +251,7 @@ jobs:
           manifest_file="$RUNNER_TEMP/upstand-release-manifest.json"
           images='[]'
 
-          for name in server schedules web fumadocs monitoring edge; do
+          for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${RELEASE_VERSION}"
             inspect="$(docker buildx imagetools inspect "$image")"
             digest="$(awk '$1 == "Digest:" { print $2; exit }' <<< "$inspect")"

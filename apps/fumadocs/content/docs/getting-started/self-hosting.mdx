@@ -9,7 +9,7 @@ This guide outlines the production installation process, environment variable op
 
 ## Infrastructure Architecture
 
-Upstand's production self-hosting architecture separates the control plane services, ingress proxy, persistent volumes, and compute nodes into an isolated Docker Swarm network:
+Upstand's production self-hosting architecture separates the control plane services, Caddy proxy, persistent volumes, and compute nodes into an isolated Docker Swarm network:
 
 ```mermaid
 graph TD
@@ -19,10 +19,7 @@ graph TD
     end
 
     subgraph Host["Production Host / Virtual Machine"]
-        subgraph IngressLayer["Public Ingress (Port 80 / 443)"]
-            Edge["OpenResty Managed Edge"]
-            Caddy["Caddy Application Proxy (Compatibility Backend)"]
-        end
+        Caddy["Caddy Application Proxy (Public :80/:443)"]
 
         subgraph SwarmCluster["Docker Swarm Stack: upstand"]
             WebUI["upstand-web (Next.js Dashboard)"]
@@ -40,8 +37,7 @@ graph TD
     end
 
     Client --> DNS
-    DNS --> Edge
-    Edge --> Caddy
+    DNS --> Caddy
     Caddy -->|"Proxy Server API (port 3000)"| ServerAPI
     Caddy -->|"Proxy Web Dashboard (port 3001)"| WebUI
     Caddy -->|"Proxy Fumadocs (port 4000)"| Fumadocs
@@ -65,8 +61,7 @@ Prepare a fresh Linux Virtual Machine matching these requirements:
    - `api.example.com` (for the Hono/tRPC API server)
    - `docs.example.com` (for the documentation app)
 4. **Firewall Rules**:
-   - Open public TCP **80** and **443** for the managed OpenResty edge. Caddy remains behind the edge on internal backend ports and keeps its existing domain-routing behavior.
-   - Until a domain is configured, the dashboard, API, and documentation are also reachable on TCP **3001**, **3000**, and **4000** respectively.
+   - Open public TCP **80** and **443** for Caddy. The API, dashboard, scheduler, and documentation services remain private to the Swarm network.
    - For multi-node Swarms, restrict TCP **2377** (cluster management), TCP/UDP **7946** (node communication), and UDP **4789** (overlay network ingress) to your internal cluster network.
 
 ---
@@ -86,7 +81,7 @@ The Upstand installer supports two compilation strategies:
   <Step>
     ### Prepare the environment variables
     
-    You can run the installer with no environment variables. It will generate cryptographic secrets under `/etc/upstand/secrets/`, detect a usable host address, resolve the latest stable release, and pull its prebuilt GHCR images. Missing origins default to the host IP and the published service ports; no synthetic DNS names are assigned. Source builds require the explicit `UPSTAND_BUILD_FROM_SOURCE=true` opt-in.
+    Configure the HTTPS origins before running the installer. It will generate cryptographic secrets under `/etc/upstand/secrets/`, resolve the latest stable release, and pull its prebuilt GHCR images. Source builds require the explicit `UPSTAND_BUILD_FROM_SOURCE=true` opt-in.
 
     For a production deployment with DNS and pre-built immutable images, export your target domains and image digests first:
     
@@ -131,7 +126,7 @@ The Upstand installer supports two compilation strategies:
   </Step>
 </Steps>
 
-After the first boot, open the dashboard at `http://<server-ip>:3001`. The API is at `http://<server-ip>:3000` and documentation is at `http://<server-ip>:4000`. On **Web Server**, configure the server domain and HTTPS certificate. The managed edge owns public `:80/:443` and forwards legacy Caddy mappings to the backend; explicit edge routes can add policy before Caddy. Once the domain is working over HTTPS, clear **Direct IP:port access** and save; Upstand then removes the published control-plane ports while keeping the Caddy domain route active.
+Production installs expose only Caddy on `:80/:443`; the API, dashboard, scheduler, and database services remain on the private Swarm network. Configure `BETTER_AUTH_URL`, `CORS_ORIGIN`, and `NEXT_PUBLIC_SERVER_URL` as HTTPS origins before installation. An insecure direct-IP bootstrap requires the explicit `UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true` opt-in and is intended only for isolated development hosts.
 
 ---
 

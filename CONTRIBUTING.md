@@ -40,7 +40,7 @@ Use throwaway local credentials. Do not commit `.env` files, private keys, produ
 - Keep API contracts in the tRPC routers and validate external input with Zod.
 - Keep shared UI primitives in `packages/ui`; avoid duplicating accessible components in individual apps.
 - Treat authentication, organization authorization, secret encryption, Docker commands, SSH, and notification delivery as security-sensitive paths.
-- Do not add mocks, fake success states, or unhandled TODOs for user-facing functionality.
+- Do not add mocks, fake success states, or untracked unfinished work items for user-facing functionality.
 - Preserve rollback behavior and existing database data. Add a migration for schema changes; never edit an applied migration.
 - Add or update tests for changed behavior, especially deployment, update, Caddy, notification, and authorization flows.
 

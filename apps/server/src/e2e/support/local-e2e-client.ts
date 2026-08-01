@@ -34,7 +34,11 @@ export const e2eContext: LocalE2eContext = {
   remoteServerId: process.env.E2E_REMOTE_SERVER_ID ?? "server-e2e-default",
   organizationId: process.env.E2E_ORGANIZATION_ID ?? "org-e2e-default",
   mutationsAllowed: true,
-  serverAvailable: true,
+  // Live HTTP checks are opt-in. The repository test suite must remain safe
+  // to run without a server listening on localhost:3000.
+  serverAvailable:
+    process.env.E2E_SERVER_AVAILABLE === "true" ||
+    process.env.E2E_BASE_URL !== undefined,
   resourceConfigured: true,
   remoteServerConfigured: true,
   organizationConfigured: true,

@@ -233,7 +233,7 @@ describe("Multi-Resource & Multi-Runtime Deployment Pipeline Tests", () => {
   });
 
   describe("Runtime Matrix Deployment Behaviors (self_hosted, cloud, desktop)", () => {
-    test("handles self-hosted Swarm overlay and edge reverse-proxy requirements", async () => {
+    test("handles self-hosted Swarm overlay and Caddy reverse-proxy requirements", async () => {
       const { servers } = createMultiResourceTestUow("self_hosted");
       const server = servers.get("server-deploy-1");
 

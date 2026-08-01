@@ -2,7 +2,7 @@ FROM oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf100
 WORKDIR /repo
 COPY . .
 RUN --mount=type=cache,id=upstand-turbo-cli,target=/root/.bun/install/cache \
-    bunx turbo@2.10.5 prune fumadocs --docker --out-dir /out
+    bunx turbo@2.10.7 prune fumadocs --docker --out-dir /out
 
 FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS builder
 COPY --from=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4 /usr/local/bin/bun /usr/local/bin/bun

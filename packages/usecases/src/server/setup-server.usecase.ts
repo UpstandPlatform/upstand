@@ -305,13 +305,13 @@ export class SetupServerUseCase {
         }
       } else {
         log.info({
-          message: `[Server Setup] ${server.name} is a build server; Docker was verified without creating a Swarm or public edge.`,
+          message: `[Server Setup] ${server.name} is a build server; Docker was verified without creating a Swarm or public Caddy proxy.`,
         });
       }
 
       if (plan.requiresCaddy) {
         // Only deployment servers expose Caddy. Database servers deliberately
-        // have no edge proxy, so database credentials and ports stay private.
+        // have no Caddy proxy, so database credentials and ports stay private.
         await progress(
           "Configuring Caddy reverse proxy",
           "Initializing Caddy routing service...",

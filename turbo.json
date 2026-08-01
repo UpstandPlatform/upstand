@@ -6,12 +6,10 @@
     "LOCAL_API_URL",
     "LOCAL_WEB_URL",
     "LOCAL_DOCS_URL",
-    "LOCAL_EDGE_URL",
     "LOCAL_VERIFY_TIMEOUT_MS",
     "LOCAL_EXPECTED_MODE",
     "LOCAL_RUNTIME",
-    "IS_CLOUD",
-    "GEOIP_UPSTREAM_URL"
+    "IS_CLOUD"
   ],
   "boundaries": {
     "tags": {

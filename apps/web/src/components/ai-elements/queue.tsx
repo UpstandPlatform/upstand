@@ -24,13 +24,6 @@ export interface QueueMessage {
   parts: QueueMessagePart[];
 }
 
-export interface QueueTodo {
-  id: string;
-  title: string;
-  description?: string;
-  status?: "pending" | "completed";
-}
-
 export type QueueItemProps = ComponentProps<"li">;
 
 export const QueueItem = ({ className, ...props }: QueueItemProps) => (

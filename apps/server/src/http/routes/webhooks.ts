@@ -13,6 +13,7 @@ import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 
 export function registerWebhookRoutes(app: Hono<AppEnv>): void {
+  const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
   app.use(
     "/api/webhooks/*",
     createHttpRateLimitMiddleware({
@@ -23,6 +24,10 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
   );
 
   app.post("/api/webhooks/github/:providerId", async (c) => {
+    const contentLength = Number(c.req.header("content-length") ?? 0);
+    if (contentLength > MAX_WEBHOOK_BODY_BYTES) {
+      return c.json({ error: "Webhook payload is too large" }, 413);
+    }
     const providerId = c.req.param("providerId");
     const scope = c.get("scope");
     const uow = scope.resolve(UnitOfWorkToken);
@@ -34,6 +39,9 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
     const webhookSecret = config.githubWebhookSecret;
 
     const bodyText = await c.req.text();
+    if (Buffer.byteLength(bodyText, "utf8") > MAX_WEBHOOK_BODY_BYTES) {
+      return c.json({ error: "Webhook payload is too large" }, 413);
+    }
     const signature = c.req.header("x-hub-signature-256");
 
     if (!webhookSecret || !signature) {
@@ -77,11 +85,27 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
       }
     }
 
-    const payload = JSON.parse(bodyText);
-    const action = payload.action;
-    const prNumber = payload.number;
-    const branchName = payload.pull_request?.head?.ref;
-    const repoFullName = payload.repository?.full_name;
+    let payload: {
+      action?: unknown;
+      number?: unknown;
+      pull_request?: { head?: { ref?: unknown } };
+      repository?: { full_name?: unknown };
+    };
+    try {
+      payload = JSON.parse(bodyText) as Record<string, unknown>;
+    } catch {
+      return c.json({ error: "Invalid webhook payload" }, 400);
+    }
+    const action = typeof payload.action === "string" ? payload.action : "";
+    const prNumber = typeof payload.number === "number" ? payload.number : 0;
+    const branchName =
+      typeof payload.pull_request?.head?.ref === "string"
+        ? payload.pull_request.head.ref
+        : "";
+    const repoFullName =
+      typeof payload.repository?.full_name === "string"
+        ? payload.repository.full_name
+        : "";
 
     if (!branchName || !repoFullName || !prNumber) {
       return c.json({ error: "Invalid pull request payload" }, 400);
@@ -271,7 +295,14 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
   ) {
     const providerId = c.req.param("providerId");
     if (!providerId) return c.json({ error: "Provider ID is required" }, 400);
+    const contentLength = Number(c.req.header("content-length") ?? 0);
+    if (contentLength > MAX_WEBHOOK_BODY_BYTES) {
+      return c.json({ error: "Webhook payload is too large" }, 413);
+    }
     const bodyText = await c.req.text();
+    if (Buffer.byteLength(bodyText, "utf8") > MAX_WEBHOOK_BODY_BYTES) {
+      return c.json({ error: "Webhook payload is too large" }, 413);
+    }
     const scope = c.get("scope");
     const uow = scope.resolve(UnitOfWorkToken);
     const headers = {

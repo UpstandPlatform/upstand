@@ -154,6 +154,13 @@ export function registerScimRoutes(app: Hono<AppEnv>): void {
       const operationName = String(item.op ?? "replace").toLowerCase();
       const path = String(item.path ?? "").toLowerCase();
       const value = item.value;
+      if (!["add", "replace", "remove"].includes(operationName)) {
+        return scimError(
+          c,
+          422,
+          `Unsupported SCIM operation '${operationName}'`,
+        );
+      }
       if (path === "active") {
         if (typeof value === "boolean") active = value;
         else {
@@ -171,6 +178,8 @@ export function registerScimRoutes(app: Hono<AppEnv>): void {
         displayName = value.trim().slice(0, 120);
       } else if (path === "externalid" && typeof value === "string") {
         externalId = value.slice(0, 255);
+      } else {
+        return scimError(c, 422, `Unsupported SCIM attribute '${path}'`);
       }
     }
     if (typeof body.active === "boolean") active = body.active;
