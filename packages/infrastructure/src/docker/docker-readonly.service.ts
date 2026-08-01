@@ -919,6 +919,7 @@ export class DockerReadOnlyService implements DockerExecPort {
           port: target.port,
           username: target.username,
           privateKey: target.privateKey,
+          password: target.password,
           readyTimeout: 20_000,
         });
     });
@@ -976,6 +977,7 @@ export class DockerReadOnlyService implements DockerExecPort {
           port: target.port,
           username: target.username,
           privateKey: target.privateKey,
+          password: target.password,
           readyTimeout: 20_000,
         });
     });

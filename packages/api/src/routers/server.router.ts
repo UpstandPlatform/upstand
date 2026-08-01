@@ -11,6 +11,7 @@ import {
   GetServerMonitoringStatusInputSchema,
   GetServerRuntimeStatsInputSchema,
   GetServersInputSchema,
+  MigrateResourceInputSchema,
   ScanServerHostKeyInputSchema,
   SetupServerInputSchema,
   UpdateMonitoringSettingsInputSchema,
@@ -26,6 +27,7 @@ import {
   GetServerRuntimeStatsUseCaseToken,
   GetServersUseCaseToken,
   GetServerUseCaseToken,
+  MigrateResourceUseCaseToken,
   ScanServerHostKeyUseCaseToken,
   SetupServerUseCaseToken,
   UnitOfWorkToken,
@@ -300,6 +302,34 @@ export const serverRouter = router({
       }
     }),
 
+  setupProgress: twoFactorVerifiedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      const server = await uow.serverRepository.findById(input.id);
+      if (!server) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Server not found",
+        });
+      }
+
+      await checkPermission(
+        ctx.session.user.id,
+        server.organizationId,
+        "server:view",
+      );
+
+      return {
+        id: server.id,
+        status: server.status,
+        setupStage: server.setupStage ?? null,
+        setupLogs: server.setupLogs ?? null,
+        setupError: server.setupError ?? null,
+        updatedAt: server.updatedAt,
+      };
+    }),
+
   scanHostKey: twoFactorVerifiedProcedure
     .input(ScanServerHostKeyInputSchema)
     .mutation(async ({ ctx, input }) => {
@@ -383,6 +413,27 @@ export const serverRouter = router({
       try {
         return await ctx.scope
           .resolve(GetServerMonitoringStatusUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  migrateResource: twoFactorVerifiedProcedure
+    .input(
+      MigrateResourceInputSchema.extend({
+        organizationId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(MigrateResourceUseCaseToken)
           .execute(input);
       } catch (error) {
         handleUseCaseError(error, ctx.log);

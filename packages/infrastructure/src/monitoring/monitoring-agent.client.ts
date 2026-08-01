@@ -18,7 +18,8 @@ type RemoteMonitoringAgentTarget = {
     host: string;
     port: number;
     username: string;
-    privateKey: string;
+    privateKey?: string;
+    password?: string;
     hostKeyFingerprint: string;
   };
 };
@@ -54,17 +55,46 @@ async function resolveMonitoringAgentTarget(
 
   const server = await uow.serverRepository.findById(serverId);
   if (!server) throw new Error(`Server ${serverId} not found`);
-  if (!server.sshKeyId || !server.sshHostKeyFingerprint) {
+  if (!server.sshHostKeyFingerprint) {
     throw new Error("Remote monitoring requires a trusted SSH host key");
   }
-  const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
-  if (!sshKey) throw new Error("Configured SSH Key not found");
-  const privateKey = decryptSecret({
-    ciphertext: sshKey.privateKeyCiphertext,
-    iv: sshKey.privateKeyIv,
-    authTag: sshKey.privateKeyAuthTag,
-    keyVersion: sshKey.privateKeyVersion,
-  });
+
+  let privateKey: string | undefined;
+  let password: string | undefined;
+
+  const isPasswordAuth =
+    server.authType === "password" ||
+    (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+  if (isPasswordAuth) {
+    if (
+      !server.passwordCiphertext ||
+      !server.passwordIv ||
+      !server.passwordAuthTag ||
+      server.passwordVersion == null
+    ) {
+      throw new Error("Server password credentials are not configured");
+    }
+    password = decryptSecret({
+      ciphertext: server.passwordCiphertext,
+      iv: server.passwordIv,
+      authTag: server.passwordAuthTag,
+      keyVersion: server.passwordVersion,
+    });
+  } else {
+    if (!server.sshKeyId) {
+      throw new Error("Configured SSH Key not found");
+    }
+    const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
+    if (!sshKey) throw new Error("Configured SSH Key not found");
+    privateKey = decryptSecret({
+      ciphertext: sshKey.privateKeyCiphertext,
+      iv: sshKey.privateKeyIv,
+      authTag: sshKey.privateKeyAuthTag,
+      keyVersion: sshKey.privateKeyVersion,
+    });
+  }
+
   return {
     baseUrl: "ssh://127.0.0.1:3001",
     token: settings.token,
@@ -73,6 +103,7 @@ async function resolveMonitoringAgentTarget(
       port: server.port,
       username: server.username,
       privateKey,
+      password,
       hostKeyFingerprint: server.sshHostKeyFingerprint,
     },
   };
@@ -128,7 +159,8 @@ async function requestThroughSsh<T>(
     host: string;
     port: number;
     username: string;
-    privateKey: string;
+    privateKey?: string;
+    password?: string;
     hostKeyFingerprint: string;
   },
 ): Promise<T> {
@@ -143,6 +175,7 @@ async function requestThroughSsh<T>(
           port: server.port,
           username: server.username,
           privateKey: server.privateKey,
+          password: server.password,
           hostHash: "sha256",
           hostVerifier: hostVerifierForFingerprint(server.hostKeyFingerprint),
           readyTimeout: 10_000,

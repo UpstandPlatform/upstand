@@ -8,7 +8,7 @@ import {
 } from "./git-provider-config";
 import { resolveGitProviderAndConfig } from "./git-provider-resolution.helper";
 import { getGiteaRepositories } from "./gitea-client";
-import { getRepositories } from "./github-client";
+import { getRepositories, getRepositoriesWithToken } from "./github-client";
 import { getGitlabRepositories } from "./gitlab-client";
 
 export const ListGitRepositoriesInputSchema = z.object({
@@ -30,6 +30,12 @@ export class ListGitRepositoriesUseCase {
       );
 
       if (provider.provider === "github") {
+        const pat =
+          optionalGitProviderString(config, "personalAccessToken") ||
+          optionalGitProviderString(config, "accessToken");
+        if (pat) {
+          return await getRepositoriesWithToken(pat);
+        }
         return await getRepositories(
           String(config.githubAppId),
           requiredGitProviderString(config, "githubPrivateKey"),

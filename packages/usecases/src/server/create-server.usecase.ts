@@ -62,7 +62,8 @@ export class CreateServerUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: CreateServerInput): Promise<Server> {
-    const authType = input.authType ?? "ssh_key";
+    const authType =
+      input.authType ?? (input.password?.trim() ? "password" : "ssh_key");
     let sshKeyId: string | null = null;
     let passwordCiphertext: string | null = null;
     let passwordIv: string | null = null;

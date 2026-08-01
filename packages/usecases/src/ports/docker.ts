@@ -246,7 +246,8 @@ export type DockerInspectionTarget =
       host: string;
       port: number;
       username: string;
-      privateKey: string;
+      privateKey?: string;
+      password?: string;
       hostKeyFingerprint?: string;
     };
 
@@ -436,7 +437,8 @@ export interface RemoteDockerConnectionPort {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  privateKey?: string;
+  password?: string;
   hostKeyFingerprint?: string;
 }
 

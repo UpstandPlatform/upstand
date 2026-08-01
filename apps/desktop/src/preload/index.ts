@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { ConnectionMode } from "../main/connection-profiles";
+import type { DesktopConnectionProfile } from "../shared/connection";
 
 const localApiOrigin = ipcRenderer.sendSync("local-api:get-sync") as string;
 
@@ -14,6 +16,36 @@ const desktopBridge = {
     get: () => ipcRenderer.invoke("connection:get"),
     set: (origin: string) => ipcRenderer.invoke("connection:set", origin),
     clear: () => ipcRenderer.invoke("connection:clear"),
+    /** List all saved named connection profiles. */
+    profiles: {
+      list: () =>
+        ipcRenderer.invoke("connection:profiles:list") as Promise<
+          DesktopConnectionProfile[]
+        >,
+      add: (opts: {
+        name: string;
+        mode: ConnectionMode;
+        origin: string;
+        setActive?: boolean;
+      }) =>
+        ipcRenderer.invoke(
+          "connection:profiles:add",
+          opts,
+        ) as Promise<DesktopConnectionProfile>,
+      remove: (id: string) =>
+        ipcRenderer.invoke(
+          "connection:profiles:remove",
+          id,
+        ) as Promise<boolean>,
+      setActive: (id: string) =>
+        ipcRenderer.invoke(
+          "connection:profiles:set-active",
+          id,
+        ) as Promise<DesktopConnectionProfile | null>,
+    },
+    /** Returns the runtime mode of the currently active profile. */
+    getMode: () =>
+      ipcRenderer.invoke("connection:mode:get") as Promise<ConnectionMode>,
   },
   local: {
     apiOrigin: localApiOrigin,

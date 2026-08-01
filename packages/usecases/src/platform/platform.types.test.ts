@@ -24,6 +24,29 @@ describe("platform types", () => {
     expect(capabilities.localEdge).toBe(false);
     expect(capabilities.remoteServers).toBe(true);
     expect(capabilities.remoteEdge).toBe(true);
+    expect(capabilities.acmeCertificates).toBe(true);
+    expect(capabilities.localGitCli).toBe(false);
+    expect(capabilities.swarmManagement).toBe(false);
+    expect(capabilities.enterpriseScimSso).toBe(true);
+  });
+
+  test("defines desktop control plane capabilities", () => {
+    const capabilities = getPlatformCapabilities("desktop");
+    expect(capabilities.localRuntime).toBe(true);
+    expect(capabilities.acmeCertificates).toBe(false);
+    expect(capabilities.localGitCli).toBe(true);
+    expect(capabilities.localDockerSocket).toBe(true);
+    expect(capabilities.swarmManagement).toBe(false);
+    expect(capabilities.desktopNativeNotifications).toBe(true);
+    expect(capabilities.enterpriseScimSso).toBe(false);
+  });
+
+  test("defines self-hosted control plane capabilities", () => {
+    const capabilities = getPlatformCapabilities("self-hosted");
+    expect(capabilities.localRuntime).toBe(true);
+    expect(capabilities.acmeCertificates).toBe(true);
+    expect(capabilities.swarmManagement).toBe(true);
+    expect(capabilities.enterpriseScimSso).toBe(true);
   });
 
   test("validates deployment placement as a discriminated union", () => {

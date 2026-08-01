@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@upstand/ui/components/button";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -8,11 +8,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@upstand/ui/components/dialog";
-import { useEffect, useRef } from "react";
-import { toast } from "sonner";
 import { StatusBadge } from "@/components/dashboard/status-badge";
-import { Copy, Terminal } from "@/components/huge-icons";
-import { copyText } from "@/lib/browser";
+import { AlertTriangleIcon, Terminal } from "@/components/huge-icons";
+import { ShowDockerLogs } from "@/components/shared/docker-logs";
+import { trpc } from "@/utils/trpc";
 
 export type DeploymentStatus =
   | "success"
@@ -46,7 +45,7 @@ export function DeploymentStatusBadge({
       ? "success"
       : status === "running"
         ? "info"
-        : status === "queued" || status === "waiting" || status === "retrying"
+        : status === "queued" || status === "retrying" || status === "waiting"
           ? "warning"
           : status === "failed" || status === "cancelled" || status === "stale"
             ? "destructive"
@@ -67,24 +66,29 @@ export function DeploymentLogDialog({
   open,
   onOpenChange,
   deployment,
-  follow = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   deployment: DeploymentLog | null;
   follow?: boolean;
 }) {
-  const logsEndRef = useRef<HTMLDivElement>(null);
-  const logText = deployment?.logs;
+  const deploymentId = deployment?.id ?? "";
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: live log content intentionally retriggers follow mode.
-  useEffect(() => {
-    if (open && follow) {
-      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [follow, logText, open]);
+  const logQuery = useQuery({
+    ...trpc.deployment.getLogs.queryOptions({ id: deploymentId }),
+    enabled: open && Boolean(deploymentId),
+    refetchInterval: (query) => {
+      const status = (query.state.data?.status ?? "") as string;
+      return status === "running" ||
+        status === "queued" ||
+        status === "waiting" ||
+        status === "retrying"
+        ? 1500
+        : false;
+    },
+  });
 
-  const logs = logText || "No logs available.";
+  const logText = logQuery.data?.logs || deployment?.logs || "";
   const createdAt = deployment?.createdAt
     ? new Date(deployment.createdAt).toLocaleString()
     : null;
@@ -111,25 +115,40 @@ export function DeploymentLogDialog({
                 {createdAt ? ` · ${createdAt}` : null}
               </DialogDescription>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                void copyText(logs)
-                  .then(() => toast.success("Logs copied to clipboard"))
-                  .catch(() => toast.error("Failed to copy logs"));
-              }}
-              className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground"
-            >
-              <Copy className="size-3.5" />
-              Copy Logs
-            </Button>
           </div>
         </DialogHeader>
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto rounded-xl border border-muted/20 bg-[#0c0d12] p-4 font-mono text-xs text-zinc-300 leading-relaxed shadow-inner">
-          <pre className="whitespace-pre-wrap">{logs}</pre>
-          <div ref={logsEndRef} />
+
+        <div className="mt-2 min-h-0 flex-1 overflow-hidden">
+          <ShowDockerLogs
+            containerId={deploymentId || "deployment"}
+            logs={logText}
+            isFetching={logQuery.isFetching}
+            emptyMessage="No deployment logs recorded yet."
+            className="h-full"
+            maxHeightClass="h-[min(55svh,480px)]"
+          />
         </div>
+
+        {(logText.includes("Deployment failed") ||
+          logText.includes("Error:")) && (
+          <div className="mt-2 flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-foreground text-xs">
+            <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <div className="space-y-0.5">
+              <span className="font-semibold text-destructive">
+                Troubleshooting Action Needed:
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                {logText.includes("SSH key") || logText.includes("password")
+                  ? "Server authentication credentials error. Go to Remote Servers and ensure your server credentials (SSH key or password) are properly configured."
+                  : logText.includes("Repository") || logText.includes("Git")
+                    ? "Git repository connection issue. Verify your repository URL, branch, or connected Git Provider in General settings."
+                    : logText.includes("not ready")
+                      ? "Target server is not ready. Complete server setup/provisioning under Remote Servers."
+                      : "Review the log messages above to identify missing configuration, syntax errors, or server connectivity issues."}
+              </p>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

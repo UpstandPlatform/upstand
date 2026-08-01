@@ -442,6 +442,8 @@ export const SetupServerUseCaseToken =
   createToken<UseCases.SetupServerUseCase>("SetupServerUseCase");
 export const UpdateServerUseCaseToken =
   createToken<UseCases.UpdateServerUseCase>("UpdateServerUseCase");
+export const MigrateResourceUseCaseToken =
+  createToken<UseCases.MigrateResourceUseCase>("MigrateResourceUseCase");
 export const GetServerHistoricalMetricsUseCaseToken =
   createToken<UseCases.GetServerHistoricalMetricsUseCase>(
     "GetServerHistoricalMetricsUseCase",

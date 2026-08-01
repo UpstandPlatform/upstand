@@ -10,6 +10,7 @@ import type {
   ServerProvisioningPort,
   ServerProvisioningSession,
 } from "../ports/server-provisioning";
+import { GetSwarmJoinCommandsUseCase } from "../swarm/get-swarm-join-commands.usecase";
 import { getServerProvisioningPlan } from "./server-role";
 
 export const SetupServerInputSchema = z.object({
@@ -39,7 +40,11 @@ export class SetupServerUseCase {
     let privateKey: string | undefined;
     let password: string | undefined;
 
-    if (server.authType === "password") {
+    const isPasswordAuth =
+      server.authType === "password" ||
+      (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+    if (isPasswordAuth) {
       if (
         !server.passwordCiphertext ||
         !server.passwordIv ||
@@ -70,10 +75,12 @@ export class SetupServerUseCase {
       });
     }
 
-    // Update status to setting_up
+    // Update status to setting_up, clear any previous progress from prior runs
     await this.uow.serverRepository.updateById(server.id, {
       status: "setting_up",
       setupError: null,
+      setupStage: "Connecting to server via SSH",
+      setupLogs: "",
     });
 
     return this.runSetup(
@@ -91,6 +98,21 @@ export class SetupServerUseCase {
     let session: ServerProvisioningSession | null = null;
     const plan = getServerProvisioningPlan(server.serverType);
 
+    // Accumulated log lines written to the server record for frontend polling
+    let logBuffer = "";
+
+    // Helper — update the server's live progress visible to the frontend.
+    // Stage is the current human-readable step; detail is appended as a log line.
+    const progress = async (stage: string, detail?: string): Promise<void> => {
+      if (detail) {
+        logBuffer = logBuffer ? `${logBuffer}\n${detail}` : detail;
+      }
+      await this.uow.serverRepository.updateById(server.id, {
+        setupStage: stage,
+        setupLogs: logBuffer,
+      });
+    };
+
     const executeCommand = async (cmd: string): Promise<string> => {
       if (!session) throw new Error("Provisioning session is not connected");
       const result = await session.execute(cmd);
@@ -103,6 +125,10 @@ export class SetupServerUseCase {
     };
 
     try {
+      await progress(
+        "Connecting to server via SSH",
+        `Connecting to ${server.ipAddress}:${server.port} as ${server.username}...`,
+      );
       session = await this.provisioning.connect({
         server,
         privateKey: credentials.privateKey,
@@ -111,6 +137,10 @@ export class SetupServerUseCase {
       });
       const connectedSession = session;
 
+      await progress(
+        "Verifying SSH permissions",
+        "SSH connection established. Checking privilege level...",
+      );
       let sudo: string;
       try {
         sudo = (
@@ -123,20 +153,36 @@ export class SetupServerUseCase {
           "The SSH user is not root and does not have passwordless sudo access.",
         );
       }
-      const privileged = (command: string) =>
+      const privileged = async (command: string): Promise<string> =>
         executeCommand(`${sudo ? `${sudo} ` : ""}${command}`);
 
       // 1. Install Docker if not present
+      await progress(
+        "Checking Docker installation",
+        `Checking if Docker is installed on ${server.ipAddress}...`,
+      );
       log.info({
         message: `[Server Setup] Checking Docker installation on ${server.ipAddress}`,
       });
       try {
-        await executeCommand("docker --version");
+        const dockerVersion = await executeCommand("docker --version");
+        await progress(
+          "Checking Docker installation",
+          `Docker already installed: ${dockerVersion.trim()}`,
+        );
       } catch {
+        await progress(
+          "Installing Docker Engine",
+          "Docker not found. Installing Docker Engine from official repository...",
+        );
         log.info({
           message: `[Server Setup] Docker not found on ${server.ipAddress}. Installing Docker...`,
         });
         await executeCommand(buildDockerInstallCommand(sudo));
+        await progress(
+          "Installing Docker Engine",
+          "Docker Engine installed successfully.",
+        );
       }
 
       await privileged("systemctl enable --now docker");
@@ -148,9 +194,15 @@ export class SetupServerUseCase {
       // Give the daemon a short, bounded window to become ready before
       // attempting Swarm operations. This also makes retries after a failed
       // setup deterministic instead of depending on daemon startup timing.
+      await progress(
+        "Waiting for Docker daemon",
+        "Docker service enabled. Waiting for daemon socket...",
+      );
       const remoteInfo = await waitForDocker(() =>
         connectedSession.dockerInfo(),
       );
+      await progress("Waiting for Docker daemon", "Docker daemon is ready.");
+
       if (plan.requiresSwarm) {
         // Each deployment/database host owns an independent Swarm. It must
         // never join the control-plane cluster because its resource network,
@@ -159,26 +211,88 @@ export class SetupServerUseCase {
           message: `[Server Setup] Checking Swarm status on ${server.ipAddress}`,
           serverType: server.serverType,
         });
+        await progress(
+          "Checking Docker Swarm status",
+          "Checking Docker Swarm state...",
+        );
         const remoteSwarmStatus =
           remoteInfo.Swarm?.LocalNodeState ?? "inactive";
         if (remoteSwarmStatus === "inactive") {
-          log.info({
-            message: `[Server Setup] Initializing an independent Docker Swarm on ${server.ipAddress}...`,
-            serverType: server.serverType,
-          });
-          await privileged(
-            `docker swarm init --advertise-addr ${shellQuote(server.ipAddress)}`,
-          );
+          let joinedCluster = false;
+          try {
+            const joinInfo = await new GetSwarmJoinCommandsUseCase()
+              .execute()
+              .catch(() => null);
+            if (
+              joinInfo?.workerCommand &&
+              joinInfo.advertiseAddress &&
+              !joinInfo.advertiseAddress.includes("127.0.0.1") &&
+              !joinInfo.advertiseAddress.includes("localhost")
+            ) {
+              await progress(
+                "Joining Docker Swarm cluster",
+                `Joining ${server.name} to control-plane Swarm cluster at ${joinInfo.advertiseAddress}...`,
+              );
+              log.info({
+                message: `[Server Setup] Joining ${server.name} (${server.ipAddress}) to control-plane Swarm cluster...`,
+              });
+              const joinCmd = `${joinInfo.workerCommand} --advertise-addr ${shellQuote(server.ipAddress)}`;
+              await privileged(joinCmd);
+              joinedCluster = true;
+              await progress(
+                "Joining Docker Swarm cluster",
+                "Successfully joined control-plane Swarm cluster. ✅",
+              );
+              log.info({
+                message: `[Server Setup] Server ${server.name} joined control-plane Swarm cluster! ✅`,
+              });
+            }
+          } catch (joinError) {
+            log.info({
+              message: `[Server Setup] Control-plane cluster join unavailable (${joinError instanceof Error ? joinError.message : String(joinError)}); initializing independent Docker Swarm...`,
+            });
+          }
+
+          if (!joinedCluster) {
+            await progress(
+              "Initializing Docker Swarm",
+              `Initializing independent Docker Swarm on ${server.ipAddress}...`,
+            );
+            log.info({
+              message: `[Server Setup] Initializing an independent Docker Swarm on ${server.ipAddress}...`,
+              serverType: server.serverType,
+            });
+            await privileged(
+              `docker swarm init --advertise-addr ${shellQuote(server.ipAddress)}`,
+            );
+            await progress(
+              "Initializing Docker Swarm",
+              "Docker Swarm initialized. ✅",
+            );
+          }
         } else if (remoteSwarmStatus !== "active") {
           throw new Error(
             `Docker Swarm is in '${remoteSwarmStatus}' state. Resolve the Docker or advertised-address issue on the server, then retry setup.`,
+          );
+        } else {
+          await progress(
+            "Checking Docker Swarm status",
+            "Docker Swarm already active — skipping initialization.",
           );
         }
 
         await privileged("docker swarm update --task-history-limit 1");
 
+        await progress(
+          "Creating Upstand overlay network",
+          `Creating overlay network 'upstand-network'...`,
+        );
         await privileged(
           "docker network inspect upstand-network >/dev/null 2>&1 || docker network create --driver overlay --attachable upstand-network",
+        );
+        await progress(
+          "Creating Upstand overlay network",
+          "Overlay network ready. ✅",
         );
 
         const initializedInfo = await waitForDocker(() =>
@@ -198,13 +312,29 @@ export class SetupServerUseCase {
       if (plan.requiresCaddy) {
         // Only deployment servers expose Caddy. Database servers deliberately
         // have no edge proxy, so database credentials and ports stay private.
+        await progress(
+          "Configuring Caddy reverse proxy",
+          "Initializing Caddy routing service...",
+        );
         const webServerSettings =
           await this.uow.webServerSettingsRepository.findGlobal();
         await connectedSession.initializeCaddy(webServerSettings ?? {});
+        await progress(
+          "Configuring Caddy reverse proxy",
+          "Caddy proxy configured. ✅",
+        );
       }
 
       if (plan.requiresMonitoring) {
+        await progress(
+          "Deploying monitoring agent",
+          "Provisioning Upstand monitoring agent...",
+        );
         await this.setupMonitoringAgent(connectedSession, server, privileged);
+        await progress(
+          "Deploying monitoring agent",
+          "Monitoring agent deployed. ✅",
+        );
       }
 
       log.info({
@@ -213,6 +343,9 @@ export class SetupServerUseCase {
       await this.uow.serverRepository.updateById(server.id, {
         status: "ready",
         setupError: null,
+        // Clear transient progress fields so UI shows clean state on next view
+        setupStage: null,
+        setupLogs: null,
       });
       return {
         success: true,
@@ -224,9 +357,14 @@ export class SetupServerUseCase {
         message: `[Server Setup] Error setting up server ${server.name}: ${message}`,
         err: err instanceof Error ? err.stack : String(err),
       });
+      // Preserve setupStage so the frontend shows "Failed at: <stage>"
+      // but update the status and record the error message.
       await this.uow.serverRepository.updateById(server.id, {
         status: "failed",
         setupError: message,
+        setupLogs: logBuffer
+          ? `${logBuffer}\n\n❌ FAILED: ${message}`
+          : `❌ FAILED: ${message}`,
       });
       throw new Error(message);
     } finally {
@@ -406,10 +544,9 @@ export function buildMonitoringAgentContainerCommand(input: {
       `--name ${containerName} ` +
       "--label com.upstand.component=monitoring-agent " +
       "--restart always " +
-      "--cap-drop ALL " +
       "--security-opt no-new-privileges:true " +
       "--read-only " +
-      "--tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m " +
+      "--tmpfs /tmp:rw,nosuid,nodev,size=16m " +
       "--memory 256m " +
       "--pids-limit 128 " +
       "--log-opt max-size=10m --log-opt max-file=3 " +

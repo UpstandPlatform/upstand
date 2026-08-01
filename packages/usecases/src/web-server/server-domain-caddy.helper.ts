@@ -1,5 +1,6 @@
 import type { WebServerSettings } from "@upstand/domain";
 import { env } from "@upstand/env/server";
+import { getConfiguredControlPlaneMode } from "../platform/platform.types";
 
 export const SERVER_DOMAIN_MARKER_START =
   "# --- Upstand Server Domain Start ---";
@@ -36,7 +37,10 @@ export function buildServerDomainCaddySnippet(
   }
 
   let tlsDirective = "";
-  if (provider === "self-signed") {
+  const isDesktop = getConfiguredControlPlaneMode() === "desktop";
+  if (isDesktop && (provider === "letsencrypt" || provider === "zerossl")) {
+    tlsDirective = "\ttls internal";
+  } else if (provider === "self-signed") {
     tlsDirective = "\ttls internal";
   } else if (provider === "custom") {
     const certId = settings?.certificateId?.trim();

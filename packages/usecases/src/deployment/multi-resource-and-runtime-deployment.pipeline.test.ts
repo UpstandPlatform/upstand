@@ -20,6 +20,7 @@ function createMultiResourceTestUow(
         name: "Primary Deploy Node",
         serverType: "deploy",
         authType: "ssh_key",
+        sshKeyId: "ssh-key-1",
         ipAddress: "10.0.0.100",
         port: 22,
         username: "admin",

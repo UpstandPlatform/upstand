@@ -37,6 +37,8 @@ export const server = pgTable(
       .default(false),
     status: text("status").notNull().default("idle"), // 'idle' | 'setting_up' | 'ready' | 'failed'
     setupError: text("setup_error"),
+    setupStage: text("setup_stage"),
+    setupLogs: text("setup_logs"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()

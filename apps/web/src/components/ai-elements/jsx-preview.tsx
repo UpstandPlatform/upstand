@@ -242,7 +242,6 @@ export const JSXPreviewContent = memo(
     return (
       <div className={cn("jsx-preview-content", className)} {...props}>
         <JsxParser
-          autoUnescape={false}
           blacklistedTags={[
             "script",
             "iframe",

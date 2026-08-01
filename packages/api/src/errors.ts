@@ -75,6 +75,29 @@ export function handleUseCaseError(
     });
   }
 
+  if (error instanceof Error) {
+    const message = error.message;
+    const isOperationalMessage =
+      message.includes("not found") ||
+      message.includes("not configured") ||
+      message.includes("not part of") ||
+      message.includes("protected system path") ||
+      message.includes("timed out") ||
+      message.includes("unsupported") ||
+      message.includes("SSH") ||
+      message.includes("credentials") ||
+      message.includes("active organization") ||
+      message.includes("not assigned");
+
+    if (isOperationalMessage) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message,
+        cause: error,
+      });
+    }
+  }
+
   // Clean Architecture: Log raw internal errors for server troubleshooting
   // but mask details to avoid leaking database/system internals to client
   logger.error(error instanceof Error ? error.message : String(error), {
@@ -83,6 +106,9 @@ export function handleUseCaseError(
 
   throw new TRPCError({
     code: "INTERNAL_SERVER_ERROR",
-    message: "An unexpected server error occurred.",
+    message:
+      error instanceof Error && error.message
+        ? error.message
+        : "An unexpected server error occurred.",
   });
 }

@@ -75,6 +75,7 @@ describe("API router contract", () => {
       "containerFileManager",
       "topology",
       "proxy",
+      "platform",
     ];
 
     expect(Object.keys(record).sort()).toEqual(expectedRouters.sort());

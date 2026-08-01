@@ -69,6 +69,7 @@ import { ProjectsBreadcrumb } from "@/components/projects-breadcrumb";
 import { UpGalTarget } from "@/components/upgal-target";
 import { DesktopChrome } from "@/components/workspace/desktop-chrome";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
+import { usePlatformCapabilities } from "@/hooks/use-platform-capabilities";
 import { useSystemConfig } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
@@ -305,8 +306,20 @@ function DashboardSidebarGroup({
   currentTab: string | null;
   isCloud: boolean;
 }) {
+  const { capabilities } = usePlatformCapabilities();
+
   const filteredItems = group.items.filter((item) => {
     if (isCloud && item.href === "/web-server") return false;
+    if (capabilities) {
+      if (item.href === "/docker-swarm" && !capabilities.swarmManagement)
+        return false;
+      if (
+        (item.href === "/settings/scim" || item.href === "/settings/sso") &&
+        !capabilities.enterpriseScimSso
+      ) {
+        return false;
+      }
+    }
     return true;
   });
 

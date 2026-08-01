@@ -37,6 +37,8 @@ export interface RemoteServerItem {
   username: string;
   enableDockerCleanup: boolean;
   status: string;
+  updatedAt?: Date | string;
+  setupStage?: string | null;
 }
 
 export interface RemoteServerCardProps {
@@ -48,8 +50,16 @@ export interface RemoteServerCardProps {
   onInspect: (serverId: string) => void;
 }
 
-function getStatusBadgeTone(status: string): StatusTone {
-  switch (status) {
+function isServerStuck(server: RemoteServerItem): boolean {
+  if (server.status !== "setting_up" || !server.updatedAt) return false;
+  const updatedTime = new Date(server.updatedAt).getTime();
+  const TEN_MINUTES = 10 * 60 * 1000;
+  return Date.now() - updatedTime > TEN_MINUTES;
+}
+
+function getStatusBadgeTone(server: RemoteServerItem): StatusTone {
+  if (isServerStuck(server)) return "warning";
+  switch (server.status) {
     case "ready":
       return "success";
     case "setting_up":
@@ -99,9 +109,14 @@ export function RemoteServerCard({
     onInspect(server.id);
   };
 
-  const setupLabel =
-    server.status === "setting_up"
-      ? "Setting up…"
+  const stuck = isServerStuck(server);
+
+  const setupLabel = stuck
+    ? "Setup seems stuck — Click to resume setup"
+    : server.status === "setting_up"
+      ? server.setupStage
+        ? `Setting up: ${server.setupStage}`
+        : "Setting up…"
       : server.status === "ready"
         ? "Set up server again"
         : "Set up server";
@@ -123,15 +138,17 @@ export function RemoteServerCard({
           </CardDescription>
         </div>
         <StatusBadge
-          tone={getStatusBadgeTone(server.status)}
+          tone={getStatusBadgeTone(server)}
           label={
-            server.status === "ready"
-              ? "Ready"
-              : server.status === "setting_up"
-                ? "Setting up"
-                : server.status === "failed"
-                  ? "Failed"
-                  : server.status
+            stuck
+              ? "Stuck (Resume)"
+              : server.status === "ready"
+                ? "Ready"
+                : server.status === "setting_up"
+                  ? server.setupStage || "Setting up"
+                  : server.status === "failed"
+                    ? "Failed"
+                    : server.status
           }
         />
       </CardHeader>

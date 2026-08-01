@@ -7,7 +7,7 @@ import {
 } from "./git-provider-config";
 import { resolveGitProviderAndConfig } from "./git-provider-resolution.helper";
 import { getGiteaBranches } from "./gitea-client";
-import { getBranches } from "./github-client";
+import { getBranches, getBranchesWithToken } from "./github-client";
 import { getGitlabBranches } from "./gitlab-client";
 
 export const ListGitBranchesInputSchema = z.object({
@@ -29,6 +29,13 @@ export class ListGitBranchesUseCase {
       );
 
       if (provider.provider === "github") {
+        const pat =
+          config.personalAccessToken || config.accessToken
+            ? String(config.personalAccessToken || config.accessToken)
+            : null;
+        if (pat) {
+          return await getBranchesWithToken(pat, input.owner, input.repo);
+        }
         return await getBranches(
           String(config.githubAppId),
           requiredGitProviderString(config, "githubPrivateKey"),

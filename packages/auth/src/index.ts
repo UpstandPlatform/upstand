@@ -90,15 +90,23 @@ export function resolveSharedCookieDomain(
 }
 
 export function resolveTrustedOrigins(
-  configuration: Pick<AuthConfiguration, "corsOrigin" | "betterAuthUrl">,
+  configuration: Pick<
+    AuthConfiguration,
+    "corsOrigin" | "betterAuthUrl" | "nodeEnv"
+  >,
 ): string[] {
-  return Array.from(
-    new Set(
-      [configuration.corsOrigin, configuration.betterAuthUrl].map(
-        (origin) => new URL(origin).origin,
-      ),
-    ),
+  const origins = [configuration.corsOrigin, configuration.betterAuthUrl].map(
+    (origin) => new URL(origin).origin,
   );
+  if (configuration.nodeEnv !== "production") {
+    origins.push(
+      "http://localhost:3001",
+      "http://127.0.0.1:3001",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+    );
+  }
+  return Array.from(new Set(origins));
 }
 
 const organizationAccessControl = createAccessControl(ORGANIZATION_STATEMENT);

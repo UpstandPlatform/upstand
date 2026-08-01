@@ -721,25 +721,50 @@ export class DeploymentWorker {
               `Target deployment server '${server.name}' is not ready. Run server setup before deploying.`,
             );
           }
-          if (!server.sshKeyId) {
-            throw new Error(
-              "Target deployment server has no SSH key configured",
-            );
+          let privateKey: string | undefined;
+          let password: string | undefined;
+          const isTargetPasswordAuth =
+            server.authType === "password" ||
+            (!server.sshKeyId && Boolean(server.passwordCiphertext));
+          if (isTargetPasswordAuth) {
+            if (
+              !server.passwordCiphertext ||
+              !server.passwordIv ||
+              !server.passwordAuthTag ||
+              server.passwordVersion == null
+            ) {
+              throw new Error(
+                `Target deployment server '${server.name}' password credentials are missing`,
+              );
+            }
+            password = decryptSecret({
+              ciphertext: server.passwordCiphertext,
+              iv: server.passwordIv,
+              authTag: server.passwordAuthTag,
+              keyVersion: server.passwordVersion,
+            });
+          } else {
+            if (!server.sshKeyId) {
+              throw new Error(
+                "Target deployment server has no SSH key configured",
+              );
+            }
+            const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
+            if (!sshKey)
+              throw new Error("Target deployment server SSH key not found");
+            privateKey = decryptSecret({
+              ciphertext: sshKey.privateKeyCiphertext,
+              iv: sshKey.privateKeyIv,
+              authTag: sshKey.privateKeyAuthTag,
+              keyVersion: sshKey.privateKeyVersion,
+            });
           }
-          const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
-          if (!sshKey)
-            throw new Error("Target deployment server SSH key not found");
-          const privateKey = decryptSecret({
-            ciphertext: sshKey.privateKeyCiphertext,
-            iv: sshKey.privateKeyIv,
-            authTag: sshKey.privateKeyAuthTag,
-            keyVersion: sshKey.privateKeyVersion,
-          });
           const connection = {
             host: server.ipAddress,
             port: server.port,
             username: server.username,
             privateKey,
+            password,
             hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
           };
           const remote = createRemoteServices(connection);
@@ -768,24 +793,49 @@ export class DeploymentWorker {
             `Target build server '${buildServer.name}' is not ready. Run server setup before deploying.`,
           );
         }
-        if (!buildServer.sshKeyId) {
-          throw new Error("Target build server has no SSH key configured");
+        let buildPrivateKey: string | undefined;
+        let buildPassword: string | undefined;
+        const isBuildPasswordAuth =
+          buildServer.authType === "password" ||
+          (!buildServer.sshKeyId && Boolean(buildServer.passwordCiphertext));
+        if (isBuildPasswordAuth) {
+          if (
+            !buildServer.passwordCiphertext ||
+            !buildServer.passwordIv ||
+            !buildServer.passwordAuthTag ||
+            buildServer.passwordVersion == null
+          ) {
+            throw new Error(
+              `Target build server '${buildServer.name}' password credentials are missing`,
+            );
+          }
+          buildPassword = decryptSecret({
+            ciphertext: buildServer.passwordCiphertext,
+            iv: buildServer.passwordIv,
+            authTag: buildServer.passwordAuthTag,
+            keyVersion: buildServer.passwordVersion,
+          });
+        } else {
+          if (!buildServer.sshKeyId) {
+            throw new Error("Target build server has no SSH key configured");
+          }
+          const sshKey = await uow.sshKeyRepository.findById(
+            buildServer.sshKeyId,
+          );
+          if (!sshKey) throw new Error("Target build server SSH key not found");
+          buildPrivateKey = decryptSecret({
+            ciphertext: sshKey.privateKeyCiphertext,
+            iv: sshKey.privateKeyIv,
+            authTag: sshKey.privateKeyAuthTag,
+            keyVersion: sshKey.privateKeyVersion,
+          });
         }
-        const sshKey = await uow.sshKeyRepository.findById(
-          buildServer.sshKeyId,
-        );
-        if (!sshKey) throw new Error("Target build server SSH key not found");
-        const privateKey = decryptSecret({
-          ciphertext: sshKey.privateKeyCiphertext,
-          iv: sshKey.privateKeyIv,
-          authTag: sshKey.privateKeyAuthTag,
-          keyVersion: sshKey.privateKeyVersion,
-        });
         const connection = {
           host: buildServer.ipAddress,
           port: buildServer.port,
           username: buildServer.username,
-          privateKey,
+          privateKey: buildPrivateKey,
+          password: buildPassword,
           hostKeyFingerprint: buildServer.sshHostKeyFingerprint ?? undefined,
         };
         const remoteBuild = createRemoteServices(connection);

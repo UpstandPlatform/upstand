@@ -91,8 +91,16 @@ export class UpdateServerUseCase {
     } = input;
     const patch: Record<string, unknown> = { ...rawPatch };
 
-    const effectiveAuthType = input.authType ?? current.authType;
-    if (input.authType || password !== undefined) {
+    const effectiveAuthType =
+      input.authType ??
+      (password ? "password" : input.sshKeyId ? "ssh_key" : current.authType);
+
+    if (
+      input.authType ||
+      password !== undefined ||
+      input.sshKeyId !== undefined
+    ) {
+      patch.authType = effectiveAuthType;
       if (effectiveAuthType === "password") {
         if (password) {
           const encrypted = encryptSecret(password);

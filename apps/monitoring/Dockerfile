@@ -22,8 +22,6 @@ WORKDIR /app
 COPY --from=builder /app/main ./main
 RUN chown -R appuser:appgroup /app
 
-USER appuser
-
 ENV PORT=3001
 EXPOSE 3001
 

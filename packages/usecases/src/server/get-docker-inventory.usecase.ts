@@ -1,5 +1,9 @@
 import type { IUnitOfWork } from "@upstand/domain";
 import { z } from "zod";
+import {
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
+} from "../platform/platform.types";
 import type {
   DockerArchiveTransferPort,
   DockerContainerCommand,
@@ -88,6 +92,8 @@ export class GetDockerInventoryUseCase {
   ) {}
 
   async execute(input: GetDockerInventoryInput) {
+    const mode = getConfiguredControlPlaneMode();
+    const capabilities = getPlatformCapabilities(mode);
     const target = await resolveDockerInspectionTarget(this.uow, input);
     switch (input.kind) {
       case "info":
@@ -104,8 +110,12 @@ export class GetDockerInventoryUseCase {
       case "networks":
         return this.inventory.listNetworks(target);
       case "services":
+        // Swarm services are only available in self-hosted Swarm mode
+        if (!capabilities.swarmManagement) return [];
         return this.inventory.listServices(target);
       case "swarm_nodes":
+        // Swarm node list is only available in self-hosted Swarm mode
+        if (!capabilities.swarmManagement) return [];
         return this.inventory.listSwarmNodes(target);
       case "logs":
         return this.inventory.getLogs(target, {

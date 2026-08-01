@@ -63,7 +63,10 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       if (!server.sshHostKeyFingerprint) {
         return c.json({ error: "Trust the server SSH host key first" }, 409);
       }
-      if (server.authType === "password") {
+      const isPasswordAuth =
+        server.authType === "password" ||
+        (!server.sshKeyId && Boolean(server.passwordCiphertext));
+      if (isPasswordAuth) {
         if (
           !server.passwordCiphertext ||
           !server.passwordIv ||
@@ -320,7 +323,11 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     let privateKey: string | undefined;
     let password: string | undefined;
 
-    if (server.authType === "password") {
+    const isPasswordAuth =
+      server.authType === "password" ||
+      (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+    if (isPasswordAuth) {
       if (
         !server.passwordCiphertext ||
         !server.passwordIv ||
@@ -494,7 +501,11 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     let privateKey: string | undefined;
     let password: string | undefined;
 
-    if (server.authType === "password") {
+    const isPasswordAuth =
+      server.authType === "password" ||
+      (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+    if (isPasswordAuth) {
       if (
         !server.passwordCiphertext ||
         !server.passwordIv ||

@@ -515,26 +515,53 @@ export class UpdateResourceUseCase {
     ) {
       const server = await this.uow.serverRepository.findById(serverId);
       if (server) {
-        if (!server.sshKeyId) {
-          throw new Error("Target deployment server has no SSH key configured");
+        let privateKey: string | undefined;
+        let password: string | undefined;
+        const isPasswordAuth =
+          server.authType === "password" ||
+          (!server.sshKeyId && Boolean(server.passwordCiphertext));
+        if (isPasswordAuth) {
+          if (
+            !server.passwordCiphertext ||
+            !server.passwordIv ||
+            !server.passwordAuthTag ||
+            server.passwordVersion == null
+          ) {
+            throw new Error(
+              "Target deployment server password credentials missing",
+            );
+          }
+          password = decryptSecret({
+            ciphertext: server.passwordCiphertext,
+            iv: server.passwordIv,
+            authTag: server.passwordAuthTag,
+            keyVersion: server.passwordVersion,
+          });
+        } else {
+          if (!server.sshKeyId) {
+            throw new Error(
+              "Target deployment server has no SSH key configured",
+            );
+          }
+          const sshKey = await this.uow.sshKeyRepository.findById(
+            server.sshKeyId,
+          );
+          if (!sshKey) {
+            throw new Error("Target deployment server SSH key not found");
+          }
+          privateKey = decryptSecret({
+            ciphertext: sshKey.privateKeyCiphertext,
+            iv: sshKey.privateKeyIv,
+            authTag: sshKey.privateKeyAuthTag,
+            keyVersion: sshKey.privateKeyVersion,
+          });
         }
-        const sshKey = await this.uow.sshKeyRepository.findById(
-          server.sshKeyId,
-        );
-        if (!sshKey) {
-          throw new Error("Target deployment server SSH key not found");
-        }
-        const privateKey = decryptSecret({
-          ciphertext: sshKey.privateKeyCiphertext,
-          iv: sshKey.privateKeyIv,
-          authTag: sshKey.privateKeyAuthTag,
-          keyVersion: sshKey.privateKeyVersion,
-        });
         const connection = {
           host: server.ipAddress,
           port: server.port,
           username: server.username,
           privateKey,
+          password,
           hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
         };
         caddyService = createRemoteServices(connection).caddyService;

@@ -72,6 +72,7 @@ export const SESSION_ONLY_PROCEDURES = [
   "secret.createRotationSchedule",
   "secret.updateRotationSchedule",
   "secret.deleteRotationSchedule",
+  "server.migrateResource",
   "proxy.detect",
   "proxy.scanImportable",
   "proxy.takeover",
@@ -125,7 +126,10 @@ export const SESSION_ONLY_PROCEDURES = [
 
 export type SessionOnlyProcedure = (typeof SESSION_ONLY_PROCEDURES)[number];
 
-export const PUBLIC_PROCEDURES = ["healthCheck"] as const;
+export const PUBLIC_PROCEDURES = [
+  "healthCheck",
+  "platform.getCapabilities",
+] as const;
 
 export function authorizationCoverageGaps(
   procedurePaths: readonly string[],

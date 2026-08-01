@@ -13,13 +13,14 @@ export async function resolveGitProviderAndConfig(
   const config = parseGitProviderConfig(provider);
 
   if (provider.provider === "github") {
-    if (
-      !config.githubAppId ||
-      !config.githubPrivateKey ||
-      !config.githubInstallationId
-    ) {
+    const hasAppConfig =
+      config.githubAppId &&
+      config.githubPrivateKey &&
+      config.githubInstallationId;
+    const hasPatConfig = !!(config.personalAccessToken || config.accessToken);
+    if (!hasAppConfig && !hasPatConfig) {
       throw new Error(
-        "GitHub App is not fully configured (missing installation)",
+        "GitHub Provider requires either a configured GitHub App or a Personal Access Token (PAT)",
       );
     }
   }

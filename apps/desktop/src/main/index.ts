@@ -17,6 +17,14 @@ import {
   isAllowedNavigation,
   normalizeUpstandOrigin,
 } from "../shared/connection";
+import type { ConnectionMode } from "./connection-profiles";
+import {
+  addConnectionProfile,
+  getActiveProfile,
+  listConnectionProfiles,
+  removeConnectionProfile,
+  setActiveConnectionProfile,
+} from "./connection-profiles";
 import {
   getLocalApiOrigin,
   getLocalDashboardOrigin,
@@ -249,6 +257,10 @@ async function loadCurrentView(): Promise<void> {
   const origin = await resolveStartupOrigin();
   if (origin) {
     try {
+      const normalizedOrigin = normalizeUpstandOrigin(origin);
+      if (!connection) {
+        connection = { origin: normalizedOrigin };
+      }
       await mainWindow.loadURL(new URL(origin).toString());
       return;
     } catch {
@@ -355,6 +367,10 @@ function createWindow(): BrowserWindow {
   // instead of waiting on the real app/dev server to respond.
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedNavigation(url, connection)) {
+      void mainWindow?.loadURL(url).catch(() => undefined);
+      return { action: "deny" };
+    }
     void openExternalWebUrl(url).catch(() => undefined);
     return { action: "deny" };
   });
@@ -452,6 +468,56 @@ function registerIpcHandlers(): void {
       : null;
     await loadCurrentView();
   });
+
+  // ------------------------------------------------------------------
+  // Connection profiles — named, typed connections (desktop / self-hosted / cloud)
+  // ------------------------------------------------------------------
+  ipcMain.handle("connection:profiles:list", async (event) => {
+    validateIpcSender(event);
+    return listConnectionProfiles();
+  });
+  ipcMain.handle(
+    "connection:profiles:add",
+    async (
+      event,
+      opts: {
+        name: string;
+        mode: ConnectionMode;
+        origin: string;
+        setActive?: boolean;
+      },
+    ) => {
+      validateIpcSender(event);
+      const profile = await addConnectionProfile(opts);
+      if (opts.setActive) {
+        // Also switch the active connection window
+        await setConnection(profile.origin);
+      }
+      return profile;
+    },
+  );
+  ipcMain.handle("connection:profiles:remove", async (event, id: string) => {
+    validateIpcSender(event);
+    return removeConnectionProfile(id);
+  });
+  ipcMain.handle(
+    "connection:profiles:set-active",
+    async (event, id: string) => {
+      validateIpcSender(event);
+      const profile = await setActiveConnectionProfile(id);
+      if (profile) {
+        await setConnection(profile.origin);
+      }
+      return profile;
+    },
+  );
+  ipcMain.handle("connection:mode:get", async (event) => {
+    validateIpcSender(event);
+    const profile = await getActiveProfile();
+    // Fall back to "desktop" when there is no profile (local embedded mode)
+    return profile?.mode ?? "desktop";
+  });
+
   ipcMain.handle("local-api:get", (event) => {
     validateIpcSender(event);
     return getLocalApiOrigin();

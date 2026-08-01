@@ -245,7 +245,11 @@ export async function resolveDockerCliEnvironmentForServer(
   let privateKey: string | undefined;
   let password: string | undefined;
 
-  if (server.authType === "password") {
+  const isPasswordAuth =
+    server.authType === "password" ||
+    (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+  if (isPasswordAuth) {
     if (
       !server.passwordCiphertext ||
       !server.passwordIv ||
@@ -301,7 +305,11 @@ export async function resolveDockerServiceForServer(
   let privateKey: string | undefined;
   let password: string | undefined;
 
-  if (server.authType === "password") {
+  const isPasswordAuth =
+    server.authType === "password" ||
+    (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+  if (isPasswordAuth) {
     if (
       !server.passwordCiphertext ||
       !server.passwordIv ||
@@ -377,27 +385,52 @@ export async function resolveServicesForResource(
     throw new Error("Resource target server was not found");
   }
 
-  if (!server.sshKeyId) {
-    throw new Error("Target deployment server has no SSH key configured");
-  }
+  let privateKey: string | undefined;
+  let password: string | undefined;
 
-  const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
-  if (!sshKey) {
-    throw new Error("Target deployment server SSH key not found");
-  }
+  const isPasswordAuth =
+    server.authType === "password" ||
+    (!server.sshKeyId && Boolean(server.passwordCiphertext));
 
-  const privateKey = decryptSecret({
-    ciphertext: sshKey.privateKeyCiphertext,
-    iv: sshKey.privateKeyIv,
-    authTag: sshKey.privateKeyAuthTag,
-    keyVersion: sshKey.privateKeyVersion,
-  });
+  if (isPasswordAuth) {
+    if (
+      !server.passwordCiphertext ||
+      !server.passwordIv ||
+      !server.passwordAuthTag ||
+      server.passwordVersion == null
+    ) {
+      throw new Error("Target deployment server password credentials missing");
+    }
+    password = decryptSecret({
+      ciphertext: server.passwordCiphertext,
+      iv: server.passwordIv,
+      authTag: server.passwordAuthTag,
+      keyVersion: server.passwordVersion,
+    });
+  } else {
+    if (!server.sshKeyId) {
+      throw new Error("Target deployment server has no SSH key configured");
+    }
+
+    const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
+    if (!sshKey) {
+      throw new Error("Target deployment server SSH key not found");
+    }
+
+    privateKey = decryptSecret({
+      ciphertext: sshKey.privateKeyCiphertext,
+      iv: sshKey.privateKeyIv,
+      authTag: sshKey.privateKeyAuthTag,
+      keyVersion: sshKey.privateKeyVersion,
+    });
+  }
 
   const connection = {
     host: server.ipAddress,
     port: server.port,
     username: server.username,
     privateKey,
+    password,
     hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
   };
 

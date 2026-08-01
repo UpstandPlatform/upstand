@@ -217,6 +217,17 @@ export function RemoteServerWizard({
     },
   });
 
+  const setupProgressQuery = useQuery({
+    ...trpc.server.setupProgress.queryOptions({
+      id: createdServerId || "",
+    }),
+    enabled: Boolean(createdServerId && step === 4),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "setting_up" ? 1500 : false;
+    },
+  });
+
   // Validation queries for Step 5
   const validateQuery = useQuery({
     ...trpc.server.validate.queryOptions({
@@ -1033,9 +1044,11 @@ export function RemoteServerWizard({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                        {setupServerMutation.isPending ? (
+                        {setupProgressQuery.data?.status === "setting_up" ||
+                        setupServerMutation.isPending ? (
                           <Spinner className="text-primary" />
-                        ) : setupServerMutation.isSuccess ? (
+                        ) : setupProgressQuery.data?.status === "ready" ||
+                          setupServerMutation.isSuccess ? (
                           <CheckCircle2 className="size-5 text-primary" />
                         ) : (
                           <AlertTriangleIcon className="size-5 text-destructive" />
@@ -1043,9 +1056,11 @@ export function RemoteServerWizard({
                       </div>
                       <div className="flex flex-col">
                         <CardTitle className="font-semibold text-sm">
-                          {setupServerMutation.isPending
+                          {setupProgressQuery.data?.status === "setting_up" ||
+                          setupServerMutation.isPending
                             ? "Provisioning Server Environment..."
-                            : setupServerMutation.isSuccess
+                            : setupProgressQuery.data?.status === "ready" ||
+                                setupServerMutation.isSuccess
                               ? "Server Provisioned Successfully!"
                               : "Setup Requires Attention"}
                         </CardTitle>
@@ -1057,17 +1072,21 @@ export function RemoteServerWizard({
 
                     <Badge
                       variant={
+                        setupProgressQuery.data?.status === "ready" ||
                         setupServerMutation.isSuccess
                           ? "default"
-                          : setupServerMutation.isError
+                          : setupProgressQuery.data?.status === "failed" ||
+                              setupServerMutation.isError
                             ? "destructive"
                             : "outline"
                       }
                       className="w-fit"
                     >
-                      {setupServerMutation.isPending
-                        ? "In Progress"
-                        : setupServerMutation.isSuccess
+                      {setupProgressQuery.data?.status === "setting_up" ||
+                      setupServerMutation.isPending
+                        ? setupProgressQuery.data?.setupStage || "In Progress"
+                        : setupProgressQuery.data?.status === "ready" ||
+                            setupServerMutation.isSuccess
                           ? "Provisioned"
                           : "Failed"}
                     </Badge>
@@ -1075,6 +1094,26 @@ export function RemoteServerWizard({
                 </CardHeader>
 
                 <CardContent className="flex flex-col gap-3 p-4 text-xs">
+                  {setupProgressQuery.data?.setupStage && (
+                    <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-xs">
+                      <Spinner className="size-3.5 shrink-0 text-primary" />
+                      <span className="font-medium text-foreground">
+                        Active Stage: {setupProgressQuery.data.setupStage}
+                      </span>
+                    </div>
+                  )}
+
+                  {setupProgressQuery.data?.setupLogs && (
+                    <div className="space-y-1.5">
+                      <p className="font-semibold text-muted-foreground text-xs">
+                        Setup Terminal Log:
+                      </p>
+                      <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] text-zinc-100 leading-relaxed dark:bg-black/90">
+                        {setupProgressQuery.data.setupLogs}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between rounded-lg border bg-muted/40 p-3">
                     <span className="font-medium text-foreground">
                       1. Validate SSH Auth Key
@@ -1086,14 +1125,16 @@ export function RemoteServerWizard({
                     <span className="font-medium text-foreground">
                       2. Install Docker Engine Daemon
                     </span>
-                    {setupServerMutation.isPending ? (
-                      <Spinner />
-                    ) : setupServerMutation.isSuccess ? (
+                    {setupProgressQuery.data?.status === "ready" ||
+                    setupServerMutation.isSuccess ? (
                       <CheckCircle2 className="size-4 text-primary" />
-                    ) : (
+                    ) : setupProgressQuery.data?.status === "failed" ||
+                      setupServerMutation.isError ? (
                       <span className="font-semibold text-destructive">
                         Error
                       </span>
+                    ) : (
+                      <Spinner />
                     )}
                   </div>
 
@@ -1101,14 +1142,16 @@ export function RemoteServerWizard({
                     <span className="font-medium text-foreground">
                       3. Initialize Swarm & Overlay Network
                     </span>
-                    {setupServerMutation.isPending ? (
-                      <Spinner />
-                    ) : setupServerMutation.isSuccess ? (
+                    {setupProgressQuery.data?.status === "ready" ||
+                    setupServerMutation.isSuccess ? (
                       <CheckCircle2 className="size-4 text-primary" />
-                    ) : (
+                    ) : setupProgressQuery.data?.status === "failed" ||
+                      setupServerMutation.isError ? (
                       <span className="font-semibold text-destructive">
                         Error
                       </span>
+                    ) : (
+                      <Spinner />
                     )}
                   </div>
 
@@ -1116,28 +1159,33 @@ export function RemoteServerWizard({
                     <span className="font-medium text-foreground">
                       4. Deploy Routing & Agent Containers
                     </span>
-                    {setupServerMutation.isPending ? (
-                      <Spinner />
-                    ) : setupServerMutation.isSuccess ? (
+                    {setupProgressQuery.data?.status === "ready" ||
+                    setupServerMutation.isSuccess ? (
                       <CheckCircle2 className="size-4 text-primary" />
-                    ) : (
+                    ) : setupProgressQuery.data?.status === "failed" ||
+                      setupServerMutation.isError ? (
                       <span className="font-semibold text-destructive">
                         Error
                       </span>
+                    ) : (
+                      <Spinner />
                     )}
                   </div>
 
-                  {setupServerMutation.isError && (
+                  {(setupServerMutation.isError ||
+                    setupProgressQuery.data?.status === "failed") && (
                     <Alert variant="destructive" className="mt-2">
                       <AlertTriangleIcon />
                       <AlertTitle>Setup Error</AlertTitle>
                       <AlertDescription className="break-words">
-                        {setupServerMutation.error.message}
+                        {setupProgressQuery.data?.setupError ||
+                          setupServerMutation.error?.message}
                       </AlertDescription>
                     </Alert>
                   )}
 
-                  {setupServerMutation.isSuccess && (
+                  {(setupServerMutation.isSuccess ||
+                    setupProgressQuery.data?.status === "ready") && (
                     <Alert variant="default" className="mt-2">
                       <CheckCircle2 data-icon="inline-start" />
                       <AlertTitle>Provisioning Complete</AlertTitle>

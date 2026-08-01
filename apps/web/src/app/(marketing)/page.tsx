@@ -148,7 +148,11 @@ export default function Home() {
         <footer className="mt-16 flex flex-col gap-3 border-t pt-6 text-muted-foreground text-xs sm:flex-row sm:items-center sm:justify-between">
           <span>Upstand — open-source infrastructure for teams that ship.</span>
           <div className="flex gap-4">
-            <a className="hover:text-foreground" href={getDocsUrl()}>
+            <a
+              className="hover:text-foreground"
+              href={getDocsUrl()}
+              suppressHydrationWarning
+            >
               Docs
             </a>
             <a

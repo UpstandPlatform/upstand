@@ -99,6 +99,22 @@ export const deploymentRouter = router({
       return uow.deploymentRepository.findByResourceId(input.resourceId);
     }),
 
+  getLogs: twoFactorVerifiedProcedure
+    .input(z.object({ id: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const { deployment } = await getDeploymentScope(
+        ctx,
+        input.id,
+        "resource:view",
+      );
+      return {
+        id: deployment.id,
+        status: deployment.status,
+        logs: deployment.logs ?? "",
+        lastError: deployment.lastError ?? null,
+      };
+    }),
+
   retryDeployment: twoFactorVerifiedProcedure
     .input(z.object({ deploymentId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {

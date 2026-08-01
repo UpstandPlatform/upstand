@@ -14,6 +14,15 @@ type SystemConfig = {
     redis: boolean;
     cloudConnection: boolean;
     jobs: boolean;
+    acmeCertificates?: boolean;
+    localGitCli?: boolean;
+    localDockerSocket?: boolean;
+    swarmManagement?: boolean;
+    localFileSystemBackups?: boolean;
+    embeddedMonitoring?: boolean;
+    desktopNativeNotifications?: boolean;
+    enterpriseScimSso?: boolean;
+    serverMigration?: boolean;
   };
 };
 
@@ -53,6 +62,15 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
       redis: platformMode !== "desktop",
       cloudConnection: platformMode !== "cloud",
       jobs: true,
+      acmeCertificates: platformMode !== "desktop",
+      localGitCli: platformMode === "desktop",
+      localDockerSocket: platformMode !== "cloud",
+      swarmManagement: platformMode === "self-hosted",
+      localFileSystemBackups: platformMode !== "cloud",
+      embeddedMonitoring: platformMode !== "cloud",
+      desktopNativeNotifications: platformMode === "desktop",
+      enterpriseScimSso: platformMode !== "desktop",
+      serverMigration: true,
     },
   };
 }

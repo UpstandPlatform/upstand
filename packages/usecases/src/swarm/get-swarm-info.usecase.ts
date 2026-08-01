@@ -1,4 +1,8 @@
 import type Docker from "dockerode";
+import {
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
+} from "../platform/platform.types";
 import { getDockerInstance } from "../resource/docker-client";
 import {
   type DockerSwarmInfo,
@@ -32,6 +36,18 @@ export class GetSwarmInfoUseCase {
   }
 
   async execute(): Promise<SwarmInfoResult> {
+    const mode = getConfiguredControlPlaneMode();
+    const capabilities = getPlatformCapabilities(mode);
+    if (!capabilities.swarmManagement) {
+      // Desktop / cloud mode: swarm clustering is not applicable.
+      // Return a stable single-node inactive result so UI can surface
+      // a graceful "not available" state without throwing.
+      return {
+        ...inactiveSwarmInfo("inactive"),
+        localNodeState: `unavailable:${mode}`,
+      };
+    }
+
     try {
       const info = (await this.docker.info()) as DockerSwarmInfo;
       const swarmInfo = info.Swarm;

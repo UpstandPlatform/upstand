@@ -24,6 +24,7 @@ function createDeploymentTestUow() {
         name: "Deploy Target Host",
         serverType: "deploy",
         authType: "ssh_key",
+        sshKeyId: "key-1",
         sshHostKeyFingerprint: "fingerprint-1",
         ipAddress: "192.168.1.10",
         port: 22,
@@ -43,6 +44,7 @@ function createDeploymentTestUow() {
         name: "Dedicated Build Host",
         serverType: "build",
         authType: "ssh_key",
+        sshKeyId: "key-2",
         sshHostKeyFingerprint: "fingerprint-2",
         ipAddress: "192.168.1.20",
         port: 22,
@@ -155,6 +157,7 @@ function createDeploymentTestUow() {
         const deployment = {
           id: data.id ?? `dep-${deployments.size + 1}`,
           resourceId: data.resourceId,
+          serverId: data.serverId,
           title: data.title ?? "Deployment",
           status: data.status ?? "queued",
           sourceRevision: data.sourceRevision ?? "abc1234",
@@ -276,5 +279,106 @@ describe("Deployment Pipeline & Server Isolation Tests", () => {
     const rollbackDep = [...deployments.values()][0];
     expect(rollbackDep?.status).toBe("success");
     expect(rollbackDep?.title).toContain("Swarm service rollback");
+  });
+
+  test("queues deployment for password-authenticated remote server with valid credentials", async () => {
+    const { uow, servers, resources, deployments } = createDeploymentTestUow();
+
+    servers.set("pwd-server-1", {
+      id: "pwd-server-1",
+      organizationId: "org-1",
+      name: "Password Target Host",
+      serverType: "deploy",
+      authType: "password",
+      passwordCiphertext: "encrypted-password-data",
+      passwordIv: "iv-data",
+      passwordAuthTag: "tag-data",
+      passwordVersion: 1,
+      sshHostKeyFingerprint: "fingerprint-pwd",
+      ipAddress: "192.168.1.30",
+      port: 22,
+      username: "root",
+      enableDockerCleanup: false,
+      status: "ready",
+      setupError: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    resources.set("pwd-resource-1", {
+      id: "pwd-resource-1",
+      environmentId: "env-1",
+      name: "Password App",
+      appName: "pwd-app",
+      type: "application",
+      provider: "git",
+      credentials: JSON.stringify({
+        repositoryUrl: "https://github.com/upstand/pwd-app.git",
+      }),
+      serverId: "pwd-server-1",
+      status: "running",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as unknown as Resource);
+
+    const queueUseCase = new QueueDeploymentUseCase(uow);
+    const result = await queueUseCase.execute({
+      resourceId: "pwd-resource-1",
+      title: "Deploying to password server",
+    });
+
+    expect(result).toBeDefined();
+    expect(deployments.size).toBe(1);
+    const queued = [...deployments.values()][0];
+    expect(queued?.serverId).toBe("pwd-server-1");
+    expect(queued?.status).toBe("queued");
+  });
+
+  test("rejects deployment for password-authenticated server when password credentials are missing", async () => {
+    const { uow, servers, resources } = createDeploymentTestUow();
+
+    servers.set("pwd-server-missing", {
+      id: "pwd-server-missing",
+      organizationId: "org-1",
+      name: "Password Target Missing Credentials",
+      serverType: "deploy",
+      authType: "password",
+      passwordCiphertext: null,
+      passwordIv: null,
+      passwordAuthTag: null,
+      passwordVersion: null,
+      sshHostKeyFingerprint: "fingerprint-pwd",
+      ipAddress: "192.168.1.31",
+      port: 22,
+      username: "root",
+      enableDockerCleanup: false,
+      status: "ready",
+      setupError: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    resources.set("pwd-resource-missing", {
+      id: "pwd-resource-missing",
+      environmentId: "env-1",
+      name: "Password App Missing Credentials",
+      appName: "pwd-app-missing",
+      type: "application",
+      provider: "git",
+      credentials: JSON.stringify({
+        repositoryUrl: "https://github.com/upstand/pwd-app.git",
+      }),
+      serverId: "pwd-server-missing",
+      status: "running",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as unknown as Resource);
+
+    const queueUseCase = new QueueDeploymentUseCase(uow);
+    await expect(
+      queueUseCase.execute({
+        resourceId: "pwd-resource-missing",
+      }),
+    ).rejects.toThrow("password credentials configured");
   });
 });

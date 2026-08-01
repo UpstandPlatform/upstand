@@ -30,6 +30,15 @@ export const PlatformCapabilitiesSchema = z.object({
   redis: z.boolean(),
   cloudConnection: z.boolean(),
   jobs: z.boolean(),
+  acmeCertificates: z.boolean(),
+  localGitCli: z.boolean(),
+  localDockerSocket: z.boolean(),
+  swarmManagement: z.boolean(),
+  localFileSystemBackups: z.boolean(),
+  embeddedMonitoring: z.boolean(),
+  desktopNativeNotifications: z.boolean(),
+  enterpriseScimSso: z.boolean(),
+  serverMigration: z.boolean(),
 });
 
 export type PlatformCapabilities = z.infer<typeof PlatformCapabilitiesSchema>;
@@ -71,6 +80,15 @@ export function getPlatformCapabilities(
         redis: false,
         cloudConnection: true,
         jobs: true,
+        acmeCertificates: false,
+        localGitCli: true,
+        localDockerSocket: true,
+        swarmManagement: false,
+        localFileSystemBackups: true,
+        embeddedMonitoring: true,
+        desktopNativeNotifications: true,
+        enterpriseScimSso: false,
+        serverMigration: true,
       };
     case "cloud":
       return {
@@ -83,6 +101,15 @@ export function getPlatformCapabilities(
         redis: true,
         cloudConnection: false,
         jobs: true,
+        acmeCertificates: true,
+        localGitCli: false,
+        localDockerSocket: false,
+        swarmManagement: false,
+        localFileSystemBackups: false,
+        embeddedMonitoring: false,
+        desktopNativeNotifications: false,
+        enterpriseScimSso: true,
+        serverMigration: true,
       };
     case "self-hosted":
       return {
@@ -95,6 +122,15 @@ export function getPlatformCapabilities(
         redis: true,
         cloudConnection: true,
         jobs: true,
+        acmeCertificates: true,
+        localGitCli: false,
+        localDockerSocket: true,
+        swarmManagement: true,
+        localFileSystemBackups: true,
+        embeddedMonitoring: true,
+        desktopNativeNotifications: false,
+        enterpriseScimSso: true,
+        serverMigration: true,
       };
   }
 }
