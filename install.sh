@@ -192,17 +192,6 @@ ensure_postgres_storage_layout() {
   fi
 }
 
-ensure_postgres_storage_layout() {
-  # PostgreSQL 18 uses /var/lib/postgresql/18/docker. Never let a rollout
-  # accidentally start an empty cluster beside an older populated volume.
-  if docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1; then
-    return
-  fi
-  if docker volume inspect "$LEGACY_POSTGRES_VOLUME" >/dev/null 2>&1; then
-    fail "the existing $LEGACY_POSTGRES_VOLUME volume must be migrated to $POSTGRES_VOLUME before deploying PostgreSQL 18; see the database upgrade guide"
-  fi
-}
-
 ensure_host_dependencies() {
   local required_commands=(awk curl df git grep ip openssl)
   local missing=false

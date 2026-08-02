@@ -114,12 +114,4 @@ if [ -n "${UPSTAND_SERVER_INTERNAL_URL:-}" ]; then
   wait_for_http_ready "${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready"
 fi
 
-# The server owns the migration lifecycle. In Swarm there is no dependable
-# depends_on ordering, so do not start workers until the migration-backed
-# readiness endpoint is healthy. This prevents schedulers from querying a
-# partially upgraded database during rolling installs.
-if [ -n "${UPSTAND_SERVER_INTERNAL_URL:-}" ]; then
-  wait_for_http_ready "${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready"
-fi
-
 exec "$@"
