@@ -1,5 +1,13 @@
 # server
 
+## 0.1.11
+
+### Patch Changes
+
+- [#77](https://github.com/UpstandPlatform/upstand/pull/77) [`5f8b7a1`](https://github.com/UpstandPlatform/upstand/commit/5f8b7a1d65bc0a31dbe46e099e6630ae3ea308cc) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix server_id assignment for local manager resources, prevent unassigned server notice in self-hosted mode, and permit unencrypted attachable overlay networks in development environments.
+
+- [#73](https://github.com/UpstandPlatform/upstand/pull/73) [`a7c91f5`](https://github.com/UpstandPlatform/upstand/commit/a7c91f57bedf1154ee8b6a5bddff25285b71e594) Thanks [@mhbdev](https://github.com/mhbdev)! - Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.10
 
 ### Patch Changes
