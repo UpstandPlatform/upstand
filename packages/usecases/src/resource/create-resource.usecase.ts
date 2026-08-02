@@ -352,8 +352,15 @@ export class CreateResourceUseCase {
         ),
         envVars: serializeResourceEnvironmentVariables(input.envVars ?? {}),
         domains: serializeDomainMappings(input.domains ?? []),
-        serverId: input.serverId ?? null,
-        buildServerId: input.buildServerId ?? null,
+        serverId:
+          !input.serverId || ["local", "manager"].includes(input.serverId)
+            ? null
+            : input.serverId,
+        buildServerId:
+          !input.buildServerId ||
+          ["local", "manager"].includes(input.buildServerId)
+            ? null
+            : input.buildServerId,
       });
 
       // Increment resource count

@@ -96,7 +96,16 @@ function ensureLocalSwarmNetwork(env: NodeJS.ProcessEnv, networkName: string) {
 
   run(
     "docker",
-    ["network", "create", "--driver", "overlay", "--attachable", networkName],
+    [
+      "network",
+      "create",
+      "--driver",
+      "overlay",
+      "--opt",
+      "encrypted",
+      "--attachable",
+      networkName,
+    ],
     env,
   );
 }
