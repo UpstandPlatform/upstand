@@ -261,6 +261,11 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build Desktop Payloads
+        run: |
+          bun run --filter=server build
+          bun run --filter=web build
+
       - name: Build installers
         run: bun run --cwd apps/desktop make
 
