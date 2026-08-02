@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { env } from "@upstand/env/server";
 import dotenv from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
