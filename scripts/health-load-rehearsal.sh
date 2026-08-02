@@ -6,8 +6,8 @@ REQUESTS="${HEALTH_LOAD_REQUESTS:-120}"
 CONCURRENCY="${HEALTH_LOAD_CONCURRENCY:-12}"
 MAX_FAILURES="${HEALTH_LOAD_MAX_FAILURES:-0}"
 REQUEST_TIMEOUT_SECONDS="${HEALTH_LOAD_REQUEST_TIMEOUT_SECONDS:-10}"
-MAX_P95_MS="${HEALTH_LOAD_MAX_P95_MS:-0}"
-MAX_P99_MS="${HEALTH_LOAD_MAX_P99_MS:-0}"
+MAX_P95_MS="${HEALTH_LOAD_MAX_P95_MS:-}"
+MAX_P99_MS="${HEALTH_LOAD_MAX_P99_MS:-}"
 REQUEST_PATH="${HEALTH_LOAD_REQUEST_PATH:-}"
 AUTH_HEADER="${HEALTH_LOAD_AUTH_HEADER:-}"
 
@@ -56,10 +56,14 @@ is_bounded_integer "$MAX_FAILURES" 0 "$REQUESTS" \
   || fail "HEALTH_LOAD_MAX_FAILURES must be an integer from 0 to $REQUESTS"
 is_bounded_integer "$REQUEST_TIMEOUT_SECONDS" 1 60 \
   || fail "HEALTH_LOAD_REQUEST_TIMEOUT_SECONDS must be an integer from 1 to 60"
-is_bounded_integer "$MAX_P95_MS" 0 600000 \
-  || fail "HEALTH_LOAD_MAX_P95_MS must be an integer from 0 to 600000"
-is_bounded_integer "$MAX_P99_MS" 0 600000 \
-  || fail "HEALTH_LOAD_MAX_P99_MS must be an integer from 0 to 600000"
+if [ -n "$MAX_P95_MS" ]; then
+  is_bounded_integer "$MAX_P95_MS" 0 600000 \
+    || fail "HEALTH_LOAD_MAX_P95_MS must be an integer from 0 to 600000"
+fi
+if [ -n "$MAX_P99_MS" ]; then
+  is_bounded_integer "$MAX_P99_MS" 0 600000 \
+    || fail "HEALTH_LOAD_MAX_P99_MS must be an integer from 0 to 600000"
+fi
 
 temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/upstand-health-load.XXXXXX")"
 trap 'rm -rf "$temporary_root"' 0 1 2 3 15
@@ -140,9 +144,11 @@ metrics="$(sort -n -k2 "$temporary_root/results" | awk \
     p50 = percentile(0.50)
     p95 = percentile(0.95)
     p99 = percentile(0.99)
-    printf "health-load-rehearsal: target=%s requests=%d concurrency=%d failures=%d p50_ms=%.3f p95_ms=%.3f p99_ms=%.3f max_p95_ms=%d max_p99_ms=%d\n", \
-      target_url, count, concurrency, failures, p50, p95, p99, max_p95_ms, max_p99_ms
-    if ((max_p95_ms > 0 && p95 > max_p95_ms) || (max_p99_ms > 0 && p99 > max_p99_ms)) exit 2
+    p95_limit = (max_p95_ms != "") ? (max_p95_ms + 0) : -1
+    p99_limit = (max_p99_ms != "") ? (max_p99_ms + 0) : -1
+    printf "health-load-rehearsal: target=%s requests=%d concurrency=%d failures=%d p50_ms=%.3f p95_ms=%.3f p99_ms=%.3f max_p95_ms=%s max_p99_ms=%s\n", \
+      target_url, count, concurrency, failures, p50, p95, p99, (p95_limit >= 0 ? max_p95_ms : "none"), (p99_limit >= 0 ? max_p99_ms : "none")
+    if ((p95_limit >= 0 && p95 > p95_limit) || (p99_limit >= 0 && p99 > p99_limit)) exit 2
   }
 ')"
 metrics_status=$?
