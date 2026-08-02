@@ -1,5 +1,13 @@
 # web
 
+## 0.1.31
+
+### Patch Changes
+
+- Release 0.1.31 adding desktop payload builds for server and web before running electron-forge make in release workflow.
+
+- [#73](https://github.com/UpstandPlatform/upstand/pull/73) [`a7c91f5`](https://github.com/UpstandPlatform/upstand/commit/a7c91f57bedf1154ee8b6a5bddff25285b71e594) Thanks [@mhbdev](https://github.com/mhbdev)! - Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.30
 
 ### Patch Changes
