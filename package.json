@@ -1,6 +1,6 @@
 {
   "name": "upstand",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "private": true,
   "workspaces": {
     "packages": [
@@ -108,6 +108,7 @@
     "@changesets/cli": "2.31.1",
     "@types/bun": "^1.3.14",
     "@upstand/config": "workspace:*",
+    "@upstand/env": "workspace:*",
     "husky": "^9.1.7",
     "knip": "^6.31.0",
     "turbo": "^2.10.8",
