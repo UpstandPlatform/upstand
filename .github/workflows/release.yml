@@ -77,7 +77,7 @@ jobs:
       - name: Verify lint, security, and production shell syntax
         run: |
           bun run lint
-          bun audit
+          bun audit --audit-level=high
           bash -n install.sh
           bash -n apps/server/docker-entrypoint.sh
           bash -n scripts/production-acceptance.sh

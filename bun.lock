@@ -11,14 +11,14 @@
         "@types/bun": "^1.3.14",
         "@upstand/config": "workspace:*",
         "husky": "^9.1.7",
-        "knip": "^6.29.0",
-        "turbo": "^2.10.7",
+        "knip": "^6.31.0",
+        "turbo": "^2.10.8",
         "typescript": "^7.0.2",
       },
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.2.15",
+      "version": "0.2.16",
       "devDependencies": {
         "@electron-forge/cli": "^7.11.1",
         "@electron-forge/maker-deb": "^7.11.1",
@@ -34,7 +34,7 @@
     },
     "apps/fumadocs": {
       "name": "fumadocs",
-      "version": "0.1.22",
+      "version": "0.1.23",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@openrouter/ai-sdk-provider": "^3.0.0",
@@ -79,7 +79,7 @@
     },
     "apps/schedules": {
       "name": "schedules",
-      "version": "0.1.22",
+      "version": "0.1.23",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@upstand/api": "workspace:*",
@@ -103,7 +103,7 @@
     },
     "apps/server": {
       "name": "server",
-      "version": "0.1.22",
+      "version": "0.1.23",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@hono/trpc-server": "^0.4.2",
@@ -136,7 +136,7 @@
     },
     "apps/web": {
       "name": "web",
-      "version": "0.1.22",
+      "version": "0.1.23",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@better-auth-ui/core": "catalog:",
