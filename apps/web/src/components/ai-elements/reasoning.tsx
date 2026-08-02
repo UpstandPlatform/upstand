@@ -216,7 +216,7 @@ export const ReasoningContent = memo(
       )}
       {...props}
     >
-      <Streamdown plugins={streamdownPlugins}>{children}</Streamdown>
+      <Streamdown plugins={streamdownPlugins as any}>{children}</Streamdown>
     </CollapsibleContent>
   ),
 );
