@@ -18,6 +18,7 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       release_ref: ${{ inputs.release_ref }}
+    secrets: inherit
     permissions:
       contents: write
       packages: write

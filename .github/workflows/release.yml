@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Git tag or ref to release
+        required: true
+        type: string
   workflow_call:
     inputs:
       release_ref:
