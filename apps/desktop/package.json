@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "private": true,
   "description": "Upstand Desktop - secure native client for the Upstand control plane",
   "author": "Upstand Contributors",
