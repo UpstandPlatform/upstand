@@ -49,6 +49,7 @@ test("updates notification metadata without exposing or replacing stored secrets
 
   const result = await new UpdateNotificationChannelUseCase(uow).execute({
     id: channel.id,
+    organizationId: channel.organizationId,
     name: "Production deployments",
     events: ["deployment_succeeded", "deployment_failed"],
   });
@@ -56,4 +57,26 @@ test("updates notification metadata without exposing or replacing stored secrets
   expect(result.name).toBe("Production deployments");
   expect(result.events).toEqual(["deployment_succeeded", "deployment_failed"]);
   expect("encryptedConfiguration" in result).toBe(false);
+});
+
+test("rejects notification updates from another organization", async () => {
+  const channel = createChannel({
+    type: "telegram",
+    botToken: "secret-token",
+    chatId: "1234",
+  });
+  const uow = {
+    notificationChannelRepository: {
+      findById: async () => channel,
+      updateById: async () => channel,
+    },
+  } as unknown as IUnitOfWork;
+
+  await expect(
+    new UpdateNotificationChannelUseCase(uow).execute({
+      id: channel.id,
+      organizationId: "org-attacker",
+      name: "Should not update",
+    }),
+  ).rejects.toThrow("Notification channel not found");
 });

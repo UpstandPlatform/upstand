@@ -12,13 +12,16 @@ import {
   type Resource,
   ValidationError,
 } from "@upstand/domain";
-import { env } from "@upstand/env/server";
+import { env, getInheritedEnv } from "@upstand/env/server";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { resolveDockerCliEnvironmentForServer } from "../resource/docker-client";
 import { parseResourceCredentials as parseCredentialDocument } from "../resource/resource-credentials";
 import { parseResourceEnvironmentVariables } from "../resource/resource-environment";
 import {
+  assertBackupStorageEndpoint,
   type BackupRuntimeDestination,
+  type BackupStorageDestination,
+  getBackupCommandTimeoutMs,
   normalizeBackupPrefix,
   pipeProcesses,
   rcloneRemote,
@@ -26,7 +29,47 @@ import {
   toBackupStorageDestination,
 } from "./backup-storage";
 
-const execFileAsync = promisify(execFile);
+const execFilePromise = promisify(execFile);
+
+function execFileAsync(
+  file: string,
+  args: string[],
+  options: Parameters<typeof execFile>[2] = {},
+) {
+  return execFilePromise(file, args, {
+    ...options,
+    encoding: "utf8",
+    timeout: getBackupCommandTimeoutMs(),
+    killSignal: "SIGKILL",
+  });
+}
+
+function execRcloneAsync(
+  storage: BackupStorageDestination,
+  args: string[],
+  options: Parameters<typeof execFile>[2] = {},
+) {
+  const optionEnvironment =
+    typeof options === "object" && options && "env" in options
+      ? options.env
+      : undefined;
+  return execFileAsync("rclone", args, {
+    ...options,
+    env: {
+      ...getInheritedEnv(),
+      ...(optionEnvironment ?? {}),
+      ...storage.rcloneEnvironment,
+    },
+  });
+}
+
+function runRclone(
+  storage: BackupStorageDestination,
+  args: string[],
+  input?: NodeJS.ReadableStream,
+): Promise<void> {
+  return runProcess("rclone", args, input, storage.rcloneEnvironment);
+}
 
 interface BackupCredentials {
   databaseUser: string;
@@ -45,6 +88,16 @@ const CONTROL_PLANE_POSTGRES_CONTAINERS = [
   "upstand-postgres",
   "upstand_postgres",
 ] as const;
+const CONTROL_PLANE_POSTGRES_CLIENT_IMAGE =
+  "postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15";
+const BACKUP_HELPER_ALPINE_IMAGE =
+  "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
+const BACKUP_HELPER_MYSQL_IMAGE =
+  "mysql:8.4@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb";
+const BACKUP_HELPER_MARIADB_IMAGE =
+  "mariadb:11@sha256:efb4959ef2c835cd735dbc388eb9ad6aab0c78dd64febcd51bc17481111890c4";
+const BACKUP_HELPER_MONGO_IMAGE =
+  "mongo:7.0@sha256:9bdaeb6dac6e7e762e84e2f84103d1f9bb078fa1ba6bde8bb9d2274f655ad173";
 const WEB_SERVER_BACKUP_VOLUMES = [
   "upstand-caddy-runtime",
   "upstand-caddy-data",
@@ -63,6 +116,103 @@ type PostgresPitrManifest = {
   createdAt: string;
   backupName: string;
 };
+
+const POSTGRES_PITR_BACKUP_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+const POSTGRES_PITR_DATA_PATH = /^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/;
+const SAFE_ARCHIVE_TARGET = /^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/;
+
+/**
+ * Restore an archive into a staging directory and only replace the target
+ * after extraction succeeds. The previous contents remain available for
+ * rollback if the final move fails. This protects live volumes from a
+ * truncated or corrupt object-store stream leaving them empty.
+ */
+export function buildSafeArchiveRestoreCommand(target: string): string {
+  const normalizedTarget = target.trim();
+  if (
+    !SAFE_ARCHIVE_TARGET.test(normalizedTarget) ||
+    normalizedTarget
+      .split("/")
+      .some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new ValidationError("Archive restore target is invalid");
+  }
+  const quotedTarget = shellQuote(normalizedTarget);
+  return [
+    "set -eu",
+    `target=${quotedTarget}`,
+    'archive="$(mktemp "$target/.upstand-restore-archive.XXXXXX")"',
+    'warnings="$(mktemp "$target/.upstand-restore-warnings.XXXXXX")"',
+    'trap \'rm -f -- "$archive" "$warnings"\' EXIT',
+    'stage="$(mktemp -d "$target/.upstand-restore-stage.XXXXXX")"',
+    'previous="$(mktemp -d "$target/.upstand-restore-previous.XXXXXX")"',
+    "moved_existing=0",
+    'move_entries() { for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do [ -e "$entry" ] || [ -L "$entry" ] || continue; mv -- "$entry" "$2/"; done; }',
+    'clear_target() { for entry in "$target"/* "$target"/.[!.]* "$target"/..?*; do [ -e "$entry" ] || [ -L "$entry" ] || continue; if [ "$entry" = "$archive" ] || [ "$entry" = "$warnings" ] || [ "$entry" = "$stage" ] || [ "$entry" = "$previous" ]; then continue; fi; rm -rf -- "$entry"; done; }',
+    'restore_previous() { clear_target; move_entries "$previous" "$target"; }',
+    'trap \'status=$?; if [ "$status" -ne 0 ] && [ "$moved_existing" -eq 1 ]; then restore_previous || true; fi; rm -rf -- "$archive" "$warnings" "$stage" "$previous"; exit "$status"\' EXIT',
+    'cat > "$archive"',
+    'tar -tzf "$archive" >/dev/null 2>"$warnings"',
+    '[ ! -s "$warnings" ] || exit 41',
+    'tar -tzf "$archive" | awk \'$0 ~ /^\\// || $0 == ".." || $0 ~ /(^|\\/)\\.\\.(\\/|$)/ { exit 41 }\'',
+    "if tar -tvzf \"$archive\" | grep -Eq '^[lhbcps]'; then exit 42; fi",
+    'tar -xzf "$archive" -C "$stage" -o --no-same-permissions',
+    '[ -n "$(find "$stage" -mindepth 1 -print -quit)" ] || exit 42',
+    "moved_existing=1",
+    'for entry in "$target"/* "$target"/.[!.]* "$target"/..?*; do [ -e "$entry" ] || [ -L "$entry" ] || continue; if [ "$entry" = "$archive" ] || [ "$entry" = "$warnings" ] || [ "$entry" = "$stage" ] || [ "$entry" = "$previous" ]; then continue; fi; mv -- "$entry" "$previous/"; done',
+    'move_entries "$stage" "$target"',
+    'rm -rf -- "$stage" "$previous"',
+    "trap - EXIT",
+  ].join("; ");
+}
+
+export function validateFileDatabaseRestore(
+  engine: "libsql" | "redis",
+  stopService: boolean,
+): void {
+  if (!stopService) {
+    throw new ValidationError(
+      `${engine} database restores require stopService to be enabled on the schedule`,
+    );
+  }
+}
+
+export function validatePostgresPitrBackupName(rawName: unknown): string {
+  if (typeof rawName !== "string" || !POSTGRES_PITR_BACKUP_NAME.test(rawName)) {
+    throw new ValidationError("PostgreSQL PITR backup name is invalid");
+  }
+  return rawName;
+}
+
+export function validatePostgresPitrDataPath(rawPath: string): string {
+  const dataPath = rawPath.trim();
+  if (
+    !POSTGRES_PITR_DATA_PATH.test(dataPath) ||
+    dataPath.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new ValidationError("PostgreSQL PITR data path is invalid");
+  }
+  return dataPath;
+}
+
+export function validatePostgresPitrManifest(
+  parsed: unknown,
+): PostgresPitrManifest {
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    (parsed as { version?: unknown }).version !== 1 ||
+    (parsed as { kind?: unknown }).kind !== "postgres-pitr" ||
+    typeof (parsed as { createdAt?: unknown }).createdAt !== "string" ||
+    Number.isNaN(Date.parse((parsed as { createdAt: string }).createdAt))
+  ) {
+    throw new ValidationError("PostgreSQL PITR manifest is invalid");
+  }
+  const backupName = validatePostgresPitrBackupName(
+    (parsed as { backupName?: unknown }).backupName,
+  );
+  return { ...parsed, backupName } as PostgresPitrManifest;
+}
 
 export function validateWebServerBackupManifest(
   parsed: unknown,
@@ -101,6 +251,50 @@ export function validateWebServerBackupManifest(
     throw new ValidationError("Web-server backup manifest is invalid");
   }
   return parsed as WebServerBackupManifest;
+}
+
+export function validateControlPlanePostgresUrl(rawUrl: string): string {
+  const databaseUrl = rawUrl.trim();
+  if (!databaseUrl || /[\r\n]/.test(databaseUrl)) {
+    throw new ValidationError(
+      "External control-plane PostgreSQL connection is not configured",
+    );
+  }
+  try {
+    const parsed = new URL(databaseUrl);
+    if (
+      !["postgres:", "postgresql:"].includes(parsed.protocol) ||
+      !parsed.hostname
+    ) {
+      throw new Error("invalid PostgreSQL URL");
+    }
+  } catch {
+    throw new ValidationError(
+      "External control-plane PostgreSQL connection is invalid",
+    );
+  }
+  return databaseUrl;
+}
+
+export function buildExternalPostgresDockerArgs(
+  envFile: string,
+  network: string,
+  command: string,
+  interactive = false,
+): string[] {
+  return [
+    "run",
+    "--rm",
+    ...(interactive ? ["-i"] : []),
+    "--network",
+    network,
+    "--env-file",
+    envFile,
+    CONTROL_PLANE_POSTGRES_CLIENT_IMAGE,
+    "sh",
+    "-ec",
+    command,
+  ];
 }
 
 function databaseFileExtension(
@@ -168,7 +362,43 @@ function serviceNameFor(
     : appName;
 }
 
+export function shellQuote(value: string): string {
+  if (value.includes("\0")) {
+    throw new ValidationError("Shell argument contains a NUL byte");
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function databaseCredentialFileContent(
+  credentials: BackupCredentials,
+  databaseName: string | null,
+): string {
+  return [
+    `UPSTAND_BACKUP_USER=${shellQuote(credentials.databaseUser)}`,
+    `UPSTAND_BACKUP_PASSWORD=${shellQuote(credentials.databasePassword)}`,
+    `UPSTAND_BACKUP_DATABASE=${shellQuote(databaseName ?? "")}`,
+    "",
+  ].join("\n");
+}
+
+function databaseCommandWithCredentialFile(
+  credentialFile: string,
+  command: string,
+): string {
+  return `trap 'rm -f -- ${credentialFile}' EXIT HUP INT TERM; . ${credentialFile}; ${command}`;
+}
+
 export class BackupRuntimeService {
+  private async resolveBackupStorageDestination(
+    destination: BackupRuntimeDestination,
+  ): Promise<ReturnType<typeof toBackupStorageDestination>> {
+    await assertBackupStorageEndpoint(destination.endpoint);
+    return toBackupStorageDestination(
+      destination,
+      destination.caCertificatePem,
+    );
+  }
+
   constructor(
     private readonly dockerEnvironment: Record<string, string | undefined> = {},
   ) {}
@@ -179,13 +409,74 @@ export class BackupRuntimeService {
     return new BackupRuntimeService(environment);
   }
 
+  private async createDatabaseCredentialFile(
+    containerId: string,
+    credentials: BackupCredentials,
+    databaseName: string | null,
+  ): Promise<string> {
+    const credentialFile = `/tmp/upstand-backup-${randomUUID()}.env`;
+    try {
+      await runProcess(
+        "docker",
+        [
+          "exec",
+          "-i",
+          containerId,
+          "sh",
+          "-ec",
+          `umask 077; cat > ${credentialFile}`,
+        ],
+        Readable.from([
+          databaseCredentialFileContent(credentials, databaseName),
+        ]),
+        this.dockerEnvironment,
+      );
+    } catch (error) {
+      await this.removeDatabaseCredentialFile(containerId, credentialFile);
+      throw error;
+    }
+    return credentialFile;
+  }
+
+  private async removeDatabaseCredentialFile(
+    containerId: string,
+    credentialFile: string,
+  ): Promise<void> {
+    try {
+      await execFileAsync(
+        "docker",
+        ["exec", containerId, "sh", "-ec", `rm -f -- ${credentialFile}`],
+        { env: getInheritedEnv(this.dockerEnvironment) },
+      );
+    } catch {
+      // The command trap already removes the file on normal completion. This
+      // cleanup is best-effort for setup failures and interrupted processes.
+    }
+  }
+
+  private databaseExecArgs(
+    containerId: string,
+    credentialFile: string,
+    command: string,
+    interactive = false,
+  ): string[] {
+    return [
+      "exec",
+      ...(interactive ? ["-i"] : []),
+      containerId,
+      "sh",
+      "-ec",
+      databaseCommandWithCredentialFile(credentialFile, command),
+    ];
+  }
+
   async listVolumes(resource: Resource): Promise<string[]> {
     try {
       const containerId = await this.resolveContainerId(resource, null);
       const { stdout } = await execFileAsync(
         "docker",
         ["inspect", containerId, "--format", "{{json .Mounts}}"],
-        { env: { ...process.env, ...this.dockerEnvironment } },
+        { env: getInheritedEnv(this.dockerEnvironment) },
       );
       const mounts = JSON.parse(stdout) as Array<{
         Type?: string;
@@ -205,10 +496,7 @@ export class BackupRuntimeService {
     resource: Resource,
     destination: BackupRuntimeDestination,
   ): Promise<string> {
-    const storage = toBackupStorageDestination(
-      destination,
-      destination.caCertificatePem,
-    );
+    const storage = await this.resolveBackupStorageDestination(destination);
     const resourcePath = `${resource.id}/${normalizeBackupPrefix(schedule.prefix)}`;
     const fileName =
       schedule.kind === "database"
@@ -234,10 +522,7 @@ export class BackupRuntimeService {
     fileKey: string,
     targetTime?: string,
   ): Promise<void> {
-    const storage = toBackupStorageDestination(
-      destination,
-      destination.caCertificatePem,
-    );
+    const storage = await this.resolveBackupStorageDestination(destination);
     if (schedule.kind === "database") {
       await this.restoreDatabaseBackup(
         schedule,
@@ -255,11 +540,8 @@ export class BackupRuntimeService {
     destination: BackupRuntimeDestination,
     fileKey: string,
   ): Promise<void> {
-    const storage = toBackupStorageDestination(
-      destination,
-      destination.caCertificatePem,
-    );
-    await runProcess("rclone", [
+    const storage = await this.resolveBackupStorageDestination(destination);
+    await runRclone(storage, [
       "deletefile",
       ...storage.rcloneFlags,
       rcloneRemote(storage, fileKey),
@@ -272,12 +554,9 @@ export class BackupRuntimeService {
     fileKey: string,
     resource?: Resource,
   ): Promise<void> {
-    const storage = toBackupStorageDestination(
-      destination,
-      destination.caCertificatePem,
-    );
+    const storage = await this.resolveBackupStorageDestination(destination);
     if (schedule.kind !== "database") {
-      await runProcess("rclone", [
+      await runRclone(storage, [
         "size",
         ...storage.rcloneFlags,
         rcloneRemote(storage, fileKey),
@@ -327,7 +606,7 @@ export class BackupRuntimeService {
   ): Promise<void> {
     const containerName = `upstand-restore-test-${randomSuffix()}`;
     const dockerOptions = {
-      env: { ...process.env, ...this.dockerEnvironment },
+      env: getInheritedEnv(this.dockerEnvironment),
     };
     await execFileAsync(
       "docker",
@@ -338,8 +617,10 @@ export class BackupRuntimeService {
         "--name",
         containerName,
         "-e",
-        "POSTGRES_HOST_AUTH_METHOD=trust",
-        "postgres:18-alpine",
+        `POSTGRES_PASSWORD=${randomUUID()}`,
+        "--network",
+        "none",
+        CONTROL_PLANE_POSTGRES_CLIENT_IMAGE,
       ],
       dockerOptions,
     );
@@ -374,7 +655,7 @@ export class BackupRuntimeService {
           "-ec",
           "gzip -dc | pg_restore -U postgres -d postgres --clean --if-exists --no-owner",
         ],
-        { producer: dockerOptions.env, consumer: dockerOptions.env },
+        { producer: storage.rcloneEnvironment, consumer: dockerOptions.env },
       );
     } finally {
       await execFileAsync(
@@ -391,9 +672,12 @@ export class BackupRuntimeService {
     engine: "mysql" | "mariadb",
   ): Promise<void> {
     const containerName = `upstand-restore-test-${randomSuffix()}`;
-    const image = engine === "mysql" ? "mysql:8.4" : "mariadb:11";
+    const image =
+      engine === "mysql"
+        ? BACKUP_HELPER_MYSQL_IMAGE
+        : BACKUP_HELPER_MARIADB_IMAGE;
     const dockerOptions = {
-      env: { ...process.env, ...this.dockerEnvironment },
+      env: getInheritedEnv(this.dockerEnvironment),
     };
     await execFileAsync(
       "docker",
@@ -420,7 +704,7 @@ export class BackupRuntimeService {
         ["cat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
         "docker",
         ["exec", "-i", containerName, "sh", "-ec", "gzip -dc | mysql -uroot"],
-        { consumer: dockerOptions.env },
+        { producer: storage.rcloneEnvironment, consumer: dockerOptions.env },
       );
     } finally {
       await execFileAsync(
@@ -437,11 +721,11 @@ export class BackupRuntimeService {
   ): Promise<void> {
     const containerName = `upstand-restore-test-${randomSuffix()}`;
     const dockerOptions = {
-      env: { ...process.env, ...this.dockerEnvironment },
+      env: getInheritedEnv(this.dockerEnvironment),
     };
     await execFileAsync(
       "docker",
-      ["run", "-d", "--rm", "--name", containerName, "mongo:7.0"],
+      ["run", "-d", "--rm", "--name", containerName, BACKUP_HELPER_MONGO_IMAGE],
       dockerOptions,
     );
     try {
@@ -463,7 +747,7 @@ export class BackupRuntimeService {
           "-ec",
           "mongorestore --archive --gzip --drop",
         ],
-        { consumer: dockerOptions.env },
+        { producer: storage.rcloneEnvironment, consumer: dockerOptions.env },
       );
     } finally {
       await execFileAsync(
@@ -481,7 +765,7 @@ export class BackupRuntimeService {
   ): Promise<void> {
     const volumeName = `upstand-restore-test-${randomSuffix()}`;
     const dockerOptions = {
-      env: { ...process.env, ...this.dockerEnvironment },
+      env: getInheritedEnv(this.dockerEnvironment),
     };
     await execFileAsync(
       "docker",
@@ -500,12 +784,12 @@ export class BackupRuntimeService {
           "-i",
           "-v",
           `${volumeName}:${target}`,
-          "alpine:3.20",
+          BACKUP_HELPER_ALPINE_IMAGE,
           "sh",
           "-ec",
-          `find ${target} -mindepth 1 -delete && tar -xzf - -C ${target} && test -n "$(find ${target} -mindepth 1 -print -quit)"`,
+          buildSafeArchiveRestoreCommand(target),
         ],
-        { consumer: dockerOptions.env },
+        { producer: storage.rcloneEnvironment, consumer: dockerOptions.env },
       );
     } finally {
       await execFileAsync(
@@ -521,7 +805,7 @@ export class BackupRuntimeService {
     command: string[],
   ): Promise<void> {
     const dockerOptions = {
-      env: { ...process.env, ...this.dockerEnvironment },
+      env: getInheritedEnv(this.dockerEnvironment),
     };
     for (let attempt = 0; attempt < 60; attempt += 1) {
       try {
@@ -568,27 +852,25 @@ export class BackupRuntimeService {
       return;
     }
     const command = this.databaseDumpCommand(engine);
-    const dockerArgs = [
-      "exec",
-      "-i",
-      "-e",
-      `UPSTAND_BACKUP_USER=${credentials.databaseUser}`,
-      "-e",
-      `UPSTAND_BACKUP_PASSWORD=${credentials.databasePassword}`,
-      "-e",
-      `UPSTAND_BACKUP_DATABASE=${databaseName}`,
+    const credentialFile = await this.createDatabaseCredentialFile(
       containerId,
-      "sh",
-      "-c",
-      command,
-    ];
-    await pipeProcesses(
-      "docker",
-      dockerArgs,
-      "rclone",
-      ["rcat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
-      { producer: this.dockerEnvironment },
+      credentials,
+      databaseName,
     );
+    try {
+      await pipeProcesses(
+        "docker",
+        this.databaseExecArgs(containerId, credentialFile, command, true),
+        "rclone",
+        ["rcat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
+        {
+          producer: this.dockerEnvironment,
+          consumer: storage.rcloneEnvironment,
+        },
+      );
+    } finally {
+      await this.removeDatabaseCredentialFile(containerId, credentialFile);
+    }
   }
 
   private async createPostgresPitrBackup(
@@ -616,13 +898,12 @@ export class BackupRuntimeService {
         'command -v wal-g >/dev/null 2>&1 || { echo "wal-g is required for PostgreSQL point-in-time recovery" >&2; exit 42; }; wal-g backup-push "${PGDATA:-/var/lib/postgresql/data}"',
       ],
       {
-        env: { ...process.env, ...this.dockerEnvironment },
+        env: getInheritedEnv(this.dockerEnvironment),
         maxBuffer: 2 * 1024 * 1024,
       },
     );
-    const backupName = await this.resolveLatestWalBackup(
-      activeContainerId,
-      result.stdout,
+    const backupName = validatePostgresPitrBackupName(
+      await this.resolveLatestWalBackup(activeContainerId, result.stdout),
     );
     const manifest: PostgresPitrManifest = {
       version: 1,
@@ -630,8 +911,8 @@ export class BackupRuntimeService {
       createdAt: new Date().toISOString(),
       backupName,
     };
-    await runProcess(
-      "rclone",
+    await runRclone(
+      storage,
       ["rcat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
       Readable.from([JSON.stringify(manifest)]),
     );
@@ -644,30 +925,33 @@ export class BackupRuntimeService {
     credentials: BackupCredentials,
   ): Promise<string> {
     const dockerOptions = {
-      env: { ...process.env, ...this.dockerEnvironment },
+      env: getInheritedEnv(this.dockerEnvironment),
     };
+    const databaseName = schedule.databaseName ?? "postgres";
     let currentConfig = "";
+    const currentConfigCredentialFile = await this.createDatabaseCredentialFile(
+      containerId,
+      credentials,
+      databaseName,
+    );
     try {
       const current = await execFileAsync(
         "docker",
-        [
-          "exec",
-          "-e",
-          `UPSTAND_BACKUP_USER=${credentials.databaseUser}`,
-          "-e",
-          `UPSTAND_BACKUP_PASSWORD=${credentials.databasePassword}`,
-          "-e",
-          `UPSTAND_BACKUP_DATABASE=${schedule.databaseName ?? "postgres"}`,
+        this.databaseExecArgs(
           containerId,
-          "sh",
-          "-ec",
+          currentConfigCredentialFile,
           "PGPASSWORD=\"$UPSTAND_BACKUP_PASSWORD\" psql -At -U \"$UPSTAND_BACKUP_USER\" -d \"$UPSTAND_BACKUP_DATABASE\" -c 'SHOW archive_mode' -c 'SHOW wal_level' -c 'SHOW archive_command'",
-        ],
+        ),
         dockerOptions,
       );
       currentConfig = current.stdout;
     } catch {
       // The configuration check is retried by the guarded configuration path.
+    } finally {
+      await this.removeDatabaseCredentialFile(
+        containerId,
+        currentConfigCredentialFile,
+      );
     }
     const currentLines = currentConfig
       .split(/\r?\n/)
@@ -679,24 +963,28 @@ export class BackupRuntimeService {
       currentLines[2]?.includes("wal-g wal-push")
     )
       return containerId;
-    await execFileAsync(
-      "docker",
-      [
-        "exec",
-        "-e",
-        `UPSTAND_BACKUP_USER=${credentials.databaseUser}`,
-        "-e",
-        `UPSTAND_BACKUP_PASSWORD=${credentials.databasePassword}`,
-        "-e",
-        `UPSTAND_BACKUP_DATABASE=${schedule.databaseName ?? "postgres"}`,
-        containerId,
-        "sh",
-        "-ec",
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion is intentional.
-        'command -v wal-g >/dev/null 2>&1 || { echo "PostgreSQL PITR requires an image with wal-g installed" >&2; exit 42; }; test -n "${WALG_S3_PREFIX:-}" || { echo "PostgreSQL PITR requires WALG_S3_PREFIX in the database service environment" >&2; exit 42; }; PGPASSWORD="$UPSTAND_BACKUP_PASSWORD" psql -v ON_ERROR_STOP=1 -U "$UPSTAND_BACKUP_USER" -d "$UPSTAND_BACKUP_DATABASE" -c "ALTER SYSTEM SET wal_level = \'replica\';" -c "ALTER SYSTEM SET archive_mode = \'on\';" -c "ALTER SYSTEM SET archive_command = \'wal-g wal-push %p\';"',
-      ],
-      dockerOptions,
+    const configureCredentialFile = await this.createDatabaseCredentialFile(
+      containerId,
+      credentials,
+      databaseName,
     );
+    try {
+      await execFileAsync(
+        "docker",
+        this.databaseExecArgs(
+          containerId,
+          configureCredentialFile,
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion is intentional.
+          'command -v wal-g >/dev/null 2>&1 || { echo "wal-g is required for PostgreSQL point-in-time recovery" >&2; exit 42; }; test -n "${WALG_S3_PREFIX:-}" || { echo "PostgreSQL PITR requires WALG_S3_PREFIX in the database service environment" >&2; exit 42; }; PGPASSWORD="$UPSTAND_BACKUP_PASSWORD" psql -v ON_ERROR_STOP=1 -U "$UPSTAND_BACKUP_USER" -d "$UPSTAND_BACKUP_DATABASE" -c "ALTER SYSTEM SET wal_level = \'replica\';" -c "ALTER SYSTEM SET archive_mode = \'on\';" -c "ALTER SYSTEM SET archive_command = \'wal-g wal-push %p\';"',
+        ),
+        dockerOptions,
+      );
+    } finally {
+      await this.removeDatabaseCredentialFile(
+        containerId,
+        configureCredentialFile,
+      );
+    }
     const serviceName = serviceNameFor(resource, schedule.serviceName);
     await execFileAsync(
       "docker",
@@ -706,21 +994,27 @@ export class BackupRuntimeService {
     for (let attempt = 0; attempt < 30; attempt += 1) {
       try {
         const active = await this.resolveContainerId(resource, schedule);
-        await execFileAsync(
-          "docker",
-          [
-            "exec",
-            "-e",
-            `UPSTAND_BACKUP_USER=${credentials.databaseUser}`,
-            "-e",
-            `UPSTAND_BACKUP_DATABASE=${schedule.databaseName ?? "postgres"}`,
-            active,
-            "sh",
-            "-ec",
-            'pg_isready -U "$UPSTAND_BACKUP_USER" -d "$UPSTAND_BACKUP_DATABASE"',
-          ],
-          dockerOptions,
+        const readinessCredentialFile = await this.createDatabaseCredentialFile(
+          active,
+          credentials,
+          databaseName,
         );
+        try {
+          await execFileAsync(
+            "docker",
+            this.databaseExecArgs(
+              active,
+              readinessCredentialFile,
+              'pg_isready -U "$UPSTAND_BACKUP_USER" -d "$UPSTAND_BACKUP_DATABASE"',
+            ),
+            dockerOptions,
+          );
+        } finally {
+          await this.removeDatabaseCredentialFile(
+            active,
+            readinessCredentialFile,
+          );
+        }
         return active;
       } catch {
         await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
@@ -738,12 +1032,12 @@ export class BackupRuntimeService {
     const explicit = output.match(
       /(?:backup\s*name|name)\s*[:=]\s*([A-Za-z0-9_.-]+)/i,
     )?.[1];
-    if (explicit) return explicit;
+    if (explicit) return validatePostgresPitrBackupName(explicit);
     const result = await execFileAsync(
       "docker",
       ["exec", containerId, "sh", "-ec", "wal-g backup-list --json"],
       {
-        env: { ...process.env, ...this.dockerEnvironment },
+        env: getInheritedEnv(this.dockerEnvironment),
         maxBuffer: 4 * 1024 * 1024,
       },
     );
@@ -768,7 +1062,7 @@ export class BackupRuntimeService {
         : undefined;
     if (typeof name !== "string" || !name)
       throw new ValidationError("WAL-G did not report the created base backup");
-    return name;
+    return validatePostgresPitrBackupName(name);
   }
 
   private async verifyPostgresPitr(
@@ -777,8 +1071,8 @@ export class BackupRuntimeService {
     schedule: BackupSchedule,
     resource: Resource,
   ): Promise<void> {
-    const { stdout } = await execFileAsync(
-      "rclone",
+    const { stdout } = await execRcloneAsync(
+      storage,
       ["cat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
       { maxBuffer: 1024 * 1024 },
     );
@@ -788,12 +1082,7 @@ export class BackupRuntimeService {
     } catch {
       throw new ValidationError("PostgreSQL PITR manifest is invalid");
     }
-    if (
-      manifest.version !== 1 ||
-      manifest.kind !== "postgres-pitr" ||
-      !manifest.backupName
-    )
-      throw new ValidationError("PostgreSQL PITR manifest is invalid");
+    manifest = validatePostgresPitrManifest(manifest);
     const containerId = await this.resolveContainerId(resource, schedule);
     const activeContainerId = await this.configurePostgresPitr(
       resource,
@@ -808,10 +1097,10 @@ export class BackupRuntimeService {
         activeContainerId,
         "sh",
         "-ec",
-        `rm -rf /tmp/upstand-pitr-verify && mkdir -p /tmp/upstand-pitr-verify && wal-g backup-fetch /tmp/upstand-pitr-verify ${manifest.backupName} && test -s /tmp/upstand-pitr-verify/PG_VERSION && rm -rf /tmp/upstand-pitr-verify`,
+        `rm -rf /tmp/upstand-pitr-verify && mkdir -p /tmp/upstand-pitr-verify && wal-g backup-fetch /tmp/upstand-pitr-verify ${shellQuote(manifest.backupName)} && test -s /tmp/upstand-pitr-verify/PG_VERSION && rm -rf /tmp/upstand-pitr-verify`,
       ],
       {
-        env: { ...process.env, ...this.dockerEnvironment },
+        env: getInheritedEnv(this.dockerEnvironment),
         maxBuffer: 2 * 1024 * 1024,
       },
     );
@@ -821,30 +1110,44 @@ export class BackupRuntimeService {
     schedule: BackupSchedule,
     destination: BackupRuntimeDestination,
   ): Promise<string> {
-    const storage = toBackupStorageDestination(
-      destination,
-      destination.caCertificatePem,
-    );
+    const storage = await this.resolveBackupStorageDestination(destination);
     const base = `web-server/${normalizeBackupPrefix(schedule.prefix)}${backupTimestamp()}-${randomSuffix()}/`;
     const postgresKey = `${base}control-plane.dump`;
     const volumeKeys = WEB_SERVER_BACKUP_VOLUMES.map(
       (volume) => `${base}${volume}.tar.gz`,
     );
-    const postgresContainer = await this.resolvePostgresContainer();
+    const postgresContainer = await this.findPostgresContainer();
+    const dockerEnvironment = getInheritedEnv(this.dockerEnvironment);
 
-    await pipeProcesses(
-      "docker",
-      [
-        "exec",
-        postgresContainer,
-        "sh",
-        "-ec",
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion is intentional.
-        'pg_dump -Fc -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-upstand}"',
-      ],
-      "rclone",
-      ["rcat", ...storage.rcloneFlags, rcloneRemote(storage, postgresKey)],
-    );
+    if (postgresContainer) {
+      await pipeProcesses(
+        "docker",
+        [
+          "exec",
+          postgresContainer,
+          "sh",
+          "-ec",
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion is intentional.
+          'pg_dump -Fc -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-upstand}"',
+        ],
+        "rclone",
+        ["rcat", ...storage.rcloneFlags, rcloneRemote(storage, postgresKey)],
+        { producer: dockerEnvironment, consumer: storage.rcloneEnvironment },
+      );
+    } else {
+      await this.withExternalControlPlaneDatabase((envFile) =>
+        pipeProcesses(
+          "docker",
+          this.externalPostgresCommand(
+            envFile,
+            'pg_dump -Fc --dbname "$DATABASE_URL"',
+          ),
+          "rclone",
+          ["rcat", ...storage.rcloneFlags, rcloneRemote(storage, postgresKey)],
+          { producer: dockerEnvironment, consumer: storage.rcloneEnvironment },
+        ),
+      );
+    }
 
     for (const [index, volume] of WEB_SERVER_BACKUP_VOLUMES.entries()) {
       await pipeProcesses(
@@ -854,7 +1157,7 @@ export class BackupRuntimeService {
           "--rm",
           "-v",
           `${volume}:/source:ro`,
-          "alpine:3.20",
+          BACKUP_HELPER_ALPINE_IMAGE,
           "tar",
           "-C",
           "/source",
@@ -868,6 +1171,7 @@ export class BackupRuntimeService {
           ...storage.rcloneFlags,
           rcloneRemote(storage, volumeKeys[index] as string),
         ],
+        { consumer: storage.rcloneEnvironment },
       );
     }
 
@@ -877,8 +1181,8 @@ export class BackupRuntimeService {
       createdAt: new Date().toISOString(),
       files: [postgresKey, ...volumeKeys],
     };
-    await runProcess(
-      "rclone",
+    await runRclone(
+      storage,
       ["rcat", ...storage.rcloneFlags, rcloneRemote(storage, manifestKey)],
       Readable.from([JSON.stringify(manifest)]),
     );
@@ -889,12 +1193,10 @@ export class BackupRuntimeService {
     destination: BackupRuntimeDestination,
     manifestKey: string,
   ): Promise<void> {
-    const storage = toBackupStorageDestination(
-      destination,
-      destination.caCertificatePem,
-    );
+    const storage = await this.resolveBackupStorageDestination(destination);
     const manifest = await this.readWebServerManifest(storage, manifestKey);
-    const postgresContainer = await this.resolvePostgresContainer();
+    const postgresContainer = await this.findPostgresContainer();
+    const dockerEnvironment = getInheritedEnv(this.dockerEnvironment);
     let caddyWasRunning = false;
     try {
       const inspect = await execFileAsync("docker", [
@@ -919,28 +1221,63 @@ export class BackupRuntimeService {
         throw new ValidationError(
           "Web-server backup has no control-plane database dump",
         );
-      await execFileAsync("docker", [
-        "exec",
-        postgresContainer,
-        "sh",
-        "-ec",
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion is intentional.
-        'psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-upstand}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"',
-      ]);
-      await pipeProcesses(
-        "rclone",
-        ["cat", ...storage.rcloneFlags, rcloneRemote(storage, databaseKey)],
-        "docker",
-        [
-          "exec",
-          "-i",
-          postgresContainer,
-          "sh",
-          "-ec",
-          // biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion is intentional.
-          'pg_restore -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-upstand}" --clean --if-exists --no-owner',
-        ],
-      );
+      if (postgresContainer) {
+        await execFileAsync(
+          "docker",
+          [
+            "exec",
+            postgresContainer,
+            "sh",
+            "-ec",
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion is intentional.
+            'psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-upstand}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"',
+          ],
+          { env: dockerEnvironment },
+        );
+        await pipeProcesses(
+          "rclone",
+          ["cat", ...storage.rcloneFlags, rcloneRemote(storage, databaseKey)],
+          "docker",
+          [
+            "exec",
+            "-i",
+            postgresContainer,
+            "sh",
+            "-ec",
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion is intentional.
+            'pg_restore -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-upstand}" --clean --if-exists --no-owner',
+          ],
+          {
+            producer: storage.rcloneEnvironment,
+            consumer: dockerEnvironment,
+          },
+        );
+      } else {
+        await this.withExternalControlPlaneDatabase(async (envFile) => {
+          await execFileAsync(
+            "docker",
+            this.externalPostgresCommand(
+              envFile,
+              'psql -v ON_ERROR_STOP=1 --dbname "$DATABASE_URL" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"',
+            ),
+            { env: dockerEnvironment },
+          );
+          await pipeProcesses(
+            "rclone",
+            ["cat", ...storage.rcloneFlags, rcloneRemote(storage, databaseKey)],
+            "docker",
+            this.externalPostgresCommand(
+              envFile,
+              'pg_restore --dbname "$DATABASE_URL" --clean --if-exists --no-owner',
+              true,
+            ),
+            {
+              producer: storage.rcloneEnvironment,
+              consumer: dockerEnvironment,
+            },
+          );
+        });
+      }
 
       for (const volume of WEB_SERVER_BACKUP_VOLUMES) {
         const key = manifest.files.find((file) =>
@@ -958,11 +1295,15 @@ export class BackupRuntimeService {
             "-i",
             "-v",
             `${volume}:/target`,
-            "alpine:3.20",
+            BACKUP_HELPER_ALPINE_IMAGE,
             "sh",
             "-ec",
-            "find /target -mindepth 1 -delete && tar -xzf - -C /target",
+            buildSafeArchiveRestoreCommand("/target"),
           ],
+          {
+            producer: storage.rcloneEnvironment,
+            consumer: dockerEnvironment,
+          },
         );
       }
     } finally {
@@ -978,15 +1319,12 @@ export class BackupRuntimeService {
     destination: BackupRuntimeDestination,
     manifestKey: string,
   ): Promise<void> {
-    const storage = toBackupStorageDestination(
-      destination,
-      destination.caCertificatePem,
-    );
+    const storage = await this.resolveBackupStorageDestination(destination);
     let manifest: WebServerBackupManifest;
     try {
       manifest = await this.readWebServerManifest(storage, manifestKey);
     } catch {
-      await runProcess("rclone", [
+      await runRclone(storage, [
         "deletefile",
         ...storage.rcloneFlags,
         rcloneRemote(storage, manifestKey),
@@ -994,7 +1332,7 @@ export class BackupRuntimeService {
       return;
     }
     for (const key of [...manifest.files, manifestKey]) {
-      await runProcess("rclone", [
+      await runRclone(storage, [
         "deletefile",
         ...storage.rcloneFlags,
         rcloneRemote(storage, key),
@@ -1002,7 +1340,7 @@ export class BackupRuntimeService {
     }
   }
 
-  private async resolvePostgresContainer(): Promise<string> {
+  private async findPostgresContainer(): Promise<string | null> {
     const candidates = env.UPSTAND_POSTGRES_CONTAINER
       ? [env.UPSTAND_POSTGRES_CONTAINER, ...CONTROL_PLANE_POSTGRES_CONTAINERS]
       : [...CONTROL_PLANE_POSTGRES_CONTAINERS];
@@ -1017,15 +1355,45 @@ export class BackupRuntimeService {
       const id = result.stdout.trim().split(/\r?\n/)[0];
       if (id) return id;
     }
-    throw new ValidationError("Upstand PostgreSQL container is not running");
+    return null;
+  }
+
+  private externalPostgresCommand(
+    envFile: string,
+    command: string,
+    interactive = false,
+  ): string[] {
+    return buildExternalPostgresDockerArgs(
+      envFile,
+      env.DOCKER_NETWORK,
+      command,
+      interactive,
+    );
+  }
+
+  private async withExternalControlPlaneDatabase<T>(
+    operation: (envFile: string) => Promise<T>,
+  ): Promise<T> {
+    const databaseUrl = validateControlPlanePostgresUrl(env.DATABASE_URL ?? "");
+
+    const envDir = await mkdtemp(
+      path.join(os.tmpdir(), "upstand-control-plane-db-"),
+    );
+    const envFile = path.join(envDir, "database.env");
+    await writeFile(envFile, `DATABASE_URL=${databaseUrl}\n`, { mode: 0o600 });
+    try {
+      return await operation(envFile);
+    } finally {
+      await rm(envDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   private async readWebServerManifest(
     storage: ReturnType<typeof toBackupStorageDestination>,
     manifestKey: string,
   ): Promise<WebServerBackupManifest> {
-    const { stdout } = await execFileAsync(
-      "rclone",
+    const { stdout } = await execRcloneAsync(
+      storage,
       ["cat", ...storage.rcloneFlags, rcloneRemote(storage, manifestKey)],
       { maxBuffer: 1024 * 1024 },
     );
@@ -1059,7 +1427,7 @@ export class BackupRuntimeService {
           "--rm",
           "-v",
           `${schedule.volumeName}:/source:ro`,
-          "alpine:3.20",
+          BACKUP_HELPER_ALPINE_IMAGE,
           "tar",
           "-C",
           "/source",
@@ -1069,7 +1437,10 @@ export class BackupRuntimeService {
         ],
         "rclone",
         ["rcat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
-        { producer: this.dockerEnvironment },
+        {
+          producer: this.dockerEnvironment,
+          consumer: storage.rcloneEnvironment,
+        },
       );
     } finally {
       if (replicas !== null) await this.restoreService(serviceName, replicas);
@@ -1102,27 +1473,81 @@ export class BackupRuntimeService {
       );
       return;
     }
+    if (engine === "libsql" || engine === "redis") {
+      await this.restoreFileDatabaseBackup(
+        schedule,
+        resource,
+        storage,
+        fileKey,
+        engine,
+      );
+      return;
+    }
     const containerId = await this.resolveContainerId(resource, schedule);
-    await pipeProcesses(
-      "rclone",
-      ["cat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
-      "docker",
-      [
-        "exec",
-        "-i",
-        "-e",
-        `UPSTAND_BACKUP_USER=${credentials.databaseUser}`,
-        "-e",
-        `UPSTAND_BACKUP_PASSWORD=${credentials.databasePassword}`,
-        "-e",
-        `UPSTAND_BACKUP_DATABASE=${databaseName}`,
-        containerId,
-        "sh",
-        "-c",
-        this.databaseRestoreCommand(engine),
-      ],
-      { consumer: this.dockerEnvironment },
+    const credentialFile = await this.createDatabaseCredentialFile(
+      containerId,
+      credentials,
+      databaseName,
     );
+    try {
+      await pipeProcesses(
+        "rclone",
+        ["cat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
+        "docker",
+        this.databaseExecArgs(
+          containerId,
+          credentialFile,
+          this.databaseRestoreCommand(engine),
+          true,
+        ),
+        {
+          producer: storage.rcloneEnvironment,
+          consumer: this.dockerEnvironment,
+        },
+      );
+    } finally {
+      await this.removeDatabaseCredentialFile(containerId, credentialFile);
+    }
+  }
+
+  private async restoreFileDatabaseBackup(
+    schedule: BackupSchedule,
+    resource: Resource,
+    storage: ReturnType<typeof toBackupStorageDestination>,
+    fileKey: string,
+    engine: "libsql" | "redis",
+  ): Promise<void> {
+    validateFileDatabaseRestore(engine, schedule.stopService);
+
+    const serviceName = serviceNameFor(resource, schedule.serviceName);
+    const containerId = await this.resolveContainerId(resource, schedule);
+    const targetPath = engine === "libsql" ? "/var/lib/sqld" : "/data";
+    const volumeName = await this.resolveNamedVolume(containerId, targetPath);
+    const replicas = await this.stopService(serviceName);
+    try {
+      await pipeProcesses(
+        "rclone",
+        ["cat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
+        "docker",
+        [
+          "run",
+          "--rm",
+          "-i",
+          "-v",
+          `${volumeName}:/target`,
+          BACKUP_HELPER_ALPINE_IMAGE,
+          "sh",
+          "-ec",
+          buildSafeArchiveRestoreCommand("/target"),
+        ],
+        {
+          producer: storage.rcloneEnvironment,
+          consumer: this.dockerEnvironment,
+        },
+      );
+    } finally {
+      await this.restoreService(serviceName, replicas);
+    }
   }
 
   private async restorePostgresPitr(
@@ -1140,8 +1565,8 @@ export class BackupRuntimeService {
       throw new ValidationError(
         "PITR restore target must be an ISO-8601 UTC timestamp",
       );
-    const { stdout } = await execFileAsync(
-      "rclone",
+    const { stdout } = await execRcloneAsync(
+      storage,
       ["cat", ...storage.rcloneFlags, rcloneRemote(storage, fileKey)],
       { maxBuffer: 1024 * 1024 },
     );
@@ -1151,12 +1576,7 @@ export class BackupRuntimeService {
     } catch {
       throw new ValidationError("PostgreSQL PITR manifest is invalid");
     }
-    if (
-      manifest.version !== 1 ||
-      manifest.kind !== "postgres-pitr" ||
-      !manifest.backupName
-    )
-      throw new ValidationError("PostgreSQL PITR manifest is invalid");
+    manifest = validatePostgresPitrManifest(manifest);
 
     const serviceName = serviceNameFor(resource, schedule.serviceName);
     const volumeName = `upstand-db-data-${resource.id}`;
@@ -1169,8 +1589,9 @@ export class BackupRuntimeService {
       throw new ValidationError(
         "PITR restore requires WALG_S3_PREFIX in the database service environment",
       );
-    const postgresDataPath =
-      envValues.PGDATA || "/var/lib/postgresql/18/docker";
+    const postgresDataPath = validatePostgresPitrDataPath(
+      envValues.PGDATA || "/var/lib/postgresql/18/docker",
+    );
     const replicas = await this.stopService(serviceName);
     const envDir = await mkdtemp(path.join(os.tmpdir(), "upstand-pitr-"));
     const envFile = path.join(envDir, "wal-g.env");
@@ -1185,6 +1606,18 @@ export class BackupRuntimeService {
         "restore_command = 'wal-g wal-fetch %f %p'",
         ...(targetTime ? [`recovery_target_time = '${targetTime}'`] : []),
       ];
+      const quotedDataPath = shellQuote(postgresDataPath);
+      const quotedConfigPath = shellQuote(
+        `${postgresDataPath}/postgresql.auto.conf`,
+      );
+      const quotedRecoverySignalPath = shellQuote(
+        `${postgresDataPath}/recovery.signal`,
+      );
+      const recoveryCommands = recoveryLines
+        .map(
+          (line) => `printf '%s\\n' ${shellQuote(line)} >> ${quotedConfigPath}`,
+        )
+        .join("; ");
       await execFileAsync(
         "docker",
         [
@@ -1197,10 +1630,10 @@ export class BackupRuntimeService {
           image,
           "sh",
           "-ec",
-          `command -v wal-g >/dev/null 2>&1 || { echo 'The database image must contain wal-g' >&2; exit 42; }; mkdir -p ${postgresDataPath}; rm -rf ${postgresDataPath}/* ${postgresDataPath}/.[!.]*; wal-g backup-fetch ${postgresDataPath} ${manifest.backupName}; printf '%s\\n' ${recoveryLines.map((line) => JSON.stringify(line)).join(" ")} >> ${postgresDataPath}/postgresql.auto.conf; touch ${postgresDataPath}/recovery.signal; if command -v chown >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then chown -R postgres:postgres ${postgresDataPath}; fi`,
+          `command -v wal-g >/dev/null 2>&1 || { echo 'The database image must contain wal-g' >&2; exit 42; }; mkdir -p ${quotedDataPath}; rm -rf ${quotedDataPath}/* ${quotedDataPath}/.[!.]*; wal-g backup-fetch ${quotedDataPath} ${shellQuote(manifest.backupName)}; ${recoveryCommands}; touch ${quotedRecoverySignalPath}; if command -v chown >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then chown -R postgres:postgres ${quotedDataPath}; fi`,
         ],
         {
-          env: { ...process.env, ...this.dockerEnvironment },
+          env: getInheritedEnv(this.dockerEnvironment),
           maxBuffer: 2 * 1024 * 1024,
         },
       );
@@ -1234,12 +1667,15 @@ export class BackupRuntimeService {
           "-i",
           "-v",
           `${schedule.volumeName}:/target`,
-          "alpine:3.20",
+          BACKUP_HELPER_ALPINE_IMAGE,
           "sh",
           "-c",
-          "find /target -mindepth 1 -delete && tar -xzf - -C /target",
+          buildSafeArchiveRestoreCommand("/target"),
         ],
-        { consumer: this.dockerEnvironment },
+        {
+          producer: storage.rcloneEnvironment,
+          consumer: this.dockerEnvironment,
+        },
       );
     } finally {
       if (replicas !== null) await this.restoreService(serviceName, replicas);
@@ -1270,12 +1706,6 @@ export class BackupRuntimeService {
     if (engine === "mongodb") {
       return 'mongorestore --archive --gzip --drop -u "$UPSTAND_BACKUP_USER" -p "$UPSTAND_BACKUP_PASSWORD" --authenticationDatabase admin';
     }
-    if (engine === "libsql") {
-      return "find /var/lib/sqld -mindepth 1 -delete && tar -xzf - -C /var/lib/sqld";
-    }
-    if (engine === "redis") {
-      return "mkdir -p /data && tar -xzf - -C /data";
-    }
     const command = engine === "mariadb" ? "mariadb" : "mysql";
     return `MYSQL_PWD="$UPSTAND_BACKUP_PASSWORD" gunzip | ${command} -u "$UPSTAND_BACKUP_USER"`;
   }
@@ -1294,7 +1724,7 @@ export class BackupRuntimeService {
         "--format",
         "{{.ID}}",
       ],
-      { env: { ...process.env, ...this.dockerEnvironment } },
+      { env: getInheritedEnv(this.dockerEnvironment) },
     );
     const containerId = stdout.trim().split("\n")[0];
     if (!containerId) {
@@ -1303,6 +1733,29 @@ export class BackupRuntimeService {
       );
     }
     return containerId;
+  }
+
+  private async resolveNamedVolume(
+    containerId: string,
+    targetPath: string,
+  ): Promise<string> {
+    const { stdout } = await execFileAsync(
+      "docker",
+      [
+        "inspect",
+        containerId,
+        "--format",
+        `{{range .Mounts}}{{if and (eq .Type "volume") (eq .Destination "${targetPath}")}}{{.Name}}{{end}}{{end}}`,
+      ],
+      { env: getInheritedEnv(this.dockerEnvironment) },
+    );
+    const volumeName = stdout.trim();
+    if (!volumeName) {
+      throw new ValidationError(
+        `The ${targetPath} database path must be backed by a named Docker volume for safe restore`,
+      );
+    }
+    return volumeName;
   }
 
   private async stopService(serviceName: string): Promise<number> {
@@ -1315,7 +1768,7 @@ export class BackupRuntimeService {
         "--format",
         "{{.Spec.Mode.Replicated.Replicas}}",
       ],
-      { env: { ...process.env, ...this.dockerEnvironment } },
+      { env: getInheritedEnv(this.dockerEnvironment) },
     );
     const replicas = Number.parseInt(stdout.trim(), 10);
     if (!Number.isInteger(replicas)) {
@@ -1324,7 +1777,7 @@ export class BackupRuntimeService {
       );
     }
     await execFileAsync("docker", ["service", "scale", `${serviceName}=0`], {
-      env: { ...process.env, ...this.dockerEnvironment },
+      env: getInheritedEnv(this.dockerEnvironment),
     });
     return replicas;
   }
@@ -1336,7 +1789,7 @@ export class BackupRuntimeService {
     await execFileAsync(
       "docker",
       ["service", "scale", `${serviceName}=${replicas}`],
-      { env: { ...process.env, ...this.dockerEnvironment } },
+      { env: getInheritedEnv(this.dockerEnvironment) },
     );
   }
 }

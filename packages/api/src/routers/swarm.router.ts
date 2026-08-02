@@ -1,5 +1,6 @@
 import type { ServiceScope } from "@circulo-ai/di";
 import {
+  getConfiguredControlPlaneMode,
   InitSwarmInputSchema,
   RemoveSwarmNodeInputSchema,
   RotateSwarmJoinTokenInputSchema,
@@ -20,16 +21,23 @@ import { z } from "zod";
 import type { AuthenticatedContext } from "../context";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
+import { requireInstanceOwnerContext } from "../instance-access";
 import { authorizeContextCapability } from "../permissions";
+import { requireCapability } from "../trpc/capabilities";
 
 const SwarmOrganizationInputSchema = z.object({
   organizationId: z.string().min(1, "Organization ID is required"),
 });
 
 async function requireClusterOwner(
-  ctx: Parameters<typeof authorizeContextCapability>[0],
+  ctx: AuthenticatedContext,
   organizationId: string,
 ) {
+  // Swarm management is only available in self-hosted mode
+  requireCapability("swarmManagement", "Docker Swarm cluster management");
+  if (getConfiguredControlPlaneMode() === "cloud") {
+    await requireInstanceOwnerContext(ctx);
+  }
   await authorizeContextCapability(ctx, organizationId, "swarm:manage");
 }
 

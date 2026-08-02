@@ -21,14 +21,43 @@ import {
 import { auth } from "@upstand/api/auth";
 import { authorizeMcpTool, checkPermission } from "@upstand/api/permissions";
 import { isJsonObject } from "@upstand/domain";
+import { env } from "@upstand/env/server";
+import { redis } from "@upstand/redis";
 import { AIRepositoryToken } from "@upstand/repositories/tokens";
 import type { Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
+import { incrementUpGalDailyBudget } from "./ai-budget";
+import {
+  type McpConnectionLease,
+  RedisMcpConnectionLimiter,
+} from "./mcp-connection-limiter";
 
 export function registerAiRoutes(app: Hono<AppEnv>): void {
+  const MAX_AI_REQUEST_BYTES = 512 * 1024;
+  const MAX_AI_MESSAGES = 100;
+  const MAX_MCP_REQUEST_BYTES = 256 * 1024;
+  const aiBodyLimit = bodyLimit({
+    maxSize: MAX_AI_REQUEST_BYTES,
+    onError: (c) => c.json({ error: "UpGal request is too large" }, 413),
+  });
+  const mcpBodyLimit = bodyLimit({
+    maxSize: MAX_MCP_REQUEST_BYTES,
+    onError: (c) =>
+      c.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "MCP request is too large" },
+        },
+        413,
+      ),
+  });
+  const mcpConnectionLimiter = new RedisMcpConnectionLimiter(redis);
+
   app.use(
     "/api/ai/chat",
     createHttpRateLimitMiddleware({
@@ -47,10 +76,26 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     }),
   );
 
+  app.use("/api/ai/chat", aiBodyLimit);
+
   app.post("/api/ai/chat", async (c) => {
     const requestLog = c.get("log");
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: "Authentication required" }, 401);
+    const contentLength = Number(c.req.header("content-length") ?? 0);
+    if (contentLength > MAX_AI_REQUEST_BYTES) {
+      return c.json({ error: "UpGal request is too large" }, 413);
+    }
+    const rawBody = await c.req.text();
+    if (Buffer.byteLength(rawBody, "utf8") > MAX_AI_REQUEST_BYTES) {
+      return c.json({ error: "UpGal request is too large" }, 413);
+    }
+    let parsedBody: unknown;
+    try {
+      parsedBody = JSON.parse(rawBody);
+    } catch {
+      return c.json({ error: "Invalid UpGal request" }, 400);
+    }
     const bodyResult = z
       .object({
         organizationId: z.string().min(1),
@@ -58,11 +103,18 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
         page: UpGalPageContextSchema.optional(),
         messages: z.unknown(),
       })
-      .safeParse(await c.req.json().catch(() => null));
+      .safeParse(parsedBody);
     if (!bodyResult.success)
       return c.json({ error: "Invalid UpGal request" }, 400);
     const body = bodyResult.data;
+    if (
+      !Array.isArray(body.messages) ||
+      body.messages.length > MAX_AI_MESSAGES
+    ) {
+      return c.json({ error: "UpGal conversation is too large" }, 413);
+    }
     await checkPermission(session.user.id, body.organizationId, "ai:view");
+
     const conversationId = body.conversationId || randomUUID();
     const ownedConversation = await getConversationForUser(
       conversationId,
@@ -119,6 +171,29 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       );
     }
     try {
+      if (env.NODE_ENV !== "test") {
+        const now = new Date();
+        let runCount: number;
+        try {
+          runCount = await incrementUpGalDailyBudget(
+            redis,
+            body.organizationId,
+            now,
+          );
+        } catch (error) {
+          requestLog.error(error instanceof Error ? error : String(error), {
+            message: "Unable to enforce UpGal daily budget",
+            organizationId: body.organizationId,
+          });
+          return c.json({ error: "UpGal is temporarily unavailable" }, 503);
+        }
+        if (runCount > env.UPGAL_DAILY_RUN_LIMIT) {
+          return c.json(
+            { error: "UpGal daily organization run limit exceeded" },
+            429,
+          );
+        }
+      }
       await saveIncomingMessages(
         conversationId,
         messages,
@@ -171,99 +246,129 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
             hasSession: true,
           };
         }
-        const qp =
-          c.req.query("api_key") ||
-          c.req.query("token") ||
-          c.req.query("apiKey");
-        if (qp) {
-          const fromQp = await authenticateApiKey(
-            new Headers({ "x-api-key": qp }),
-          );
-          if (fromQp) {
-            return { identifier: `apikey:${fromQp.keyId}`, hasSession: true };
-          }
-        }
         // No valid key — fall back to IP; the route handler will 401.
         return { identifier: `ip:${ip}`, hasSession: false };
       },
     }),
   );
 
+  app.use("/api/mcp*", mcpBodyLimit);
+
   // ---------------------------------------------------------------------------
   // MCP Endpoints — supports both transports & all endpoint path aliases:
   //   • GET  /api/mcp, /api/mcp/sse  → SSE (legacy transport, EventSource)
   //   • POST /api/mcp, /api/mcp/sse  → Streamable HTTP / SSE message endpoint
   //
-  // Authentication accepts:
-  //   1. Authorization: Bearer <key>   (standard)
-  //   2. X-Api-Key: <key>             (explicit header)
-  //   3. ?api_key=<key> or ?token=<key> or ?apiKey=<key> (query param)
+  // Authentication accepts only headers. Query-string credentials are
+  // intentionally rejected because URLs are copied into browser history,
+  // proxy logs, referrers, and telemetry.
   // ---------------------------------------------------------------------------
 
-  /** Resolve an API key from request headers OR query params (EventSource compat). */
+  /** Resolve an API key from request headers only. */
   const resolveMcpKey = async (c: Context<AppEnv>) => {
     const headers = c.req.raw.headers;
-    // Try header-based auth first (covers Authorization: Bearer and X-Api-Key).
-    const fromHeaders = await authenticateApiKey(headers);
-    if (fromHeaders) return fromHeaders;
-    // Fall back to query param for clients that cannot set request headers (EventSource).
-    const qp =
-      c.req.query("api_key") || c.req.query("token") || c.req.query("apiKey");
-    if (qp) {
-      return authenticateApiKey(new Headers({ "x-api-key": qp }));
-    }
-    return null;
+    return authenticateApiKey(headers);
   };
 
   // GET: legacy SSE transport — MCP 2024-11-05 and older clients.
   const handleMcpGet = async (c: Context<AppEnv>) => {
+    const requestLog = c.get("log");
     const key = await resolveMcpKey(c);
     if (!key) {
       return c.json({ error: "Invalid or expired API key" }, 401);
     }
-    setApiKeyRateLimitHeaders(key, (name, value) => c.header(name, value));
-
-    const requestUrl = new URL(c.req.url);
-    const sessionId =
-      c.req.query("sessionId") || c.req.query("session_id") || randomUUID();
-
-    const postUrlObj = new URL(
-      `${requestUrl.origin}${requestUrl.pathname.replace(/\/+$/, "")}`,
-    );
-    postUrlObj.searchParams.set("sessionId", sessionId);
-
-    // Preserve all query parameters (e.g. api_key, token) so POST requests
-    // from EventSource clients carry the authentication parameters cleanly.
-    for (const [k, v] of requestUrl.searchParams.entries()) {
-      if (k !== "sessionId" && k !== "session_id") {
-        postUrlObj.searchParams.set(k, v);
-      }
+    let lease: McpConnectionLease | null;
+    try {
+      lease = await mcpConnectionLimiter.acquire(key.keyId);
+    } catch (error) {
+      requestLog.error("MCP connection capacity check failed", { err: error });
+      return c.json({ error: "MCP temporarily unavailable" }, 503);
     }
-    const postUrl = postUrlObj.toString();
+    if (!lease) {
+      c.header("Retry-After", "30");
+      return c.json({ error: "Too many MCP connections" }, 429);
+    }
+    let released = false;
+    const release = async () => {
+      if (released) return;
+      released = true;
+      await lease.release();
+    };
 
-    c.header("Content-Type", "text/event-stream");
-    c.header("Cache-Control", "no-cache, no-transform");
-    c.header("Connection", "keep-alive");
-    c.header("X-Accel-Buffering", "no");
-    c.header("Mcp-Session-Id", sessionId);
+    try {
+      setApiKeyRateLimitHeaders(key, (name, value) => c.header(name, value));
 
-    return streamSSE(c, async (stream) => {
-      // MCP legacy SSE transport: first event must be "endpoint".
-      await stream.writeSSE({ event: "endpoint", data: postUrl });
+      const requestUrl = new URL(c.req.url);
+      const sessionId =
+        c.req.query("sessionId") || c.req.query("session_id") || randomUUID();
 
-      // Keep the SSE connection alive with periodic heartbeats.
-      while (!stream.aborted) {
-        await stream.sleep(30_000);
-        if (!stream.aborted) {
-          await stream.writeSSE({ event: "ping", data: "" });
+      const postUrlObj = new URL(
+        `${requestUrl.origin}${requestUrl.pathname.replace(/\/+$/, "")}`,
+      );
+      postUrlObj.searchParams.set("sessionId", sessionId);
+
+      // Preserve only the transport session identifier. Authentication must be
+      // supplied in request headers and must never be echoed into a URL.
+      for (const [k, v] of requestUrl.searchParams.entries()) {
+        if (
+          k !== "sessionId" &&
+          k !== "session_id" &&
+          k !== "api_key" &&
+          k !== "token" &&
+          k !== "apiKey"
+        ) {
+          postUrlObj.searchParams.set(k, v);
         }
       }
-    });
+      const postUrl = postUrlObj.toString();
+
+      c.header("Content-Type", "text/event-stream");
+      c.header("Cache-Control", "no-cache, no-transform");
+      c.header("Connection", "keep-alive");
+      c.header("X-Accel-Buffering", "no");
+      c.header("Mcp-Session-Id", sessionId);
+
+      return await streamSSE(c, async (stream) => {
+        stream.onAbort(() => void release());
+        try {
+          // MCP legacy SSE transport: first event must be "endpoint".
+          await stream.writeSSE({ event: "endpoint", data: postUrl });
+
+          // Keep the SSE connection alive with periodic heartbeats.
+          while (!stream.aborted) {
+            await stream.sleep(30_000);
+            if (!stream.aborted) {
+              if (!(await lease.renew())) {
+                requestLog.warn("MCP connection lease expired");
+                break;
+              }
+              await stream.writeSSE({ event: "ping", data: "" });
+            }
+          }
+        } finally {
+          await release();
+        }
+      });
+    } catch (error) {
+      await release();
+      throw error;
+    }
   };
 
   // POST: Streamable HTTP transport + legacy SSE message endpoint.
   const handleMcpPost = async (c: Context<AppEnv>) => {
     const requestLog = c.get("log");
+    const contentLength = Number(c.req.header("content-length") ?? 0);
+    if (contentLength > MAX_MCP_REQUEST_BYTES) {
+      return c.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "MCP request is too large" },
+        },
+        413,
+      );
+    }
     const key = await resolveMcpKey(c);
     if (!key) {
       return c.json({ error: "Invalid or expired API key" }, 401);
@@ -378,14 +483,15 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       });
     }
 
-    // tools/list — return every tool this API key has access to (all 63 tools).
-    // Mutating tools carry destructiveHint: true & readOnlyHint: false.
+    // tools/list — return only externally executable, read-only tools.
+    // Mutating tools require the dashboard approval workflow and are not
+    // advertised to external MCP clients.
     // -------------------------------------------------------------------------
     if (body.method === "tools/list") {
       const tools = (
         await Promise.all(
           UPGAL_TOOL_METADATA.map(async ([name, description, mutation]) =>
-            (await canUseMcpTool(name))
+            !mutation && (await canUseMcpTool(name))
               ? { name, description, mutation }
               : null,
           ),

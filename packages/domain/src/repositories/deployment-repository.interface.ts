@@ -6,6 +6,7 @@ import type {
 
 export interface IDeploymentRepository {
   findById(id: string): Promise<Deployment | null>;
+  findByIds?(ids: readonly string[]): Promise<Deployment[]>;
   findMany(): Promise<Deployment[]>;
   findRecent(limit?: number): Promise<Deployment[]>;
   findRecentByResourceIds(

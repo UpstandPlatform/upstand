@@ -1,0 +1,3 @@
+#!/usr/bin/env php
+<?php
+// Laravel's CLI entrypoint. Presence marks the project root for detection.

@@ -1,0 +1,438 @@
+---
+title: Production readiness and recovery runbook
+description: Required controls for deploying, monitoring, backing up, and recovering Upstand in production.
+---
+
+This runbook is part of the production release gate. A green application test
+run does not replace the operator checks below.
+
+## Release preflight
+
+Before deploying a release:
+
+1. Use immutable image references for the server, schedules, web, docs, and
+   monitoring images. CI builds every production image on pull requests.
+2. Provide independent secrets for PostgreSQL, Redis, Better Auth, and
+   encryption. Never reuse development values or commit `.env` files.
+3. Set `BETTER_AUTH_URL`, `CORS_ORIGIN`, `UPSTAND_MIGRATION_ID`, and the
+   internal schedules URL for the target installation. Set
+   `UPSTAND_OUTBOUND_ALLOWED_HOSTS` only for explicitly approved private
+   notification, object-storage, or forward-auth hosts. Use the corresponding
+   exact-host allowlists for self-hosted Git and secret providers. All
+   allowlisted hostnames are resolved again immediately before their outbound
+   integration is used; Caddy rejects private forward-auth endpoints unless
+   their exact hostname is on the outbound allowlist.
+4. Configure `OTLP_ENDPOINT` for the server, schedules, web, and docs services,
+   or make the installer opt-out explicit with
+   `UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true`.
+   The read-only server, schedules, web, and docs containers route Evlog's
+   local fallback to `/tmp/.evlog/logs`, backed by their writable tmpfs, so
+   collector outages do not turn filesystem logging into a write failure.
+5. Use an encrypted, attachable Swarm overlay for the control plane. The
+   installer creates this network and refuses to reuse an unencrypted network.
+   It also runs a disposable non-root service probe on the overlay before
+   deploying the stack, so hosts whose Docker kernel cannot attach encrypted
+   VXLAN tasks fail before any production services are started.
+   Keep the server and schedules services on an isolated Swarm manager node.
+   They require Docker API access for deployment and provisioning; access to
+   that node is equivalent to control of the workloads on it.
+6. The server and schedules containers run as UID 10001. The Swarm-compatible
+   production Compose file maps the Docker socket group as their primary
+   runtime GID; the installer records it as `UPSTAND_DOCKER_GID`. Do not
+   hand-edit or omit that value because the production Compose file refuses to
+   deploy without it. The monitoring sidecar receives the same Docker socket
+   group.
+   Validate the rebuilt server image against disposable external PostgreSQL
+   and Redis services before publishing it:
+
+   ```powershell
+$env:UPSTAND_EXTERNAL_SMOKE_IMAGE="ghcr.io/your-org/upstand-server:release@sha256:DIGEST_64_HEX"
+   .\scripts\external-services-smoke.ps1
+   ```
+
+   The check requires an immutable server image digest, runs the image
+   migration entrypoint twice against the same disposable database to cover
+   fresh and upgraded migration paths, verifies the Redis migration
+   barrier, starts the non-root server with external URLs, and probes liveness.
+   The migration, server, and schedules services also use read-only root
+   filesystems. Their bounded temporary workspaces are explicitly mounted as
+   tmpfs (`/tmp`, `/app/.builds`, and the Docker CLI config directory), with
+   private mounts owned by UID 10001; do not
+   add a persistent writable bind mount to those services without a security
+   review.
+7. The installer also requires explicit acknowledgements for the Docker socket
+   boundary (`UPSTAND_ALLOW_DOCKER_SOCKET=true`) and the single-replica
+   operating model (`UPSTAND_ALLOW_SINGLE_REPLICA=true`). These are release
+   gates, not security controls.
+8. For general production availability, provide `DATABASE_URL` and `REDIS_URL`
+   (or the `UPSTAND_DATABASE_URL` and `UPSTAND_REDIS_URL` aliases) to the
+   installer. They are stored as Docker secrets and disable the bundled
+   single-replica PostgreSQL and Redis services. Set `UPSTAND_SERVER_REPLICAS`
+   and `UPSTAND_WEB_REPLICAS` to at least `2` when the control-plane node pool
+   has at least two labeled nodes and the load balancer supports multiple
+   replicas; the stack includes a `node.id` spread preference for stateless
+   services. Keep schedules at one replica unless the worker topology has been
+   explicitly validated.
+   The installer rejects zero replicas for required control-plane services and
+   rejects multi-replica bundled PostgreSQL or Redis because those local
+   services are not clustered data stores.
+9. Confirm that the release has a changeset and that the generated migration
+   check is clean:
+
+```bash
+bun run db:generate
+bun run db:check
+git diff --exit-code -- packages/db/src/migrations packages/db/src/schema
+```
+
+After building the web application, run the Chromium, Firefox, and WebKit
+axe public-surface gate:
+
+```bash
+bunx playwright install chromium firefox webkit
+for browser in chromium firefox webkit; do
+  PLAYWRIGHT_BROWSER="$browser" bun run --cwd apps/web test:browser
+done
+```
+
+This gate checks the production web response, security headers, document
+language/title, browser console errors, and WCAG 2 A/AA rules for the public
+login surface. It is a regression baseline; it does not replace authenticated
+browser workflows or target-scale performance testing.
+
+For a bounded authenticated control-plane rehearsal, set
+`HEALTH_LOAD_REQUEST_PATH` to a representative private API path and provide
+`HEALTH_LOAD_AUTH_HEADER` (for example, an ephemeral authorization or cookie
+header) in the operator environment. The harness never prints the header and
+still enforces the request, concurrency, timeout, failure-budget, and
+p50/p95/p99 bounds. Use an ephemeral test tenant and revoke the credential
+after the run; do not place it in workflow configuration or logs.
+
+The migration runner performs a duplicate-data preflight for membership and
+preview uniqueness constraints and checks backup tenant references before
+running migrations that rely on those historical foreign keys. If it reports
+duplicate or orphaned rows,
+resolve and review those rows before retrying the release; do not bypass the
+constraint. Organization deletion is blocked while backup schedules or backup
+history remain, because the application must remove remote backup artifacts
+through the backup workflow before the tenant metadata can be deleted.
+
+## Git source trust
+
+Use HTTPS or SSH repository URLs only. For SSH repositories, configure the
+repository's `SHA256:` host-key fingerprint in the resource's Git settings.
+Upstand scans the host key before cloning, writes only the matching key to a
+temporary `known_hosts` file, and runs Git with strict host-key checking. A
+missing or mismatched fingerprint fails the deployment; do not work around
+that failure with `StrictHostKeyChecking=accept-new`.
+
+## Health and operations
+
+Use `/health/live` for process liveness and `/health/ready` for traffic
+admission. In production, server readiness checks the database, Redis, Caddy
+initialization, schedules workers, and successful monitoring-agent
+initialization. Monitoring initialization waits for the sidecar healthcheck
+with a bounded timeout; a failed or unhealthy monitoring setup keeps the
+server out of service.
+Schedules readiness checks its workers and Redis.
+
+The schedules `/status` endpoint reports backup and notification queue depth,
+the most recent successful and failed backup timestamps, and transactional-
+outbox counts. Alert on a growing pending/publishing count, any dead-letter
+count, a failed backup without a subsequent success, unhealthy queues, or a
+readiness failure. Keep this endpoint on the private overlay network; it is
+not an operator authentication boundary.
+The schedules service also evaluates these conditions every
+`UPSTAND_OPERATIONAL_MONITOR_INTERVAL_MS` milliseconds and emits one
+deduplicated structured `operationalAlert` event per active condition through
+Evlog/OTLP, including an explicit signal when database-backed status cannot be
+collected. Configure the queue, outbox, backup freshness, and required-success
+policy with the `UPSTAND_*_ALERT_*` variables in the environment reference.
+Alert routing, retention, and on-call ownership still belong to the target
+collector and incident system.
+The schedules service also exposes a private `/metrics` endpoint with
+Prometheus-compatible gauges for database/Redis/worker readiness, per-queue
+waiting and failed jobs, outbox depth, and backup freshness. The repository
+includes the alert thresholds and dashboard field mapping in
+`ops/observability/`; deploy those files into the target Prometheus/Grafana
+system and restrict the endpoint to the private overlay. Scrape failure is
+represented both by the endpoint's `503` response and its explicit
+`upstand_schedules_collection_success` gauge.
+The Linux release acceptance probes this endpoint from inside the private
+overlay and requires its queue, outbox, and backup sections to be present;
+it also scrapes `/metrics` and retains the readiness metrics as
+`schedules-metrics.txt` evidence.
+Operators must still connect those signals to durable dashboards and alerts.
+
+The release workflow runs `scripts/operational-status-rehearsal.ts` inside the
+immutable server image against the private server and schedules URLs. It fails
+on readiness failure, unhealthy queues, failed jobs, dead letters, excessive
+queue/outbox depth, or a failed/stale backup when the corresponding threshold
+is enabled. Operators can reuse it with
+`OPERATIONAL_STATUS_MAX_WAITING_COUNT`,
+`OPERATIONAL_STATUS_MAX_FAILED_COUNT`,
+`OPERATIONAL_STATUS_MAX_DEAD_LETTER_COUNT`,
+`OPERATIONAL_STATUS_MAX_OUTBOX_PENDING_COUNT`,
+`OPERATIONAL_STATUS_MAX_OUTBOX_PUBLISHING_COUNT`, and
+`OPERATIONAL_STATUS_MAX_BACKUP_AGE_SECONDS`; set
+`OPERATIONAL_STATUS_REQUIRE_BACKUP_SUCCESS=true` when a successful backup is
+required before accepting traffic. This is a threshold gate, not a dashboard
+or on-call system, so retain its output with the target observability record.
+
+Rate limiting is distributed through Redis. If Redis is unavailable, ordinary
+read traffic uses a bounded process-local fallback, but authentication,
+mutations, deployment webhooks, and SCIM fail closed with HTTP 503 rather than
+allowing a multi-replica bypass. Alert on `checks.rateLimiter.status=fallback`
+and investigate Redis before restoring those traffic classes.
+
+The public documentation AI route is also protected by atomic Redis counters:
+it accepts at most 20 requests per client identity and 200 requests across the
+deployment per minute, caps each body at 256 KiB and 50 messages, and returns
+`503` when Redis cannot enforce the limits.
+The production docs service reads the same `redis_url` Docker secret as the
+control plane. Keep an additional edge/API-gateway rate limit in front of this
+public cost-bearing endpoint and monitor OpenRouter spend; the application
+limit is defense in depth, not a billing or DDoS boundary.
+
+Audit records are retained for `UPSTAND_AUDIT_LOG_RETENTION_DAYS` (365 days by
+default) and pruned by the schedules service in bounded batches. Set the value
+to the organization’s legal/compliance retention period before launch; do not
+disable pruning on a busy installation without a separate archival plan.
+
+## Backup and recovery
+
+Configure backups to an independent S3-compatible destination with bucket
+versioning or object lock where supported. Enable restore verification for
+each schedule. Backup commands are bounded by
+`UPSTAND_BACKUP_COMMAND_TIMEOUT_MS` (30 minutes by default and 24 hours maximum)
+so a stalled Docker daemon or object store cannot occupy a worker forever.
+
+Backup execution leases are five minutes and are renewed while a worker is
+active. BullMQ retries an unclaimed delivery, and the schedules service
+atomically requeues stale database runs through the transactional outbox. Alert
+on repeated backup recovery messages or runs that remain queued after recovery;
+do not manually mark a `running` run as succeeded.
+
+Retention enforcement and schedule deletion walk backup history in deterministic
+cursor pages rather than loading the full run history into memory. A large
+schedule can therefore be cleaned up safely, but remote object deletion is
+intentionally serialized; allow the schedules worker enough time to finish a
+large cleanup and investigate any cleanup error before deleting the schedule
+again.
+
+Application-level DNS validation is defense in depth, not a complete egress
+boundary: exact allowlisted hostnames are resolved at validation time and unsafe
+answers are rejected, but DNS or routing can change before the socket connects.
+Enforce an outbound firewall or egress proxy that denies private, link-local,
+loopback, and cloud-metadata networks, and permit only the approved
+object-storage, notification, telemetry, and source-provider destinations.
+
+At least once per release cycle, perform a restore rehearsal into a disposable
+environment and record:
+
+- the backup artifact and recovery point;
+- the time to restore control-plane data and volumes;
+- the result of application and queue health checks; and
+- the owner and date of the next rehearsal.
+
+For a local production-shaped rehearsal using the pinned server image and
+disposable MinIO/PostgreSQL containers, run:
+
+```powershell
+$env:UPSTAND_BACKUP_REHEARSAL_IMAGE="ghcr.io/your-org/upstand-server:release@sha256:DIGEST_64_HEX"
+.\scripts\backup-restore-rehearsal.ps1
+```
+
+The native Linux release gate runs the equivalent pinned-image rehearsal with
+`bash scripts/backup-restore-rehearsal.sh`. Operators can run it directly by
+setting `UPSTAND_BACKUP_REHEARSAL_IMAGE` to the immutable server image under
+test. These disposable rehearsals validate backup mechanics and data
+integrity; they do not establish installation-specific RTO or RPO.
+The rehearsal emits readiness, transfer, restore, and total elapsed seconds.
+Set `UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS` and
+`UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS` to installation-specific
+budgets; a nonzero budget fails the rehearsal when exceeded. The release gate
+uses 900 seconds total and 300 seconds for the database restore as a bounded
+smoke baseline. Operators must replace those values with accepted objectives
+for the target object store, database service, dataset size, and recovery
+procedure, and retain the resulting timing evidence.
+The native release workflow uploads this rehearsal output as the
+`production-recovery-evidence` artifact for the run; this preserves smoke-test
+evidence but does not replace the target installation’s recovery record.
+
+This validates object-storage upload/download, PostgreSQL restore, and a
+durable data assertion. It complements, but does not replace, a rehearsal
+against the intended production object store and external database service.
+Volume and web-server archive restores stage and validate the downloaded
+archive before replacing the live volume; a failed extraction attempts to
+restore the previous contents.
+
+The bundled PostgreSQL and Redis services use one replica and local volumes and
+are intended only for development, evaluation, or explicitly accepted
+single-node installations. For high availability or point-in-time recovery,
+use the installer’s external `DATABASE_URL`/`REDIS_URL` mode with independent
+managed services or an approved WAL/archive design; local volumes and the
+Docker socket are not a disaster-recovery boundary.
+
+## Rollout and rollback
+
+Deploy migrations before starting application workers. Wait for the migration
+barrier before starting schedules workers, then wait for the migration barrier
+and `/health/ready` before routing traffic to the new server. Swarm
+updates are health-gated and configured to roll back on failure, but rollback
+of application code does not automatically reverse a database migration.
+Keep the pre-deployment backup until the release has passed its recovery
+rehearsal and the rollback decision window has closed.
+
+## Live acceptance gate
+
+After deployment, run the read-only acceptance gate from an operator host with
+Docker Swarm access:
+
+```bash
+bash /etc/upstand/production-acceptance.sh
+```
+
+For an HA deployment, add `--require-ha`. The gate verifies that the Swarm
+overlay is encrypted and attachable, the migration service completed with the
+same immutable server image used by the control plane, all application
+services (plus any enabled bundled PostgreSQL/Redis services) converged on
+immutable image digests, and their container health checks are passing. HA
+mode additionally requires at least two stateless replicas and confirms that
+bundled PostgreSQL and Redis are disabled in favor of external services.
+The release workflow passes explicit external service names and verifies those
+services' health checks, immutable images, non-root runtime, capability drops,
+and overlay attachment as well. Operators using managed PostgreSQL/Redis can
+omit those optional service-name flags because those services are not Swarm
+services.
+The gate also verifies that migration and application services drop all Linux
+capabilities and that running application containers are not using the root
+user, that migration and application services are attached to the verified
+overlay, and that the server's monitoring image is pinned. Bundled PostgreSQL
+and Redis also drop all capabilities except the four required by their
+official entrypoints to perform volume ownership and UID/GID transitions
+(`CHOWN`, `DAC_OVERRIDE`, `SETGID`, and `SETUID`). The stable release
+workflow runs the same gate against the published immutable images on a
+disposable Linux Swarm before the release is considered verified. That workflow
+also deploys a pinned disposable OTLP collector and posts a probe through the
+OTLP HTTP receiver, so its acceptance run does not waive observability. The
+operator-side run and the target collector, dashboards, alerts, and retention
+checks remain required for the target installation.
+
+Stable and canary image workflows also publish signed GitHub OCI provenance
+attestations. The stable release gate verifies each image against the selected
+repository, release workflow, and source ref before publishing the release
+manifest. Installations with an independent supply-chain policy should perform
+the corresponding `gh attestation verify oci://... --repo ...` check before
+allowing an image digest into production.
+
+The release workflow also uploads a `production-acceptance-evidence` artifact
+created by `scripts/production-evidence-collect.sh`. The bundle records the
+Docker host and kernel identity, Swarm node and service state, task placement,
+immutable image references, capability/root-filesystem settings, and encrypted
+network properties. It deliberately excludes service environments, secrets,
+and application logs. Operators can run the same collector on a manager with
+`DOCKER_BIN=docker bash /etc/upstand/production-evidence-collect.sh
+--output /var/tmp/upstand-acceptance-evidence --stack upstand --network
+upstand-network` and retain the output with the node-local acceptance records.
+
+The gate also requires a valid `OTLP_ENDPOINT` on the server, schedules, web,
+and docs services. This checks that the deployed stack is configured to export
+operational telemetry, but it does not prove that the target collector stores
+or alerts on the data. For a deliberately unobserved environment, use
+`--allow-unobserved` only after recording the explicit operations-owner
+acknowledgement required by the installer.
+
+The Linux release workflow also runs bounded health-load rehearsals against
+the externally backed, stateless-HA acceptance stack. It sends a 120-request
+release smoke, followed by the documented 100/1,000/10,000-request profiles at
+10/25/50-way concurrency, fails on any non-2xx response, and records p50, p95,
+and p99 latency for each profile, then runs a 60-second bounded soak window
+and retains the output as acceptance evidence. For operator runs,
+`HEALTH_LOAD_REQUEST_PATH` and `HEALTH_LOAD_AUTH_HEADER` can target an
+authenticated workload, while `HEALTH_LOAD_MAX_P95_MS` and
+`HEALTH_LOAD_MAX_P99_MS` turn latency SLOs into a fail-closed gate. Embedded URL
+credentials are rejected and authorization headers are never printed. This is
+a release smoke baseline only. For a capacity rehearsal, run the same script
+with `HEALTH_LOAD_REQUESTS=100`, `1000`, and `10000`, installation-specific
+concurrency/SLO limits, and a representative authenticated endpoint; follow it
+with soak, queue-backlog, and failure tests before making capacity or
+availability claims.
+
+The checked-in soak harness repeats the same bounded load windows for a time
+budget and preserves per-window p50/p95/p99 and failure evidence. Example:
+
+```bash
+HEALTH_SOAK_DURATION_SECONDS=3600 \
+HEALTH_SOAK_WINDOW_REQUESTS=1000 \
+HEALTH_SOAK_WINDOW_CONCURRENCY=25 \
+HEALTH_SOAK_MAX_P95_MS=500 \
+HEALTH_SOAK_MAX_P99_MS=1000 \
+HEALTH_SOAK_OUTPUT_FILE=/var/tmp/upstand-health-soak.txt \
+HEALTH_LOAD_REQUEST_PATH=/api/private/representative \
+HEALTH_LOAD_AUTH_HEADER='Authorization: Bearer EPHEMERAL_TOKEN' \
+bash scripts/health-soak-rehearsal.sh https://api.example.com
+```
+
+Use an ephemeral credential and a disposable tenant; the harness never prints
+the authorization header. This produces repeatable evidence but still does
+not replace target-topology deployment-concurrency, node-loss, or data-store
+failover tests.
+
+The native release acceptance also performs a disposable dependency-failure
+rehearsal: it scales the temporary PostgreSQL and Redis services to zero,
+requires server readiness to return `503`, restores each service, and requires
+readiness to recover. The resulting status-only record is uploaded with the
+acceptance evidence. This validates fail-closed dependency behavior and
+recovery wiring; it is not PostgreSQL/Redis HA or failover evidence.
+
+On a multi-node Swarm, a manager's Docker daemon cannot inspect process and
+health state for task containers running on other nodes. The strict default
+therefore fails rather than claiming those checks passed. After reviewing the
+cluster-wide service/task output, operators may run
+`bash /etc/upstand/production-acceptance.sh --allow-remote-tasks` for
+service-level validation; that mode still verifies convergence, immutable
+images, configured health checks, capabilities, users, and network attachment,
+but explicitly reports which remote task runtime checks were unavailable.
+Combine it with `--allow-unobserved` only when telemetry has also been
+explicitly waived.
+
+To collect runtime evidence from the nodes that actually host the tasks, run
+the same installed gate on every Swarm node:
+
+```bash
+bash /etc/upstand/production-acceptance.sh --node-local --allow-unobserved
+```
+
+`--node-local` prints the Docker node identity and inspects every locally
+visible Upstand service container plus any local monitoring agent for healthy
+state, immutable images, non-root execution, capability dropping, and
+read-only roots. A node with no Upstand task containers reports zero local
+tasks and still provides useful evidence. Archive one output per node with the
+manager acceptance record; this command does not remotely execute on other
+nodes or aggregate their results, so the cluster-wide evidence requirement is
+not satisfied until every task-bearing node has been checked.
+
+For a manager-driven, archiveable cluster check, use the repository's
+read-only SSH aggregator with an operator identity and pre-populated strict
+`known_hosts` entries:
+
+```bash
+bash /etc/upstand/production-acceptance-cluster.sh \
+  --output /var/tmp/upstand-acceptance \
+  --ssh-user upstand \
+  --stack upstand \
+  --network upstand-network
+```
+
+It discovers every Ready/Active Swarm node, runs the existing `--node-local`
+gate on each node, writes one result per node, and exits nonzero if any node
+fails. It does not inspect service environments, secrets, or application
+logs. Treat the resulting directory as release evidence and protect it with
+the operator's normal access controls.
+
+The acceptance gate also inspects locally visible monitoring-agent containers.
+It requires the configured immutable monitoring image, a healthy container,
+non-root execution, all Linux capabilities dropped, and a read-only root
+filesystem. In remote-task mode it reports when a monitoring agent is outside
+the inspecting Docker daemon instead of claiming that agent's runtime health.

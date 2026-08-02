@@ -76,7 +76,11 @@ export class BullMqOutboxJobPublisher implements OutboxJobPublisher {
         const payload = backupPayloadSchema.parse(message.payload);
         await this.queue(BACKUP_RUN_QUEUE).add("run", payload, {
           jobId: message.id,
-          attempts: 2,
+          // A worker can die after persisting `running` but before BullMQ
+          // redelivers the job. Keep retrying long enough for the database
+          // execution lease to become reclaimable instead of acknowledging a
+          // still-running record as if it were complete.
+          attempts: 8,
           backoff: { type: "exponential", delay: 5_000 },
           removeOnComplete: 1_000,
           removeOnFail: 1_000,

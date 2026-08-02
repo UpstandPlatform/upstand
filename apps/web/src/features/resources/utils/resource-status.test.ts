@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, test } from "bun:test";
 import { determineResourceRuntimeStatus } from "./resource-status";
 

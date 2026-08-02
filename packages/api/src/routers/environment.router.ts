@@ -1,5 +1,8 @@
 import { TRPCError } from "@trpc/server";
-import type { Environment } from "@upstand/domain";
+import type {
+  Environment,
+  EnvironmentSummaryProjection,
+} from "@upstand/domain";
 import {
   CloneEnvironmentInputSchema,
   CreateEnvironmentInputSchema,
@@ -27,11 +30,23 @@ import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission } from "../permissions";
 import { resolveEnvironmentAndCheckPermission } from "../trpc/environment-authorization.helper";
 
-function publicEnvironment(env: Environment) {
+export function publicEnvironment(
+  env: Environment | EnvironmentSummaryProjection,
+) {
+  if ("envVarsConfigured" in env) {
+    const { envVarsConfigured, ...rest } = env;
+    return {
+      ...rest,
+      envVars: {},
+      envVarsConfigured,
+    };
+  }
+
   const { envVars, ...rest } = env;
   return {
     ...rest,
-    envVars: parseResourceEnvironmentVariables(envVars),
+    envVars: {},
+    envVarsConfigured: Boolean(envVars),
   };
 }
 
@@ -101,17 +116,61 @@ export const environmentRouter = router({
       return publicEnvironment(environment);
     }),
 
+  getSecrets: twoFactorVerifiedProcedure
+    .input(GetEnvironmentInputSchema)
+    .query(async ({ ctx, input }) => {
+      const useCase = ctx.scope.resolve(GetEnvironmentUseCaseToken);
+      const summary = await useCase.executeSummary(input);
+      if (!summary) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Environment not found",
+        });
+      }
+
+      const project = await ctx.scope
+        .resolve(GetProjectUseCaseToken)
+        .execute({ id: summary.projectId });
+      if (!project) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Environment project not found",
+        });
+      }
+
+      await checkPermission(
+        ctx.session.user.id,
+        project.organizationId,
+        "environment:secrets:view",
+      );
+
+      const environment = await useCase.execute(input);
+      if (!environment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Environment not found",
+        });
+      }
+
+      return {
+        envVars: parseResourceEnvironmentVariables(environment.envVars),
+      };
+    }),
+
   update: twoFactorVerifiedProcedure
     .input(UpdateEnvironmentInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await resolveEnvironmentAndCheckPermission(
+      const { project } = await resolveEnvironmentAndCheckPermission(
         ctx,
         input.id,
         "environment:update",
       );
       const updateUseCase = ctx.scope.resolve(UpdateEnvironmentUseCaseToken);
       try {
-        const result = await updateUseCase.execute(input);
+        const result = await updateUseCase.execute({
+          ...input,
+          organizationId: project.organizationId,
+        });
         return publicEnvironment(result);
       } catch (error) {
         handleUseCaseError(error, ctx.log);
@@ -121,7 +180,7 @@ export const environmentRouter = router({
   delete: twoFactorVerifiedProcedure
     .input(DeleteEnvironmentInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await resolveEnvironmentAndCheckPermission(
+      const { project } = await resolveEnvironmentAndCheckPermission(
         ctx,
         input.id,
         "environment:delete",
@@ -129,7 +188,10 @@ export const environmentRouter = router({
 
       const deleteUseCase = ctx.scope.resolve(DeleteEnvironmentUseCaseToken);
       try {
-        return await deleteUseCase.execute(input);
+        return await deleteUseCase.execute({
+          ...input,
+          organizationId: project.organizationId,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

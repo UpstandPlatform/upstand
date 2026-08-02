@@ -3,6 +3,7 @@ import { env } from "@upstand/env/server";
 
 const STATE_TTL_SECONDS = 10 * 60;
 const STATE_VERSION = "v1";
+export const GITHUB_MANIFEST_WEBHOOK_TTL_SECONDS = 30 * 24 * 60 * 60;
 export type GitProviderOAuthStatePurpose =
   | "provider-oauth"
   | "github-init"
@@ -117,6 +118,19 @@ export function gitProviderOAuthStateKey(state: string): string {
     ),
   );
   return `oauth:git-provider-state:${derivedKey.toString("hex")}`;
+}
+
+export function gitProviderOAuthManifestWebhookKey(state: string): string {
+  const derivedKey = Buffer.from(
+    hkdfSync(
+      "sha256",
+      state,
+      "upstand-oauth-state-salt",
+      "upstand-github-manifest-webhook-v1",
+      32,
+    ),
+  );
+  return `webhook:github-manifest:${derivedKey.toString("hex")}`;
 }
 
 export const GIT_PROVIDER_OAUTH_STATE_TTL_SECONDS = STATE_TTL_SECONDS;

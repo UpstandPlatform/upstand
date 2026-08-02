@@ -42,7 +42,10 @@ describe("searchWeb", () => {
     }) as typeof fetch;
 
     await expect(
-      searchWeb({ query: "upstand", limit: 5 }),
+      searchWeb(
+        { query: "upstand", limit: 5 },
+        { resolveHost: async () => [{ address: "93.184.216.34" }] },
+      ),
     ).resolves.toMatchObject({
       results: [
         {
@@ -59,5 +62,24 @@ describe("searchWeb", () => {
     await expect(searchWeb({ query: "upstand", limit: 5 })).rejects.toThrow(
       "UPGAL_WEB_SEARCH_API_KEY",
     );
+  });
+
+  test("rejects an oversized provider response before parsing it", async () => {
+    process.env.UPGAL_WEB_SEARCH_API_KEY = "test-key";
+    process.env.UPGAL_WEB_SEARCH_BASE_URL = "https://search.test/web";
+    globalThis.fetch = (async () =>
+      new Response("{}", {
+        status: 200,
+        headers: {
+          "content-length": String(3 * 1024 * 1024),
+        },
+      })) as unknown as typeof fetch;
+
+    await expect(
+      searchWeb(
+        { query: "upstand", limit: 5 },
+        { resolveHost: async () => [{ address: "93.184.216.34" }] },
+      ),
+    ).rejects.toThrow("Upstream response is too large");
   });
 });

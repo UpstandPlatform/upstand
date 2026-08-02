@@ -45,75 +45,74 @@ export class RollbackResourceUseCase {
     });
 
     try {
-      const result = await this.uow.transaction(async (tx) => {
-        const { dockerService, cleanup } = await resolveDockerServiceForServer(
-          resource.serverId,
-          tx,
-          this.defaultDockerService,
+      let registryAuth: DockerRegistryAuth | undefined;
+      if (resource.rollbackActive && resource.rollbackRegistryId) {
+        const registry = await this.uow.dockerRegistryRepository.findById(
+          resource.rollbackRegistryId,
         );
-        try {
-          let registryAuth: DockerRegistryAuth | undefined;
-          if (resource.rollbackActive && resource.rollbackRegistryId) {
-            const registry = await tx.dockerRegistryRepository.findById(
-              resource.rollbackRegistryId,
-            );
-            const environment = await tx.environmentRepository.findById(
-              resource.environmentId,
-            );
-            const project = environment
-              ? await tx.projectRepository.findById(environment.projectId)
-              : null;
-            if (
-              !registry ||
-              !project ||
-              registry.organizationId !== project.organizationId
-            ) {
-              throw new ValidationError(
-                "Selected rollback registry is not available to this organization",
-              );
-            }
-
-            let password = "";
-            if (registry.password) {
-              try {
-                const payload = JSON.parse(registry.password);
-                password =
-                  payload.ciphertext && payload.iv && payload.authTag
-                    ? decryptSecret(payload)
-                    : registry.password;
-              } catch {
-                // Keep compatibility with legacy registries that predate
-                // encrypted password storage.
-                password = registry.password;
-              }
-            }
-            registryAuth = {
-              username: registry.username || undefined,
-              password,
-              serveraddress: (registry.registryUrl || "").replace(
-                /^https?:\/\//,
-                "",
-              ),
-            };
-          }
-          await dockerService.rollbackService(resource, registryAuth);
-          const logs = `Rollback completed at ${new Date().toISOString()}.\n`;
-          await tx.deploymentRepository.updateById(deploymentId, {
-            status: "success",
-            logs: `Rollback requested at ${startedAt.toISOString()}.\n${logs}`,
-          });
-
-          const updated = await tx.resourceRepository.updateById(resource.id, {
-            status: "running",
-          });
-          if (!updated)
-            throw new ValidationError("Resource could not be updated");
-          return updated;
-        } finally {
-          cleanup();
+        const environment = await this.uow.environmentRepository.findById(
+          resource.environmentId,
+        );
+        const project = environment
+          ? await this.uow.projectRepository.findById(environment.projectId)
+          : null;
+        if (
+          !registry ||
+          !project ||
+          registry.organizationId !== project.organizationId
+        ) {
+          throw new ValidationError(
+            "Selected rollback registry is not available to this organization",
+          );
         }
+
+        let password = "";
+        if (registry.password) {
+          try {
+            const payload = JSON.parse(registry.password);
+            password =
+              payload.ciphertext && payload.iv && payload.authTag
+                ? decryptSecret(payload)
+                : registry.password;
+          } catch {
+            password = registry.password;
+          }
+        }
+        registryAuth = {
+          username: registry.username || undefined,
+          password,
+          serveraddress: (registry.registryUrl || "").replace(
+            /^https?:\/\//,
+            "",
+          ),
+        };
+      }
+
+      const { dockerService, cleanup } = await resolveDockerServiceForServer(
+        resource.serverId,
+        this.uow,
+        this.defaultDockerService,
+      );
+      try {
+        await dockerService.rollbackService(resource, registryAuth);
+      } finally {
+        cleanup();
+      }
+
+      const logs = `Rollback completed at ${new Date().toISOString()}.\n`;
+      return await this.uow.transaction(async (tx) => {
+        await tx.deploymentRepository.updateById(deploymentId, {
+          status: "success",
+          logs: `Rollback requested at ${startedAt.toISOString()}.\n${logs}`,
+        });
+
+        const updated = await tx.resourceRepository.updateById(resource.id, {
+          status: "running",
+        });
+        if (!updated)
+          throw new ValidationError("Resource could not be updated");
+        return updated;
       });
-      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.uow.deploymentRepository.updateById(deploymentId, {

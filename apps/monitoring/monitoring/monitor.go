@@ -31,13 +31,21 @@ import (
 var healthState = struct {
 	sync.RWMutex
 	lastCollectedAt string
+	lastCollected    time.Time
 	collectionError string
-}{}
+	staleAfter      time.Duration
+}{
+	staleAfter: 2 * time.Minute,
+}
+
+var alertHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 func RecordCollection(result error) {
 	healthState.Lock()
 	defer healthState.Unlock()
-	healthState.lastCollectedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now()
+	healthState.lastCollected = now
+	healthState.lastCollectedAt = now.UTC().Format(time.RFC3339Nano)
 	if result != nil {
 		healthState.collectionError = result.Error()
 	} else {
@@ -45,14 +53,30 @@ func RecordCollection(result error) {
 	}
 }
 
+// SetHealthStaleAfter configures how long the agent may go without a
+// successful collection before its health endpoint reports degradation.
+func SetHealthStaleAfter(duration time.Duration) {
+	if duration <= 0 {
+		duration = 2 * time.Minute
+	}
+	healthState.Lock()
+	healthState.staleAfter = duration
+	healthState.Unlock()
+}
+
 func Health() (string, string, string) {
 	healthState.RLock()
 	defer healthState.RUnlock()
-	status := "ok"
-	if healthState.collectionError != "" {
-		status = "degraded"
+	if healthState.lastCollected.IsZero() {
+		return "starting", "", "collection has not started"
 	}
-	return status, healthState.lastCollectedAt, healthState.collectionError
+	if healthState.collectionError != "" {
+		return "degraded", healthState.lastCollectedAt, "collection failed"
+	}
+	if time.Since(healthState.lastCollected) > healthState.staleAfter {
+		return "degraded", healthState.lastCollectedAt, "collection is stale"
+	}
+	return "ok", healthState.lastCollectedAt, ""
 }
 
 type SystemMetrics struct {
@@ -339,15 +363,17 @@ func sendAlert(callbackURL string, payload AlertPayload) error {
 		return fmt.Errorf("failed to marshal alert payload: %v", err)
 	}
 
-	resp, err := http.Post(callbackURL, "application/json", bytes.NewBuffer(jsonData))
+	resp, err := alertHTTPClient.Post(callbackURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to send POST request: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("received non-OK response status: %s, body: %s", resp.Status, string(bodyBytes))
+		// Do not let an upstream response body become an unbounded memory
+		// allocation or leak arbitrary callback content into agent logs.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8*1024))
+		return fmt.Errorf("received non-OK response status: %s", resp.Status)
 	}
 
 	return nil

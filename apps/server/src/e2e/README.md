@@ -25,6 +25,10 @@ $env:E2E_AUTH_COOKIE="better-auth.session_token=..."
 $env:E2E_RESOURCE_ID="..."
 ```
 
+Set `E2E_SERVER_AVAILABLE=true` when a disposable server is listening at
+`E2E_BASE_URL` (or `http://localhost:3000` by default) to enable the live HTTP
+checks. Keep it unset for the safe no-server run.
+
 For a disposable local run, `E2E_API_KEY` may be used instead of a browser
 session cookie. Use a short-lived key created only in the local test
 organization; never use a production key.

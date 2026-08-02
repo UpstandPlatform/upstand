@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack --port 3001",
@@ -8,6 +8,7 @@
     "build": "next build",
     "build:webpack": "next build --webpack",
     "start": "next start",
+    "test:browser": "playwright test",
     "test": "bun test src",
     "check-types": "tsc --noEmit",
     "lint": "biome check ."
@@ -76,6 +77,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "catalog:",
     "@types/node": "^26",
     "@types/react": "catalog:",

@@ -8,7 +8,10 @@ import {
   TemplateSchema,
 } from "@upstand/domain";
 import { and, asc, eq, ilike, or } from "drizzle-orm";
-import { BaseRepository } from "../shared/base.repository";
+import {
+  BaseRepository,
+  MAX_REPOSITORY_READS,
+} from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
 function parseTags(value: string): string[] {
@@ -58,7 +61,13 @@ export class DrizzleTemplateRepository
       .select()
       .from(template)
       .where(where)
-      .orderBy(asc(template.name));
+      .orderBy(asc(template.name))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "Template discovery exceeded the maximum supported row count",
+      );
+    }
     return rows.map(toTemplate);
   }
 

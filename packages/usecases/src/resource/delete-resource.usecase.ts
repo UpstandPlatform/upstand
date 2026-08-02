@@ -7,6 +7,7 @@ import { resolveServicesForResource } from "./docker-client";
 
 export const DeleteResourceInputSchema = z.object({
   id: z.string().min(1, "Resource ID is required"),
+  organizationId: z.string().min(1, "Organization ID is required").optional(),
   deleteVolumes: z.boolean().optional(),
 });
 
@@ -24,8 +25,30 @@ export class DeleteResourceUseCase {
     if (!resource) {
       throw new ValidationError("Resource not found");
     }
+    const environment = await this.uow.environmentRepository.findById(
+      resource.environmentId,
+    );
+    const project = environment
+      ? await this.uow.projectRepository.findById(environment.projectId)
+      : null;
+    if (
+      !project ||
+      !input.organizationId ||
+      project.organizationId !== input.organizationId
+    ) {
+      throw new ValidationError("Resource not found");
+    }
 
-    const resources = await this.uow.resourceRepository.findMany();
+    const resources = this.uow.resourceRepository
+      .findForCaddyByDeploymentServerId
+      ? await this.uow.resourceRepository.findForCaddyByDeploymentServerId(
+          resource.serverId,
+        )
+      : this.uow.resourceRepository.findByDeploymentServerId
+        ? await this.uow.resourceRepository.findByDeploymentServerId(
+            resource.serverId,
+          )
+        : await this.uow.resourceRepository.findMany();
     const serverResources =
       resource.serverId && !["local", "manager"].includes(resource.serverId)
         ? resources.filter(

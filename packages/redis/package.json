@@ -15,6 +15,7 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "lint": "biome check .",
+    "test": "bun test src",
     "redis:start": "docker compose up -d",
     "redis:watch": "docker compose up",
     "redis:stop": "docker compose stop",

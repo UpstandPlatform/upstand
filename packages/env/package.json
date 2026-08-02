@@ -5,11 +5,13 @@
   "type": "module",
   "exports": {
     "./server": "./src/server.ts",
-    "./web": "./src/web.ts"
+    "./web": "./src/web.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "lint": "biome check ."
+    "lint": "biome check .",
+    "test": "bun test src"
   },
   "dependencies": {
     "@t3-oss/env-core": "^0.13.11",

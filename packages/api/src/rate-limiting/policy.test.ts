@@ -11,7 +11,16 @@ describe("rate-limit policy", () => {
       limit: 60,
       fallbackLimit: 10,
       windowSeconds: 60,
+      failClosedOnRedisFailure: true,
     });
+  });
+
+  test("fails closed for distributed protocol boundaries", () => {
+    expect(RATE_LIMIT_PROFILES.webhooks.failClosedOnRedisFailure).toBeTrue();
+    expect(RATE_LIMIT_PROFILES.scim.failClosedOnRedisFailure).toBeTrue();
+    expect(
+      rateLimitPolicy("projects.list", true).failClosedOnRedisFailure,
+    ).toBeFalse();
   });
 
   test("uses the shared protocol profiles", () => {

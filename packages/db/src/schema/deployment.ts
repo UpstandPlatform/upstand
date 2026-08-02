@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { resource } from "./resource";
+import { server } from "./server";
 
 export const deployment = pgTable(
   "deployment",
@@ -12,7 +13,9 @@ export const deployment = pgTable(
     status: text("status").notNull(), // 'queued' | 'running' | 'success' | 'failed'
     title: text("title").notNull(),
     logs: text("logs").default("").notNull(),
-    serverId: text("server_id"),
+    serverId: text("server_id").references(() => server.id, {
+      onDelete: "set null",
+    }),
     serverName: text("server_name"),
     sourceRevision: text("source_revision"),
     executionToken: text("execution_token"),

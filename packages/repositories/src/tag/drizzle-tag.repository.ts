@@ -6,7 +6,10 @@ import {
   TagSchema,
 } from "@upstand/domain";
 import { and, eq } from "drizzle-orm";
-import { BaseRepository } from "../shared/base.repository";
+import {
+  BaseRepository,
+  MAX_REPOSITORY_READS,
+} from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
 export class DrizzleTagRepository
@@ -33,7 +36,13 @@ export class DrizzleTagRepository
       })
       .from(resourceTag)
       .innerJoin(tag, eq(resourceTag.tagId, tag.id))
-      .where(eq(resourceTag.resourceId, resourceId));
+      .where(eq(resourceTag.resourceId, resourceId))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "Resource tag discovery exceeded the maximum supported row count",
+      );
+    }
     return rows.map((row) => TagSchema.parse(row));
   }
 

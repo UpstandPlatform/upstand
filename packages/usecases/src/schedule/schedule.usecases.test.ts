@@ -10,6 +10,7 @@ import {
 
 interface ResourceReference {
   id: string;
+  environmentId: string;
   name: string;
   serverId: string | null;
 }
@@ -18,13 +19,26 @@ function createUow(): { uow: IUnitOfWork; schedules: Map<string, Schedule> } {
   const resources = new Map<string, ResourceReference>([
     [
       "resource-1",
-      { id: "resource-1", name: "Test resource", serverId: "local" },
+      {
+        id: "resource-1",
+        environmentId: "environment-1",
+        name: "Test resource",
+        serverId: "local",
+      },
     ],
   ]);
   const schedules = new Map<string, Schedule>();
   const uow = {
     resourceRepository: {
       findById: async (id: string) => resources.get(id) ?? null,
+    },
+    environmentRepository: {
+      findById: async (id: string) =>
+        id === "environment-1" ? { id, projectId: "project-1" } : null,
+    },
+    projectRepository: {
+      findById: async (id: string) =>
+        id === "project-1" ? { id, organizationId: "org-1" } : null,
     },
     scheduleRepository: {
       findById: async (id: string) => schedules.get(id) ?? null,
@@ -78,6 +92,7 @@ describe("resource schedules", () => {
     const { uow, schedules } = createUow();
     const created = await new CreateScheduleUseCase(uow).execute({
       resourceId: "resource-1",
+      organizationId: "org-1",
       name: "Nightly",
       cronExpression: "0 2 * * *",
       jobType: "command",
@@ -90,11 +105,15 @@ describe("resource schedules", () => {
     ).toHaveLength(1);
     const updated = await new UpdateScheduleUseCase(uow).execute({
       id: created.id,
+      organizationId: "org-1",
       enabled: false,
     });
     expect(updated.enabled).toBe(false);
     expect(
-      await new DeleteScheduleUseCase(uow).execute({ id: created.id }),
+      await new DeleteScheduleUseCase(uow).execute({
+        id: created.id,
+        organizationId: "org-1",
+      }),
     ).toBe(true);
     expect(schedules.size).toBe(0);
   });
@@ -104,6 +123,7 @@ describe("resource schedules", () => {
     await expect(
       new CreateScheduleUseCase(uow).execute({
         resourceId: "resource-1",
+        organizationId: "org-1",
         name: "Invalid",
         cronExpression: "not a cron",
         jobType: "command",
@@ -117,6 +137,7 @@ describe("resource schedules", () => {
     const { uow } = createUow();
     const schedule = await new CreateScheduleUseCase(uow).execute({
       resourceId: "resource-1",
+      organizationId: "org-1",
       name: "Nightly deploy",
       cronExpression: "0 3 * * *",
       jobType: "deployment",
@@ -132,6 +153,7 @@ describe("resource schedules", () => {
     await expect(
       new CreateScheduleUseCase(uow).execute({
         resourceId: "resource-1",
+        organizationId: "org-1",
         name: "Nightly backup",
         cronExpression: "0 4 * * *",
         jobType: "backup",

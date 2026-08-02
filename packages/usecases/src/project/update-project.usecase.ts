@@ -4,6 +4,7 @@ import { z } from "zod";
 
 export const UpdateProjectInputSchema = z.object({
   id: z.string().min(1, "Project ID is required"),
+  organizationId: z.string().min(1, "Organization ID is required").optional(),
   name: z.string().min(1, "Project name cannot be empty").optional(),
   description: z.string().optional().nullable(),
   icon: EntityIconSchema,
@@ -18,6 +19,12 @@ export class UpdateProjectUseCase {
   async execute(input: UpdateProjectInput): Promise<Project> {
     const project = await this.uow.projectRepository.findById(input.id);
     if (!project) {
+      throw new ValidationError("Project not found");
+    }
+    if (
+      !input.organizationId ||
+      project.organizationId !== input.organizationId
+    ) {
       throw new ValidationError("Project not found");
     }
 

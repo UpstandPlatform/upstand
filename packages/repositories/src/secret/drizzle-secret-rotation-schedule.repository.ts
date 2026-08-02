@@ -5,7 +5,11 @@ import type {
   SecretRotationSchedule,
   SecretScopeType,
 } from "@upstand/domain";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
+import {
+  assertBoundedRepositoryRead,
+  MAX_REPOSITORY_READS,
+} from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
 export class DrizzleSecretRotationScheduleRepository
@@ -34,8 +38,12 @@ export class DrizzleSecretRotationScheduleRepository
           eq(secretRotationSchedule.scopeType, scopeType),
           eq(secretRotationSchedule.scopeId, scopeId),
         ),
-      );
-    return rows.map((row) => this.toDomain(row));
+      )
+      .orderBy(asc(secretRotationSchedule.createdAt))
+      .limit(MAX_REPOSITORY_READS + 1);
+    return assertBoundedRepositoryRead(rows, "Secret rotation schedule").map(
+      (row) => this.toDomain(row),
+    );
   }
 
   async findDue(now: Date): Promise<SecretRotationSchedule[]> {
@@ -54,8 +62,10 @@ export class DrizzleSecretRotationScheduleRepository
             sql`${secretRotationSchedule.rotationClaimedUntil} <= ${now}`,
           ),
         ),
-      );
-    return rows
+      )
+      .orderBy(asc(secretRotationSchedule.createdAt))
+      .limit(MAX_REPOSITORY_READS + 1);
+    return assertBoundedRepositoryRead(rows, "Due secret rotation schedule")
       .filter(
         (row) =>
           !row.lastRotatedAt ||

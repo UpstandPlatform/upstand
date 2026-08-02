@@ -61,34 +61,23 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { CreateOrganizationDialog } from "@/components/auth/organization/create-organization-dialog";
 import { OrganizationSwitcher } from "@/components/auth/organization/organization-switcher";
 import { UserButton } from "@/components/auth/user/user-button";
+import { DashboardSharedFeatures } from "@/components/dashboard/dashboard-shared-features";
 import { ModeToggle } from "@/components/mode-toggle";
 import { ProjectsBreadcrumb } from "@/components/projects-breadcrumb";
 import { UpGalTarget } from "@/components/upgal-target";
+import { DesktopChrome } from "@/components/workspace/desktop-chrome";
+import { WorkspaceShell } from "@/components/workspace/workspace-shell";
+import { usePlatformCapabilities } from "@/hooks/use-platform-capabilities";
 import { useSystemConfig } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
+import { cn } from "@/lib/utils";
 import { trpc } from "@/utils/trpc";
 
 const GlobalSearch = dynamic(
   () =>
     import("@/components/global-search").then((module) => module.GlobalSearch),
-  { ssr: false },
-);
-const UpGalChat = dynamic(
-  () => import("@/components/upgal-chat").then((module) => module.UpGalChat),
-  { ssr: false },
-);
-const UpGalGuideOverlay = dynamic(
-  () =>
-    import("@/components/upgal-guide-overlay").then(
-      (module) => module.UpGalGuideOverlay,
-    ),
-  { ssr: false },
-);
-const SettingsDialog = dynamic(
-  () => import("@/features/settings").then((module) => module.SettingsDialog),
   { ssr: false },
 );
 
@@ -317,8 +306,20 @@ function DashboardSidebarGroup({
   currentTab: string | null;
   isCloud: boolean;
 }) {
+  const { capabilities } = usePlatformCapabilities();
+
   const filteredItems = group.items.filter((item) => {
     if (isCloud && item.href === "/web-server") return false;
+    if (capabilities) {
+      if (item.href === "/docker-swarm" && !capabilities.swarmManagement)
+        return false;
+      if (
+        (item.href === "/settings/scim" || item.href === "/settings/sso") &&
+        !capabilities.enterpriseScimSso
+      ) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -399,7 +400,7 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
   const { isCloud } = useSystemConfig();
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar className={cn("in-[.is-desktop]:pt-9")} collapsible="icon">
       <OrganizationSwitcher className="min-h-13.75 w-full rounded-none border-none p-[11.5px]" />
 
       <Separator />
@@ -417,7 +418,7 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
         ))}
       </SidebarContent>
 
-      <SidebarFooter className="p-0">
+      <SidebarFooter className="border-t p-0">
         <UserButton className="w-full rounded-none border-none" />
       </SidebarFooter>
     </Sidebar>
@@ -443,27 +444,12 @@ function BreadcrumbTitle({
   );
 }
 
-function ChatWrapper({
-  organizationId,
-  pathname,
-}: {
-  organizationId: string | undefined;
-  pathname: string;
-}) {
-  const searchParams = useSearchParams();
-  const currentTab = searchParams.get("tab");
-
-  const currentNav = getCurrentNavigationItem(pathname, currentTab);
-
-  return (
-    <UpGalChat organizationId={organizationId} pageTitle={currentNav?.title} />
-  );
-}
-
-export default function DashboardLayout({
+export function DashboardLayout({
   children,
+  variant = "legacy",
 }: {
   children: React.ReactNode;
+  variant?: "legacy" | "workspace";
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -670,72 +656,93 @@ export default function DashboardLayout({
   // 2FA challenge page — render without the sidebar shell
   if (pathname === "/2fa-verify") return <>{children}</>;
 
+  if (variant === "workspace") {
+    return (
+      <>
+        <WorkspaceShell activeOrganization={activeOrg}>
+          {children}
+        </WorkspaceShell>
+        <DashboardSharedFeatures
+          organizationId={activeOrg?.id}
+          createOrganizationOpen={createOrgOpen}
+          onCreateOrganizationOpenChange={setCreateOrgOpen}
+          pageTitle="Workspace"
+        />
+      </>
+    );
+  }
+
   return (
     <SidebarProvider>
-      <div className="flex h-svh w-full overflow-hidden">
-        <Suspense fallback={<div className="w-60 border-r bg-background" />}>
-          <DashboardSidebar pathname={pathname} />
-        </Suspense>
+      <div className="flex h-svh w-full flex-col overflow-hidden">
+        <DesktopChrome />
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <Suspense fallback={<div className="w-60 border-r bg-background" />}>
+            <DashboardSidebar pathname={pathname} />
+          </Suspense>
 
-        <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2 sm:flex-nowrap sm:px-4 sm:py-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <SidebarTrigger />
-              <Breadcrumb className="min-w-0">
-                <BreadcrumbList>
-                  <BreadcrumbItem className="hidden sm:inline-flex">
-                    <BreadcrumbLink href="/dashboard">Dashboard</BreadcrumbLink>
-                  </BreadcrumbItem>
-                  {activeOrg && (
-                    <>
-                      <BreadcrumbSeparator />
-                      {pathname === "/projects" ||
-                      pathname.startsWith("/projects/") ? (
-                        <ProjectsBreadcrumb
-                          activeOrg={activeOrg}
-                          pathname={pathname}
-                        />
-                      ) : (
-                        <BreadcrumbItem>
-                          <Suspense
-                            fallback={
-                              <BreadcrumbPage className="max-w-[min(48vw,16rem)] truncate">
-                                {activeOrg.name}
-                              </BreadcrumbPage>
-                            }
-                          >
-                            <BreadcrumbTitle
-                              pathname={pathname}
-                              activeOrgName={activeOrg.name}
-                            />
-                          </Suspense>
-                        </BreadcrumbItem>
-                      )}
-                    </>
-                  )}
-                </BreadcrumbList>
-              </Breadcrumb>
-            </div>
-            <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <GlobalSearch />
-              <ModeToggle />
-            </div>
-          </header>
+          <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2 sm:flex-nowrap sm:px-4 sm:py-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <SidebarTrigger />
+                <Breadcrumb className="min-w-0">
+                  <BreadcrumbList>
+                    <BreadcrumbItem className="hidden sm:inline-flex">
+                      <BreadcrumbLink href="/dashboard">
+                        Dashboard
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                    {activeOrg && (
+                      <>
+                        <BreadcrumbSeparator />
+                        {pathname === "/projects" ||
+                        pathname.startsWith("/projects/") ? (
+                          <ProjectsBreadcrumb
+                            activeOrg={activeOrg}
+                            pathname={pathname}
+                          />
+                        ) : (
+                          <BreadcrumbItem>
+                            <Suspense
+                              fallback={
+                                <BreadcrumbPage className="max-w-[min(48vw,16rem)] truncate">
+                                  {activeOrg.name}
+                                </BreadcrumbPage>
+                              }
+                            >
+                              <BreadcrumbTitle
+                                pathname={pathname}
+                                activeOrgName={activeOrg.name}
+                              />
+                            </Suspense>
+                          </BreadcrumbItem>
+                        )}
+                      </>
+                    )}
+                  </BreadcrumbList>
+                </Breadcrumb>
+              </div>
+              <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+                <GlobalSearch />
+                <ModeToggle />
+              </div>
+            </header>
 
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-            {children}
-          </div>
-        </SidebarInset>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+              {children}
+            </div>
+          </SidebarInset>
+        </div>
       </div>
-      <CreateOrganizationDialog
-        open={createOrgOpen}
-        onOpenChange={setCreateOrgOpen}
-      />
-      <SettingsDialog />
       <Suspense fallback={null}>
-        <ChatWrapper organizationId={activeOrg?.id} pathname={pathname} />
+        <DashboardSharedFeatures
+          organizationId={activeOrg?.id}
+          createOrganizationOpen={createOrgOpen}
+          onCreateOrganizationOpenChange={setCreateOrgOpen}
+        />
       </Suspense>
-      <UpGalGuideOverlay />
     </SidebarProvider>
   );
 }
+
+export default DashboardLayout;

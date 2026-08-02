@@ -5,6 +5,11 @@ import {
   splitMCPAppTools,
 } from "@ai-sdk/mcp";
 import { env } from "@upstand/env/server";
+import {
+  type AddressResolver,
+  isBlockedAddress,
+  resolveAllAddresses,
+} from "@upstand/platform/network/outbound";
 import type { Tool } from "ai";
 import { z } from "zod";
 import type { RequestLog } from "../context";
@@ -17,22 +22,127 @@ const serverSchema = z.object({
 
 const serversSchema = z.array(serverSchema).max(10);
 type MCPAppTools = Record<string, Tool<unknown, unknown>>;
+type UpGalMCPFetch = (
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) => Promise<Response>;
+
+export const UPGAL_MCP_REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * Give every MCP HTTP request a hard deadline while preserving cancellation
+ * from the enclosing MCP transport or request.
+ */
+export function createUpGalMCPFetch(
+  timeoutMs = UPGAL_MCP_REQUEST_TIMEOUT_MS,
+  baseFetch: UpGalMCPFetch = globalThis.fetch,
+): UpGalMCPFetch {
+  return async (input, init) => {
+    const controller = new AbortController();
+    const sourceSignal = init?.signal;
+    const abortFromSource = () => controller.abort();
+
+    if (sourceSignal?.aborted) {
+      controller.abort();
+    } else {
+      sourceSignal?.addEventListener("abort", abortFromSource, {
+        once: true,
+      });
+    }
+
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await baseFetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+      sourceSignal?.removeEventListener("abort", abortFromSource);
+    }
+  };
+}
 
 export type UpGalMCPAppConnection = {
   tools: MCPAppTools;
   close: () => Promise<void>;
 };
 
-function configuredServers(logger: Pick<RequestLog, "warn">) {
+export async function assertSafeUpGalMCPServerUrl(
+  rawUrl: string,
+  resolveHost: AddressResolver = resolveAllAddresses,
+): Promise<URL> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("MCP server URL must be valid");
+  }
+
+  if (url.username || url.password || !url.hostname) {
+    throw new Error("MCP server URL cannot contain credentials");
+  }
+
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (hostname === "localhost") {
+    if (!["http:", "https:"].includes(url.protocol)) {
+      throw new Error("MCP localhost URL must use HTTP(S)");
+    }
+    return url;
+  }
+
+  if (url.protocol !== "https:" || isBlockedAddress(hostname)) {
+    throw new Error("MCP server URL must use HTTPS and target a public host");
+  }
+
+  let addresses: Array<{ address: string }>;
+  try {
+    addresses = await resolveHost(hostname);
+  } catch {
+    throw new Error("MCP server hostname could not be resolved");
+  }
+  if (
+    addresses.length === 0 ||
+    addresses.some(({ address }) => isBlockedAddress(address))
+  ) {
+    throw new Error(
+      "MCP server hostname must resolve only to public addresses",
+    );
+  }
+  return url;
+}
+
+async function configuredServers(
+  logger: Pick<RequestLog, "warn">,
+  resolveHost: AddressResolver = resolveAllAddresses,
+) {
+  if (!env.UPGAL_ALLOW_GLOBAL_MCP) {
+    return [];
+  }
+
+  if (env.IS_CLOUD) {
+    logger.warn("Global MCP integrations are disabled in cloud mode");
+    return [];
+  }
+
   const raw = env.UPGAL_MCP_SERVERS?.trim();
   if (!raw) return [];
 
   try {
     const parsed = serversSchema.parse(JSON.parse(raw));
-    return parsed.filter((server) => {
-      const url = new URL(server.url);
-      return url.protocol === "https:" || url.hostname === "localhost";
-    });
+    const valid = [];
+    for (const server of parsed) {
+      try {
+        await assertSafeUpGalMCPServerUrl(server.url, resolveHost);
+        valid.push(server);
+      } catch (error) {
+        logger.warn("Ignoring unsafe UPGAL MCP server configuration", {
+          serverId: server.id,
+          err: error,
+        });
+      }
+    }
+    return valid;
   } catch (error) {
     logger.warn("Ignoring invalid UPGAL_MCP_SERVERS configuration", {
       err: error,
@@ -74,18 +184,19 @@ export async function connectUpGalMCPApps(
   const clients: MCPClient[] = [];
   const tools: MCPAppTools = {};
 
-  for (const server of configuredServers(logger)) {
+  for (const server of await configuredServers(logger)) {
     try {
       const client = await createMCPClient({
         clientName: "upgal",
         version: "1.0.0",
         capabilities: mcpAppClientCapabilities,
-        maxRetries: 1,
+        maxRetries: 0,
         transport: {
           type: "http",
           url: server.url,
           headers: server.headers,
           redirect: "error",
+          fetch: createUpGalMCPFetch() as typeof fetch,
         },
       });
       clients.push(client);

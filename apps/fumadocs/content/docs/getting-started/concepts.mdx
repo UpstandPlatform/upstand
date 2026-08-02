@@ -71,7 +71,7 @@ graph LR
     end
 
     subgraph DeployNodes["Swarm Compute Cluster"]
-        DeployServer1["Manager Node (Caddy Ingress + Swarm)"]
+        DeployServer1["Manager Node (Caddy + Swarm)"]
         DeployServer2["Worker Node (Application & Stack Workloads)"]
     end
 
@@ -87,7 +87,7 @@ graph LR
 
 Servers are registered at organization scope and assigned specialized operational roles:
 
-1. **Deploy Server**: Runs Docker Swarm workloads, Caddy reverse proxy ingress, overlay networking, and health metrics collection.
+1. **Deploy Server**: Runs Docker Swarm workloads, the Caddy application proxy, overlay networking, and health metrics collection.
 2. **Build Server**: Offloads heavy Docker image compilations (BuildKit) away from production deployment nodes.
 3. **Database Server**: Dedicated compute node isolated for database engines with high I/O persistent disk volume mounts. Cannot host application or Compose stack resources.
 

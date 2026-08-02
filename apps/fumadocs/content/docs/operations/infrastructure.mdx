@@ -3,7 +3,7 @@ title: Infrastructure operations
 description: Provision hosts, manage Docker Swarm, inspect Docker inventory, operate Caddy, and maintain the control plane safely.
 ---
 
-Upstand provides operational management for compute hosts, Docker Swarm clusters, Caddy reverse proxy ingress, and background monitoring workers.
+Upstand provides operational management for compute hosts, Docker Swarm clusters, the Caddy application proxy, and background monitoring workers.
 
 ---
 
@@ -38,7 +38,7 @@ flowchart TD
     end
 
     subgraph TargetHosts["Infrastructure Compute Hosts"]
-        Host1["Manager Node (Caddy Ingress + Swarm)"]
+        Host1["Manager Node (Caddy + Swarm)"]
         Host2["Worker Node (Container Workloads)"]
         Host3["Remote Server (SSH Isolated Host)"]
         DeployWorker -->|Docker Socket| Host1
@@ -55,7 +55,7 @@ For detailed queue worker specifications and job conventions, see [Schedules, Wo
 
 Use **Infrastructure → Remote Servers** to add a host with a name, SSH address/port, username, and organization SSH key. Choose a role before provisioning:
 
-- **Deploy**: Swarm, Caddy ingress, and monitoring.
+- **Deploy**: Swarm, the public Caddy application proxy, and monitoring.
 - **Build**: Docker build capacity and monitoring.
 - **Database**: Swarm database capacity and monitoring.
 
@@ -71,7 +71,10 @@ The wizard saves connection details, runs setup, and reports status. Removing a 
 
 ## Web Server and Caddy
 
-The Web Server page manages Caddy settings, environment values, snippets, previews, logs, health checks, backup settings, Docker cleanup, and GPU detection/configuration. Upstand validates generated Caddy configuration before applying a reload so invalid routing does not replace the active configuration.
+The Web Server page manages Caddy settings, environment values, snippets,
+previews, logs, health checks, backup settings, Docker cleanup, and GPU
+detection/configuration. Caddy owns the public `:80` and `:443` listeners and
+routes configured domains to application services.
 
 Daily Docker cleanup is configurable from the Web Server page. Cleanup affects unused host Docker state; do not enable it until you understand which images, volumes, containers, and build cache are considered unused by the operation.
 

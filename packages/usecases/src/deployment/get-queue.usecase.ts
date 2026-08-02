@@ -2,7 +2,10 @@ import type { IUnitOfWork } from "@upstand/domain";
 import { redis } from "@upstand/redis";
 import { Queue } from "bullmq";
 import { getDeploymentQueueName } from "./deployment-queue-name";
-import { findOrganizationResourceIds } from "./organization-resources.helper";
+import {
+  findOrganizationResourceIds,
+  mapWithConcurrency,
+} from "./organization-resources.helper";
 
 export interface QueueJobResult {
   id: string;
@@ -44,11 +47,13 @@ export class GetQueueUseCase {
     }
 
     const resources = resourceIds
-      ? await Promise.all(
-          resourceIds.map((resourceId) =>
-            this.uow.resourceRepository.findById(resourceId),
-          ),
-        ).then((items) => items.filter((resource) => resource !== null))
+      ? this.uow.resourceRepository.findSummariesByIds
+        ? await this.uow.resourceRepository.findSummariesByIds(resourceIds)
+        : (
+            await mapWithConcurrency(resourceIds, (resourceId) =>
+              this.uow.resourceRepository.findById(resourceId),
+            )
+          ).filter((resource) => resource !== null)
       : await this.uow.resourceRepository.findMany();
     const resourceMap = new Map(resources.map((r) => [r.id, r]));
     for (const resource of resources) {
@@ -69,12 +74,13 @@ export class GetQueueUseCase {
 
     const allJobs: QueueJobResult[] = [];
     const representedDeploymentIds = new Set<string>();
+    const deploymentIdsToLabel = new Set<string>();
 
     for (const serverId of uniqueServerIds) {
       const server = serverMap.get(serverId);
       const serverName =
         server?.hostname ||
-        (serverId === "local" ? "Dokploy Server" : `Server ${serverId}`);
+        (serverId === "local" ? "Upstand Server" : `Server ${serverId}`);
       const queueName = getDeploymentQueueName(serverId);
       const queue = new Queue(queueName, { connection: redis });
 
@@ -93,15 +99,11 @@ export class GetQueueUseCase {
 
           // Get deployment details from DB if possible to show rich title
           const deploymentId = job.data?.deploymentId;
-          if (deploymentId) representedDeploymentIds.add(deploymentId);
-          let label = "Manual deployment";
           if (deploymentId) {
-            const dep =
-              await this.uow.deploymentRepository.findById(deploymentId);
-            if (dep) {
-              label = dep.title;
-            }
+            representedDeploymentIds.add(deploymentId);
+            deploymentIdsToLabel.add(deploymentId);
           }
+          const label = "Manual deployment";
 
           allJobs.push({
             id: job.id || "",
@@ -133,6 +135,27 @@ export class GetQueueUseCase {
       }
     }
 
+    if (deploymentIdsToLabel.size > 0) {
+      const deploymentIds = [...deploymentIdsToLabel];
+      const deployments = this.uow.deploymentRepository.findByIds
+        ? await this.uow.deploymentRepository.findByIds(deploymentIds)
+        : (
+            await mapWithConcurrency(deploymentIds, (deploymentId) =>
+              this.uow.deploymentRepository.findById(deploymentId),
+            )
+          ).filter(
+            (deployment): deployment is NonNullable<typeof deployment> =>
+              deployment !== null,
+          );
+      const titleById = new Map(
+        deployments.map((deployment) => [deployment.id, deployment.title]),
+      );
+      for (const job of allJobs) {
+        const title = titleById.get(job.deploymentId);
+        if (title) job.label = title;
+      }
+    }
+
     // The deployment row is created before the transactional outbox publishes
     // the BullMQ job. Reconcile queued rows here so the UI does not disagree
     // with deployment history during that hand-off (or after a transient
@@ -159,7 +182,7 @@ export class GetQueueUseCase {
         resourceId: resource.id,
         resourceName: resource.name,
         serverId: deployment.serverId || resource.serverId || "local",
-        serverName: deployment.serverName || "Dokploy Server",
+        serverName: deployment.serverName || "Upstand Server",
       });
     }
 

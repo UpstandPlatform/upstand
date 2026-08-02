@@ -2,16 +2,56 @@ import { getRateLimiterHealth } from "@upstand/api";
 import { env } from "@upstand/env/server";
 import { pingRedis, redis } from "@upstand/redis";
 import {
+  getPlatformCapabilities,
+  resolveControlPlaneMode,
+} from "@upstand/usecases";
+import type { DatabaseHealthPort } from "@upstand/usecases/ports/database-health";
+import {
+  DatabaseHealthToken,
   GetSetupStatusUseCaseToken,
-  UnitOfWorkToken,
 } from "@upstand/usecases/tokens";
-import type { Context, Hono } from "hono";
+import type { Hono } from "hono";
 import type { AppEnv } from "../types";
 
 export type SystemRouteDependencies = {
   isShuttingDown(): boolean;
   isCaddyReady(): boolean;
+  isSchedulesReady(): Promise<boolean>;
+  isMonitoringReady?: () => boolean;
+  monitoringRequired?: boolean;
 };
+
+export function isRequiredMonitoringReady(
+  monitoringRequired: boolean,
+  monitoringReady: boolean,
+): boolean {
+  return !monitoringRequired || monitoringReady;
+}
+
+export async function probeDatabase(
+  databaseHealth: DatabaseHealthPort,
+  timeoutMs = 1_000,
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      databaseHealth.ping(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(new Error(`Database ping timed out after ${timeoutMs}ms`)),
+          Math.max(1, Math.floor(timeoutMs)),
+        );
+        timeout.unref?.();
+      }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 /** Registers the minimal first-run status endpoint before tenant routes. */
 export function registerSetupStatusRoute(app: Hono<AppEnv>): void {
@@ -20,7 +60,16 @@ export function registerSetupStatusRoute(app: Hono<AppEnv>): void {
       .get("scope")
       .resolve(GetSetupStatusUseCaseToken)
       .execute();
-    return c.json({ ...status, isCloud: env.IS_CLOUD });
+    const platformMode = resolveControlPlaneMode({
+      platform: env.UPSTAND_PLATFORM,
+      isCloud: env.IS_CLOUD,
+    });
+    return c.json({
+      ...status,
+      isCloud: platformMode === "cloud",
+      platformMode,
+      capabilities: getPlatformCapabilities(platformMode),
+    });
   });
 }
 
@@ -32,24 +81,35 @@ export function registerSystemRoutes(
   app.get("/health/live", (c) => c.json({ status: "alive" }));
 
   app.get("/health/ready", async (c) => {
-    const redisReady = await pingRedis(redis);
+    const platformMode = resolveControlPlaneMode({
+      platform: env.UPSTAND_PLATFORM,
+      isCloud: env.IS_CLOUD,
+    });
+    const redisReady =
+      platformMode === "desktop" ? true : await pingRedis(redis);
     const rateLimiterHealth = getRateLimiterHealth();
-    let databaseReady = false;
-    try {
-      const uow = c.get("scope").resolve(UnitOfWorkToken);
-      await uow.resourceRepository.count();
-      databaseReady = true;
-    } catch (error) {
-      c.get("log").error(error instanceof Error ? error : String(error), {
+    const schedulesReady =
+      platformMode === "desktop" ? true : await dependencies.isSchedulesReady();
+    const databaseHealth = c.get("scope").resolve(DatabaseHealthToken);
+    const databaseReady = await probeDatabase(databaseHealth);
+    const monitoringReady = dependencies.isMonitoringReady?.() ?? true;
+    const monitoringCheck = isRequiredMonitoringReady(
+      dependencies.monitoringRequired ?? false,
+      monitoringReady,
+    );
+    if (!databaseReady) {
+      c.get("log").error("Database readiness check failed", {
         message: "Database readiness check failed",
       });
     }
 
     const ready =
       !dependencies.isShuttingDown() &&
-      dependencies.isCaddyReady() &&
-      redisReady &&
-      databaseReady;
+      (platformMode === "desktop" || dependencies.isCaddyReady()) &&
+      (platformMode === "desktop" || redisReady) &&
+      (platformMode === "desktop" || schedulesReady) &&
+      databaseReady &&
+      monitoringCheck;
     return c.json(
       {
         status: ready ? "ready" : "not_ready",
@@ -57,44 +117,14 @@ export function registerSystemRoutes(
           database: databaseReady,
           caddy: dependencies.isCaddyReady(),
           redis: redisReady,
+          schedules: schedulesReady,
+          monitoring: monitoringCheck,
           rateLimiter: rateLimiterHealth,
         },
       },
       ready ? 200 : 503,
     );
   });
-
-  // OAuth 2.0 Authorization Server Metadata (RFC 8414) & OpenID Connect Discovery.
-  // MCP 2025-03-26 clients probe these endpoints for authentication discovery.
-  // RFC 8414 strictly requires issuer, authorization_endpoint, and token_endpoint.
-  const handleAuthMetadata = (c: Context<AppEnv>) => {
-    const base = new URL(c.req.url).origin;
-    return c.json({
-      issuer: base,
-      authorization_endpoint: `${base}/api/auth/authorize`,
-      token_endpoint: `${base}/api/auth/token`,
-      registration_endpoint: `${base}/api/auth/register`,
-      scopes_supported: ["mcp:read", "mcp:full"],
-      response_types_supported: ["code", "token"],
-      grant_types_supported: [
-        "authorization_code",
-        "client_credentials",
-        "refresh_token",
-      ],
-      token_endpoint_auth_methods_supported: [
-        "client_secret_basic",
-        "client_secret_post",
-        "none",
-      ],
-      revocation_endpoint: `${base}/api/auth/revoke`,
-      introspection_endpoint: `${base}/api/auth/introspect`,
-      code_challenge_methods_supported: ["S256"],
-      service_documentation: `${base}/docs`,
-    });
-  };
-
-  app.get("/.well-known/oauth-authorization-server", handleAuthMetadata);
-  app.get("/.well-known/openid-configuration", handleAuthMetadata);
 
   app.get("/", (c) => c.text("OK"));
 }

@@ -9,7 +9,10 @@ import { UpdateResourceUseCaseToken } from "@upstand/usecases/tokens";
 import { z } from "zod";
 import type { AuthenticatedContext } from "../context";
 import { router, twoFactorVerifiedProcedure } from "../index";
-import { authorizeResource } from "./shared/resource-authorization";
+import {
+  authorizeResource,
+  resolveResourceTarget,
+} from "./shared/resource-authorization";
 
 const ResourceIndexInputSchema = z.object({
   id: z.string().min(1),
@@ -48,8 +51,10 @@ async function updateConfig(
   resource: Resource,
   config: ReturnType<typeof parseResourceAdvancedConfig>,
 ) {
+  const { organizationId } = await resolveResourceTarget(ctx, resource.id);
   const updated = await ctx.scope.resolve(UpdateResourceUseCaseToken).execute({
     id: resource.id,
+    organizationId,
     advancedConfig: JSON.stringify(config),
   });
   if (!updated)

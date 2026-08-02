@@ -1,5 +1,8 @@
+import { redis, withRedisLock } from "@upstand/redis";
 import { Cron } from "croner";
 import { log } from "evlog";
+
+const SCHEDULE_TRIGGER_LOCK_TTL_MS = 30 * 60_000;
 
 export interface ScheduledJobItem {
   id: string;
@@ -18,7 +21,10 @@ export abstract class BaseCronScheduler<TSchedule extends ScheduledJobItem> {
   private ready = false;
   private refreshInFlight: Promise<void> | null = null;
 
-  constructor(protected readonly refreshErrorMessage: string) {}
+  constructor(
+    protected readonly refreshErrorMessage: string,
+    private readonly lockNamespace: string,
+  ) {}
 
   abstract loadSchedules(): Promise<TSchedule[]>;
   abstract buildSignature(schedule: TSchedule): string;
@@ -96,7 +102,7 @@ export abstract class BaseCronScheduler<TSchedule extends ScheduledJobItem> {
             protect: true,
             ...(mode ? { mode } : {}),
           },
-          () => void this.onTrigger(schedule.id),
+          () => void this.triggerWithLock(schedule.id),
         );
         this.jobs.set(schedule.id, { cron, signature });
       } catch (error) {
@@ -106,6 +112,25 @@ export abstract class BaseCronScheduler<TSchedule extends ScheduledJobItem> {
           err: error,
         });
       }
+    }
+  }
+
+  private async triggerWithLock(scheduleId: string): Promise<void> {
+    try {
+      await withRedisLock({
+        redis,
+        key: `upstand:scheduler:${this.lockNamespace}:${scheduleId}`,
+        ttlMs: SCHEDULE_TRIGGER_LOCK_TTL_MS,
+        work: () => this.onTrigger(scheduleId),
+      });
+    } catch (error: unknown) {
+      log.error({
+        message:
+          "Failed to acquire or execute distributed schedule trigger lock",
+        scheduleId,
+        lockNamespace: this.lockNamespace,
+        err: error,
+      });
     }
   }
 }

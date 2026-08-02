@@ -4,10 +4,22 @@ const DEFAULT_REDIS_TIMEOUT_MS = 750;
 const DEFAULT_REDIS_COOLDOWN_MS = 5_000;
 const DEFAULT_LOCAL_ENTRY_LIMIT = 10_000;
 const LOG_INTERVAL_MS = 60_000;
+const INCREMENT_RATE_LIMIT_SCRIPT = `
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return count
+`;
 
 export type RateLimitRedis = {
   incr(key: string): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
+  eval?(
+    script: string,
+    numberOfKeys: number,
+    ...argumentsList: string[]
+  ): Promise<unknown>;
 };
 
 export type RateLimitCheckOptions = {
@@ -106,16 +118,7 @@ export class RateLimiter {
     const currentWindow = Math.floor(now / 1000 / windowSeconds);
     const redisKey = `${key}:${currentWindow}`;
     try {
-      const count = await withTimeout(
-        this.redis.incr(redisKey),
-        this.redisTimeoutMs,
-      );
-      if (count === 1) {
-        await withTimeout(
-          this.redis.expire(redisKey, windowSeconds),
-          this.redisTimeoutMs,
-        );
-      }
+      const count = await this.incrementWithExpiry(redisKey, windowSeconds);
       this.markRedisAvailable(now);
       return {
         allowed: count <= limit,
@@ -128,6 +131,37 @@ export class RateLimiter {
       this.markRedisUnavailable(now, error);
       return this.checkLocal(key, fallbackLimit, windowSeconds, now);
     }
+  }
+
+  private async incrementWithExpiry(
+    key: string,
+    windowSeconds: number,
+  ): Promise<number> {
+    if (this.redis.eval) {
+      const result = await withTimeout(
+        this.redis.eval(
+          INCREMENT_RATE_LIMIT_SCRIPT,
+          1,
+          key,
+          String(windowSeconds),
+        ),
+        this.redisTimeoutMs,
+      );
+      const count = Number(result);
+      if (!Number.isSafeInteger(count) || count < 1) {
+        throw new Error("Redis returned an invalid rate-limit count");
+      }
+      return count;
+    }
+
+    const count = await withTimeout(this.redis.incr(key), this.redisTimeoutMs);
+    if (count === 1) {
+      await withTimeout(
+        this.redis.expire(key, windowSeconds),
+        this.redisTimeoutMs,
+      );
+    }
+    return count;
   }
 
   getHealth(): RateLimiterHealth {

@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { IUnitOfWork, S3Destination } from "@upstand/domain";
+import { env } from "@upstand/env/server";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
+import { assertConfiguredHttpUrl } from "@upstand/platform/network/outbound";
 import { z } from "zod";
+import { resolveCertificateForOrganization } from "../certificate/certificate-reference";
 import { publicS3Destination } from "./public-s3-destination";
 
 export const CreateS3DestinationInputSchema = z.object({
@@ -25,6 +28,18 @@ export class CreateS3DestinationUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: CreateS3DestinationInput): Promise<S3Destination> {
+    await assertConfiguredHttpUrl(
+      input.endpoint,
+      (env.UPSTAND_OUTBOUND_ALLOWED_HOSTS ?? "")
+        .split(",")
+        .map((host) => host.trim())
+        .filter(Boolean),
+    );
+    await resolveCertificateForOrganization(
+      this.uow,
+      input.certificateId,
+      input.organizationId,
+    );
     return this.uow.transaction(async (tx) => {
       const encryptedAccessKeyId = JSON.stringify(
         encryptSecret(input.accessKeyId),

@@ -1,0 +1,1 @@
+CREATE INDEX "outbox_pending_idx" ON "outbox" USING btree ("available_at","created_at") WHERE status = 'pending';

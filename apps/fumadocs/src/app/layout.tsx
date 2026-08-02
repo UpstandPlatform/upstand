@@ -1,13 +1,11 @@
+import { env } from "@upstand/env/web";
 import { RootProvider } from "fumadocs-ui/provider/next";
 
 import "./global.css";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_FUMADOCS_URL ?? "http://localhost:3000",
-  ),
+  metadataBase: new URL(env.NEXT_PUBLIC_FUMADOCS_URL),
   title: {
     default: "Upstand Docs",
     template: "%s | Upstand Docs",
@@ -22,13 +20,9 @@ export const metadata: Metadata = {
   },
 };
 
-const inter = Inter({
-  subsets: ["latin"],
-});
-
 export default function Layout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={inter.className} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
         <RootProvider>{children}</RootProvider>
       </body>

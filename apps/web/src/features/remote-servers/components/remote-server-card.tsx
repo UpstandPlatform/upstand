@@ -30,12 +30,15 @@ export interface RemoteServerItem {
   name: string;
   description?: string | null;
   serverType: ServerType;
+  authType?: string;
   sshKeyId?: string | null;
   ipAddress: string;
   port: number;
   username: string;
   enableDockerCleanup: boolean;
   status: string;
+  updatedAt?: Date | string;
+  setupStage?: string | null;
 }
 
 export interface RemoteServerCardProps {
@@ -47,8 +50,16 @@ export interface RemoteServerCardProps {
   onInspect: (serverId: string) => void;
 }
 
-function getStatusBadgeTone(status: string): StatusTone {
-  switch (status) {
+function isServerStuck(server: RemoteServerItem): boolean {
+  if (server.status !== "setting_up" || !server.updatedAt) return false;
+  const updatedTime = new Date(server.updatedAt).getTime();
+  const TEN_MINUTES = 10 * 60 * 1000;
+  return Date.now() - updatedTime > TEN_MINUTES;
+}
+
+function getStatusBadgeTone(server: RemoteServerItem): StatusTone {
+  if (isServerStuck(server)) return "warning";
+  switch (server.status) {
     case "ready":
       return "success";
     case "setting_up":
@@ -98,32 +109,46 @@ export function RemoteServerCard({
     onInspect(server.id);
   };
 
-  const setupLabel =
-    server.status === "setting_up"
-      ? "Setting up…"
+  const stuck = isServerStuck(server);
+
+  const setupLabel = stuck
+    ? "Setup seems stuck — Click to resume setup"
+    : server.status === "setting_up"
+      ? server.setupStage
+        ? `Setting up: ${server.setupStage}`
+        : "Setting up…"
       : server.status === "ready"
         ? "Set up server again"
         : "Set up server";
+
+  const authLabel = server.authType === "password" ? "Password" : "SSH Key";
 
   return (
     <Card className="flex h-full flex-col justify-between">
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <CardTitle className="truncate text-base">{server.name}</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="truncate text-base">{server.name}</CardTitle>
+            <span className="inline-flex items-center rounded-md bg-secondary/80 px-2 py-0.5 font-medium text-secondary-foreground text-xs">
+              {authLabel}
+            </span>
+          </div>
           <CardDescription className="mt-1 line-clamp-2">
             {server.description || "Remote deployment environment"}
           </CardDescription>
         </div>
         <StatusBadge
-          tone={getStatusBadgeTone(server.status)}
+          tone={getStatusBadgeTone(server)}
           label={
-            server.status === "ready"
-              ? "Ready"
-              : server.status === "setting_up"
-                ? "Setting up"
-                : server.status === "failed"
-                  ? "Failed"
-                  : server.status
+            stuck
+              ? "Stuck (Resume)"
+              : server.status === "ready"
+                ? "Ready"
+                : server.status === "setting_up"
+                  ? server.setupStage || "Setting up"
+                  : server.status === "failed"
+                    ? "Failed"
+                    : server.status
           }
         />
       </CardHeader>

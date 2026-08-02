@@ -3,6 +3,10 @@ import {
   decryptSecret,
   encryptSecret,
 } from "@upstand/platform/crypto/secret-box";
+import {
+  isEncryptedSecret,
+  normalizeStoredSecret,
+} from "./secret-normalization";
 
 describe("Secret Storage Normalization & Encryption Helpers", () => {
   test("encryptSecret produces authenticated encrypted payload and decryptSecret restores original plaintext", () => {
@@ -29,5 +33,19 @@ describe("Secret Storage Normalization & Encryption Helpers", () => {
 
     const restored = decryptSecret(parsed);
     expect(restored).toBe(raw);
+  });
+
+  test("normalizes legacy plaintext without changing encrypted values", () => {
+    const legacy = JSON.stringify({ TOKEN: "legacy" });
+    const normalized = normalizeStoredSecret(legacy);
+
+    expect(normalized).not.toBe(legacy);
+    expect(isEncryptedSecret(normalized)).toBe(true);
+    if (!normalized) throw new Error("expected normalized secret");
+    expect(decryptSecret(JSON.parse(normalized))).toBe(legacy);
+
+    const encrypted = JSON.stringify(encryptSecret(legacy));
+    expect(normalizeStoredSecret(encrypted)).toBe(encrypted);
+    expect(normalizeStoredSecret(null)).toBeNull();
   });
 });

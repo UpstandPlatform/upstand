@@ -10,6 +10,7 @@ import { DeployResourceUseCase } from "./deploy-resource.usecase";
 import { GetResourceContainersUseCase } from "./get-resource-containers.usecase";
 import { GetResourceLogsUseCase } from "./get-resource-logs.usecase";
 import { RebuildDatabaseUseCase } from "./rebuild-database.usecase";
+import { parseResourceCredentials } from "./resource-credentials";
 import { RollbackResourceUseCase } from "./rollback-resource.usecase";
 import { UpdateResourceUseCase } from "./update-resource.usecase";
 
@@ -211,7 +212,10 @@ const createMockUnitOfWork = (): MockResourceUnitOfWork & {
     deploymentRepository: new MockDeploymentRepository(),
     outboxRepository: new MockOutboxRepository(),
     projectRepository: {
-      findById: async (_id: string): Promise<MockRecord | null> => null,
+      findById: async (id: string): Promise<MockRecord | null> => ({
+        id: id || "project-1",
+        organizationId: "org-1",
+      }),
     },
     dockerRegistryRepository: {
       findById: async (_id: string): Promise<MockRecord | null> => null,
@@ -282,6 +286,10 @@ describe("Resource Usecases", () => {
     expect(res.type).toBe("database");
     expect(res.status).toBe("idle");
     expect(uow.environmentRepository.store[0]?.resourceCount).toBe(1);
+    const credentials = parseResourceCredentials(res.credentials);
+    expect(credentials.dbPassword).toEqual(expect.any(String));
+    expect(String(credentials.dbPassword)).not.toBe("upstand-password");
+    expect(res.credentials).not.toContain("upstand-password");
   });
 
   test("accepts an explicitly opted-in safe custom database image", async () => {
@@ -355,6 +363,7 @@ describe("Resource Usecases", () => {
 
     const success = await deleteUseCaseWithSpy.execute({
       id: res.id,
+      organizationId: "org-1",
       deleteVolumes: true,
     });
     expect(success).toBe(true);
@@ -396,7 +405,10 @@ describe("Resource Usecases", () => {
       mockDockerWithSpy as never,
     );
 
-    const success = await deleteUseCaseWithSpy.execute({ id: res.id });
+    const success = await deleteUseCaseWithSpy.execute({
+      id: res.id,
+      organizationId: "org-1",
+    });
     expect(success).toBe(true);
     expect(removeResourceCalledWith).toBe(false);
   });
@@ -445,6 +457,41 @@ describe("Resource Usecases", () => {
       title: "Database rebuild",
       status: "success",
     });
+  });
+
+  test("preflights legacy database authentication before deleting its volume", async () => {
+    const uow = createMockUnitOfWork();
+    const resource = await uow.resourceRepository.create({
+      id: "legacy-db",
+      environmentId: "env-1",
+      name: "legacy-postgres",
+      appName: "legacy-postgres",
+      type: "database",
+      dbType: "postgres",
+      provider: "docker",
+      status: "running",
+      credentials: null,
+      envVars: "{}",
+      serverId: null,
+    });
+    let removed = false;
+    const docker = {
+      ...mockDockerServiceBase,
+      removeDatabase: async () => {
+        removed = true;
+      },
+      deployDatabase: async () => {},
+    } as never;
+
+    const useCase = new RebuildDatabaseUseCase(
+      uow as unknown as IUnitOfWork,
+      docker,
+    );
+
+    await expect(
+      useCase.execute({ id: resource.id, confirm: true }),
+    ).rejects.toThrow(/POSTGRES_PASSWORD/);
+    expect(removed).toBe(false);
   });
 
   test("commits a resource deployment and its outbox message together", async () => {
@@ -751,6 +798,7 @@ describe("Resource Usecases", () => {
 
     const updated = await updateUseCase.execute({
       id: resource.id,
+      organizationId: "org-1",
       domains: JSON.stringify([{ host: "APP.Example.com.", port: 3000 }]),
     });
 

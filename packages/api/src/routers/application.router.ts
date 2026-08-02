@@ -25,7 +25,10 @@ import { z } from "zod";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission } from "../permissions";
-import { createResourceAuthorizer } from "./shared/resource-authorization";
+import {
+  createResourceAuthorizer,
+  resolveResourceTarget,
+} from "./shared/resource-authorization";
 import { parseWatchPaths } from "./shared/watch-paths";
 
 const CreateApplicationInputSchema = CreateResourceInputSchema.extend({
@@ -164,6 +167,7 @@ export const applicationRouter = router({
     .input(UpdateApplicationInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeApplication(ctx, input.id, "resource:update");
+      const { organizationId } = await resolveResourceTarget(ctx, input.id);
       try {
         const {
           advancedConfig,
@@ -176,6 +180,7 @@ export const applicationRouter = router({
           .resolve(UpdateResourceUseCaseToken)
           .execute({
             ...resourcePatch,
+            organizationId,
             ...(advancedConfig
               ? { advancedConfig: JSON.stringify(advancedConfig) }
               : {}),
@@ -200,10 +205,11 @@ export const applicationRouter = router({
     .input(DeleteResourceInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeApplication(ctx, input.id, "resource:delete");
+      const { organizationId } = await resolveResourceTarget(ctx, input.id);
       try {
         return await ctx.scope
           .resolve(DeleteResourceUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

@@ -1,5 +1,6 @@
 import { type IUnitOfWork, ValidationError } from "@upstand/domain";
 import { z } from "zod";
+import { mapWithConcurrency } from "../deployment/organization-resources.helper";
 import type { ContainerRuntimeStats } from "../ports/docker";
 import type { DockerResourceReadService as DockerService } from "./docker-client";
 import { resolveDockerServiceForServer } from "./docker-client";
@@ -49,10 +50,9 @@ export class GetResourceStatsUseCase {
           };
         }
 
-        const containerStats = await Promise.all(
-          containers.map((container) =>
-            dockerService.getContainerStats(container.id),
-          ),
+        const containerStats = await mapWithConcurrency(
+          containers,
+          (container) => dockerService.getContainerStats(container.id),
         );
         const total = containerStats.reduce<ContainerRuntimeStats>(
           (aggregate, current) => ({

@@ -3,9 +3,16 @@ import type {
   PreviewDeployment,
 } from "../entities/preview-deployment";
 
+export type PreviewRoutingProjection = Pick<
+  PreviewDeployment,
+  "id" | "resourceId" | "appName" | "status" | "domain"
+>;
+
 export interface IPreviewDeploymentRepository {
   findById(id: string): Promise<PreviewDeployment | null>;
   findMany(): Promise<PreviewDeployment[]>;
+  /** Return only previews that can affect Caddy routing. */
+  findForCaddy?(includePreviewId?: string): Promise<PreviewRoutingProjection[]>;
   findByResourceId(resourceId: string): Promise<PreviewDeployment[]>;
   findByPullRequestId(
     resourceId: string,

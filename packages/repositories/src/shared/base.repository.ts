@@ -42,6 +42,19 @@ export interface IRepository<TSelect, TInsert> {
 }
 
 const DEFAULT_PAGE_LIMIT = 50;
+export const MAX_REPOSITORY_READS = 10_000;
+
+export function assertBoundedRepositoryRead<T>(
+  rows: readonly T[],
+  resource: string,
+): T[] {
+  if (rows.length > MAX_REPOSITORY_READS) {
+    throw new Error(
+      `${resource} discovery exceeded the maximum supported row count`,
+    );
+  }
+  return [...rows];
+}
 
 export abstract class BaseRepository<
   TTable extends TableWithId,
@@ -97,14 +110,18 @@ export abstract class BaseRepository<
         : [options.orderBy];
       query.orderBy(...ordering);
     }
-    if (typeof options.limit === "number") {
-      query.limit(options.limit);
-    }
+    const requestedLimit = options.limit;
+    const effectiveLimit =
+      typeof requestedLimit === "number"
+        ? Math.min(requestedLimit, MAX_REPOSITORY_READS + 1)
+        : MAX_REPOSITORY_READS + 1;
+    query.limit(effectiveLimit);
     if (typeof options.offset === "number") {
       query.offset(options.offset);
     }
 
-    return this.rows(await query);
+    const rows = this.rows(await query);
+    return assertBoundedRepositoryRead(rows, "Repository");
   }
 
   protected async findPage(

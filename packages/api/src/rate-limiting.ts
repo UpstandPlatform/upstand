@@ -11,6 +11,8 @@ export {
 } from "./rate-limiting/policy";
 export type { EnforceRequestRateLimitOptions } from "./rate-limiting/service";
 export {
+  assertRateLimitAvailability,
   enforceRequestRateLimit,
   getRateLimiterHealth,
+  RateLimiterUnavailableError,
 } from "./rate-limiting/service";

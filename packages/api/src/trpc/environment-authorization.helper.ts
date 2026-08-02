@@ -1,6 +1,10 @@
 import type { ServiceKey, TokenLike } from "@circulo-ai/di";
 import { TRPCError } from "@trpc/server";
-import type { Capability, Environment, Project } from "@upstand/domain";
+import type {
+  Capability,
+  EnvironmentSummaryProjection,
+  Project,
+} from "@upstand/domain";
 import {
   GetEnvironmentUseCaseToken,
   GetProjectUseCaseToken,
@@ -17,7 +21,7 @@ interface AuthorizationContext {
 }
 
 interface AuthorizedEnvironmentContext {
-  environment: Environment;
+  environment: EnvironmentSummaryProjection;
   project: Project;
 }
 
@@ -26,10 +30,8 @@ export async function resolveEnvironmentAndCheckPermission(
   environmentId: string,
   requiredPermission: Capability,
 ): Promise<AuthorizedEnvironmentContext> {
-  const envUseCase = ctx.scope.resolve<LookupUseCase<Environment>>(
-    GetEnvironmentUseCaseToken,
-  );
-  const environment = await envUseCase.execute({ id: environmentId });
+  const envUseCase = ctx.scope.resolve(GetEnvironmentUseCaseToken);
+  const environment = await envUseCase.executeSummary({ id: environmentId });
   if (!environment) {
     throw new TRPCError({
       code: "NOT_FOUND",

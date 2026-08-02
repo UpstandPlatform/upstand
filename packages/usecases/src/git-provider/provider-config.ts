@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import type { GitProvider } from "@upstand/domain";
 import { env } from "@upstand/env/server";
+import { assertConfiguredHttpUrl } from "@upstand/platform/network/outbound";
 
 const REDACTED = "[configured]";
 
@@ -14,6 +15,13 @@ const TRUSTED_PUBLIC_HOSTS = new Set([
   "gitea.com",
   "gitea.com",
 ]);
+
+export function getGitProviderAllowedHosts(): string[] {
+  return (env.UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase().replace(/\.$/, ""))
+    .filter(Boolean);
+}
 
 export function assertSafeProviderUrl(value: string): string {
   let url: URL;
@@ -30,17 +38,14 @@ export function assertSafeProviderUrl(value: string): string {
       "Git provider URL contains unsupported credentials or path",
     );
   }
-  const host = url.hostname.toLowerCase();
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
   if (PRIVATE_HOST.test(host)) {
     throw new Error("Git provider URL points to a private or local host");
   }
   if (isIP(host)) {
     throw new Error("Git provider URLs must use a verified hostname");
   }
-  const allowlisted = (env.UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS || "")
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
+  const allowlisted = getGitProviderAllowedHosts();
   if (
     allowlisted.length &&
     !allowlisted.includes(host) &&
@@ -49,6 +54,21 @@ export function assertSafeProviderUrl(value: string): string {
     throw new Error("Git provider host is not in the operator allowlist");
   }
   return url.origin;
+}
+
+/**
+ * Validate a provider URL immediately before making an outbound request.
+ * The synchronous validator protects configuration and the DNS check prevents
+ * a custom public hostname from resolving into a private or link-local range.
+ */
+export async function assertSafeProviderUrlAsync(
+  value: string,
+  resolveHost?: (hostname: string) => Promise<Array<{ address: string }>>,
+): Promise<string> {
+  const origin = assertSafeProviderUrl(value);
+  const allowlisted = getGitProviderAllowedHosts();
+  await assertConfiguredHttpUrl(value, allowlisted, resolveHost);
+  return origin;
 }
 
 export function validateGitProviderConfig(

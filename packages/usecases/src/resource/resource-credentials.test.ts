@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import {
   parseResourceCredentials,
+  parseResourceCredentialsStrict,
+  ResourceCredentialsError,
   resourceCredentialsJson,
   serializeResourceCredentials,
 } from "./resource-credentials";
@@ -45,5 +47,15 @@ describe("resource credential storage", () => {
       }),
     );
     expect(serializeResourceCredentials(stored)).toBe(stored);
+  });
+
+  test("fails closed for invalid credential documents", () => {
+    expect(parseResourceCredentials("not-json")).toEqual({});
+    expect(() => parseResourceCredentialsStrict("not-json")).toThrow(
+      ResourceCredentialsError,
+    );
+    expect(() => parseResourceCredentialsStrict(JSON.stringify([]))).toThrow(
+      ResourceCredentialsError,
+    );
   });
 });

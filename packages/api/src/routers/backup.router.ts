@@ -370,7 +370,7 @@ export const backupRouter = router({
   deleteSchedule: twoFactorVerifiedProcedure
     .input(DeleteBackupScheduleInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await resolveResourceBackupScheduleAndCheckPermission(
+      const schedule = await resolveResourceBackupScheduleAndCheckPermission(
         ctx,
         input.id,
         "backup:manage",
@@ -378,7 +378,7 @@ export const backupRouter = router({
       try {
         const result = await ctx.scope
           .resolve(DeleteBackupScheduleUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId: schedule.organizationId });
         await ctx.scope.resolve(BackupSchedulerToken).refresh();
         return result;
       } catch (error) {

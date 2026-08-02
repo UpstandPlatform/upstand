@@ -1,7 +1,8 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { IUnitOfWork, Resource } from "@upstand/domain";
 import { parseResourceCredentials } from "../resource/resource-credentials";
 import { matchesDockerImageWebhook } from "./docker-image-webhook";
+import { findOrganizationResources } from "./organization-resources.helper";
 import { QueueDeploymentUseCase } from "./queue-deployment.usecase";
 import { matchesSafeGlob } from "./safe-glob";
 
@@ -17,6 +18,12 @@ export interface ProcessSourceWebhookInput {
   provider: SourceWebhookProvider;
   bodyText: string;
   headers: Record<string, string | undefined>;
+  deliveryId?: string;
+}
+
+export interface WebhookDeliveryStore {
+  claim(key: string, ttlSeconds: number): Promise<boolean>;
+  release(key: string): Promise<void>;
 }
 
 export interface ProcessSourceWebhookResult {
@@ -322,6 +329,7 @@ export class ProcessSourceWebhookUseCase {
     private readonly createEnqueuer: (
       uow: IUnitOfWork,
     ) => DeploymentEnqueuer = (uow) => new QueueDeploymentUseCase(uow),
+    private readonly deliveryStore?: WebhookDeliveryStore,
   ) {}
 
   async execute(
@@ -350,36 +358,53 @@ export class ProcessSourceWebhookUseCase {
       return { accepted: true, queued: 0, ignored: 1, reason: "event_ignored" };
     }
 
-    const projects = await this.uow.projectRepository.findByOrganizationId(
-      provider.organizationId,
-    );
-    const ownedResources: Resource[] = [];
-    for (const project of projects) {
-      const environments = await this.uow.environmentRepository.findByProjectId(
-        project.id,
-      );
-      for (const environment of environments) {
-        const resources = await this.uow.resourceRepository.findByEnvironmentId(
-          environment.id,
-        );
-        ownedResources.push(...resources);
+    const deliveryId =
+      input.deliveryId?.trim() ||
+      createHash("sha256").update(input.bodyText).digest("hex");
+    const deliveryKey = `upstand:webhook:${input.provider}:${input.providerId}:${deliveryId}`;
+    let deliveryClaimed = false;
+    if (this.deliveryStore) {
+      try {
+        deliveryClaimed = await this.deliveryStore.claim(deliveryKey, 86_400);
+      } catch {
+        throw new Error("Webhook delivery store unavailable");
+      }
+      if (!deliveryClaimed) {
+        return {
+          accepted: true,
+          queued: 0,
+          ignored: 1,
+          reason: "duplicate_delivery",
+        };
       }
     }
-    const matches = ownedResources.filter((resource) =>
-      matchesResource(resource, input.provider, input.providerId, parsed),
-    );
-    const enqueuer = this.createEnqueuer(this.uow);
-    for (const resource of matches) {
-      await enqueuer.execute({
-        resourceId: resource.id,
-        title: parsed.title,
-        sourceRevision: parsed.sourceRevision,
-      });
+
+    try {
+      const ownedResources: Resource[] = await findOrganizationResources(
+        this.uow,
+        provider.organizationId,
+      );
+      const matches = ownedResources.filter((resource) =>
+        matchesResource(resource, input.provider, input.providerId, parsed),
+      );
+      const enqueuer = this.createEnqueuer(this.uow);
+      for (const resource of matches) {
+        await enqueuer.execute({
+          resourceId: resource.id,
+          title: parsed.title,
+          sourceRevision: parsed.sourceRevision,
+        });
+      }
+      return {
+        accepted: true,
+        queued: matches.length,
+        ignored: ownedResources.length - matches.length,
+      };
+    } catch (error) {
+      if (deliveryClaimed) {
+        await this.deliveryStore?.release(deliveryKey).catch(() => undefined);
+      }
+      throw error;
     }
-    return {
-      accepted: true,
-      queued: matches.length,
-      ignored: ownedResources.length - matches.length,
-    };
   }
 }

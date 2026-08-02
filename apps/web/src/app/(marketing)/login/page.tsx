@@ -10,7 +10,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { PageBackdrop } from "@/components/marketing/page-backdrop";
 import SignInForm from "@/components/sign-in-form";
 import SignUpForm from "@/components/sign-up-form";
 import { SsoSignInForm } from "@/components/sso-sign-in-form";
@@ -141,10 +140,8 @@ export default function LoginPage() {
   const isSignUp = needsOwnerSetup || (isCloud && authMode === "signup");
 
   return (
-    <div className="relative flex min-h-[calc(100svh-64px)] flex-col items-center justify-center overflow-hidden bg-background px-4">
-      <PageBackdrop />
-
-      <Card className="relative w-full max-w-md rounded-3xl border-border/70 bg-card/70 p-7 shadow-2xl shadow-primary/5 backdrop-blur-md sm:p-8">
+    <div className="flex h-full flex-col items-center justify-center">
+      <Card className="mx-auto my-auto w-full max-w-md rounded-3xl border-border/70 bg-card/70 p-7 shadow-2xl shadow-primary/5 backdrop-blur-md sm:p-8">
         <CardContent className="space-y-8 p-0">
           {sessionError || sessionTimedOut ? (
             <div className="space-y-5 py-8 text-center">

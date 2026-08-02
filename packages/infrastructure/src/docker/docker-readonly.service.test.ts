@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { DockerCleanupService } from "./docker-cleanup.service";
 import { DockerReadOnlyService } from "./docker-readonly.service";
 
@@ -85,6 +86,36 @@ describe("Docker explorer image controls", () => {
       ),
     ).rejects.toThrow("safe absolute path");
     expect(getContainer).not.toHaveBeenCalled();
+  });
+
+  test("bounds local container command output and settles the stream once", async () => {
+    const stream = new EventEmitter() as EventEmitter & {
+      destroy: ReturnType<typeof mock>;
+    };
+    stream.destroy = mock();
+    const inspect = mock(() => Promise.resolve({ ExitCode: 0 }));
+    const exec = {
+      start: mock(() => Promise.resolve(stream)),
+      inspect,
+    };
+    const getContainer = mock(() => ({
+      exec: mock(() => Promise.resolve(exec)),
+    }));
+    const service = new DockerReadOnlyService({ getContainer } as never);
+
+    const command = service.execContainerCommand(
+      { kind: "local", name: "test" },
+      "container-1",
+      "printf output",
+      { timeoutSeconds: 1 },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    stream.emit("data", Buffer.alloc(50 * 1024 * 1024 + 1));
+
+    await expect(command).rejects.toThrow("output exceeded");
+    expect(stream.destroy).toHaveBeenCalledTimes(1);
+    expect(inspect).not.toHaveBeenCalled();
   });
 
   test("normalizes local container CPU, memory, network, block, and PID stats", async () => {

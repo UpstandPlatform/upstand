@@ -1,0 +1,1 @@
+DROP TABLE "proxy_takeover_journal" CASCADE;

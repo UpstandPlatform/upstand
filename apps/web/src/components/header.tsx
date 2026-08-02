@@ -68,7 +68,9 @@ export default function Header() {
                     <NavigationMenuLink
                       render={
                         external ? (
-                          <a href={href_}>{label}</a>
+                          <a href={href_} suppressHydrationWarning>
+                            {label}
+                          </a>
                         ) : (
                           <Link href={href}>{label}</Link>
                         )
@@ -147,6 +149,7 @@ export default function Header() {
                             href={href_}
                             className={className}
                             aria-current={isActive ? "page" : undefined}
+                            suppressHydrationWarning
                           >
                             {label}
                           </a>

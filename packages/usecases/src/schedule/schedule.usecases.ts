@@ -52,6 +52,19 @@ export class CreateScheduleUseCase {
       parsed.resourceId,
     );
     if (!resource) throw new Error("Resource not found");
+    const environment = await this.uow.environmentRepository.findById(
+      resource.environmentId,
+    );
+    const project = environment
+      ? await this.uow.projectRepository.findById(environment.projectId)
+      : null;
+    if (
+      !project ||
+      !parsed.organizationId ||
+      project.organizationId !== parsed.organizationId
+    ) {
+      throw new Error("Resource not found");
+    }
     if (parsed.jobType === "backup") {
       const backupSchedule = parsed.backupScheduleId
         ? await this.uow.backupScheduleRepository.findById(
@@ -62,23 +75,26 @@ export class CreateScheduleUseCase {
         throw new Error("Backup schedule not found for this resource");
       }
     }
+    const { organizationId: _organizationId, ...scheduleInput } = parsed;
     return this.uow.scheduleRepository.create({
       id: randomUUID(),
-      resourceId: parsed.resourceId,
-      name: parsed.name,
-      description: parsed.description ?? null,
-      cronExpression: parsed.cronExpression,
-      httpMethod: parsed.httpMethod ?? null,
-      secretEnvVar: parsed.secretEnvVar ?? null,
-      timezone: parsed.timezone ?? "UTC",
-      jobType: parsed.jobType,
-      serviceName: parsed.serviceName ?? null,
-      shellType: parsed.shellType ?? "bash",
-      source: parsed.source ?? "manual",
-      command: parsed.command ?? "",
-      enabled: parsed.enabled ?? true,
+      resourceId: scheduleInput.resourceId,
+      name: scheduleInput.name,
+      description: scheduleInput.description ?? null,
+      cronExpression: scheduleInput.cronExpression,
+      httpMethod: scheduleInput.httpMethod ?? null,
+      secretEnvVar: scheduleInput.secretEnvVar ?? null,
+      timezone: scheduleInput.timezone ?? "UTC",
+      jobType: scheduleInput.jobType,
+      serviceName: scheduleInput.serviceName ?? null,
+      shellType: scheduleInput.shellType ?? "bash",
+      source: scheduleInput.source ?? "manual",
+      command: scheduleInput.command ?? "",
+      enabled: scheduleInput.enabled ?? true,
       backupScheduleId:
-        parsed.jobType === "backup" ? (parsed.backupScheduleId ?? null) : null,
+        scheduleInput.jobType === "backup"
+          ? (scheduleInput.backupScheduleId ?? null)
+          : null,
     });
   }
 }
@@ -90,8 +106,24 @@ export class UpdateScheduleUseCase {
     const parsed = UpdateScheduleInputSchema.parse(input);
     const existing = await this.uow.scheduleRepository.findById(parsed.id);
     if (!existing) throw new Error("Schedule not found");
+    const resource = existing.resourceId
+      ? await this.uow.resourceRepository.findById(existing.resourceId)
+      : null;
+    const environment = resource
+      ? await this.uow.environmentRepository.findById(resource.environmentId)
+      : null;
+    const project = environment
+      ? await this.uow.projectRepository.findById(environment.projectId)
+      : null;
+    if (
+      !project ||
+      !parsed.organizationId ||
+      project.organizationId !== parsed.organizationId
+    ) {
+      throw new Error("Schedule not found");
+    }
     if (parsed.cronExpression) validateCron(parsed.cronExpression);
-    const { id, ...patch } = parsed;
+    const { id, organizationId: _organizationId, ...patch } = parsed;
     const jobType = parsed.jobType ?? existing.jobType ?? "command";
     const resourceId = existing.resourceId;
     const command = parsed.command ?? existing.command;
@@ -125,8 +157,25 @@ export class DeleteScheduleUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: DeleteScheduleInput): Promise<boolean> {
-    return this.uow.scheduleRepository.deleteById(
-      DeleteScheduleInputSchema.parse(input).id,
-    );
+    const parsed = DeleteScheduleInputSchema.parse(input);
+    const existing = await this.uow.scheduleRepository.findById(parsed.id);
+    const resource = existing?.resourceId
+      ? await this.uow.resourceRepository.findById(existing.resourceId)
+      : null;
+    const environment = resource
+      ? await this.uow.environmentRepository.findById(resource.environmentId)
+      : null;
+    const project = environment
+      ? await this.uow.projectRepository.findById(environment.projectId)
+      : null;
+    if (
+      !existing ||
+      !project ||
+      !parsed.organizationId ||
+      project.organizationId !== parsed.organizationId
+    ) {
+      throw new Error("Schedule not found");
+    }
+    return this.uow.scheduleRepository.deleteById(parsed.id);
   }
 }

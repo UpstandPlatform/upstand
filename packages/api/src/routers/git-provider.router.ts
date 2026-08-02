@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { redis } from "@upstand/redis";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import {
   CreateGitProviderInputSchema,
   createGitProviderOAuthState,
@@ -68,12 +68,14 @@ export const gitProviderRouter = router({
           userId: ctx.session.user.id,
         },
       );
-      await redis.set(
-        gitProviderOAuthStateKey(state.state),
-        provider.id,
-        "EX",
-        GIT_PROVIDER_OAUTH_STATE_TTL_SECONDS,
-        "NX",
+      await withRedisTimeout(
+        redis.set(
+          gitProviderOAuthStateKey(state.state),
+          provider.id,
+          "EX",
+          GIT_PROVIDER_OAUTH_STATE_TTL_SECONDS,
+          "NX",
+        ),
       );
       return state;
     }),
@@ -91,12 +93,14 @@ export const gitProviderRouter = router({
         organizationId: input.organizationId,
         userId: ctx.session.user.id,
       });
-      await redis.set(
-        gitProviderOAuthStateKey(state.state),
-        subject,
-        "EX",
-        GIT_PROVIDER_OAUTH_STATE_TTL_SECONDS,
-        "NX",
+      await withRedisTimeout(
+        redis.set(
+          gitProviderOAuthStateKey(state.state),
+          subject,
+          "EX",
+          GIT_PROVIDER_OAUTH_STATE_TTL_SECONDS,
+          "NX",
+        ),
       );
       return state;
     }),
@@ -154,7 +158,10 @@ export const gitProviderRouter = router({
       );
       const useCase = ctx.scope.resolve(UpdateGitProviderUseCaseToken);
       try {
-        const updated = await useCase.execute(input);
+        const updated = await useCase.execute({
+          ...input,
+          organizationId: provider.organizationId,
+        });
         if (!updated) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -187,7 +194,10 @@ export const gitProviderRouter = router({
 
       const deleteUseCase = ctx.scope.resolve(DeleteGitProviderUseCaseToken);
       try {
-        return await deleteUseCase.execute(input);
+        return await deleteUseCase.execute({
+          ...input,
+          organizationId: provider.organizationId,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

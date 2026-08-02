@@ -384,6 +384,7 @@ export function CronJobsTab({ resource }: CronJobsTabProps) {
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1 transition-colors hover:text-primary"
+            suppressHydrationWarning
           >
             Learn more about Cron Jobs <ExternalLink className="size-3" />
           </a>

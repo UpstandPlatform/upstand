@@ -223,6 +223,13 @@ function isDockerContainer(value: unknown): value is DockerContainer {
   );
 }
 
+function getManagedResourceId(container: DockerContainer): string | null {
+  const prefix = "upstand.resource.id=";
+  const label = container.labels.find((value) => value.startsWith(prefix));
+  const resourceId = label?.slice(prefix.length).trim();
+  return resourceId || null;
+}
+
 function isDockerImage(value: unknown): value is DockerImage {
   return (
     isRecord(value) &&
@@ -483,8 +490,15 @@ export default function DockerInventoryPage() {
     }
   };
 
-  const uploadContainer = async (cId: string, file: File) => {
+  const uploadContainer = async (container: DockerContainer, file: File) => {
     if (!organizationId) return;
+    const resourceId = getManagedResourceId(container);
+    if (!resourceId) {
+      toast.error(
+        "Only containers managed by an Upstand resource support archive uploads.",
+      );
+      return;
+    }
     const destination = containerDestination || "/tmp";
     const destinationError = validateArchiveDestination(destination);
     const fileError = validateArchiveFile(file);
@@ -500,7 +514,7 @@ export default function DockerInventoryPage() {
       if (serverId !== "local") params.set("serverId", serverId);
       await uploadArchive({
         url: getServerApiUrl(
-          `/api/docker/containers/${encodeURIComponent(cId)}/upload?${params.toString()}`,
+          `/api/resources/${encodeURIComponent(resourceId)}/containers/${encodeURIComponent(container.id)}/upload?${params.toString()}`,
         ),
         file,
       });
@@ -980,10 +994,7 @@ export default function DockerInventoryPage() {
                                                 const file =
                                                   event.target.files?.[0];
                                                 if (file)
-                                                  void uploadContainer(
-                                                    c.id,
-                                                    file,
-                                                  );
+                                                  void uploadContainer(c, file);
                                                 event.currentTarget.value = "";
                                               }}
                                             />

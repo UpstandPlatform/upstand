@@ -9,6 +9,7 @@ import {
 
 export const UpdateEnvironmentInputSchema = z.object({
   id: z.string().min(1, "Environment ID is required"),
+  organizationId: z.string().min(1, "Organization ID is required").optional(),
   name: z.string().min(1, "Name must not be empty").max(255).optional(),
   description: z.string().max(1024).nullable().optional(),
   parentEnvironmentId: z.string().min(1).nullable().optional(),
@@ -33,6 +34,14 @@ export class UpdateEnvironmentUseCase {
       if (!existing) {
         throw new ValidationError("Environment not found.");
       }
+      const project = await tx.projectRepository.findById(existing.projectId);
+      if (
+        !project ||
+        !input.organizationId ||
+        project.organizationId !== input.organizationId
+      ) {
+        throw new ValidationError("Environment not found.");
+      }
 
       const patch: Parameters<
         typeof tx.environmentRepository.updateEnvironment
@@ -49,6 +58,16 @@ export class UpdateEnvironmentUseCase {
           throw new ValidationError(
             "An environment cannot inherit from itself.",
           );
+        }
+        if (input.parentEnvironmentId) {
+          const parent = await tx.environmentRepository.findById(
+            input.parentEnvironmentId,
+          );
+          if (!parent || parent.projectId !== existing.projectId) {
+            throw new ValidationError(
+              "Parent environment must belong to the same project.",
+            );
+          }
         }
         const ancestors =
           input.parentEnvironmentId && tx.environmentRepository.findAncestors

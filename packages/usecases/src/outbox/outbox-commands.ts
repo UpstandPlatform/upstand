@@ -2,6 +2,7 @@ export const OUTBOX_COMMAND_TYPES = {
   deploy: "deployment.deploy",
   backupRun: "backup.run",
   notificationDelivery: "notification.deliver",
+  migrate: "resource.migrate",
 } as const;
 
 export type DeployOutboxPayload = {
@@ -23,7 +24,16 @@ export type NotificationDeliveryOutboxPayload = {
   deliveryId: string;
 };
 
+export type MigrateOutboxPayload = {
+  deploymentId: string;
+  resourceId: string;
+  sourceServerId: string;
+  targetServerId: string;
+  timestamp: string;
+};
+
 export type OutboxCommandPayload =
   | DeployOutboxPayload
   | BackupRunOutboxPayload
-  | NotificationDeliveryOutboxPayload;
+  | NotificationDeliveryOutboxPayload
+  | MigrateOutboxPayload;

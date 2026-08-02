@@ -1,8 +1,10 @@
 import { type IUnitOfWork, ValidationError } from "@upstand/domain";
+import { resolveCertificateForOrganization } from "../certificate/certificate-reference";
 import {
   BackupRuntimeService,
   withBackupRuntime,
 } from "./backup-runtime.service";
+import { resolveBackupOrganizationId } from "./backup-schedule.service";
 import { withBackupCaCertificate } from "./backup-storage";
 
 export class VerifyBackupRunUseCase {
@@ -23,9 +25,25 @@ export class VerifyBackupRunUseCase {
     );
     if (!schedule || !destination)
       throw new ValidationError("Backup configuration not found");
-    const certificate = destination.certificateId
-      ? await this.uow.certificateRepository.findById(destination.certificateId)
+    const resource = run.resourceId
+      ? await this.uow.resourceRepository.findById(run.resourceId)
       : null;
+    const organizationId =
+      schedule.organizationId ??
+      (resource ? await resolveBackupOrganizationId(this.uow, resource) : null);
+    if (!organizationId || run.organizationId !== organizationId) {
+      throw new ValidationError("Backup run belongs to another organization");
+    }
+    if (destination.organizationId !== organizationId) {
+      throw new ValidationError(
+        "Backup destination belongs to another organization",
+      );
+    }
+    const certificate = await resolveCertificateForOrganization(
+      this.uow,
+      destination.certificateId,
+      organizationId,
+    );
     const effectiveDestination = withBackupCaCertificate(
       destination,
       certificate?.certificatePem,
@@ -38,9 +56,6 @@ export class VerifyBackupRunUseCase {
           run.fileKey,
         );
       } else {
-        const resource = run.resourceId
-          ? await this.uow.resourceRepository.findById(run.resourceId)
-          : null;
         if (!resource) throw new ValidationError("Resource not found");
         await withBackupRuntime(this.uow, resource, this.runtime, (runtime) =>
           runtime.verifyBackup(

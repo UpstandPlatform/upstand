@@ -2,6 +2,10 @@ import { ConflictError, ValidationError } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import type Docker from "dockerode";
 import { z } from "zod";
+import {
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
+} from "../platform/platform.types";
 import { getDockerInstance } from "../resource/docker-client";
 import {
   ensureUpstandOverlayNetwork,
@@ -44,6 +48,15 @@ export class InitSwarmUseCase {
     networkName: string;
     networkCreated: boolean;
   }> {
+    const mode = getConfiguredControlPlaneMode();
+    const capabilities = getPlatformCapabilities(mode);
+    if (!capabilities.swarmManagement) {
+      throw new ValidationError(
+        `Docker Swarm cluster management is not available in '${mode}' mode. ` +
+          "Swarm is only supported in self-hosted deployments.",
+      );
+    }
+
     const advertiseAddr = validateSwarmAddress(
       input.advertiseAddr,
       "Advertise address",

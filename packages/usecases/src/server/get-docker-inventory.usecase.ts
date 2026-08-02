@@ -1,5 +1,9 @@
 import type { IUnitOfWork } from "@upstand/domain";
 import { z } from "zod";
+import {
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
+} from "../platform/platform.types";
 import type {
   DockerArchiveTransferPort,
   DockerContainerCommand,
@@ -8,7 +12,29 @@ import type {
   DockerResourceControllerPort,
 } from "../ports/docker";
 import { dockerLogLevels } from "../resource/docker-log-filter";
+import {
+  containerBelongsToResource,
+  matchesContainerIdentifier,
+} from "./container-ownership";
 import { resolveDockerInspectionTarget } from "./docker-inspection-target.helper";
+
+function normalizeDockerServerId(serverId: string | null | undefined): string {
+  return !serverId || serverId === "local" || serverId === "manager"
+    ? "local"
+    : serverId;
+}
+
+function assertResourceDockerTarget(
+  resourceServerId: string | null | undefined,
+  requestedServerId: string | null | undefined,
+): void {
+  if (
+    normalizeDockerServerId(resourceServerId) !==
+    normalizeDockerServerId(requestedServerId)
+  ) {
+    throw new Error("Docker target is not assigned to the requested resource.");
+  }
+}
 
 export const DockerInventoryKindSchema = z.enum([
   "info",
@@ -88,6 +114,8 @@ export class GetDockerInventoryUseCase {
   ) {}
 
   async execute(input: GetDockerInventoryInput) {
+    const mode = getConfiguredControlPlaneMode();
+    const capabilities = getPlatformCapabilities(mode);
     const target = await resolveDockerInspectionTarget(this.uow, input);
     switch (input.kind) {
       case "info":
@@ -104,8 +132,12 @@ export class GetDockerInventoryUseCase {
       case "networks":
         return this.inventory.listNetworks(target);
       case "services":
+        // Swarm services are only available in self-hosted Swarm mode
+        if (!capabilities.swarmManagement) return [];
         return this.inventory.listServices(target);
       case "swarm_nodes":
+        // Swarm node list is only available in self-hosted Swarm mode
+        if (!capabilities.swarmManagement) return [];
         return this.inventory.listSwarmNodes(target);
       case "logs":
         return this.inventory.getLogs(target, {
@@ -168,10 +200,37 @@ export class GetDockerInventoryUseCase {
     input: z.infer<typeof UploadDockerContainerInputSchema>,
     archive: Buffer,
   ) {
-    const target = await resolveDockerInspectionTarget(this.uow, input);
+    const resource = await this.uow.resourceRepository.findById(
+      input.resourceId,
+    );
+    if (!resource) throw new Error("Resource was not found.");
+    const environment = await this.uow.environmentRepository.findById(
+      resource.environmentId,
+    );
+    const project = environment
+      ? await this.uow.projectRepository.findById(environment.projectId)
+      : null;
+    if (!project || project.organizationId !== input.organizationId) {
+      throw new Error("Resource is not part of the active organization.");
+    }
+
+    assertResourceDockerTarget(resource.serverId, input.serverId);
+    const target = await resolveDockerInspectionTarget(this.uow, input, {
+      localServerIds: ["local", "manager"],
+    });
+    const containers = await this.inventory.listContainers(target);
+    const container = containers.find(
+      (candidate) =>
+        matchesContainerIdentifier(input.containerId, candidate.id) &&
+        containerBelongsToResource(candidate, resource),
+    );
+    if (!container) {
+      throw new Error("Container is not part of the requested resource.");
+    }
+
     return this.archiveTransfer.uploadArchiveToContainer(
       target,
-      input.containerId,
+      container.id,
       archive,
       input.destination,
     );

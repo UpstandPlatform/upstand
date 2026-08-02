@@ -7,6 +7,7 @@ import {
 
 export const UpdateGitProviderInputSchema = z.object({
   id: z.string().min(1, "Git Provider ID is required"),
+  organizationId: z.string().min(1, "Organization ID is required").optional(),
   name: z.string().min(1, "Provider name is required").optional(),
   config: z.string().min(1, "Configuration config is required").optional(),
 });
@@ -21,7 +22,13 @@ export class UpdateGitProviderUseCase {
   async execute(input: UpdateGitProviderInput): Promise<GitProvider | null> {
     return this.uow.transaction(async (tx) => {
       const provider = await tx.gitProviderRepository.findById(input.id);
-      if (!provider) return null;
+      if (
+        !provider ||
+        !input.organizationId ||
+        provider.organizationId !== input.organizationId
+      ) {
+        return null;
+      }
       const config =
         input.config !== undefined
           ? restoreGitProviderConfig(provider.config, input.config)

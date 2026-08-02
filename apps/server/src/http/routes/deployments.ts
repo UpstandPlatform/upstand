@@ -1,8 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { auth } from "@upstand/api/auth";
+import { requireInstanceOwner } from "@upstand/api/instance-access";
 import { checkPermission } from "@upstand/api/permissions";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import {
   hashWebhookToken,
   matchesDockerImageWebhook,
@@ -21,9 +23,11 @@ import { z } from "zod";
 import {
   ApplicationArchiveValidationError,
   extractApplicationArchive,
+  validateApplicationArchiveFile,
 } from "../../application-archive";
 import { isStepUpAuthenticationSatisfied } from "../../step-up-auth";
 import { logRequestError } from "../error-logging";
+import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -46,30 +50,13 @@ async function validateSafeTarArchive(
   fs.mkdirSync(path.dirname(tempArchive), { recursive: true });
   fs.writeFileSync(tempArchive, buffer);
   try {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFile);
-    const listing = await execFileAsync("tar", ["-tf", tempArchive]);
-    const detailedListing = await execFileAsync("tar", ["-tvf", tempArchive]);
-    if (
-      detailedListing.stdout
-        .split(/\r?\n/)
-        .some((entry) => /^[lh]/i.test(entry))
-    ) {
-      return `Symbolic and hard links are not allowed in ${uploadTypeName} uploads`;
-    }
-    const unsafeEntry = listing.stdout
-      .split(/\r?\n/)
-      .map((entry) => entry.trim())
-      .find((entry) => {
-        if (!entry || path.isAbsolute(entry)) return Boolean(entry);
-        const normalized = path.posix.normalize(entry.replaceAll("\\", "/"));
-        return normalized === ".." || normalized.startsWith("../");
-      });
-    if (unsafeEntry) {
-      return `Archive entry escapes the destination: ${unsafeEntry}`;
-    }
+    await validateApplicationArchiveFile(tempArchive);
     return null;
+  } catch (error) {
+    if (error instanceof ApplicationArchiveValidationError) {
+      return `${uploadTypeName} archive rejected: ${error.message}`;
+    }
+    return `${uploadTypeName} archive could not be validated`;
   } finally {
     fs.rmSync(tempArchive, { force: true });
   }
@@ -90,10 +77,26 @@ const DeploymentWebhookPayloadSchema = z
   .passthrough();
 
 export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
+  app.use(
+    "/api/deploy/*",
+    createHttpRateLimitMiddleware({
+      path: "deployment-webhook",
+      profile: "webhooks",
+      onRejected: (c, message) => c.json({ error: message }, 429),
+    }),
+  );
+  app.use(
+    "/api/deploy/*",
+    bodyLimit({
+      maxSize: 64 * 1024,
+      onError: (c) => c.json({ error: "Webhook payload is too large" }, 413),
+    }),
+  );
+
   // Public, tokenized deployment hook used by GitHub Actions and external CI.
   // Only a SHA-256 digest is persisted; the URL token is never recoverable from
   // the database and must be rotated if it is lost.
-  app.on(["POST", "GET"], "/api/deploy/:token", async (c) => {
+  app.post("/api/deploy/:token", async (c) => {
     const requestLog = c.get("log");
     const token = c.req.param("token");
     if (!token?.startsWith("upw_") || token.length < 12) {
@@ -118,11 +121,49 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: "Automatic deployment is disabled" }, 403);
     }
 
+    const rawBody = await c.req.text();
     let payload: z.infer<typeof DeploymentWebhookPayloadSchema> = {};
-    if (c.req.method === "POST" || c.req.method === "PUT") {
-      const body: unknown = await c.req.json<unknown>().catch(() => ({}));
+    if (rawBody) {
+      let body: unknown = {};
+      try {
+        body = JSON.parse(rawBody) as unknown;
+      } catch {
+        return c.json({ error: "Invalid deployment webhook payload" }, 400);
+      }
       const parsed = DeploymentWebhookPayloadSchema.safeParse(body);
-      if (parsed.success) payload = parsed.data;
+      if (!parsed.success) {
+        return c.json({ error: "Invalid deployment webhook payload" }, 400);
+      }
+      payload = parsed.data;
+    }
+
+    const deliveryId =
+      c.req.header("x-webhook-delivery") ||
+      c.req.header("idempotency-key") ||
+      createHash("sha256").update(`${resource.id}:${rawBody}`).digest("hex");
+    let acceptedDelivery: string | null = null;
+    try {
+      acceptedDelivery = await withRedisTimeout(
+        redis.set(
+          `deployment-webhook:${resource.id}:${deliveryId}`,
+          "1",
+          "EX",
+          300,
+          "NX",
+        ),
+      );
+    } catch (error) {
+      logRequestError(c.get("log"), error, {
+        message: "Deployment webhook replay store unavailable",
+        resourceId,
+      });
+      return c.json(
+        { error: "Deployment webhook temporarily unavailable" },
+        503,
+      );
+    }
+    if (acceptedDelivery !== "OK") {
+      return c.json({ accepted: true, duplicate: true }, 202);
     }
     if (resource.provider === "docker-registry") {
       const repository =
@@ -312,6 +353,17 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
       if (!(await isStepUpAuthenticationSatisfied(session))) {
         return c.json({ error: "2FA verification required" }, 403);
       }
+      const serverId = c.req.query("serverId") || undefined;
+      if (!serverId || serverId === "local" || serverId === "manager") {
+        try {
+          await requireInstanceOwner(session.user.id, "session");
+        } catch {
+          return c.json(
+            { error: "Local Docker volume upload requires instance ownership" },
+            403,
+          );
+        }
+      }
 
       const body = await c.req.parseBody();
       const file = body.file;
@@ -335,7 +387,7 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
 
       const parsed = UploadDockerVolumeInputSchema.parse({
         organizationId,
-        serverId: c.req.query("serverId") || undefined,
+        serverId,
         volumeName: c.req.param("volumeName"),
         destination: c.req.query("destination") || "/",
       });

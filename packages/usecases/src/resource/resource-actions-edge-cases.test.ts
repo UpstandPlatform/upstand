@@ -199,18 +199,23 @@ describe("Resource Actions Exhaustive Edge-Case Suite", () => {
         id: "res-1",
         name: "App One",
         appName: "app-one",
+        environmentId: "env-1",
       });
       uow.store.resources.push({
         id: "res-2",
         name: "App Two",
         appName: "app-two",
+        environmentId: "env-1",
       });
+      uow.store.environments.push({ id: "env-1", projectId: "proj-1" });
+      uow.store.projects.push({ id: "proj-1", organizationId: "org-1" });
 
       const useCase = new UpdateResourceUseCase(uow as never, null as never);
 
       expect(
         useCase.execute({
           id: "res-2",
+          organizationId: "org-1",
           appName: "app-one",
         }),
       ).rejects.toThrow(/is already used by resource/i);
@@ -224,12 +229,15 @@ describe("Resource Actions Exhaustive Edge-Case Suite", () => {
         type: "application",
         environmentId: "env-1",
       });
+      uow.store.environments.push({ id: "env-1", projectId: "proj-1" });
+      uow.store.projects.push({ id: "proj-1", organizationId: "org-1" });
 
       const useCase = new UpdateResourceUseCase(uow as never, null as never);
 
       expect(
         useCase.execute({
           id: "res-app-1",
+          organizationId: "org-1",
           externalPort: 5432,
         }),
       ).rejects.toThrow(
@@ -245,10 +253,13 @@ describe("Resource Actions Exhaustive Edge-Case Suite", () => {
         type: "application",
         environmentId: "env-1",
       });
+      uow.store.environments.push({ id: "env-1", projectId: "proj-1" });
+      uow.store.projects.push({ id: "proj-1", organizationId: "org-1" });
 
       const useCase = new UpdateResourceUseCase(uow as never, null as never);
       const updated = await useCase.execute({
         id: "res-docker-app",
+        organizationId: "org-1",
         dockerImage: "nginx:alpine",
       });
 
@@ -271,6 +282,7 @@ describe("Resource Actions Exhaustive Edge-Case Suite", () => {
       expect(
         useCase.execute({
           id: "res-app-2",
+          organizationId: "org-1",
           rollbackActive: true,
         }),
       ).rejects.toThrow(

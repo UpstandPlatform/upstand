@@ -1,8 +1,15 @@
 import { env } from "@upstand/env/server";
+import {
+  type AddressResolver,
+  assertPublicHttpUrl,
+  resolveAllAddresses,
+} from "@upstand/platform/network/outbound";
+import { readResponseJsonLimited } from "@upstand/platform/network/response-body";
 import { log } from "evlog";
 import { UpGalError } from "./upgal-errors";
 
 const SEARCH_TIMEOUT_MS = 15_000;
+const MAX_SEARCH_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_RESULT_TEXT_LENGTH = 600;
 
 export type WebSearchResult = {
@@ -18,17 +25,19 @@ export type WebSearchResponse = {
   searchedAt: string;
 };
 
-function searchEndpoint(): URL {
+async function searchEndpoint(
+  resolveHost: AddressResolver = resolveAllAddresses,
+): Promise<URL> {
   const configured = env.UPGAL_WEB_SEARCH_BASE_URL;
-  const endpoint = new URL(configured);
-  if (endpoint.protocol !== "https:") {
+  try {
+    return await assertPublicHttpUrl(configured, resolveHost);
+  } catch {
     throw new UpGalError(
       "configuration",
-      "UPGAL_WEB_SEARCH_BASE_URL must use HTTPS.",
+      "UPGAL_WEB_SEARCH_BASE_URL must be a public HTTPS endpoint on port 443.",
       "web_search",
     );
   }
-  return endpoint;
 }
 
 function cleanText(value: unknown): string {
@@ -69,10 +78,13 @@ function parseResult(value: unknown): WebSearchResult | null {
  * Search content and result pages are untrusted data and must never be
  * treated as UpGal instructions.
  */
-export async function searchWeb(input: {
-  query: string;
-  limit: number;
-}): Promise<WebSearchResponse> {
+export async function searchWeb(
+  input: {
+    query: string;
+    limit: number;
+  },
+  options: { resolveHost?: AddressResolver } = {},
+): Promise<WebSearchResponse> {
   const apiKey = env.UPGAL_WEB_SEARCH_API_KEY?.trim();
   if (!apiKey) {
     throw new UpGalError(
@@ -82,7 +94,7 @@ export async function searchWeb(input: {
     );
   }
 
-  const endpoint = searchEndpoint();
+  const endpoint = await searchEndpoint(options.resolveHost);
   endpoint.searchParams.set("q", input.query);
   endpoint.searchParams.set("count", String(input.limit));
   endpoint.searchParams.set("safesearch", "moderate");
@@ -117,9 +129,9 @@ export async function searchWeb(input: {
       );
     }
 
-    const payload = (await response.json()) as {
+    const payload = await readResponseJsonLimited<{
       web?: { results?: unknown };
-    };
+    }>(response, MAX_SEARCH_RESPONSE_BYTES);
     const rawResults = Array.isArray(payload.web?.results)
       ? payload.web.results
       : [];

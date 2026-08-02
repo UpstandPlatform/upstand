@@ -29,6 +29,13 @@ async function safeRecordAudit(
       message: "Failed to resolve audit event scope",
       route: path,
     });
+    if (outcome.success) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "The operation could not be durably audited",
+        cause: "AUDIT_PERSISTENCE_FAILED",
+      });
+    }
   }
 }
 
@@ -84,7 +91,13 @@ export const protectedProcedure = t.procedure
 /** Procedures that require an additional step-up authentication check. */
 export const twoFactorVerifiedProcedure = protectedProcedure.use(
   async ({ ctx, next }) => {
-    if (isApiKeyPrincipal(ctx.actor)) return next();
+    if (isApiKeyPrincipal(ctx.actor)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "This operation requires an interactive verified session",
+        cause: "API_KEY_CANNOT_SATISFY_STEP_UP",
+      });
+    }
     if (!(await stepUp.isStepUpAuthenticationSatisfied(ctx.session))) {
       throw new TRPCError({
         code: "FORBIDDEN",

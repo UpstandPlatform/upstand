@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { organization } from "./auth";
+import { server } from "./server";
 
 export const dockerRegistry = pgTable(
   "docker_registry",
@@ -14,7 +15,9 @@ export const dockerRegistry = pgTable(
     password: text("password"),
     imagePrefix: text("image_prefix"),
     registryUrl: text("registry_url"),
-    serverId: text("server_id"),
+    serverId: text("server_id").references(() => server.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()

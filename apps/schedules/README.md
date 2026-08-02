@@ -21,6 +21,9 @@ The **Upstand Schedules Service** is a dedicated, lightweight, standalone micros
   - `GET /health/live`: Liveness check.
   - `GET /health/ready`: Readiness check (verifies worker readiness).
   - `GET /status`: Detailed metrics and BullMQ queue status.
+  - `GET /metrics`: Private Prometheus-compatible gauges for readiness, queue,
+    outbox, and backup monitoring. Keep this endpoint on the internal overlay;
+    it is not an operator authentication boundary.
 
 ## Configuration
 

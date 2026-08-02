@@ -17,7 +17,8 @@ export interface ServerProvisioningSession {
 export interface ServerProvisioningPort {
   connect(input: {
     server: Server;
-    privateKey: string;
+    privateKey?: string;
+    password?: string;
     hostKeyFingerprint: string;
   }): Promise<ServerProvisioningSession>;
 }

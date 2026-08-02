@@ -59,6 +59,8 @@ sequenceDiagram
 
 Organizations can register custom MCP tool extensions in `packages/api/src/ai/upgal.ts` or via `UPGAL_MCP_SERVERS`:
 
+`UPGAL_MCP_SERVERS` is disabled by default and is intended for self-hosted operator configuration. Configured external servers must use HTTPS, resolve only to public addresses at connection time, and cannot include URL credentials. `http://localhost` is retained as the explicit local-development exception.
+
 ```mermaid
 sequenceDiagram
     autonumber

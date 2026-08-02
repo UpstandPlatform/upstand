@@ -11,6 +11,7 @@ import {
   type Resource,
   toJsonValue,
 } from "@upstand/domain";
+import { env } from "@upstand/env/server";
 import { AIRepositoryToken } from "@upstand/repositories/tokens";
 import {
   CreateTemplateInputSchema,
@@ -81,10 +82,12 @@ import { log, type RequestLogger } from "evlog";
 import { createEvlogIntegration } from "evlog/ai";
 import { z } from "zod";
 import type { RequestLog } from "../context";
+import { requireInstanceOwner } from "../instance-access";
 import { checkPermission } from "../permissions";
 import { connectUpGalMCPApps } from "./mcp-apps";
 import { listUpGalModelCatalog } from "./model-catalog";
 import { getUpGalProvider, type UpGalProviderOverrides } from "./provider";
+import { redactLogOutput } from "./redact-log-output";
 import { createTavilyToolsForOrg } from "./tavily-tools";
 import { mutationTool, readTool, type UpGalToolContext } from "./tools/factory";
 import { resourceTagSchema } from "./tools/tag-schemas";
@@ -1176,9 +1179,23 @@ async function assertResource(context: UpGalContext, resourceId: string) {
   return resource;
 }
 
+async function assertServer(context: UpGalContext, serverId: string) {
+  const uow = resolve<IUnitOfWork>(context.scope, UnitOfWorkToken);
+  const server = await uow.serverRepository.findById(serverId);
+  if (!server || server.organizationId !== context.organizationId) {
+    throw new Error("Server is not part of the active organization.");
+  }
+  return server;
+}
+
+function truncateOutput(text: string, maxLength = 4000): string {
+  if (!text || text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}\n... [output truncated (${text.length - maxLength} characters omitted)]`;
+}
+
 function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
   const run = <T>(token: TokenLike<T>) => resolve(context.scope, token);
-  const dockerRead = (
+  const dockerRead = async (
     kind:
       | "info"
       | "containers"
@@ -1187,13 +1204,21 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       | "networks"
       | "services",
     input: z.infer<typeof dockerTargetSchema>,
-  ) =>
-    run(GetDockerInventoryUseCaseToken).execute({
+  ) => {
+    if (
+      !input.serverId ||
+      input.serverId === "local" ||
+      input.serverId === "manager"
+    ) {
+      await requireInstanceOwner(context.userId, "session");
+    }
+    return run(GetDockerInventoryUseCaseToken).execute({
       organizationId: context.organizationId,
       kind,
       tail: 150,
       ...input,
     });
+  };
   const tools = {
     get_account_status: readTool(
       "Read a compact health and inventory summary for the active organization.",
@@ -1292,10 +1317,11 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       resourceLogsSchema,
       async ({ id, tail }) => {
         await assertResource(context, id);
-        return run(GetResourceLogsUseCaseToken).execute({
+        const logs = await run(GetResourceLogsUseCaseToken).execute({
           id,
           tail: tail ?? 100,
         });
+        return redactLogOutput(logs);
       },
       logsOutputSchema,
     ),
@@ -1360,7 +1386,10 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     list_deployments: readTool(
       "Read recent deployment history enriched with project and environment names.",
       emptySchema,
-      async () => run(GetDeploymentsUseCaseToken).execute(),
+      async () =>
+        run(GetDeploymentsUseCaseToken).executeForOrganization(
+          context.organizationId,
+        ),
       deploymentsOutputSchema,
     ),
     get_audit_logs: readTool(
@@ -1419,13 +1448,21 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     get_docker_logs: readTool(
       "Read recent logs for a Docker container or Swarm service. Provide exactly one containerId or serviceName.",
       dockerLogsSchema,
-      async (input) =>
-        run(GetDockerInventoryUseCaseToken).execute({
+      async (input) => {
+        if (
+          !input.serverId ||
+          input.serverId === "local" ||
+          input.serverId === "manager"
+        ) {
+          await requireInstanceOwner(context.userId, "session");
+        }
+        return run(GetDockerInventoryUseCaseToken).execute({
           organizationId: context.organizationId,
           kind: "logs",
           ...input,
           tail: input.tail ?? 150,
-        }),
+        });
+      },
       dockerOutputSchema,
     ),
     get_project: readTool(
@@ -1543,25 +1580,38 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     get_swarm_info: readTool(
       "Read local Docker Swarm health and manager state.",
       emptySchema,
-      async () => run(GetSwarmInfoUseCaseToken).execute(),
+      async () => {
+        await requireInstanceOwner(context.userId, "session");
+        return run(GetSwarmInfoUseCaseToken).execute();
+      },
       z.unknown(),
     ),
     get_swarm_nodes: readTool(
       "Read Docker Swarm node health and availability.",
       emptySchema,
-      async () => run(GetSwarmNodesUseCaseToken).execute(),
+      async () => {
+        await requireInstanceOwner(context.userId, "session");
+        return run(GetSwarmNodesUseCaseToken).execute();
+      },
       z.unknown(),
     ),
     get_swarm_containers: readTool(
       "Read Docker Swarm task and service health.",
       emptySchema,
-      async () => run(GetSwarmContainersUseCaseToken).execute(),
+      async () => {
+        await requireInstanceOwner(context.userId, "session");
+        return run(GetSwarmContainersUseCaseToken).execute();
+      },
       z.unknown(),
     ),
     get_web_server_logs: readTool(
       "Read recent Upstand web-server logs.",
       webServerLogsSchema,
-      async ({ tail }) => run(GetWebServerLogsUseCaseToken).execute(tail),
+      async ({ tail }) => {
+        await requireInstanceOwner(context.userId, "session");
+        const logs = await run(GetWebServerLogsUseCaseToken).execute(tail);
+        return truncateOutput(logs);
+      },
       z.string(),
     ),
     get_update_status: readTool(
@@ -1643,7 +1693,11 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       }),
       async ({ id, deleteVolumes }) => {
         await assertResource(context, id);
-        return run(DeleteResourceUseCaseToken).execute({ id, deleteVolumes });
+        return run(DeleteResourceUseCaseToken).execute({
+          id,
+          deleteVolumes,
+          organizationId: context.organizationId,
+        });
       },
       deletionOutputSchema,
     ),
@@ -1672,21 +1726,38 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     exec_container_command: mutationTool(
       "Run a shell command inside a Docker container. This requires approval.",
       execContainerCommandSchema,
-      async (input) =>
-        run(ExecContainerCommandUseCaseToken).execute({
+      async (input) => {
+        await assertResource(context, input.resourceId);
+        if (input.serverId && input.serverId !== "local") {
+          await assertServer(context, input.serverId);
+        }
+        const res = await run(ExecContainerCommandUseCaseToken).execute({
           organizationId: context.organizationId,
           ...input,
-        }),
+        });
+        return { output: truncateOutput(res.output) };
+      },
       execCommandOutputSchema,
     ),
     exec_server_terminal_command: mutationTool(
       "Run a terminal command on the server. This requires approval.",
       execServerTerminalCommandSchema,
-      async (input) =>
-        run(ExecServerTerminalCommandUseCaseToken).execute({
+      async (input) => {
+        if (
+          !input.serverId ||
+          input.serverId === "local" ||
+          input.serverId === "manager"
+        ) {
+          await requireInstanceOwner(context.userId, "session");
+        } else {
+          await assertServer(context, input.serverId);
+        }
+        const res = await run(ExecServerTerminalCommandUseCaseToken).execute({
           organizationId: context.organizationId,
           ...input,
-        }),
+        });
+        return { output: truncateOutput(res.output) };
+      },
       execCommandOutputSchema,
     ),
     list_schedules: readTool(
@@ -1789,6 +1860,16 @@ export async function getUpGalToolNamesForUser(
         organizationId,
         UPGAL_TOOL_CAPABILITIES[name],
       );
+      if (name === "get_web_server_logs") {
+        await requireInstanceOwner(userId, "session");
+      }
+      if (
+        name === "get_swarm_info" ||
+        name === "get_swarm_nodes" ||
+        name === "get_swarm_containers"
+      ) {
+        await requireInstanceOwner(userId, "session");
+      }
       allowed.push(name);
     } catch {
       // A missing capability removes only this tool from the agent surface.
@@ -2170,7 +2251,7 @@ export async function createUpGalResponse(
         ? "user-approval"
         : undefined,
     toolsContext,
-    stopWhen: stepCountIs(12),
+    stopWhen: stepCountIs(env.UPGAL_MAX_STEPS),
     maxRetries: 2,
     timeout: { stepMs: 120_000, toolMs: 45_000 },
     telemetry: {

@@ -157,7 +157,7 @@ export type LocalDeploymentTargetResolver =
 
 const defaultLocalDeploymentTarget: LocalDeploymentTargetResolver =
   async () => ({
-    name: "Dokploy Server",
+    name: "Upstand Server",
     ip: "127.0.0.1",
   });
 
@@ -194,7 +194,7 @@ export class QueueDeploymentUseCase {
 
       // 1. Resolve target serverId
       let serverId = resource.serverId;
-      let serverName = "Dokploy Server";
+      let serverName = "Upstand Server";
       let serverIp = "127.0.0.1";
 
       if (!serverId) {
@@ -210,11 +210,37 @@ export class QueueDeploymentUseCase {
           serverId,
         });
       } else {
-        // Fetch server name
+        // Fetch server name and validate server status & credentials
         const server = await tx.serverRepository.findById(serverId);
         if (server) {
           serverName = server.name;
           serverIp = server.ipAddress;
+          if (server.status !== "ready") {
+            throw new ValidationError(
+              `Target server '${server.name}' is not ready (${server.status}). Run server setup before deploying.`,
+            );
+          }
+          const isPasswordAuth =
+            server.authType === "password" ||
+            (!server.sshKeyId && Boolean(server.passwordCiphertext));
+          if (isPasswordAuth) {
+            if (
+              !server.passwordCiphertext ||
+              !server.passwordIv ||
+              !server.passwordAuthTag ||
+              server.passwordVersion == null
+            ) {
+              throw new ValidationError(
+                `Target server '${server.name}' has no password credentials configured. Please update server authentication.`,
+              );
+            }
+          } else {
+            if (!server.sshKeyId) {
+              throw new ValidationError(
+                `Target server '${server.name}' has no SSH key configured. Please attach an SSH key.`,
+              );
+            }
+          }
         } else {
           const settings =
             await tx.serverBuildSettingsRepository.findById(serverId);

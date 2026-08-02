@@ -1,5 +1,15 @@
+export type DesktopConnectionProfile = {
+  id: string;
+  name: string;
+  mode: "desktop" | "self-hosted" | "cloud";
+  origin: string;
+  isActive: boolean;
+};
+
 export type DesktopConnection = {
   origin: string;
+  activeProfileId?: string;
+  profiles?: DesktopConnectionProfile[];
 };
 
 /**
@@ -29,13 +39,36 @@ export function normalizeUpstandOrigin(value: string): string {
   return url.origin;
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
 export function isAllowedNavigation(
   target: string,
   connection: DesktopConnection | null,
 ): boolean {
   if (!connection) return false;
   try {
-    return new URL(target).origin === connection.origin;
+    const targetUrl = new URL(target);
+    const connectionUrl = new URL(connection.origin);
+
+    if (targetUrl.origin === connectionUrl.origin) return true;
+
+    if (
+      isLoopbackHost(targetUrl.hostname) &&
+      isLoopbackHost(connectionUrl.hostname) &&
+      targetUrl.port === connectionUrl.port &&
+      targetUrl.protocol === connectionUrl.protocol
+    ) {
+      return true;
+    }
+
+    return false;
   } catch {
     return false;
   }

@@ -10,6 +10,7 @@
     "schedules-workers",
     "api-automation",
     "backups-cleanup",
-    "audit-logs"
+    "audit-logs",
+    "production-readiness-audit"
   ]
 }

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import { ProcessSourceWebhookUseCase } from "./process-source-webhook.usecase";
+import {
+  ProcessSourceWebhookUseCase,
+  type WebhookDeliveryStore,
+} from "./process-source-webhook.usecase";
 
 function resource(
   id: string,
@@ -36,7 +39,7 @@ function resource(
   };
 }
 
-function harness() {
+function harness(deliveryStore?: WebhookDeliveryStore) {
   const queued: string[] = [];
   const queuedInputs: Array<{ resourceId: string; sourceRevision?: string }> =
     [];
@@ -62,13 +65,17 @@ function harness() {
       findByEnvironmentId: async () => [service],
     },
   } as never;
-  const useCase = new ProcessSourceWebhookUseCase(uow, () => ({
-    execute: async (input) => {
-      queuedInputs.push(input);
-      const { resourceId } = input;
-      queued.push(resourceId);
-    },
-  }));
+  const useCase = new ProcessSourceWebhookUseCase(
+    uow,
+    () => ({
+      execute: async (input) => {
+        queuedInputs.push(input);
+        const { resourceId } = input;
+        queued.push(resourceId);
+      },
+    }),
+    deliveryStore,
+  );
   return { useCase, queued, queuedInputs };
 }
 
@@ -118,6 +125,49 @@ describe("source webhook processing", () => {
         },
       }),
     ).rejects.toThrow("Invalid webhook signature");
+  });
+
+  test("deduplicates signed deliveries and only claims after signature verification", async () => {
+    const claimedKeys: string[] = [];
+    const releasedKeys: string[] = [];
+    const claimed = new Set<string>();
+    const deliveryStore: WebhookDeliveryStore = {
+      async claim(key) {
+        claimedKeys.push(key);
+        if (claimed.has(key)) return false;
+        claimed.add(key);
+        return true;
+      },
+      async release(key) {
+        releasedKeys.push(key);
+        claimed.delete(key);
+      },
+    };
+    const { useCase, queued } = harness(deliveryStore);
+    const body = JSON.stringify({
+      ref: "refs/heads/main",
+      repository: { full_name: "acme/example" },
+      commits: [{ modified: ["apps/api/src/index.ts"] }],
+    });
+    const input = {
+      providerId: "provider-1",
+      provider: "github" as const,
+      bodyText: body,
+      deliveryId: "delivery-1",
+      headers: {
+        "x-github-event": "push",
+        "x-hub-signature-256": signed(body),
+      },
+    };
+
+    await expect(useCase.execute(input)).resolves.toMatchObject({ queued: 1 });
+    await expect(useCase.execute(input)).resolves.toMatchObject({
+      queued: 0,
+      reason: "duplicate_delivery",
+    });
+    expect(queued).toEqual(["api"]);
+    expect(claimedKeys).toHaveLength(2);
+    expect(releasedKeys).toEqual([]);
   });
 
   test("uses typed tag and watch-path fields when they are present", async () => {

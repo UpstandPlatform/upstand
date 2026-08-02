@@ -62,7 +62,9 @@ export default function RemoteServersPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [serverType, setServerType] = useState<ServerType>("deploy");
+  const [authType, setAuthType] = useState<"ssh_key" | "password">("ssh_key");
   const [sshKeyId, setSshKeyId] = useState("");
+  const [password, setPassword] = useState("");
   const [ipAddress, setIpAddress] = useState("");
   const [port, setPort] = useState(22);
   const [username, setUsername] = useState("root");
@@ -151,7 +153,9 @@ export default function RemoteServersPage() {
     setName("");
     setDescription("");
     setServerType("deploy");
+    setAuthType("ssh_key");
     setSshKeyId("");
+    setPassword("");
     setIpAddress("");
     setPort(22);
     setUsername("root");
@@ -160,8 +164,16 @@ export default function RemoteServersPage() {
 
   const handleSubmit = (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (!name || !ipAddress || !sshKeyId) {
-      toast.error("Name, IP Address, and SSH Key are required");
+    if (!name || !ipAddress) {
+      toast.error("Name and IP Address are required");
+      return;
+    }
+    if (authType === "ssh_key" && !sshKeyId) {
+      toast.error("SSH Key is required for SSH key authentication");
+      return;
+    }
+    if (authType === "password" && !editingServerId && !password) {
+      toast.error("Password is required for password authentication");
       return;
     }
     const input = {
@@ -169,7 +181,9 @@ export default function RemoteServersPage() {
       name,
       description: description || null,
       serverType,
-      sshKeyId,
+      authType,
+      sshKeyId: authType === "ssh_key" ? sshKeyId : null,
+      password: authType === "password" && password ? password : undefined,
       ipAddress,
       port,
       username,
@@ -219,6 +233,7 @@ export default function RemoteServersPage() {
     name: string;
     description?: string | null;
     serverType: ServerType;
+    authType?: string;
     sshKeyId?: string | null;
     ipAddress: string;
     port: number;
@@ -229,7 +244,9 @@ export default function RemoteServersPage() {
     setName(server.name);
     setDescription(server.description ?? "");
     setServerType(server.serverType);
+    setAuthType(server.authType === "password" ? "password" : "ssh_key");
     setSshKeyId(server.sshKeyId ?? "");
+    setPassword("");
     setIpAddress(server.ipAddress);
     setPort(server.port);
     setUsername(server.username);
@@ -279,10 +296,28 @@ export default function RemoteServersPage() {
         })
       : undefined;
   const closeSetupDialog = () => {
-    if (setupMutation.isPending) return;
+    if (
+      setupMutation.isPending ||
+      setupProgressQuery.data?.status === "setting_up"
+    ) {
+      toast.info(
+        "Setup is running in the background. Check server card status for live progress.",
+      );
+    }
     setSetupServerId(null);
     setupMutation.reset();
   };
+
+  const setupProgressQuery = useQuery({
+    ...trpc.server.setupProgress.queryOptions({
+      id: setupServerId ?? "",
+    }),
+    enabled: Boolean(setupServerId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "setting_up" ? 1500 : false;
+    },
+  });
 
   return (
     <DashboardPage>
@@ -628,27 +663,67 @@ export default function RemoteServersPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="sshKeyId">Select an SSH Key</Label>
+              <Label htmlFor="authType">Authentication Method</Label>
               <Select
-                items={(sshKeys ?? []).map((key) => ({
-                  value: key.id,
-                  label: `${key.name} (${key.algorithm})`,
-                }))}
-                value={sshKeyId}
-                onValueChange={(value) => setSshKeyId(value ?? "")}
+                items={[
+                  { value: "ssh_key", label: "SSH Key" },
+                  { value: "password", label: "Password" },
+                ]}
+                value={authType}
+                onValueChange={(val) =>
+                  val && setAuthType(val as "ssh_key" | "password")
+                }
               >
-                <SelectTrigger id="sshKeyId" className="w-full">
-                  <SelectValue placeholder="Choose an SSH key" />
+                <SelectTrigger id="authType" className="w-full">
+                  <SelectValue placeholder="Select auth method" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sshKeys?.map((key) => (
-                    <SelectItem key={key.id} value={key.id}>
-                      {key.name} ({key.algorithm})
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="ssh_key">SSH Key</SelectItem>
+                  <SelectItem value="password">Password</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {authType === "ssh_key" ? (
+              <div className="space-y-2">
+                <Label htmlFor="sshKeyId">Select an SSH Key</Label>
+                <Select
+                  items={(sshKeys ?? []).map((key) => ({
+                    value: key.id,
+                    label: `${key.name} (${key.algorithm})`,
+                  }))}
+                  value={sshKeyId}
+                  onValueChange={(value) => setSshKeyId(value ?? "")}
+                >
+                  <SelectTrigger id="sshKeyId" className="w-full">
+                    <SelectValue placeholder="Choose an SSH key" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sshKeys?.map((key) => (
+                      <SelectItem key={key.id} value={key.id}>
+                        {key.name} ({key.algorithm})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="password">SSH Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  required={!editingServerId}
+                  placeholder={
+                    editingServerId
+                      ? "Leave blank to keep existing password"
+                      : "Enter SSH password"
+                  }
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="ipAddress">IP Address</Label>
@@ -724,99 +799,140 @@ export default function RemoteServersPage() {
       </Dialog>
 
       <Dialog
-        open={Boolean(setupServer)}
+        open={Boolean(setupServerId)}
         onOpenChange={(open) => {
           if (!open) closeSetupDialog();
         }}
       >
         <DialogContent
-          className="max-w-lg"
-          showCloseButton={!setupMutation.isPending}
+          className="flex max-h-[85vh] max-w-xl flex-col"
+          showCloseButton={true}
         >
           <DialogHeader>
             <DialogTitle>
-              {setupMutation.isSuccess
+              {setupProgressQuery.data?.status === "ready" ||
+              setupMutation.isSuccess
                 ? "Server ready"
-                : setupMutation.isError
+                : setupProgressQuery.data?.status === "failed" ||
+                    setupMutation.isError
                   ? "Setup needs attention"
                   : `Setting up ${setupServer?.name ?? "server"}`}
             </DialogTitle>
             <DialogDescription>
               Upstand installs and verifies Docker, initializes this server's
-              independent Swarm, creates its network, and starts Caddy routing.
+              independent Swarm, creates its network, and starts Caddy routing &
+              monitoring.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 p-4">
-              {setupMutation.isPending ? (
-                <Spinner className="size-5 shrink-0 text-primary" />
-              ) : setupMutation.isSuccess ? (
-                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-success/15 font-bold text-success text-xs">
-                  ✓
-                </span>
-              ) : (
-                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-destructive/15 font-bold text-destructive text-xs">
-                  !
-                </span>
-              )}
-              <div className="min-w-0">
-                <p className="font-medium text-sm">
-                  {setupServer?.name ?? "Remote server"}
-                </p>
-                <p className="break-all text-muted-foreground text-xs">
-                  {setupServer?.ipAddress}:{setupServer?.port}
-                </p>
+          <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+            <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 p-4">
+              <div className="flex items-center gap-3">
+                {setupProgressQuery.data?.status === "setting_up" ||
+                setupMutation.isPending ? (
+                  <Spinner className="size-5 shrink-0 text-primary" />
+                ) : setupProgressQuery.data?.status === "ready" ||
+                  setupMutation.isSuccess ? (
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-success/15 font-bold text-success text-xs">
+                    ✓
+                  </span>
+                ) : (
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-destructive/15 font-bold text-destructive text-xs">
+                    !
+                  </span>
+                )}
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">
+                    {setupServer?.name ?? "Remote server"}
+                  </p>
+                  <p className="break-all font-mono text-muted-foreground text-xs">
+                    {setupServer?.ipAddress}:{setupServer?.port} (
+                    {setupServer?.username})
+                  </p>
+                </div>
               </div>
+              <Badge
+                variant={
+                  setupProgressQuery.data?.status === "ready" ||
+                  setupMutation.isSuccess
+                    ? "default"
+                    : setupProgressQuery.data?.status === "failed" ||
+                        setupMutation.isError
+                      ? "destructive"
+                      : "outline"
+                }
+              >
+                {setupProgressQuery.data?.status === "setting_up" ||
+                setupMutation.isPending
+                  ? setupProgressQuery.data?.setupStage || "In Progress"
+                  : setupProgressQuery.data?.status === "ready" ||
+                      setupMutation.isSuccess
+                    ? "Provisioned"
+                    : setupProgressQuery.data?.status === "failed" ||
+                        setupMutation.isError
+                      ? "Failed"
+                      : "Idle"}
+              </Badge>
             </div>
 
-            {setupMutation.isPending && (
-              <p className="text-muted-foreground text-sm">
-                Provisioning Docker, the local Swarm, the Upstand network, and
-                the routing service. This can take a few minutes on a new VPS.
-              </p>
+            {setupProgressQuery.data?.setupStage && (
+              <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-xs">
+                <Spinner className="size-3.5 shrink-0 text-primary" />
+                <span className="font-medium text-foreground">
+                  Current Stage: {setupProgressQuery.data.setupStage}
+                </span>
+              </div>
             )}
 
-            {setupMutation.isSuccess && (
-              <p className="text-sm text-success">
-                {setupMutation.data.message}
-              </p>
+            {setupProgressQuery.data?.setupLogs && (
+              <div className="space-y-1.5">
+                <p className="font-semibold text-muted-foreground text-xs">
+                  Setup Terminal Output:
+                </p>
+                <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] text-zinc-100 leading-relaxed dark:bg-black/90">
+                  {setupProgressQuery.data.setupLogs}
+                </div>
+              </div>
             )}
 
-            {setupMutation.isError && (
+            {(setupMutation.isError ||
+              setupProgressQuery.data?.status === "failed") && (
               <Alert variant="destructive">
                 <AlertTriangleIcon />
                 <AlertTitle className="break-words">
-                  {setupMutation.error.message}
+                  {setupProgressQuery.data?.setupError ||
+                    setupMutation.error?.message ||
+                    "Server setup encountered an issue"}
                 </AlertTitle>
                 <AlertDescription>
-                  Upstand does not force-leave an existing Swarm. An active
-                  existing Swarm can be reused; if initialization failed,
-                  resolve the Docker or advertised-address issue on the server,
-                  then retry setup.
+                  Review the error details above. You can retry setup anytime,
+                  which will resume safely from the last step.
                 </AlertDescription>
               </Alert>
             )}
           </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={closeSetupDialog}
-              disabled={setupMutation.isPending}
-            >
-              Close
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={closeSetupDialog}>
+              {setupProgressQuery.data?.status === "setting_up" ||
+              setupMutation.isPending
+                ? "Run in Background"
+                : "Close"}
             </Button>
-            {setupMutation.isError && setupServerId && (
-              <Button
-                type="button"
-                onClick={() => handleSetup(setupServerId)}
-                disabled={setupMutation.isPending}
-              >
-                Retry setup
-              </Button>
-            )}
+            {(setupMutation.isError ||
+              setupProgressQuery.data?.status === "failed") &&
+              setupServerId && (
+                <Button
+                  type="button"
+                  onClick={() => handleSetup(setupServerId)}
+                  disabled={
+                    setupMutation.isPending ||
+                    setupProgressQuery.data?.status === "setting_up"
+                  }
+                >
+                  Retry setup
+                </Button>
+              )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

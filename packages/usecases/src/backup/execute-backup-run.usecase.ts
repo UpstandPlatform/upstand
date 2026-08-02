@@ -5,7 +5,9 @@ import {
   ValidationError,
 } from "@upstand/domain";
 import { log } from "evlog";
+import { resolveCertificateForOrganization } from "../certificate/certificate-reference";
 import type { PublishNotificationUseCase } from "../notification/publish-notification.usecase";
+import { forEachBackupRunBySchedule } from "./backup-run-pagination";
 import {
   BackupRuntimeService,
   withBackupRuntime,
@@ -68,15 +70,19 @@ export class ExecuteBackupRunUseCase {
       (resource ? await resolveBackupOrganizationId(this.uow, resource) : null);
     if (!organizationId)
       return failBeforeExecution("Backup organization not found");
+    if (run.organizationId !== organizationId)
+      return failBeforeExecution("Backup run belongs to another organization");
     if (destination.organizationId !== organizationId) {
       return failBeforeExecution(
         "Backup destination belongs to another organization",
       );
     }
 
-    const caCert = destination.certificateId
-      ? await this.uow.certificateRepository.findById(destination.certificateId)
-      : null;
+    const caCert = await resolveCertificateForOrganization(
+      this.uow,
+      destination.certificateId,
+      organizationId,
+    );
     const effectiveDestination = withBackupCaCertificate(
       destination,
       caCert?.certificatePem,
@@ -186,37 +192,36 @@ export class ExecuteBackupRunUseCase {
     destination: S3Destination,
   ): Promise<void> {
     if (!retentionCount || !destination) return;
-    const runs = await this.uow.backupRunRepository.findByScheduleId(
+    let retainedCount = 0;
+    await forEachBackupRunBySchedule(
+      this.uow.backupRunRepository,
       scheduleId,
-      10_000,
-    );
-    const staleRuns = runs
-      .filter(
-        (candidate) => candidate.status === "succeeded" && candidate.fileKey,
-      )
-      .slice(retentionCount);
+      async (candidate) => {
+        if (candidate.status !== "succeeded" || !candidate.fileKey) return;
+        retainedCount += 1;
+        if (retainedCount <= retentionCount) return;
 
-    for (const stale of staleRuns) {
-      try {
-        if (stale.kind === "web-server") {
-          await this.runtime.deleteWebServerBackup(
-            destination,
-            stale.fileKey as string,
-          );
-        } else {
-          await this.runtime.deleteBackup(destination, stale.fileKey as string);
+        try {
+          if (candidate.kind === "web-server") {
+            await this.runtime.deleteWebServerBackup(
+              destination,
+              candidate.fileKey,
+            );
+          } else {
+            await this.runtime.deleteBackup(destination, candidate.fileKey);
+          }
+          await this.uow.backupRunRepository.deleteById(candidate.id);
+        } catch (error) {
+          log.error({
+            message: "Unable to delete expired backup",
+            scheduleId,
+            runId: candidate.id,
+            fileKey: candidate.fileKey,
+            err: error,
+          });
         }
-        await this.uow.backupRunRepository.deleteById(stale.id);
-      } catch (error) {
-        log.error({
-          message: "Unable to delete expired backup",
-          scheduleId,
-          runId: stale.id,
-          fileKey: stale.fileKey,
-          err: error,
-        });
-      }
-    }
+      },
+    );
   }
 
   private async publishOutcome(input: {

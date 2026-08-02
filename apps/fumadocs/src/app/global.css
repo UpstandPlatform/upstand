@@ -6,6 +6,11 @@ html {
   scrollbar-gutter: stable;
 }
 
+body {
+  font-family:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
 html > body[data-scroll-locked] {
   margin-right: 0px;
   --removed-body-scroll-bar-size: 0px;

@@ -73,7 +73,7 @@ export const notificationRouter = router({
       try {
         return await ctx.scope
           .resolve(UpdateNotificationChannelUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId: channel.organizationId });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -100,7 +100,7 @@ export const notificationRouter = router({
       try {
         await ctx.scope
           .resolve(DeleteNotificationChannelUseCaseToken)
-          .execute(input.id);
+          .execute({ id: input.id, organizationId: channel.organizationId });
         return { success: true };
       } catch (error) {
         handleUseCaseError(error, ctx.log);

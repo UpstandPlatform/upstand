@@ -68,7 +68,7 @@ export const notificationDelivery = pgTable(
     index("notification_delivery_channel_idx").on(table.channelId),
     index("notification_delivery_organization_created_idx").on(
       table.organizationId,
-      table.createdAt,
+      table.createdAt.desc(),
     ),
     index("notification_delivery_status_idx").on(table.status),
     uniqueIndex("notification_delivery_idempotency_uidx").on(

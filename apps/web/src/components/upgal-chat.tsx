@@ -484,7 +484,7 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
         // a relative URL sends the request to the dashboard instead.
         api: getServerApiUrl("/api/ai/chat"),
         credentials: "include",
-        fetch: upGalFetch,
+        fetch: upGalFetch as typeof fetch,
       }),
     [],
   );

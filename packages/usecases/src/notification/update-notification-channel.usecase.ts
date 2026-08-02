@@ -23,7 +23,13 @@ export class UpdateNotificationChannelUseCase {
     const channel = await this.uow.notificationChannelRepository.findById(
       validated.id,
     );
-    if (!channel) throw new ValidationError("Notification channel not found");
+    if (
+      !channel ||
+      !validated.organizationId ||
+      channel.organizationId !== validated.organizationId
+    ) {
+      throw new ValidationError("Notification channel not found");
+    }
 
     const patch: Parameters<
       IUnitOfWork["notificationChannelRepository"]["updateById"]

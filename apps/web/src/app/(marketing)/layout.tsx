@@ -13,8 +13,12 @@ export default function MarketingLayout({
       >
         Skip to content
       </a>
-      <Header />
-      <main id="main-content">{children}</main>
+      <div className="flex h-svh flex-col">
+        <Header />
+        <main className="h-full flex-1" id="main-content">
+          {children}
+        </main>
+      </div>
     </>
   );
 }

@@ -19,6 +19,7 @@
         "name": "next"
       }
     ],
+    "types": ["bun"],
     "paths": {
       "@/*": ["./src/*"],
       "@upstand/ui/*": ["../../packages/ui/src/*"]

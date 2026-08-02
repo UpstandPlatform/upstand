@@ -1,14 +1,16 @@
 import { readResponseBodyLimited } from "@upstand/platform/network/response-body";
-import { assertSafeProviderUrl } from "./provider-config";
+import { assertSafeProviderUrlAsync } from "./provider-config";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
-function safeInput(input: string | URL | Request): string | URL | Request {
+async function safeInput(
+  input: string | URL | Request,
+): Promise<string | URL | Request> {
   if (input instanceof Request) {
-    assertSafeProviderUrl(input.url);
+    await assertSafeProviderUrlAsync(input.url);
   } else {
-    assertSafeProviderUrl(String(input));
+    await assertSafeProviderUrlAsync(String(input));
   }
   return input;
 }
@@ -34,7 +36,7 @@ export async function requestJsonWithResponse<T>(
       once: true,
     });
   }
-  const response = await fetch(safeInput(input), {
+  const response = await fetch(await safeInput(input), {
     ...init,
     signal: controller.signal,
     redirect: "error",

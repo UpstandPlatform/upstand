@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { IUnitOfWork, Resource } from "@upstand/domain";
+import {
+  type IUnitOfWork,
+  type Resource,
+  ValidationError,
+} from "@upstand/domain";
 import { z } from "zod";
+import { assertManagedDatabaseCredentials } from "./database-credentials";
 import { getDatabaseEnvironment } from "./database-environment";
 import type { DockerDatabaseDeploymentService as DockerService } from "./docker-client";
 import { resolveDockerServiceForServer } from "./docker-client";
@@ -28,6 +33,16 @@ export class RebuildDatabaseUseCase {
       throw new Error("Only database resources can be rebuilt");
     }
 
+    try {
+      assertManagedDatabaseCredentials(
+        resource.dbType?.toLowerCase() ?? "",
+        getDatabaseEnvironment(resource),
+      );
+    } catch (error) {
+      if (error instanceof ValidationError) throw error;
+      throw new ValidationError("Database credentials are invalid");
+    }
+
     const deploymentId = `dep-${randomUUID()}`;
     const startedAt = new Date();
     await this.uow.deploymentRepository.create({
@@ -40,33 +55,33 @@ export class RebuildDatabaseUseCase {
     });
 
     try {
-      return await this.uow.transaction(async (tx) => {
-        const { dockerService, cleanup } = await resolveDockerServiceForServer(
-          resource.serverId,
-          tx,
-          this.defaultDockerService,
+      const { dockerService, cleanup } = await resolveDockerServiceForServer(
+        resource.serverId,
+        this.uow,
+        this.defaultDockerService,
+      );
+      try {
+        await dockerService.removeDatabase(resource);
+        await dockerService.deployDatabase(
+          resource,
+          getDatabaseEnvironment(resource),
         );
-        try {
-          await dockerService.removeDatabase(resource);
-          await dockerService.deployDatabase(
-            resource,
-            getDatabaseEnvironment(resource),
-          );
-          const logs = `Database rebuild completed at ${new Date().toISOString()}.\n`;
+      } finally {
+        cleanup();
+      }
 
-          await tx.deploymentRepository.updateById(deploymentId, {
-            status: "success",
-            logs: `Database rebuild started at ${startedAt.toISOString()}.\n${logs}`,
-          });
+      const logs = `Database rebuild completed at ${new Date().toISOString()}.\n`;
+      return await this.uow.transaction(async (tx) => {
+        await tx.deploymentRepository.updateById(deploymentId, {
+          status: "success",
+          logs: `Database rebuild started at ${startedAt.toISOString()}.\n${logs}`,
+        });
 
-          const updated = await tx.resourceRepository.updateById(resource.id, {
-            status: "running",
-          });
-          if (!updated) throw new Error("Resource could not be updated");
-          return updated;
-        } finally {
-          cleanup();
-        }
+        const updated = await tx.resourceRepository.updateById(resource.id, {
+          status: "running",
+        });
+        if (!updated) throw new Error("Resource could not be updated");
+        return updated;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

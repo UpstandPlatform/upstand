@@ -13,6 +13,9 @@ export const secretVersion = pgTable(
   "secret_version",
   {
     id: text("id").primaryKey(),
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "cascade",
+    }),
     scopeType: text("scope_type").notNull(),
     scopeId: text("scope_id").notNull(),
     version: integer("version").notNull(),
@@ -34,6 +37,11 @@ export const secretVersion = pgTable(
       table.scopeType,
       table.scopeId,
       table.createdAt,
+    ),
+    index("secret_version_org_scope_idx").on(
+      table.organizationId,
+      table.scopeType,
+      table.scopeId,
     ),
   ],
 );

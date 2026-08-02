@@ -5,12 +5,33 @@ import { Client } from "ssh2";
 import { generateCaddyfileContent } from "../caddy/caddy.service";
 
 const CADDY_CONTAINER_NAME = "upstand-caddy";
-const CADDY_IMAGE = "caddy:2.8-alpine";
+const CADDY_IMAGE =
+  "caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17";
 const CADDY_NETWORK = "upstand-network";
+export const MAX_SSH_STDOUT_BYTES = 2 * 1024 * 1024;
+export const MAX_SSH_STDERR_BYTES = 512 * 1024;
+
+export function appendBoundedSshOutput(
+  current: string,
+  chunk: Buffer | string,
+  maxBytes: number,
+  streamName: "stdout" | "stderr",
+): string {
+  const text = chunk.toString();
+  if (
+    Buffer.byteLength(current, "utf8") + Buffer.byteLength(text, "utf8") >
+    maxBytes
+  ) {
+    throw new Error(
+      `SSH ${streamName} output exceeded the ${maxBytes}-byte safety limit`,
+    );
+  }
+  return current + text;
+}
 
 export function createServerProvisioningPort(): ServerProvisioningPort {
   return {
-    connect: async ({ server, privateKey, hostKeyFingerprint }) => {
+    connect: async ({ server, privateKey, password, hostKeyFingerprint }) => {
       const client = new Client();
       await new Promise<void>((resolve, reject) => {
         client
@@ -21,6 +42,7 @@ export function createServerProvisioningPort(): ServerProvisioningPort {
             port: server.port,
             username: server.username,
             privateKey,
+            password,
             hostHash: "sha256",
             hostVerifier: hostVerifierForFingerprint(hostKeyFingerprint),
             readyTimeout: 20_000,
@@ -80,6 +102,10 @@ async function initializeCaddyViaSsh(
   // Generate the initial Caddyfile and base64-encode it for the bootstrap env var.
   const caddyfileContent = generateCaddyfileContent(settings);
   const bootstrapConfig = Buffer.from(caddyfileContent).toString("base64");
+  const caddyHttpPort = settings.httpPort ?? 80;
+  const caddyHttpsPort = settings.httpsPort ?? 443;
+  const publishedHttpPort = 80;
+  const publishedHttpsPort = 443;
 
   // 1. Create required named volumes (idempotent).
   const volumes = [
@@ -113,16 +139,43 @@ async function initializeCaddyViaSsh(
   );
 
   if (inspect.code === 0) {
-    // Container already exists – make sure it is running and on the overlay network.
-    await execute(
+    const bindings = await execute(
       client,
-      `docker start ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
+      `docker inspect --format '{{json .HostConfig.PortBindings}}' ${CADDY_CONTAINER_NAME}`,
     );
-    await execute(
-      client,
-      `docker network connect ${CADDY_NETWORK} ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
-    );
-    return;
+    let expectedBindings = true;
+    try {
+      const parsed = JSON.parse(bindings.stdout.trim()) as Record<
+        string,
+        Array<{ HostPort?: string }>
+      >;
+      const expected = [
+        [`${caddyHttpPort}/tcp`, String(publishedHttpPort)],
+        [`${caddyHttpsPort}/tcp`, String(publishedHttpsPort)],
+        ...(settings.enableHttp3 === false
+          ? []
+          : [[`${caddyHttpsPort}/udp`, String(publishedHttpsPort)]]),
+      ] as const;
+      expectedBindings = expected.every(([target, hostPort]) =>
+        parsed[target]?.some((binding) => binding.HostPort === hostPort),
+      );
+    } catch {
+      expectedBindings = false;
+    }
+    if (!expectedBindings) {
+      await execute(client, `docker rm -f ${CADDY_CONTAINER_NAME}`);
+    } else {
+      // Container already exists – make sure it is running and on the overlay network.
+      await execute(
+        client,
+        `docker start ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
+      );
+      await execute(
+        client,
+        `docker network connect ${CADDY_NETWORK} ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
+      );
+      return;
+    }
   }
 
   // 4. Create the container (mirrors CaddyService.initializeCaddy exactly).
@@ -135,18 +188,20 @@ async function initializeCaddyViaSsh(
     "--label com.upstand.component=caddy",
     "--label com.upstand.platform=true",
     "--restart always",
-    "-p 80:80",
-    "-p 443:443",
-    "-p 443:443/udp",
+    `-p ${publishedHttpPort}:${caddyHttpPort}`,
+    `-p ${publishedHttpsPort}:${caddyHttpsPort}`,
+    ...(settings.enableHttp3 === false
+      ? []
+      : [`-p ${publishedHttpsPort}:${caddyHttpsPort}/udp`]),
     "-v upstand-caddy-runtime:/etc/caddy",
     "-v upstand-caddy-data:/data",
     "-v upstand-caddy-config:/config",
     "-v upstand-caddy-logs:/var/log/caddy",
-    `-e UPSTAND_CADDYFILE_B64=${bootstrapConfig}`,
+    `-e UPSTAND_CADDYFILE_B64="${bootstrapConfig}"`,
     "--entrypoint /bin/sh",
     CADDY_IMAGE,
     "-ec",
-    `'if [ ! -s /etc/caddy/Caddyfile ]; then printf "%s" "$UPSTAND_CADDYFILE_B64" | base64 -d > /etc/caddy/Caddyfile; fi; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'`,
+    `"if [ ! -s /etc/caddy/Caddyfile ]; then printf '%s' \\"$UPSTAND_CADDYFILE_B64\\" | base64 -d > /etc/caddy/Caddyfile; fi; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"`,
   ].join(" ");
 
   const create = await execute(client, runCmd);
@@ -177,31 +232,87 @@ async function initializeCaddyViaSsh(
 async function execute(
   client: Client,
   command: string,
+  timeoutMs = 600_000,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     client.exec(command, (error, stream) => {
       if (error) return reject(error);
       let stdout = "";
       let stderr = "";
       let exitCode: number | null = null;
       let finished = false;
+      const terminate = () => {
+        try {
+          (stream as unknown as { signal?: (signal: string) => void }).signal?.(
+            "KILL",
+          );
+        } catch {
+          // Closing the SSH channel below remains the fallback when the
+          // server does not support channel signals.
+        }
+        stream.destroy();
+      };
       const finish = (code: number | null) => {
         if (finished) return;
         finished = true;
+        if (timer) clearTimeout(timer);
         resolve({ code, stdout, stderr });
-        stream.destroy();
+        terminate();
       };
+      timer = setTimeout(() => {
+        if (!finished) {
+          finished = true;
+          terminate();
+          reject(
+            new Error(
+              `SSH command execution timed out after ${timeoutMs / 1000}s`,
+            ),
+          );
+        }
+      }, timeoutMs);
       stream.on("exit", (code: number | null) => {
         exitCode = code;
         setTimeout(() => finish(code), 20);
       });
       stream.on("close", () => finish(exitCode));
-      stream.on("error", reject);
+      stream.on("error", (err: unknown) => {
+        if (timer) clearTimeout(timer);
+        reject(err);
+      });
       stream.on("data", (data: Buffer | string) => {
-        stdout += data.toString();
+        try {
+          stdout = appendBoundedSshOutput(
+            stdout,
+            data,
+            MAX_SSH_STDOUT_BYTES,
+            "stdout",
+          );
+        } catch (error) {
+          if (timer) clearTimeout(timer);
+          if (!finished) {
+            finished = true;
+            terminate();
+            reject(error);
+          }
+        }
       });
       stream.stderr.on("data", (data: Buffer | string) => {
-        stderr += data.toString();
+        try {
+          stderr = appendBoundedSshOutput(
+            stderr,
+            data,
+            MAX_SSH_STDERR_BYTES,
+            "stderr",
+          );
+        } catch (error) {
+          if (timer) clearTimeout(timer);
+          if (!finished) {
+            finished = true;
+            terminate();
+            reject(error);
+          }
+        }
       });
     });
   });

@@ -34,6 +34,9 @@ export interface AuthCallbacks {
   createPersonalOrganization(user: { id: string }): Promise<void>;
   canCreateInitialAccount(): Promise<boolean>;
   isPersonalOrganization(organizationId: string): Promise<boolean>;
+  assertOrganizationDeletionAllowed(
+    organizationId: string,
+  ): Promise<string | null>;
   isSsoEnforced(email: string): Promise<boolean>;
   sendInvitationEmail(input: {
     id: string;
@@ -90,15 +93,23 @@ export function resolveSharedCookieDomain(
 }
 
 export function resolveTrustedOrigins(
-  configuration: Pick<AuthConfiguration, "corsOrigin" | "betterAuthUrl">,
+  configuration: Pick<
+    AuthConfiguration,
+    "corsOrigin" | "betterAuthUrl" | "nodeEnv"
+  >,
 ): string[] {
-  return Array.from(
-    new Set(
-      [configuration.corsOrigin, configuration.betterAuthUrl].map(
-        (origin) => new URL(origin).origin,
-      ),
-    ),
+  const origins = [configuration.corsOrigin, configuration.betterAuthUrl].map(
+    (origin) => new URL(origin).origin,
   );
+  if (configuration.nodeEnv !== "production") {
+    origins.push(
+      "http://localhost:3001",
+      "http://127.0.0.1:3001",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+    );
+  }
+  return Array.from(new Set(origins));
 }
 
 const organizationAccessControl = createAccessControl(ORGANIZATION_STATEMENT);
@@ -197,6 +208,20 @@ export function createAuth(options: {
       window: 10,
       max: 100,
       storage: "secondary-storage",
+      customRules: {
+        "/sign-in/email": {
+          window: 60,
+          max: 10,
+        },
+        "/two-factor/verify-totp": {
+          window: 60,
+          max: 5,
+        },
+        "/two-factor/verify-backup-code": {
+          window: 60,
+          max: 5,
+        },
+      },
     },
     secondaryStorage,
     databaseHooks: {
@@ -273,6 +298,23 @@ export function createAuth(options: {
               { status: 403 },
             );
           }
+
+          if (ctx.request) {
+            const body: UnknownRecord = await readJsonRecord(
+              ctx.request.clone(),
+            );
+            const email =
+              typeof body.email === "string" ? body.email.trim() : "";
+            if (email && (await callbacks.isSsoEnforced(email))) {
+              return ctx.json(
+                {
+                  error:
+                    "This organization requires sign-in through its verified SSO provider.",
+                },
+                { status: 403 },
+              );
+            }
+          }
         }
 
         if (ctx.path.startsWith("/organization/delete")) {
@@ -289,6 +331,12 @@ export function createAuth(options: {
               { error: "Cannot delete personal organization" },
               { status: 400 },
             );
+          }
+
+          const deletionBlocker =
+            await callbacks.assertOrganizationDeletionAllowed(organizationId);
+          if (deletionBlocker) {
+            return ctx.json({ error: deletionBlocker }, { status: 409 });
           }
         }
 

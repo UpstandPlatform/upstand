@@ -237,9 +237,11 @@ export class DeployTemplateUseCase {
     input: z.infer<typeof DeployTemplateInputSchema>,
   ): Promise<Resource> {
     let composeFile: string;
+    let appMetadata: Pick<NativeTemplate, "id" | "version"> | null = null;
     if (input.source === "builtin") {
       const blueprint = this.loadNativeTemplate(input.templateId);
       composeFile = validateTemplateComposeFile(blueprint.composeFile);
+      appMetadata = blueprint;
     } else {
       const template = await this.uow.templateRepository.findById(
         input.templateId,
@@ -258,6 +260,15 @@ export class DeployTemplateUseCase {
     );
     if (!project || project.organizationId !== input.organizationId) {
       throw new Error("Environment is not part of the active organization");
+    }
+
+    if (input.source === "builtin") {
+      await this.uow.projectRepository.updateById(environment.projectId, {
+        isApp: true,
+        appCatalogId: appMetadata?.id ?? input.templateId,
+        appVersion: appMetadata?.version ?? null,
+        appVerified: true,
+      });
     }
 
     const { composeFile: parametrizedCompose, envVars: defaultEnvVars } =

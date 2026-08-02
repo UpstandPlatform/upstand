@@ -35,6 +35,7 @@ export const CreateSecretProviderInputSchema = z.object({
 });
 export const UpdateSecretProviderInputSchema = z.object({
   id: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
   name: z.string().trim().min(1).max(120).optional(),
   configuration: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
@@ -83,6 +84,7 @@ export const CreateSecretRotationScheduleInputSchema = z.object({
 });
 export const UpdateSecretRotationScheduleInputSchema = z.object({
   id: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
   keys: z
     .array(
       z
@@ -99,6 +101,28 @@ export const UpdateSecretRotationScheduleInputSchema = z.object({
 });
 
 type RotateSecretsInput = z.infer<typeof RotateSecretsInputSchema>;
+type AuthorizedSecretScopeInput = {
+  organizationId: string;
+};
+
+async function resolveSecretScopeOrganizationId(
+  uow: IUnitOfWork,
+  scopeType: SecretScopeType,
+  scopeId: string,
+): Promise<string> {
+  const environment =
+    scopeType === "environment"
+      ? await uow.environmentRepository.findById(scopeId)
+      : await (async () => {
+          const resource = await uow.resourceRepository.findById(scopeId);
+          if (!resource) return null;
+          return uow.environmentRepository.findById(resource.environmentId);
+        })();
+  if (!environment) throw new Error("Secret scope not found");
+  const project = await uow.projectRepository.findById(environment.projectId);
+  if (!project) throw new Error("Secret scope project not found");
+  return project.organizationId;
+}
 
 async function enqueueSecretScopeDeployments(
   uow: IUnitOfWork,
@@ -164,11 +188,13 @@ async function rotateSecretScope(
 export class ListSecretVersionsUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
   execute(
-    input: z.infer<typeof ListSecretVersionsInputSchema>,
+    input: z.infer<typeof ListSecretVersionsInputSchema> &
+      AuthorizedSecretScopeInput,
   ): Promise<SecretVersion[]> {
     return this.uow.secretVersionRepository.findByScope(
       input.scopeType,
       input.scopeId,
+      input.organizationId,
     );
   }
 }
@@ -177,12 +203,14 @@ export class GetSecretVersionUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   execute(
-    input: z.infer<typeof RestoreSecretVersionInputSchema>,
+    input: z.infer<typeof RestoreSecretVersionInputSchema> &
+      AuthorizedSecretScopeInput,
   ): Promise<SecretVersionPayload | null> {
     return this.uow.secretVersionRepository.findByScopeVersion(
       input.scopeType,
       input.scopeId,
       input.version,
+      input.organizationId,
     );
   }
 }
@@ -190,12 +218,14 @@ export class GetSecretVersionUseCase {
 export class RestoreSecretVersionUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
   async execute(
-    input: z.infer<typeof RestoreSecretVersionInputSchema>,
+    input: z.infer<typeof RestoreSecretVersionInputSchema> &
+      AuthorizedSecretScopeInput,
   ): Promise<void> {
     const payload = await this.uow.secretVersionRepository.findByScopeVersion(
       input.scopeType,
       input.scopeId,
       input.version,
+      input.organizationId,
     );
     if (!payload) throw new Error("Secret version not found");
     if (input.scopeType === "environment") {
@@ -249,8 +279,12 @@ export class ListSecretProvidersUseCase {
 
 export class DeleteSecretProviderUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
-  execute(id: string) {
-    return this.uow.secretProviderRepository.deleteById(id);
+  async execute(input: { id: string; organizationId?: string }) {
+    const current = await this.uow.secretProviderRepository.findById(input.id);
+    if (!current) throw new Error("Secret provider not found");
+    if (input.organizationId !== current.organizationId)
+      throw new Error("Secret provider belongs to another organization");
+    return this.uow.secretProviderRepository.deleteById(input.id);
   }
 }
 
@@ -259,6 +293,8 @@ export class UpdateSecretProviderUseCase {
   async execute(input: z.infer<typeof UpdateSecretProviderInputSchema>) {
     const current = await this.uow.secretProviderRepository.findById(input.id);
     if (!current) throw new Error("Secret provider not found");
+    if (input.organizationId !== current.organizationId)
+      throw new Error("Secret provider belongs to another organization");
     const configuration =
       input.configuration === undefined
         ? undefined
@@ -372,6 +408,13 @@ export class CreateSecretRotationScheduleUseCase {
         ? await this.uow.environmentRepository.findById(input.scopeId)
         : await this.uow.resourceRepository.findById(input.scopeId);
     if (!scope) throw new Error("Secret scope not found");
+    const organizationId = await resolveSecretScopeOrganizationId(
+      this.uow,
+      input.scopeType,
+      input.scopeId,
+    );
+    if (organizationId !== input.organizationId)
+      throw new Error("Secret scope belongs to another organization");
     return this.uow.secretRotationScheduleRepository.create({
       id: randomUUID(),
       ...input,
@@ -398,9 +441,22 @@ export class UpdateSecretRotationScheduleUseCase {
   ) {
     if (!this.uow.secretRotationScheduleRepository)
       throw new Error("Secret rotation scheduling is unavailable");
+    const current = await this.uow.secretRotationScheduleRepository.findById(
+      input.id,
+    );
+    if (!current) throw new Error("Secret rotation schedule not found");
+    if (input.organizationId !== current.organizationId)
+      throw new Error(
+        "Secret rotation schedule belongs to another organization",
+      );
     const updated = await this.uow.secretRotationScheduleRepository.updateById(
       input.id,
-      input,
+      {
+        keys: input.keys,
+        intervalHours: input.intervalHours,
+        valueLength: input.valueLength,
+        enabled: input.enabled,
+      },
     );
     if (!updated) throw new Error("Secret rotation schedule not found");
     return updated;
@@ -409,10 +465,18 @@ export class UpdateSecretRotationScheduleUseCase {
 
 export class DeleteSecretRotationScheduleUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
-  async execute(id: string) {
+  async execute(input: { id: string; organizationId?: string }) {
     if (!this.uow.secretRotationScheduleRepository)
       throw new Error("Secret rotation scheduling is unavailable");
-    if (!(await this.uow.secretRotationScheduleRepository.deleteById(id)))
+    const current = await this.uow.secretRotationScheduleRepository.findById(
+      input.id,
+    );
+    if (!current) throw new Error("Secret rotation schedule not found");
+    if (input.organizationId !== current.organizationId)
+      throw new Error(
+        "Secret rotation schedule belongs to another organization",
+      );
+    if (!(await this.uow.secretRotationScheduleRepository.deleteById(input.id)))
       throw new Error("Secret rotation schedule not found");
     return { success: true };
   }

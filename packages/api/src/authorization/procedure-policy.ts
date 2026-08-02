@@ -43,9 +43,12 @@ export const SESSION_ONLY_PROCEDURES = [
   "customRole.remove",
   "customRole.update",
   "database.runMigration",
+  "database.command",
+  "resource.databaseCommand",
   "deployment.retryDeployment",
   "environment.clone",
   "environment.diff",
+  "environment.getSecrets",
   "environment.promote",
   "gitProvider.createGithubManifestState",
   "gitProvider.createOAuthState",
@@ -72,6 +75,8 @@ export const SESSION_ONLY_PROCEDURES = [
   "secret.createRotationSchedule",
   "secret.updateRotationSchedule",
   "secret.deleteRotationSchedule",
+  "server.migrateResource",
+  "schedule.listForOrganization",
   "scim.create",
   "scim.list",
   "scim.remove",
@@ -120,7 +125,10 @@ export const SESSION_ONLY_PROCEDURES = [
 
 export type SessionOnlyProcedure = (typeof SESSION_ONLY_PROCEDURES)[number];
 
-export const PUBLIC_PROCEDURES = ["healthCheck"] as const;
+export const PUBLIC_PROCEDURES = [
+  "healthCheck",
+  "platform.getCapabilities",
+] as const;
 
 export function authorizationCoverageGaps(
   procedurePaths: readonly string[],

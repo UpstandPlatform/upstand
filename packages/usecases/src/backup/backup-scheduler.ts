@@ -17,7 +17,7 @@ export interface BackupSchedulerDependencies {
 
 export class BackupScheduler extends BaseCronScheduler<BackupScheduleItem> {
   constructor(private readonly dependencies: BackupSchedulerDependencies) {
-    super("Failed to refresh backup schedules");
+    super("Failed to refresh backup schedules", "backup");
   }
 
   loadSchedules(): Promise<BackupScheduleItem[]> {

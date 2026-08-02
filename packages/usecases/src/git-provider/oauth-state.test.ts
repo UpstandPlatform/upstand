@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createGitProviderOAuthState,
+  gitProviderOAuthManifestWebhookKey,
   gitProviderOAuthStateKey,
   parseGitProviderOAuthState,
 } from "./oauth-state";
@@ -28,6 +29,12 @@ describe("Git provider OAuth state", () => {
     });
     expect(gitProviderOAuthStateKey(created.state)).toContain(
       "oauth:git-provider-state:",
+    );
+    expect(gitProviderOAuthManifestWebhookKey(created.state)).toContain(
+      "webhook:github-manifest:",
+    );
+    expect(gitProviderOAuthManifestWebhookKey(created.state)).not.toBe(
+      gitProviderOAuthManifestWebhookKey(`${created.state}tampered`),
     );
   });
 

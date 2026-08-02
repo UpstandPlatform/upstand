@@ -208,7 +208,14 @@ export const webServerRouter = router({
     }),
 
   getLogs: twoFactorVerifiedProcedure
-    .input(z.object({ tail: z.number().optional() }))
+    .input(
+      z.object({
+        // Docker's special tail=0 behavior can return the complete log. Keep
+        // this owner-only diagnostic endpoint bounded so a bad or malicious
+        // request cannot force an unbounded Docker log response into memory.
+        tail: z.number().int().min(1).max(10_000).optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       await requireWebServerOwner(ctx);
       const useCase = ctx.scope.resolve(GetWebServerLogsUseCaseToken);
@@ -220,7 +227,11 @@ export const webServerRouter = router({
     }),
 
   getServerLogs: twoFactorVerifiedProcedure
-    .input(z.object({ tail: z.number().optional() }))
+    .input(
+      z.object({
+        tail: z.number().int().min(1).max(10_000).optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       await requireWebServerOwner(ctx);
       const docker = getDockerInstance();

@@ -18,6 +18,7 @@ import { gitProviderRouter } from "./git-provider.router";
 import { memberRouter } from "./member.router";
 import { notificationRouter } from "./notification.router";
 import { outboxRouter } from "./outbox.router";
+import { platformRouter } from "./platform.router";
 import { projectRouter } from "./project.router";
 import { resourceRouter } from "./resource.router";
 import { mountRouter, portRouter } from "./resource-config.router";
@@ -75,6 +76,7 @@ export const appRouter = router({
   containerFileManager: containerFileManagerRouter,
   secret: secretRouter,
   topology: topologyRouter,
+  platform: platformRouter,
 });
 
 export type AppRouter = typeof appRouter;

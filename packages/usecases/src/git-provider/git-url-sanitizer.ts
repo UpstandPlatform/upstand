@@ -1,3 +1,6 @@
+import { assertConfiguredHttpUrl } from "@upstand/platform/network/outbound";
+import { getGitProviderAllowedHosts } from "./provider-config";
+
 /**
  * Sanitizes and validates Git repository URLs to prevent second-order command injection
  * via option flags (e.g. --upload-pack, -oProxyCommand, --config) passed to shell commands like `git ls-remote` or `git clone`.
@@ -29,11 +32,40 @@ export function sanitizeGitUrl(rawUrl: string): string {
     throw new Error("Git URL cannot contain whitespace");
   }
 
-  return url;
+  const isScpStyleSshUrl = /^[^/@\s:]+@(?:\[[^\]]+\]|[^/\s:]+):.+/.test(url);
+  if (isScpStyleSshUrl) return url;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Git URL must use HTTPS or SSH");
+  }
+  if (
+    (parsed.protocol !== "https:" && parsed.protocol !== "ssh:") ||
+    !parsed.hostname
+  ) {
+    throw new Error("Git URL must use HTTPS or SSH");
+  }
+
+  return parsed.toString();
 }
 
 export function assertSafeGitUrl(url: string): void {
   sanitizeGitUrl(url);
+}
+
+/** Validate an HTTPS repository URL, including DNS resolution, before Git connects. */
+export async function assertSafeGitNetworkUrl(url: string): Promise<void> {
+  const sanitized = sanitizeGitUrl(url);
+  if (isSshGitUrl(sanitized)) return;
+  await assertConfiguredHttpUrl(sanitized, getGitProviderAllowedHosts());
+}
+
+export function isSshGitUrl(url: string): boolean {
+  return (
+    url.startsWith("ssh://") || /^[^/@\s:]+@(?:\[[^\]]+\]|[^/\s:]+):/.test(url)
+  );
 }
 
 /** Validate a user-supplied branch or tag before passing it to Git. */

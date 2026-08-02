@@ -176,10 +176,10 @@ describe("NotificationTransportRegistry", () => {
     });
 
     try {
-      const registry = new NotificationTransportRegistry();
+      const registry = new NotificationTransportRegistry(["example.com"]);
       const config: NotificationConfiguration = {
         type: "custom",
-        endpoint: "https://api.mycompany.com/webhooks/upstand",
+        endpoint: "https://example.com/webhooks/upstand",
         headers: { "X-Custom-Auth": "secret-token" },
       };
 
@@ -200,6 +200,35 @@ describe("NotificationTransportRegistry", () => {
           "Cleaned up 12 dangling images.",
         ),
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not follow notification webhook redirects", async () => {
+    let redirect: RequestInit["redirect"] | undefined;
+    globalThis.fetch = Object.assign(
+      async (
+        _url: string | URL | Request,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        redirect = init?.redirect;
+        return new Response("ok", { status: 200 });
+      },
+      { preconnect: (_url: string | URL | Request): void => undefined },
+    );
+
+    try {
+      const registry = new NotificationTransportRegistry();
+      await registry.send(
+        {
+          type: "slack",
+          webhookUrl: "https://hooks.slack.com/services/XXX/YYY/ZZZ",
+        },
+        { title: "Deployment", message: "Completed" },
+      );
+
+      expect(redirect).toBe("error");
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-# Production Docker Swarm installer. Stable installs resolve the latest
+# Production Docker Swarm installer. Stable installs resolve the selected
 # published release images to immutable digests before deploying.
 
 readonly INSTALL_DIR="/etc/upstand"
@@ -23,6 +23,8 @@ INTERACTIVE=false
 IS_CLOUD="${IS_CLOUD:-false}"
 MODE_OVERRIDE=""
 REGISTRY_LOGIN_PERFORMED=false
+RELEASE_MANIFEST_CONTENT=""
+RELEASE_MANIFEST_VERSION=""
 
 usage() {
   cat <<'EOF'
@@ -37,12 +39,41 @@ and UPSTAND_REGISTRY_PASSWORD. The password is read from the environment only,
 forwarded to the Swarm service specification, and removed from the local Docker
 credential store after deployment.
 
+Production installs also require explicit acknowledgements for the Docker socket
+control-plane boundary and single-replica services:
+UPSTAND_ALLOW_DOCKER_SOCKET=true and UPSTAND_ALLOW_SINGLE_REPLICA=true. Configure
+OTLP_ENDPOINT, or set UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true only when an
+approved external telemetry path is unavailable.
+Legacy releases without deployment-artifact hashes are rejected by default;
+set UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS=true only after reviewing the
+release content and accepting that those fetched artifacts are not hash-bound.
+
+For a durable HA data plane, provide DATABASE_URL and REDIS_URL (or the
+UPSTAND_DATABASE_URL and UPSTAND_REDIS_URL aliases). The URLs are stored as
+Docker secrets and the bundled PostgreSQL and Redis services are disabled.
+
 Options:
   --interactive         prompt for the Swarm advertise address
   --cloud               install in multi-tenant Cloud mode (open sign-ups enabled)
   --self-hosted         install in single-tenant Self-Hosted mode (default, single owner account)
   --help                show this help
 EOF
+}
+
+validate_production_operating_model() {
+  [[ "${UPSTAND_ALLOW_DOCKER_SOCKET:-false}" == true ]] \
+    || fail "production deployment requires explicit acknowledgement of the Docker socket control-plane boundary: set UPSTAND_ALLOW_DOCKER_SOCKET=true after reviewing the production readiness runbook"
+  [[ "${UPSTAND_ALLOW_SINGLE_REPLICA:-false}" == true ]] \
+    || fail "the bundled PostgreSQL, Redis, and control-plane services are single-replica; set UPSTAND_ALLOW_SINGLE_REPLICA=true only after approving the external HA/PITR plan"
+
+  local otlp_endpoint="${OTLP_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}"
+  if [[ -z "$otlp_endpoint" ]]; then
+    [[ "${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}" == true ]] \
+      || fail "configure OTLP_ENDPOINT or explicitly acknowledge missing telemetry with UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true"
+  else
+    [[ "$otlp_endpoint" == http://* || "$otlp_endpoint" == https://* ]] \
+      || fail "OTLP_ENDPOINT must use HTTP or HTTPS"
+  fi
 }
 
 parse_args() {
@@ -63,6 +94,74 @@ fail() {
   exit 1
 }
 
+write_env_assignment() {
+  local key="$1"
+  local value="$2"
+  printf '%s=%q\n' "$key" "$value"
+}
+
+validate_replica_configuration() {
+  local external_data="$1"
+  local server_replicas="$2"
+  local schedules_replicas="$3"
+  local web_replicas="$4"
+  local fumadocs_replicas="$5"
+  local postgres_replicas="$6"
+  local redis_replicas="$7"
+  local service_name replica_count
+
+  for replica_count in \
+    "$server_replicas" \
+    "$schedules_replicas" \
+    "$web_replicas" \
+    "$fumadocs_replicas" \
+    "$postgres_replicas" \
+    "$redis_replicas"; do
+    [[ "$replica_count" =~ ^[0-9]+$ ]] || fail "service replica counts must be non-negative integers"
+  done
+  for service_name in server schedules web fumadocs; do
+    case "$service_name" in
+      server) replica_count="$server_replicas" ;;
+      schedules) replica_count="$schedules_replicas" ;;
+      web) replica_count="$web_replicas" ;;
+      fumadocs) replica_count="$fumadocs_replicas" ;;
+    esac
+    [[ "$replica_count" =~ ^[1-9][0-9]*$ ]] \
+      || fail "$service_name must have at least one replica"
+  done
+  if [[ "$external_data" == true ]]; then
+    [[ "$postgres_replicas" == 0 && "$redis_replicas" == 0 ]] \
+      || fail "external DATABASE_URL/REDIS_URL mode must disable bundled PostgreSQL and Redis"
+  else
+    [[ "$postgres_replicas" == 1 && "$redis_replicas" == 1 ]] \
+      || fail "bundled PostgreSQL and Redis must each use exactly one replica; configure external DATABASE_URL and REDIS_URL for HA"
+  fi
+}
+
+validate_swarm_network() {
+  local network_name="$1"
+  local driver="$2"
+  local scope="$3"
+  local attachable="$4"
+  local options="$5"
+  [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" \
+    && "$options" == *'"encrypted"'* \
+    && "$options" != *'"encrypted":false'* \
+    && "$options" != *'"encrypted":"false"'* ]] \
+    || fail "existing network '$network_name' must be an encrypted, attachable Swarm overlay network"
+}
+
+required_stack_services() {
+  local services=(server schedules web fumadocs)
+  if [[ "${UPSTAND_BUNDLED_REDIS_REPLICAS:-1}" != 0 ]]; then
+    services=(redis "${services[@]}")
+  fi
+  if [[ "${UPSTAND_BUNDLED_POSTGRES_REPLICAS:-1}" != 0 ]]; then
+    services=(postgres "${services[@]}")
+  fi
+  printf '%s\n' "${services[@]}"
+}
+
 warn() {
   echo "warning: $*" >&2
 }
@@ -78,7 +177,19 @@ require_command() {
 require_digest_image() {
   local name="$1"
   local image="${!name:-}"
-  [[ "$image" == *@sha256:* ]] || fail "$name must be set to an immutable image digest (for example ghcr.io/acme/image@sha256:...)"
+  [[ "$image" =~ @sha256:[0-9a-fA-F]{64}$ ]] \
+    || fail "$name must be set to an immutable 64-character SHA-256 image digest (for example ghcr.io/acme/image@sha256:...)"
+}
+
+ensure_postgres_storage_layout() {
+  # PostgreSQL 18 uses /var/lib/postgresql/18/docker. Never let a rollout
+  # accidentally start an empty cluster beside an older populated volume.
+  if docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1; then
+    return
+  fi
+  if docker volume inspect "$LEGACY_POSTGRES_VOLUME" >/dev/null 2>&1; then
+    fail "the existing $LEGACY_POSTGRES_VOLUME volume must be migrated to $POSTGRES_VOLUME before deploying PostgreSQL 18; see the database upgrade guide"
+  fi
 }
 
 ensure_postgres_storage_layout() {
@@ -192,16 +303,56 @@ build_source_images() {
   SOURCE_BUILD=true
 }
 
+load_release_manifest() {
+  local release_ref="${UPSTAND_VERSION:-}"
+  [[ "$release_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || fail "UPSTAND_VERSION must be a stable semver release tag before resolving published images"
+  if [[ "$RELEASE_MANIFEST_VERSION" == "$release_ref" ]]; then
+    return
+  fi
+
+  local repository="${UPSTAND_REPOSITORY:-https://github.com/upstandplatform/upstand.git}"
+  local raw_repository="${repository%.git}"
+  [[ "$raw_repository" == https://github.com/*/* ]] \
+    || fail "UPSTAND_REPOSITORY must be a public HTTPS GitHub repository URL"
+  raw_repository="${raw_repository#https://github.com/}"
+
+  RELEASE_MANIFEST_CONTENT="$(curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "https://github.com/${raw_repository}/releases/download/${release_ref}/upstand-release-manifest.json")" \
+    || fail "could not download the immutable release manifest for $release_ref; check GitHub connectivity"
+
+  local schema_version manifest_version
+  schema_version="$(sed -nE 's/^[[:space:]]*"schemaVersion"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  [[ "$schema_version" == 1 ]] \
+    || fail "release manifest for $release_ref has an unsupported schema version"
+  manifest_version="$(sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  [[ "$manifest_version" == "$release_ref" ]] \
+    || fail "release manifest version does not match the selected release $release_ref"
+  RELEASE_MANIFEST_VERSION="$release_ref"
+}
+
 resolve_stable_image() {
   local component="$1"
-  local image="${STABLE_IMAGE_REPOSITORY}-${component}:latest"
-  local inspect_output digest
+  case "$component" in
+    server|schedules|web|fumadocs|monitoring) ;;
+    *) fail "unsupported published image component '$component'" ;;
+  esac
 
-  inspect_output="$(docker buildx imagetools inspect "$image" 2>/dev/null)" \
-    || fail "could not resolve the stable image $image; check Docker Buildx and registry connectivity"
-  digest="$(awk '$1 == "Digest:" { print $2; exit }' <<<"$inspect_output")"
+  local release_ref="${UPSTAND_VERSION:-}"
+  [[ "$release_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || fail "UPSTAND_VERSION must be a stable semver release tag before resolving published images"
+  load_release_manifest
+
+  local name_pattern="^[[:space:]]*\"name\"[[:space:]]*:[[:space:]]*\"${component}\""
+  local image digest expected_image
+  image="$(sed -nE "/${name_pattern}/,/^[[:space:]]*}[,]?[[:space:]]*$/ { s/^[[:space:]]*\"image\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"[,]?[[:space:]]*$/\1/p; }" <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  digest="$(sed -nE "/${name_pattern}/,/^[[:space:]]*}[,]?[[:space:]]*$/ { s/^[[:space:]]*\"digest\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"[,]?[[:space:]]*$/\1/p; }" <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  expected_image="${STABLE_IMAGE_REPOSITORY}-${component}:${release_ref}"
+  [[ "$image" == "$expected_image" ]] \
+    || fail "release manifest image for $component does not match the selected repository and release"
   [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] \
-    || fail "stable image $image did not provide an immutable digest"
+    || fail "release manifest image for $component did not provide an immutable digest"
   printf '%s@%s' "$image" "$digest"
 }
 
@@ -215,6 +366,7 @@ resolve_stable_release_ref() {
   raw_repository="${raw_repository#https://github.com/}"
 
   release_json="$(curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
     -H 'Accept: application/vnd.github+json' \
     -H 'X-GitHub-Api-Version: 2022-11-28' \
     "https://api.github.com/repos/${raw_repository}/releases/latest")" \
@@ -223,6 +375,63 @@ resolve_stable_release_ref() {
   [[ "$release_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || fail "GitHub latest release did not provide a stable semver tag"
   printf '%s' "$release_ref"
+}
+
+verify_release_artifact_hash() {
+  local path="$1"
+  local field="$2"
+  local expected actual
+
+  case "$field" in
+    dockerComposeProdSha256)
+      expected="$(sed -nE 's/^[[:space:]]*"dockerComposeProdSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+      ;;
+    productionAcceptanceSha256)
+      expected="$(sed -nE 's/^[[:space:]]*"productionAcceptanceSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+      ;;
+    productionEvidenceCollectSha256)
+      expected="$(sed -nE 's/^[[:space:]]*"productionEvidenceCollectSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+      ;;
+    productionAcceptanceClusterSha256)
+      expected="$(sed -nE 's/^[[:space:]]*"productionAcceptanceClusterSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+      ;;
+    *)
+      fail "unsupported release artifact manifest field '$field'"
+      ;;
+  esac
+  [[ "$expected" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "release manifest did not provide a valid $field hash"
+  require_command sha256sum
+  actual="$(sha256sum -- "$path" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] \
+    || fail "downloaded release artifact '$path' does not match the manifest $field hash"
+}
+
+release_manifest_has_artifact_hashes() {
+  local compose_hash acceptance_hash evidence_hash cluster_hash
+  compose_hash="$(sed -nE 's/^[[:space:]]*"dockerComposeProdSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  acceptance_hash="$(sed -nE 's/^[[:space:]]*"productionAcceptanceSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  evidence_hash="$(sed -nE 's/^[[:space:]]*"productionEvidenceCollectSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  cluster_hash="$(sed -nE 's/^[[:space:]]*\"productionAcceptanceClusterSha256\"[[:space:]]*:[[:space:]]*\"([a-f0-9]{64})\"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  [[ "$compose_hash" =~ ^[a-f0-9]{64}$ && "$acceptance_hash" =~ ^[a-f0-9]{64}$ && "$evidence_hash" =~ ^[a-f0-9]{64}$ && "$cluster_hash" =~ ^[a-f0-9]{64}$ ]]
+}
+
+verify_release_deployment_artifacts() {
+  local stack_file="$1"
+  local acceptance_file="$2"
+  local evidence_file="${3:-}"
+  local cluster_file="${4:-}"
+
+  if release_manifest_has_artifact_hashes; then
+    verify_release_artifact_hash "$stack_file" dockerComposeProdSha256
+    verify_release_artifact_hash "$acceptance_file" productionAcceptanceSha256
+    verify_release_artifact_hash "$evidence_file" productionEvidenceCollectSha256
+    verify_release_artifact_hash "$cluster_file" productionAcceptanceClusterSha256
+  elif [[ "${UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS:-false}" == true ]]; then
+    warn "release $UPSTAND_VERSION predates deployment-artifact hashes; the explicit UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS acknowledgement permits unbound Compose/acceptance content"
+  else
+    fail "release $UPSTAND_VERSION predates deployment-artifact hashes; set UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS=true only after reviewing the unbound Compose/acceptance content"
+  fi
 }
 
 ensure_stack_file() {
@@ -234,15 +443,42 @@ ensure_stack_file() {
       ref="master"
     else
       ref="$(resolve_stable_release_ref)"
-      UPSTAND_VERSION="$ref"
     fi
   fi
+  # The stack file and every published application image must come from the
+  # same immutable release tag. A mutable channel tag would allow a mixed
+  # release or fail because the release workflow publishes versioned tags.
+  UPSTAND_VERSION="${UPSTAND_VERSION:-$ref}"
   local raw_repository="${repository%.git}"
   raw_repository="${raw_repository#https://github.com/}"
   curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
     "https://raw.githubusercontent.com/${raw_repository}/${ref}/docker-compose.prod.yml" \
     --output "$STACK_FILE"
   chmod 0600 "$STACK_FILE"
+  curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/production-acceptance.sh" \
+    --output "$INSTALL_DIR/production-acceptance.sh"
+  chmod 0755 "$INSTALL_DIR/production-acceptance.sh"
+  curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/production-evidence-collect.sh" \
+    --output "$INSTALL_DIR/production-evidence-collect.sh"
+  chmod 0755 "$INSTALL_DIR/production-evidence-collect.sh"
+  curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/production-acceptance-cluster.sh" \
+    --output "$INSTALL_DIR/production-acceptance-cluster.sh"
+  chmod 0755 "$INSTALL_DIR/production-acceptance-cluster.sh"
+  if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" != true ]]; then
+    load_release_manifest
+    verify_release_deployment_artifacts \
+      "$STACK_FILE" \
+      "$INSTALL_DIR/production-acceptance.sh" \
+      "$INSTALL_DIR/production-evidence-collect.sh" \
+      "$INSTALL_DIR/production-acceptance-cluster.sh"
+  fi
 }
 
 detect_advertise_address() {
@@ -266,10 +502,19 @@ detect_advertise_address() {
 }
 
 ensure_docker() {
-  if ! command -v docker >/dev/null 2>&1; then
-    require_command curl
-    curl --fail --show-error --silent --location https://get.docker.com | sh
+  if command -v docker >/dev/null 2>&1; then
+    return
   fi
+
+  if [[ "${UPSTAND_ALLOW_DOCKER_INSTALL:-false}" != "true" ]]; then
+    fail "Docker is not installed. Install Docker Engine from your operating system's signed package repository, or set UPSTAND_ALLOW_DOCKER_INSTALL=true to explicitly permit the upstream installer script."
+  fi
+
+  require_command curl
+  log "Docker not found; installing Docker Engine because UPSTAND_ALLOW_DOCKER_INSTALL=true..."
+  curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 120 --retry 3 --retry-all-errors \
+    https://get.docker.com | sh
 
   if command -v systemctl >/dev/null 2>&1; then
     systemctl enable --now docker
@@ -297,14 +542,52 @@ ensure_swarm() {
   docker node update --label-add upstand.control-plane=true "$node_id" >/dev/null
 
   if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
-    docker network create --driver overlay --attachable --label com.upstand.managed=true "$NETWORK_NAME" >/dev/null
+    docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$NETWORK_NAME" >/dev/null
   fi
 
-  local driver scope attachable
+  local driver scope attachable options
   driver="$(docker network inspect --format '{{.Driver}}' "$NETWORK_NAME")"
   scope="$(docker network inspect --format '{{.Scope}}' "$NETWORK_NAME")"
   attachable="$(docker network inspect --format '{{.Attachable}}' "$NETWORK_NAME")"
-  [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" ]] || fail "existing network '$NETWORK_NAME' must be an attachable Swarm overlay network"
+  options="$(docker network inspect --format '{{json .Options}}' "$NETWORK_NAME")"
+  validate_swarm_network "$NETWORK_NAME" "$driver" "$scope" "$attachable" "$options"
+}
+
+validate_swarm_network_runtime() {
+  local probe_name="upstand-network-probe-${RANDOM}-${RANDOM}"
+  local probe_image="${UPSTAND_SERVER_IMAGE:-}"
+  local runtime_gid="${UPSTAND_DOCKER_GID:-0}"
+  [[ -n "$probe_image" ]] || fail "cannot validate the encrypted network before resolving the server image"
+
+  docker service create \
+    --name "$probe_name" \
+    --network "$NETWORK_NAME" \
+    --cap-drop ALL \
+    --user "10001:${runtime_gid}" \
+    --entrypoint /bin/true \
+    --restart-condition none \
+    --with-registry-auth \
+    "$probe_image" >/dev/null \
+    || fail "Docker could not create the encrypted-network runtime probe"
+
+  local state
+  for _ in {1..120}; do
+    state="$(docker service ps "$probe_name" --no-trunc --format '{{.CurrentState}}' 2>/dev/null | head -n1 || true)"
+    if [[ "$state" == Complete* ]]; then
+      docker service rm "$probe_name" >/dev/null 2>&1 || true
+      return 0
+    fi
+    if [[ "$state" == Rejected* || "$state" == Failed* ]]; then
+      docker service ps "$probe_name" --no-trunc >&2 || true
+      docker service rm "$probe_name" >/dev/null 2>&1 || true
+      fail "Docker cannot attach service tasks to encrypted network '$NETWORK_NAME': $state"
+    fi
+    sleep 1
+  done
+
+  docker service ps "$probe_name" --no-trunc >&2 || true
+  docker service rm "$probe_name" >/dev/null 2>&1 || true
+  fail "timed out validating encrypted network '$NETWORK_NAME' runtime support"
 }
 
 write_environment() {
@@ -323,13 +606,98 @@ write_environment() {
   local requested_docs_image="${UPSTAND_DOCS_IMAGE:-}"
   local requested_monitoring_image="${UPSTAND_MONITORING_IMAGE:-}"
   local requested_auto_update="${UPSTAND_AUTO_UPDATE:-}"
+  local requested_allow_unobserved_production="${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-}"
+  local requested_allow_legacy_release_artifacts="${UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS:-}"
+  local requested_audit_log_retention_days="${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-}"
+  local requested_otlp_endpoint="${OTLP_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}"
+  local requested_allow_insecure_bootstrap="${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-}"
+  local requested_migration_id="${UPSTAND_MIGRATION_ID:-}"
   local requested_version="${UPSTAND_VERSION:-}"
+  local requested_database_url="${DATABASE_URL:-${UPSTAND_DATABASE_URL:-}}"
+  local requested_redis_url="${REDIS_URL:-${UPSTAND_REDIS_URL:-}}"
+  local requested_auth_cookie_domain="${AUTH_COOKIE_DOMAIN:-}"
+  local requested_trusted_proxy_headers="${TRUSTED_PROXY_HEADERS:-}"
+  local requested_instance_owner_user_id="${UPSTAND_INSTANCE_OWNER_USER_ID:-}"
+  local requested_instance_owner_email="${UPSTAND_INSTANCE_OWNER_EMAIL:-}"
+  local requested_control_plane_fingerprint="${UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT:-}"
+  local requested_docker_version="${UPSTAND_DOCKER_VERSION:-}"
+  local requested_outbound_allowed_hosts="${UPSTAND_OUTBOUND_ALLOWED_HOSTS:-}"
+  local requested_secret_provider_allowed_hosts="${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}"
+  local requested_git_provider_allowed_hosts="${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}"
+  local requested_backup_command_timeout_ms="${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-}"
+  local requested_database_pool_max="${UPSTAND_DATABASE_POOL_MAX:-}"
+  local requested_database_pool_idle_timeout_ms="${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-}"
+  local requested_database_pool_connection_timeout_ms="${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-}"
+  local requested_bundled_postgres_replicas="${UPSTAND_BUNDLED_POSTGRES_REPLICAS:-}"
+  local requested_bundled_redis_replicas="${UPSTAND_BUNDLED_REDIS_REPLICAS:-}"
+  local requested_server_replicas="${UPSTAND_SERVER_REPLICAS:-}"
+  local requested_schedules_replicas="${UPSTAND_SCHEDULES_REPLICAS:-}"
+  local requested_web_replicas="${UPSTAND_WEB_REPLICAS:-}"
+  local requested_fumadocs_replicas="${UPSTAND_FUMADOCS_REPLICAS:-}"
+  local requested_docker_gid="${UPSTAND_DOCKER_GID:-}"
   local direct_origins="${UPSTAND_DIRECT_ORIGINS:-false}"
 
   if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$ENV_FILE"
   fi
+  if [[ -n "$requested_allow_insecure_bootstrap" ]]; then
+    UPSTAND_ALLOW_INSECURE_BOOTSTRAP="$requested_allow_insecure_bootstrap"
+  fi
+  UPSTAND_ALLOW_INSECURE_BOOTSTRAP="${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}"
+  [[ "$UPSTAND_ALLOW_INSECURE_BOOTSTRAP" == true || "$UPSTAND_ALLOW_INSECURE_BOOTSTRAP" == false ]] \
+    || fail "UPSTAND_ALLOW_INSECURE_BOOTSTRAP must be true or false"
+  UPSTAND_ALLOW_UNOBSERVED_PRODUCTION="${requested_allow_unobserved_production:-${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}}"
+  [[ "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION" == true || "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION" == false ]] \
+    || fail "UPSTAND_ALLOW_UNOBSERVED_PRODUCTION must be true or false"
+  UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS="${requested_allow_legacy_release_artifacts:-${UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS:-false}}"
+  [[ "$UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS" == true || "$UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS" == false ]] \
+    || fail "UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS must be true or false"
+  AUTH_COOKIE_DOMAIN="${requested_auth_cookie_domain:-${AUTH_COOKIE_DOMAIN:-}}"
+  TRUSTED_PROXY_HEADERS="${requested_trusted_proxy_headers:-${TRUSTED_PROXY_HEADERS:-false}}"
+  [[ "$TRUSTED_PROXY_HEADERS" == true || "$TRUSTED_PROXY_HEADERS" == false ]] \
+    || fail "TRUSTED_PROXY_HEADERS must be true or false"
+  UPSTAND_INSTANCE_OWNER_USER_ID="${requested_instance_owner_user_id:-${UPSTAND_INSTANCE_OWNER_USER_ID:-}}"
+  UPSTAND_INSTANCE_OWNER_EMAIL="${requested_instance_owner_email:-${UPSTAND_INSTANCE_OWNER_EMAIL:-}}"
+  UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT="${requested_control_plane_fingerprint:-${UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT:-}}"
+  UPSTAND_DOCKER_VERSION="${requested_docker_version:-${UPSTAND_DOCKER_VERSION:-}}"
+  UPSTAND_OUTBOUND_ALLOWED_HOSTS="${requested_outbound_allowed_hosts:-${UPSTAND_OUTBOUND_ALLOWED_HOSTS:-}}"
+  UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS="${requested_secret_provider_allowed_hosts:-${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}}"
+  UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS="${requested_git_provider_allowed_hosts:-${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}}"
+  UPSTAND_BACKUP_COMMAND_TIMEOUT_MS="${requested_backup_command_timeout_ms:-${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-1800000}}"
+  UPSTAND_DATABASE_POOL_MAX="${requested_database_pool_max:-${UPSTAND_DATABASE_POOL_MAX:-20}}"
+  UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS="${requested_database_pool_idle_timeout_ms:-${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-30000}}"
+  UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS="${requested_database_pool_connection_timeout_ms:-${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-5000}}"
+  [[ "$UPSTAND_BACKUP_COMMAND_TIMEOUT_MS" =~ ^[1-9][0-9]*$ ]] \
+    && ((UPSTAND_BACKUP_COMMAND_TIMEOUT_MS >= 1000 && UPSTAND_BACKUP_COMMAND_TIMEOUT_MS <= 86400000)) \
+    || fail "UPSTAND_BACKUP_COMMAND_TIMEOUT_MS must be an integer from 1000 to 86400000"
+  [[ "$UPSTAND_DATABASE_POOL_MAX" =~ ^[1-9][0-9]*$ ]] \
+    && ((UPSTAND_DATABASE_POOL_MAX <= 100)) \
+    || fail "UPSTAND_DATABASE_POOL_MAX must be an integer from 1 to 100"
+  [[ "$UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS" =~ ^[0-9]+$ ]] \
+    && ((UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS <= 600000)) \
+    || fail "UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS must be an integer from 0 to 600000"
+  [[ "$UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS" =~ ^[1-9][0-9]*$ ]] \
+    && ((UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS >= 100 && UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS <= 120000)) \
+    || fail "UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS must be an integer from 100 to 120000"
+  for configured_value in \
+    "$AUTH_COOKIE_DOMAIN" \
+    "$UPSTAND_INSTANCE_OWNER_USER_ID" \
+    "$UPSTAND_INSTANCE_OWNER_EMAIL" \
+    "$UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT" \
+    "$UPSTAND_DOCKER_VERSION" \
+    "$UPSTAND_OUTBOUND_ALLOWED_HOSTS" \
+    "$UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS" \
+    "$UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS"; do
+    [[ "$configured_value" != *$'\r'* && "$configured_value" != *$'\n'* ]] \
+      || fail "production environment values must not contain newlines"
+  done
+  UPSTAND_DOCKER_GID="${requested_docker_gid:-${UPSTAND_DOCKER_GID:-}}"
+  if [[ -z "$UPSTAND_DOCKER_GID" ]]; then
+    UPSTAND_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || true)"
+  fi
+  [[ "$UPSTAND_DOCKER_GID" =~ ^[0-9]+$ ]] \
+    || fail "could not determine a numeric group id for /var/run/docker.sock; set UPSTAND_DOCKER_GID explicitly"
   local configured_origin_count=0
   [[ -n "${BETTER_AUTH_URL:-}" ]] && ((configured_origin_count += 1))
   [[ -n "${CORS_ORIGIN:-}" ]] && ((configured_origin_count += 1))
@@ -344,11 +712,13 @@ write_environment() {
     IS_CLOUD="$MODE_OVERRIDE"
   fi
 
-  # A first-run install should be usable without requiring DNS setup up front.
-  # When origins are not supplied, keep the control plane reachable directly by
-  # the detected host IP and its published service ports. Caddy/domain setup
-  # can be enabled later from the Web Server page.
+  # Production installs must establish an explicit HTTPS origin before the
+  # control plane is exposed. The insecure direct-IP bootstrap remains
+  # available only as an explicit operator opt-in for isolated development
+  # hosts.
   if [[ -z "${BETTER_AUTH_URL:-}" || -z "${CORS_ORIGIN:-}" || -z "${NEXT_PUBLIC_SERVER_URL:-}" ]]; then
+    [[ "${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}" == true ]] \
+      || fail "set BETTER_AUTH_URL, CORS_ORIGIN, and NEXT_PUBLIC_SERVER_URL to HTTPS origins; use UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true only on an isolated development host"
     direct_origins=true
     BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://${advertise_address}:3000}"
     CORS_ORIGIN="${CORS_ORIGIN:-http://${advertise_address}:3001}"
@@ -361,6 +731,45 @@ write_environment() {
   [[ -r "$INSTALL_DIR/secrets/better_auth_secret" ]] && BETTER_AUTH_SECRET="$(cat "$INSTALL_DIR/secrets/better_auth_secret")"
   [[ -r "$INSTALL_DIR/secrets/encryption_key" ]] && ENCRYPTION_KEY_V1="$(cat "$INSTALL_DIR/secrets/encryption_key")"
   [[ -z "${ENCRYPTION_KEY_V1:-}" && -r "$INSTALL_DIR/secrets/ssh_key_encryption_key" ]] && ENCRYPTION_KEY_V1="$(cat "$INSTALL_DIR/secrets/ssh_key_encryption_key")"
+  [[ -r "$INSTALL_DIR/secrets/database_url" ]] && DATABASE_URL="$(cat "$INSTALL_DIR/secrets/database_url")"
+  [[ -r "$INSTALL_DIR/secrets/redis_url" ]] && REDIS_URL="$(cat "$INSTALL_DIR/secrets/redis_url")"
+  DATABASE_URL="${requested_database_url:-${DATABASE_URL:-}}"
+  REDIS_URL="${requested_redis_url:-${REDIS_URL:-}}"
+  if [[ -n "$DATABASE_URL" || -n "$REDIS_URL" ]]; then
+    [[ -n "$DATABASE_URL" && -n "$REDIS_URL" ]] \
+      || fail "DATABASE_URL and REDIS_URL must be configured together for external HA data services"
+    [[ "$DATABASE_URL" == postgresql://* || "$DATABASE_URL" == postgres://* ]] \
+      || fail "DATABASE_URL must use postgresql:// or postgres://"
+    [[ "$REDIS_URL" == redis://* || "$REDIS_URL" == rediss://* ]] \
+      || fail "REDIS_URL must use redis:// or rediss://"
+    [[ "$DATABASE_URL" != *$'\r'* && "$DATABASE_URL" != *$'\n'* ]] \
+      || fail "DATABASE_URL must be a single-line URL"
+    [[ "$REDIS_URL" != *$'\r'* && "$REDIS_URL" != *$'\n'* ]] \
+      || fail "REDIS_URL must be a single-line URL"
+    UPSTAND_BUNDLED_POSTGRES_REPLICAS=0
+    UPSTAND_BUNDLED_REDIS_REPLICAS=0
+  else
+    UPSTAND_BUNDLED_POSTGRES_REPLICAS="${requested_bundled_postgres_replicas:-${UPSTAND_BUNDLED_POSTGRES_REPLICAS:-1}}"
+    UPSTAND_BUNDLED_REDIS_REPLICAS="${requested_bundled_redis_replicas:-${UPSTAND_BUNDLED_REDIS_REPLICAS:-1}}"
+  fi
+  UPSTAND_SERVER_REPLICAS="${requested_server_replicas:-${UPSTAND_SERVER_REPLICAS:-1}}"
+  UPSTAND_SCHEDULES_REPLICAS="${requested_schedules_replicas:-${UPSTAND_SCHEDULES_REPLICAS:-1}}"
+  UPSTAND_WEB_REPLICAS="${requested_web_replicas:-${UPSTAND_WEB_REPLICAS:-1}}"
+  UPSTAND_FUMADOCS_REPLICAS="${requested_fumadocs_replicas:-${UPSTAND_FUMADOCS_REPLICAS:-1}}"
+  UPSTAND_AUDIT_LOG_RETENTION_DAYS="${requested_audit_log_retention_days:-${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-365}}"
+  [[ "$UPSTAND_AUDIT_LOG_RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]] \
+    && ((UPSTAND_AUDIT_LOG_RETENTION_DAYS <= 3650)) \
+    || fail "UPSTAND_AUDIT_LOG_RETENTION_DAYS must be an integer from 1 to 3650"
+  local external_data=false
+  [[ -n "$DATABASE_URL" ]] && external_data=true
+  validate_replica_configuration \
+    "$external_data" \
+    "$UPSTAND_SERVER_REPLICAS" \
+    "$UPSTAND_SCHEDULES_REPLICAS" \
+    "$UPSTAND_WEB_REPLICAS" \
+    "$UPSTAND_FUMADOCS_REPLICAS" \
+    "$UPSTAND_BUNDLED_POSTGRES_REPLICAS" \
+    "$UPSTAND_BUNDLED_REDIS_REPLICAS"
   POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -hex 32)}"
   REDIS_PASSWORD="${REDIS_PASSWORD:-$(openssl rand -hex 32)}"
   BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(openssl rand -hex 32)}"
@@ -369,6 +778,8 @@ write_environment() {
   printf '%s' "$REDIS_PASSWORD" >"$INSTALL_DIR/secrets/redis_password"
   printf '%s' "$BETTER_AUTH_SECRET" >"$INSTALL_DIR/secrets/better_auth_secret"
   printf '%s' "$ENCRYPTION_KEY_V1" >"$INSTALL_DIR/secrets/encryption_key"
+  printf '%s' "$DATABASE_URL" >"$INSTALL_DIR/secrets/database_url"
+  printf '%s' "$REDIS_URL" >"$INSTALL_DIR/secrets/redis_url"
   cp -f "$INSTALL_DIR/secrets/encryption_key" "$INSTALL_DIR/secrets/ssh_key_encryption_key" 2>/dev/null || true
   chmod 0600 "$INSTALL_DIR/secrets"/*
   DOCKER_NETWORK="$NETWORK_NAME"
@@ -387,6 +798,16 @@ write_environment() {
   UPSTAND_DOCS_IMAGE="${requested_docs_image:-${UPSTAND_DOCS_IMAGE:-}}"
   UPSTAND_MONITORING_IMAGE="${requested_monitoring_image:-${UPSTAND_MONITORING_IMAGE:-}}"
   UPSTAND_AUTO_UPDATE="${requested_auto_update:-${UPSTAND_AUTO_UPDATE:-false}}"
+  OTLP_ENDPOINT="${requested_otlp_endpoint:-${OTLP_ENDPOINT:-}}"
+  if [[ -n "$OTLP_ENDPOINT" ]]; then
+    [[ "$OTLP_ENDPOINT" == http://* || "$OTLP_ENDPOINT" == https://* ]] \
+      || fail "OTLP_ENDPOINT must use HTTP or HTTPS"
+    [[ "$OTLP_ENDPOINT" != *$'\r'* && "$OTLP_ENDPOINT" != *$'\n'* ]] \
+      || fail "OTLP_ENDPOINT must be a single-line URL"
+  fi
+  # Each deployment gets a fresh barrier key. Reusing the previous key would
+  # let a new server race past a failed or still-running migration.
+  UPSTAND_MIGRATION_ID="${requested_migration_id:-upstand-$(date +%s)-$$}"
 
   local advertise_ip
   advertise_ip="$(detect_advertise_address)"
@@ -404,6 +825,10 @@ write_environment() {
   [[ "$BETTER_AUTH_URL" == http://* || "$BETTER_AUTH_URL" == https://* ]] || fail "BETTER_AUTH_URL must use HTTP or HTTPS"
   [[ "$CORS_ORIGIN" == http://* || "$CORS_ORIGIN" == https://* ]] || fail "CORS_ORIGIN must use HTTP or HTTPS"
   [[ "$NEXT_PUBLIC_SERVER_URL" == http://* || "$NEXT_PUBLIC_SERVER_URL" == https://* ]] || fail "NEXT_PUBLIC_SERVER_URL must use HTTP or HTTPS"
+  if [[ "${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}" != true ]]; then
+    [[ "$BETTER_AUTH_URL" == https://* && "$CORS_ORIGIN" == https://* && "$NEXT_PUBLIC_SERVER_URL" == https://* ]] \
+      || fail "production origins must all use HTTPS"
+  fi
 
   if [[ "$direct_origins" == true ]]; then
     UPSTAND_DASHBOARD_HOST=""
@@ -431,9 +856,8 @@ write_environment() {
   if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" == true ]]; then
     build_source_images
   else
-    # Stable installations consume the latest published release images by
-    # default. Resolve the mutable channel tag to a digest before writing the
-    # environment file so Swarm deploys remain reproducible.
+    # Stable installations consume the selected release manifest and verify
+    # every published image before writing the environment file.
     UPSTAND_SERVER_IMAGE="${UPSTAND_SERVER_IMAGE:-$(resolve_stable_image server)}"
     UPSTAND_SCHEDULES_IMAGE="${UPSTAND_SCHEDULES_IMAGE:-$(resolve_stable_image schedules)}"
     UPSTAND_WEB_IMAGE="${UPSTAND_WEB_IMAGE:-$(resolve_stable_image web)}"
@@ -450,30 +874,53 @@ write_environment() {
     require_digest_image REDIS_IMAGE
   fi
 
-  cat >"$ENV_FILE" <<EOF
-DOCKER_NETWORK=$DOCKER_NETWORK
-BETTER_AUTH_URL=$BETTER_AUTH_URL
-CORS_ORIGIN=$CORS_ORIGIN
-TRUSTED_PROXY_CIDRS=$TRUSTED_PROXY_CIDRS
-NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL
-UPSTAND_DASHBOARD_HOST=$UPSTAND_DASHBOARD_HOST
-UPSTAND_API_HOST=$UPSTAND_API_HOST
-UPSTAND_DOCS_HOST=$UPSTAND_DOCS_HOST
-UPSTAND_SERVER_IMAGE=$UPSTAND_SERVER_IMAGE
-UPSTAND_SCHEDULES_IMAGE=$UPSTAND_SCHEDULES_IMAGE
-UPSTAND_WEB_IMAGE=$UPSTAND_WEB_IMAGE
-UPSTAND_DOCS_IMAGE=$UPSTAND_DOCS_IMAGE
-UPSTAND_MONITORING_IMAGE=$UPSTAND_MONITORING_IMAGE
-UPSTAND_AUTO_UPDATE=$UPSTAND_AUTO_UPDATE
-UPSTAND_VERSION=$requested_version
-IS_CLOUD=${IS_CLOUD:-false}
-UPSTAND_DIRECT_ORIGINS=$direct_origins
-POSTGRES_IMAGE=${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
-REDIS_IMAGE=${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
-UPSTAND_SERVER_PORT=${UPSTAND_SERVER_PORT:-3000}
-UPSTAND_WEB_PORT=${UPSTAND_WEB_PORT:-3001}
-UPSTAND_DOCS_PORT=${UPSTAND_DOCS_PORT:-4000}
-EOF
+  {
+    write_env_assignment DOCKER_NETWORK "$DOCKER_NETWORK"
+    write_env_assignment BETTER_AUTH_URL "$BETTER_AUTH_URL"
+    write_env_assignment CORS_ORIGIN "$CORS_ORIGIN"
+    write_env_assignment AUTH_COOKIE_DOMAIN "$AUTH_COOKIE_DOMAIN"
+    write_env_assignment TRUSTED_PROXY_HEADERS "$TRUSTED_PROXY_HEADERS"
+    write_env_assignment TRUSTED_PROXY_CIDRS "$TRUSTED_PROXY_CIDRS"
+    write_env_assignment NEXT_PUBLIC_SERVER_URL "$NEXT_PUBLIC_SERVER_URL"
+    write_env_assignment UPSTAND_INSTANCE_OWNER_USER_ID "$UPSTAND_INSTANCE_OWNER_USER_ID"
+    write_env_assignment UPSTAND_INSTANCE_OWNER_EMAIL "$UPSTAND_INSTANCE_OWNER_EMAIL"
+    write_env_assignment UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT "$UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT"
+    write_env_assignment UPSTAND_DOCKER_VERSION "$UPSTAND_DOCKER_VERSION"
+    write_env_assignment UPSTAND_DASHBOARD_HOST "$UPSTAND_DASHBOARD_HOST"
+    write_env_assignment UPSTAND_API_HOST "$UPSTAND_API_HOST"
+    write_env_assignment UPSTAND_DOCS_HOST "$UPSTAND_DOCS_HOST"
+    write_env_assignment UPSTAND_SERVER_IMAGE "$UPSTAND_SERVER_IMAGE"
+    write_env_assignment UPSTAND_SCHEDULES_IMAGE "$UPSTAND_SCHEDULES_IMAGE"
+    write_env_assignment UPSTAND_WEB_IMAGE "$UPSTAND_WEB_IMAGE"
+    write_env_assignment UPSTAND_DOCS_IMAGE "$UPSTAND_DOCS_IMAGE"
+    write_env_assignment UPSTAND_MONITORING_IMAGE "$UPSTAND_MONITORING_IMAGE"
+    write_env_assignment UPSTAND_AUTO_UPDATE "$UPSTAND_AUTO_UPDATE"
+    write_env_assignment UPSTAND_ALLOW_INSECURE_BOOTSTRAP "$UPSTAND_ALLOW_INSECURE_BOOTSTRAP"
+    write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION"
+    write_env_assignment UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS "$UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS"
+    write_env_assignment UPSTAND_OUTBOUND_ALLOWED_HOSTS "$UPSTAND_OUTBOUND_ALLOWED_HOSTS"
+    write_env_assignment UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS "$UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS"
+    write_env_assignment UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS "$UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS"
+    write_env_assignment UPSTAND_BACKUP_COMMAND_TIMEOUT_MS "$UPSTAND_BACKUP_COMMAND_TIMEOUT_MS"
+    write_env_assignment OTLP_ENDPOINT "$OTLP_ENDPOINT"
+    write_env_assignment UPSTAND_MIGRATION_ID "$UPSTAND_MIGRATION_ID"
+    write_env_assignment UPSTAND_BUNDLED_POSTGRES_REPLICAS "$UPSTAND_BUNDLED_POSTGRES_REPLICAS"
+    write_env_assignment UPSTAND_BUNDLED_REDIS_REPLICAS "$UPSTAND_BUNDLED_REDIS_REPLICAS"
+    write_env_assignment UPSTAND_DATABASE_POOL_MAX "$UPSTAND_DATABASE_POOL_MAX"
+    write_env_assignment UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS "$UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS"
+    write_env_assignment UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS "$UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS"
+    write_env_assignment UPSTAND_SERVER_REPLICAS "$UPSTAND_SERVER_REPLICAS"
+    write_env_assignment UPSTAND_SCHEDULES_REPLICAS "$UPSTAND_SCHEDULES_REPLICAS"
+    write_env_assignment UPSTAND_WEB_REPLICAS "$UPSTAND_WEB_REPLICAS"
+    write_env_assignment UPSTAND_FUMADOCS_REPLICAS "$UPSTAND_FUMADOCS_REPLICAS"
+    write_env_assignment UPSTAND_AUDIT_LOG_RETENTION_DAYS "$UPSTAND_AUDIT_LOG_RETENTION_DAYS"
+    write_env_assignment UPSTAND_DOCKER_GID "$UPSTAND_DOCKER_GID"
+    write_env_assignment UPSTAND_VERSION "$UPSTAND_VERSION"
+    write_env_assignment IS_CLOUD "${IS_CLOUD:-false}"
+    write_env_assignment UPSTAND_DIRECT_ORIGINS "$direct_origins"
+    write_env_assignment POSTGRES_IMAGE "$POSTGRES_IMAGE"
+    write_env_assignment REDIS_IMAGE "$REDIS_IMAGE"
+  } >"$ENV_FILE"
   chmod 0600 "$ENV_FILE"
 }
 
@@ -505,6 +952,23 @@ deploy_stack() {
       --resolve-image always \
       upstand
   fi
+  wait_for_migration
+}
+
+wait_for_migration() {
+  local deadline=$((SECONDS + 600))
+  while ((SECONDS < deadline)); do
+    local state
+    state="$(docker service ps upstand_migrate --no-trunc --format '{{.CurrentState}}' 2>/dev/null | head -n1 || true)"
+    if [[ "$state" == Complete* ]]; then
+      return 0
+    fi
+    if [[ "$state" == Failed* || "$state" == Rejected* || "$state" == "Shutdown"* ]]; then
+      fail "database migration service failed: $state"
+    fi
+    sleep 2
+  done
+  fail "timed out waiting for database migration service"
 }
 
 configure_registry_auth() {
@@ -528,7 +992,8 @@ cleanup_registry_auth() {
 
 wait_for_stack() {
   local deadline=$((SECONDS + 600))
-  local services=(postgres redis server web)
+  local services=()
+  mapfile -t services < <(required_stack_services)
 
   while ((SECONDS < deadline)); do
     local converged=true
@@ -591,8 +1056,10 @@ main() {
   ensure_stack_file
   ensure_swarm "$advertise_address"
   write_environment "$advertise_address"
+  validate_production_operating_model
   trap cleanup_registry_auth EXIT
   configure_registry_auth
+  validate_swarm_network_runtime
   deploy_stack
   wait_for_stack
   # shellcheck disable=SC1090
@@ -603,6 +1070,10 @@ main() {
   echo "Dashboard: $CORS_ORIGIN"
   echo "API: $BETTER_AUTH_URL"
   echo "Generated secrets are stored in $INSTALL_DIR/secrets/; back up that directory securely."
+  echo "Run $INSTALL_DIR/production-acceptance.sh (add --require-ha for HA validation)."
+  echo "For multi-node runtime evidence, run $INSTALL_DIR/production-acceptance.sh --node-local on every task-bearing node."
+  echo "For manager-driven multi-node evidence, run $INSTALL_DIR/production-acceptance-cluster.sh --output /var/tmp/upstand-acceptance --ssh-user USER."
+  echo "Collect manager evidence with $INSTALL_DIR/production-evidence-collect.sh --output /var/tmp/upstand-acceptance-evidence."
   echo "Control-plane state is pinned to node label upstand.control-plane=true."
   echo "Use 'docker stack services upstand' to watch rollout status."
 }

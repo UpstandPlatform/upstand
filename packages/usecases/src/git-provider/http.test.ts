@@ -17,7 +17,7 @@ describe("git provider HTTP helpers", () => {
 
     await expect(
       requestJson<{ value: string }>(
-        "https://example.test",
+        "https://api.github.com",
         undefined,
         () => "request failed",
       ),
@@ -33,7 +33,7 @@ describe("git provider HTTP helpers", () => {
     );
 
     const result = await requestJsonWithResponse<{ name: string }[]>(
-      "https://example.test",
+      "https://api.github.com",
       undefined,
       () => "request failed",
     );
@@ -49,7 +49,7 @@ describe("git provider HTTP helpers", () => {
 
     await expect(
       requestJson(
-        "https://example.test",
+        "https://api.github.com",
         undefined,
         (response) => `provider failed: ${response.statusText}`,
       ),
