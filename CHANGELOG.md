@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.30 - 2026-08-02
+
+Release 0.1.30 fixing metadataBase fallback URL in fumadocs and skipping nested node_modules during desktop payload staging.
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.29 - 2026-08-02
 
 Release 0.1.29 fixing step-level env evaluation for BACKUP_REHEARSAL_LOG in release workflow.

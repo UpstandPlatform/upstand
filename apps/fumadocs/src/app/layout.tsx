@@ -5,7 +5,9 @@ import "./global.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(env.NEXT_PUBLIC_FUMADOCS_URL),
+  metadataBase: new URL(
+    env.NEXT_PUBLIC_FUMADOCS_URL || "https://docs.upstand.dev",
+  ),
   title: {
     default: "Upstand Docs",
     template: "%s | Upstand Docs",

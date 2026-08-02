@@ -129,6 +129,9 @@ async function copyGeneratedTree(
     if (info.isDirectory()) {
       await mkdir(currentDestination, { recursive: true });
       for (const entry of await readdir(absoluteSource)) {
+        if (entry === "node_modules" && ancestors.size > 0) {
+          continue;
+        }
         await copyResolved(
           join(absoluteSource, entry),
           join(currentDestination, entry),
