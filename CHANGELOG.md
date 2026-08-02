@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.18 - 2026-08-02
+
+Release 0.1.18 with job-level environment variables fix for db verification step.
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.17 - 2026-08-02
 
 Release 0.1.17 with release workflow environment variables fix and verified server assignment logic.
