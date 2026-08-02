@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.26 - 2026-08-02
+
+Release 0.1.26 supporting explicit zero latency limits in health-load-rehearsal script.
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.25 - 2026-08-02
 
 Release 0.1.25 fixing latency budget test threshold in health-load-rehearsal test script.
