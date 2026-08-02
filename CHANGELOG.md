@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.24 - 2026-08-02
+
+Release 0.1.24 adding @upstand/env to root devDependencies.
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.23 - 2026-08-02
 
 Release 0.1.23 with high-level audit filter for dependency security checks.
