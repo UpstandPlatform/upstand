@@ -1,6 +1,5 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { env } from "@upstand/env/server";
 import dotenv from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
@@ -8,9 +7,6 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({
   path: path.resolve(configDir, "../../apps/server/.env"),
-  // A caller-provided DATABASE_URL must win. This is essential for CI,
-  // migrations in containers, and a self-hosted install where no repo-local
-  // development .env file exists.
   override: false,
 });
 dotenv.config({
@@ -18,11 +14,9 @@ dotenv.config({
   override: false,
 });
 
-const databaseUrl = env.DATABASE_URL;
-
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL must be set before running Drizzle Kit");
-}
+const databaseUrl =
+  process.env.DATABASE_URL ||
+  "postgres://postgres:postgres@localhost:5432/upstand";
 
 export default defineConfig({
   schema: "./src/schema",
