@@ -62,6 +62,10 @@ jobs:
 
       - name: Verify database schema consistency
         env:
+          BETTER_AUTH_URL: http://localhost:3000
+          CORS_ORIGIN: http://localhost:3001
+          BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+          ENCRYPTION_KEY_V1: 0000000000000000000000000000000000000000000000000000000000000000
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
         run: bun run db:check
 
