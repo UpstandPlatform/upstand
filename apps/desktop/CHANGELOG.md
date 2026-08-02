@@ -1,5 +1,11 @@
 # desktop
 
+## 0.2.2
+
+### Patch Changes
+
+- [#58](https://github.com/UpstandPlatform/upstand/pull/58) [`bc02bb2`](https://github.com/UpstandPlatform/upstand/commit/bc02bb26eb7fa81fb70c74fc84ea10b7bbe46009) Thanks [@mhbdev](https://github.com/mhbdev)! - Add the authenticated OpenShip-style workspace dashboard at `/workspace`, expose canonical control-plane capabilities to the UI, and make the desktop client open the workspace route after connecting. Existing dashboard routes remain available.
+
 ## 0.2.1
 
 ### Patch Changes
