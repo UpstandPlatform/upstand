@@ -372,15 +372,18 @@ jobs:
       RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
-      UPSTAND_SECRETS_DIR: ${{ runner.temp }}/upstand-release-secrets
       NETWORK_PROBE_NAME: upstand-release-acceptance-network-probe
       OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector
       OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config
       OTEL_COLLECTOR_IMAGE: docker.io/otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7
       HEALTH_LOAD_IMAGE: curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
-      BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt
-      ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence
     steps:
+      - name: Set up environment paths
+        run: |
+          echo "UPSTAND_SECRETS_DIR=${RUNNER_TEMP}/upstand-release-secrets" >> $GITHUB_ENV
+          echo "BACKUP_REHEARSAL_LOG=${RUNNER_TEMP}/upstand-backup-rehearsal.txt" >> $GITHUB_ENV
+          echo "ACCEPTANCE_EVIDENCE_DIR=${RUNNER_TEMP}/upstand-acceptance-evidence" >> $GITHUB_ENV
+
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
