@@ -1,5 +1,11 @@
 # server
 
+## 0.1.10
+
+### Patch Changes
+
+- [#71](https://github.com/UpstandPlatform/upstand/pull/71) [`453d05f`](https://github.com/UpstandPlatform/upstand/commit/453d05ff14929753a9a8b3c7f1d32c0b8208a895) Thanks [@mhbdev](https://github.com/mhbdev)! - Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.9
 
 ### Patch Changes

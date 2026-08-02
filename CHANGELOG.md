@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.10 - 2026-08-02
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.9 - 2026-08-02
 
 Add the authenticated OpenShip-style workspace dashboard at `/workspace`, expose canonical control-plane capabilities to the UI, and make the desktop client open the workspace route after connecting. Existing dashboard routes remain available.
