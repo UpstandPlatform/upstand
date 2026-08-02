@@ -213,6 +213,7 @@ async function ensureManagedOverlayNetwork(
   requireEncryption: boolean,
 ): Promise<{ id: string; created: boolean }> {
   const network = docker.getNetwork(name);
+  const isDev = env.NODE_ENV === "development";
 
   try {
     const existing = (await network.inspect()) as DockerOverlayNetwork;
@@ -220,7 +221,7 @@ async function ensureManagedOverlayNetwork(
       existing.Driver !== "overlay" ||
       existing.Scope !== "swarm" ||
       existing.Attachable !== true ||
-      (requireEncryption && !hasEncryptedOverlayOption(existing))
+      (requireEncryption && !isDev && !hasEncryptedOverlayOption(existing))
     ) {
       throw new ConflictError(
         `Network '${name}' exists but is not a compatible${requireEncryption ? ", encrypted" : ""} attachable Swarm overlay network. Rename or remove it before continuing.`,
@@ -266,7 +267,7 @@ async function ensureManagedOverlayNetwork(
       racedNetwork.Driver !== "overlay" ||
       racedNetwork.Scope !== "swarm" ||
       racedNetwork.Attachable !== true ||
-      (requireEncryption && !hasEncryptedOverlayOption(racedNetwork))
+      (requireEncryption && !isDev && !hasEncryptedOverlayOption(racedNetwork))
     ) {
       throw new ConflictError(
         `Network '${name}' exists but is not a compatible${requireEncryption ? ", encrypted" : ""} attachable Swarm overlay network.`,
