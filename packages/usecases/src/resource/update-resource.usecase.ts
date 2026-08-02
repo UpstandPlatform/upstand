@@ -499,9 +499,19 @@ export class UpdateResourceUseCase {
       };
       await validateServer(input.serverId, "deployment");
       await validateServer(input.buildServerId, "build");
-      if (input.serverId !== undefined) patch.serverId = input.serverId;
-      if (input.buildServerId !== undefined)
-        patch.buildServerId = input.buildServerId;
+      if (input.serverId !== undefined) {
+        patch.serverId =
+          !input.serverId || ["local", "manager"].includes(input.serverId)
+            ? null
+            : input.serverId;
+      }
+      if (input.buildServerId !== undefined) {
+        patch.buildServerId =
+          !input.buildServerId ||
+          ["local", "manager"].includes(input.buildServerId)
+            ? null
+            : input.buildServerId;
+      }
     }
 
     const routingChanged =

@@ -46,6 +46,7 @@ import {
   Tag01Icon,
   Terminal,
 } from "@/components/huge-icons";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import type { authClient } from "@/lib/auth-client";
 import { ContainersTab } from "./components/containers-tab";
 import { DeploymentsTab } from "./components/deployments-tab";
@@ -227,9 +228,14 @@ export default function ResourceDetail({
     return logsData.trim().split("\n");
   }, [logsData]);
 
+  const { isCloud } = useSystemConfig();
+
   const preflightErrors = useMemo(
-    () => getResourcePreflightErrors(resource, secrets, servers, gitProviders),
-    [resource, secrets, servers, gitProviders],
+    () =>
+      getResourcePreflightErrors(resource, secrets, servers, gitProviders, {
+        isCloud,
+      }),
+    [resource, secrets, servers, gitProviders, isCloud],
   );
 
   const containerList = liveContainers ?? [];

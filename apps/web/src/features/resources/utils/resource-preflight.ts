@@ -32,6 +32,7 @@ export function getResourcePreflightErrors(
   secrets: { credentials?: string } | null | undefined,
   servers: (Server | Record<string, any>)[],
   gitProviders: (GitProviderItem | Record<string, any>)[],
+  options?: { isCloud?: boolean },
 ): PreflightError[] {
   if (!resource) return [];
 
@@ -199,7 +200,7 @@ export function getResourcePreflightErrors(
   }
 
   // 2. Server Configuration & Credentials
-  if (!resource.serverId) {
+  if (options?.isCloud && !resource.serverId) {
     errors.push({
       id: "server-unassigned",
       category: "server",
@@ -208,7 +209,10 @@ export function getResourcePreflightErrors(
       actionableTip:
         "Go to General settings and select a deployment server target.",
     });
-  } else if (!["local", "manager"].includes(resource.serverId)) {
+  } else if (
+    resource.serverId &&
+    !["local", "manager"].includes(resource.serverId)
+  ) {
     const targetServer = servers.find((s) => s.id === resource.serverId);
     if (!targetServer) {
       errors.push({
