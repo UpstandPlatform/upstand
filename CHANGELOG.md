@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.15 - 2026-08-02
+
+Release 0.1.15 with clean lockfile and verified server assignment logic.
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.14 - 2026-08-02
 
 Release 0.1.14 with clean lockfile and verified server assignment logic.
