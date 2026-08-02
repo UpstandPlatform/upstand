@@ -19,7 +19,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.2.21",
+      "version": "0.2.22",
       "devDependencies": {
         "@electron-forge/cli": "^7.11.1",
         "@electron-forge/maker-deb": "^7.11.1",
@@ -35,7 +35,7 @@
     },
     "apps/fumadocs": {
       "name": "fumadocs",
-      "version": "0.1.28",
+      "version": "0.1.29",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@openrouter/ai-sdk-provider": "^3.0.0",
@@ -80,7 +80,7 @@
     },
     "apps/schedules": {
       "name": "schedules",
-      "version": "0.1.28",
+      "version": "0.1.29",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@upstand/api": "workspace:*",
@@ -104,7 +104,7 @@
     },
     "apps/server": {
       "name": "server",
-      "version": "0.1.28",
+      "version": "0.1.29",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@hono/trpc-server": "^0.4.2",
@@ -137,7 +137,7 @@
     },
     "apps/web": {
       "name": "web",
-      "version": "0.1.28",
+      "version": "0.1.29",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@better-auth-ui/core": "catalog:",
