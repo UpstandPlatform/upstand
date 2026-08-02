@@ -67,7 +67,7 @@ set +e
 HEALTH_LOAD_REQUESTS=12 \
 HEALTH_LOAD_CONCURRENCY=3 \
 HEALTH_LOAD_REQUEST_PATH=/health/ready \
-HEALTH_LOAD_MAX_P95_MS=1 \
+HEALTH_LOAD_MAX_P95_MS=0 \
   bash "$ROOT_DIR/scripts/health-load-rehearsal.sh" "$TARGET"
 latency_status=$?
 set -e
