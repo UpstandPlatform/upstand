@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.20 - 2026-08-02
+
+Release 0.1.20 decoupling drizzle.config.ts from server runtime environment validation.
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.19 - 2026-08-02
 
 Release 0.1.19 with job-level release workflow environment variables fix.
