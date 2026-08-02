@@ -8,6 +8,7 @@ import {
   isSupportedDatabaseImage,
   type Resource,
   ResourceAdvancedConfigSchema,
+  ResourceAppNameSchema,
   ResourceComposeTypeSchema,
   serializeApplicationBuildConfig,
   serializeDomainMappings,
@@ -23,13 +24,18 @@ import {
   assertDeploymentServerSupportsResource,
   assertResourceCanUseBuildServer,
 } from "../server/server-role";
+import { ensureManagedDatabaseCredentials } from "./database-credentials";
 import { validateLibsqlSettings } from "./libsql-settings";
-import { serializeResourceCredentials } from "./resource-credentials";
+import {
+  parseResourceCredentials,
+  serializeResourceCredentials,
+} from "./resource-credentials";
 import {
   ResourceEnvironmentVariablesSchema,
   serializeResourceEnvironmentVariables,
 } from "./resource-environment";
 import { ResourcePreviewFieldsSchema } from "./resource-preview-fields.schema";
+import { validateResourceCredentialReferences } from "./validate-resource-credential-references";
 import { generateWebhookToken } from "./webhook-token";
 
 export const CreateResourceInputSchema = z
@@ -37,7 +43,7 @@ export const CreateResourceInputSchema = z
     environmentId: z.string().min(1, "Environment ID is required"),
     name: z.string().min(1, "Resource name is required"),
     type: z.enum(["application", "database", "compose"]),
-    appName: z.string().min(1, "App Name is required"),
+    appName: ResourceAppNameSchema,
     description: z.string().optional(),
     dbType: z.string().optional(),
     composeType: ResourceComposeTypeSchema.optional(),
@@ -114,6 +120,18 @@ export class CreateResourceUseCase {
       );
       if (!environment) {
         throw new ValidationError("Environment not found");
+      }
+
+      if (input.credentials !== undefined) {
+        const project = await tx.projectRepository.findById(
+          environment.projectId,
+        );
+        if (!project) throw new ValidationError("Project not found");
+        await validateResourceCredentialReferences(
+          tx,
+          project.organizationId,
+          input.credentials,
+        );
       }
 
       if (input.rollbackActive || input.rollbackRegistryId) {
@@ -253,17 +271,7 @@ export class CreateResourceUseCase {
       }
 
       let credentials = input.credentials ?? null;
-      let sourceConfig: Record<string, unknown> = {};
-      if (input.credentials) {
-        try {
-          const parsed = JSON.parse(input.credentials);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            sourceConfig = parsed as Record<string, unknown>;
-          }
-        } catch {
-          sourceConfig = {};
-        }
-      }
+      const sourceConfig = parseResourceCredentials(input.credentials);
       const triggerType =
         input.triggerType ??
         (String(sourceConfig.triggerType ?? "push")
@@ -290,6 +298,12 @@ export class CreateResourceUseCase {
             "Resource credentials could not be encrypted",
           );
         }
+      }
+
+      if (input.type === "database") {
+        credentials = serializeResourceCredentials(
+          ensureManagedDatabaseCredentials(input.dbType, sourceConfig),
+        );
       }
 
       const webhookToken = generateWebhookToken();

@@ -1,4 +1,7 @@
-import type { IUnitOfWork, Resource } from "@upstand/domain";
+import type {
+  IUnitOfWork,
+  ResourceAutoscalingProjection,
+} from "@upstand/domain";
 import type Docker from "dockerode";
 import type { CaddyServicePort } from "../ports/caddy";
 import type {
@@ -83,7 +86,7 @@ export function resolveDockerCliEnvironmentForServer(
 }
 
 export function resolveServicesForResource<T>(
-  resource: Resource,
+  resource: ResourceAutoscalingProjection,
   uow: IUnitOfWork,
   defaultDockerService: T,
   defaultCaddyService: CaddyServicePort,

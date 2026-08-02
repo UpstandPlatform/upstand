@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import os from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { env } from "@upstand/env/server";
@@ -13,6 +14,7 @@ import {
 import { migratePglite } from "./pglite-migrator";
 import * as schema from "./schema";
 
+export * from "./migration-preflight";
 export * from "./pglite-lock";
 export * from "./pglite-migrator";
 export * from "./schema";
@@ -23,6 +25,9 @@ export * from "./schema";
  */
 export const pool = new Pool({
   connectionString: env.DATABASE_URL ?? "",
+  max: env.UPSTAND_DATABASE_POOL_MAX,
+  idleTimeoutMillis: env.UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS,
+  connectionTimeoutMillis: env.UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS,
 });
 
 export type Database = NodePgDatabase<typeof schema>;
@@ -32,7 +37,7 @@ let activePglite: { close(): Promise<void> } | null = null;
 function pgliteDataDirectory(): string {
   const configured = env.PGLITE_DATA_DIR?.trim();
   if (configured) return resolve(configured);
-  const home = process.env.USERPROFILE ?? process.env.HOME ?? process.cwd();
+  const home = os.homedir() || process.cwd();
   return resolve(home, ".upstand", "data");
 }
 

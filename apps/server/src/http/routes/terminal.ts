@@ -15,8 +15,24 @@ import {
   matchesContainerIdentifier,
 } from "../../container-ownership";
 import { isStepUpAuthenticationSatisfied } from "../../step-up-auth";
-import { matchesTerminalSession, terminalBroker } from "../../terminal-broker";
+import {
+  matchesTerminalSession,
+  type TerminalSessionInput,
+  terminalBroker,
+} from "../../terminal-broker";
 import type { AppEnv } from "../types";
+
+async function createTerminalToken(
+  c: Context<AppEnv>,
+  input: TerminalSessionInput,
+): Promise<string | null> {
+  try {
+    return await terminalBroker.create(input);
+  } catch {
+    c.get("log").warn("Terminal session hand-off could not be persisted");
+    return null;
+  }
+}
 
 export function registerTerminalRoutes(app: Hono<AppEnv>): void {
   app.post("/api/terminal/session", async (c) => {
@@ -167,7 +183,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       hostKeyFingerprint = controlPlaneFingerprint;
     }
 
-    const token = terminalBroker.create({
+    const token = await createTerminalToken(c, {
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -179,6 +195,12 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       password,
       hostKeyFingerprint,
     });
+    if (!token) {
+      return c.json(
+        { error: "Terminal service is temporarily unavailable" },
+        503,
+      );
+    }
     return c.json({ token, expiresIn: 60 });
   });
 
@@ -299,7 +321,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     const authorizedContainerId = (selectedContainer as { id: string }).id;
 
     if (targetServerId === "local") {
-      const token = terminalBroker.create({
+      const token = await createTerminalToken(c, {
         userId: session.user.id,
         sessionId: session.session.id,
         twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -314,6 +336,12 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
             ? body.rows
             : undefined,
       });
+      if (!token) {
+        return c.json(
+          { error: "Terminal service is temporarily unavailable" },
+          503,
+        );
+      }
       return c.json({ token, expiresIn: 60 });
     }
 
@@ -375,7 +403,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       "",
     );
 
-    const token = terminalBroker.create({
+    const token = await createTerminalToken(c, {
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -388,6 +416,12 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       hostKeyFingerprint: server.sshHostKeyFingerprint,
       command: `docker exec -it ${safeContainerId} /bin/sh -c "exec /bin/bash 2>/dev/null || exec /bin/sh"`,
     });
+    if (!token) {
+      return c.json(
+        { error: "Terminal service is temporarily unavailable" },
+        503,
+      );
+    }
     return c.json({ token, expiresIn: 60 });
   });
 
@@ -474,7 +508,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     const authorizedContainerId = (selectedContainer as { id: string }).id;
 
     if (targetServerId === "local") {
-      const token = terminalBroker.create({
+      const token = await createTerminalToken(c, {
         userId: session.user.id,
         sessionId: session.session.id,
         twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -489,6 +523,12 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
             ? body.rows
             : undefined,
       });
+      if (!token) {
+        return c.json(
+          { error: "Terminal service is temporarily unavailable" },
+          503,
+        );
+      }
       return c.json({ token, expiresIn: 60 });
     }
 
@@ -553,7 +593,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       "",
     );
 
-    const token = terminalBroker.create({
+    const token = await createTerminalToken(c, {
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -566,6 +606,12 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       hostKeyFingerprint: server.sshHostKeyFingerprint,
       command: `docker exec -it ${safeContainerId} /bin/sh`,
     });
+    if (!token) {
+      return c.json(
+        { error: "Terminal service is temporarily unavailable" },
+        503,
+      );
+    }
     return c.json({ token, expiresIn: 60 });
   });
 

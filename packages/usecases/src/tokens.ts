@@ -3,6 +3,7 @@ import type { IUnitOfWork } from "@upstand/domain";
 import type * as UseCases from "./index";
 import type { NotificationTransport } from "./notification/notification-transport.port";
 import type { CaddyServicePort } from "./ports/caddy";
+import type { DatabaseHealthPort } from "./ports/database-health";
 import type {
   DockerArchiveTransferPort,
   DockerContainerControllerPort,
@@ -18,6 +19,8 @@ import type { ManagedUserProvisioner } from "./ports/managed-user-provisioner";
 // Application composition token. The domain exposes the IUnitOfWork contract,
 // while the DI token belongs to the outer composition layer.
 export const UnitOfWorkToken = createToken<IUnitOfWork>("IUnitOfWork");
+export const DatabaseHealthToken =
+  createToken<DatabaseHealthPort>("DatabaseHealth");
 
 export const NotificationTransportToken = createToken<NotificationTransport>(
   "NotificationTransport",

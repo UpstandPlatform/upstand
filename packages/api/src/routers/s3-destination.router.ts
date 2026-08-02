@@ -68,7 +68,7 @@ export const s3DestinationRouter = router({
       await checkPermission(
         ctx.session.user.id,
         destination.organizationId,
-        "s3_destination:create",
+        "s3_destination:update",
       );
 
       const useCase = ctx.scope.resolve(UpdateS3DestinationUseCaseToken);
@@ -102,7 +102,10 @@ export const s3DestinationRouter = router({
 
       const deleteUseCase = ctx.scope.resolve(DeleteS3DestinationUseCaseToken);
       try {
-        return await deleteUseCase.execute(input);
+        return await deleteUseCase.execute({
+          ...input,
+          organizationId: destination.organizationId,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

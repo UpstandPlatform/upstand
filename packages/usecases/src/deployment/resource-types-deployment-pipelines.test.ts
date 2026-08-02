@@ -82,7 +82,7 @@ describe("Resource Types & Deployment Pipeline Configurations", () => {
       expect(
         isSupportedDatabaseImage(
           "libsql",
-          "ghcr.io/tursodatabase/libsql-server:latest",
+          "ghcr.io/tursodatabase/libsql-server:0.24.32",
         ),
       ).toBe(true);
     });

@@ -6,6 +6,10 @@ import type {
 } from "@upstand/domain";
 import { decryptSecret, encryptSecret } from "@upstand/platform";
 import { eq } from "drizzle-orm";
+import {
+  assertBoundedRepositoryRead,
+  MAX_REPOSITORY_READS,
+} from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
 function decodeToken(value: string): string {
@@ -49,7 +53,11 @@ export class DrizzleMonitoringSettingsRepository
   }
 
   async findByToken(token: string): Promise<MonitoringSettings | null> {
-    const rows = await this.executor.select().from(monitoringSettings);
+    const rows = await this.executor
+      .select()
+      .from(monitoringSettings)
+      .limit(MAX_REPOSITORY_READS + 1);
+    assertBoundedRepositoryRead(rows, "Monitoring settings");
     const row = rows.find(
       (candidate) => decodeToken(candidate.token) === token,
     );

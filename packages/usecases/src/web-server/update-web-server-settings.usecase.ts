@@ -163,7 +163,9 @@ export class UpdateWebServerSettingsUseCase {
       input.enableHttp3 !== undefined ||
       input.caddyEnvironment !== undefined ||
       input.caddyPorts !== undefined;
-    const resources = await this.uow.resourceRepository.findMany();
+    const resources =
+      (await this.uow.resourceRepository.findForCaddy?.()) ??
+      (await this.uow.resourceRepository.findMany());
     const certificates =
       (await this.uow.certificateRepository.findAll?.()) ?? [];
 

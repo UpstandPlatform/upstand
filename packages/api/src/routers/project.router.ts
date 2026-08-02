@@ -99,7 +99,10 @@ export const projectRouter = router({
 
       const useCase = ctx.scope.resolve(UpdateProjectUseCaseToken);
       try {
-        return await useCase.execute(input);
+        return await useCase.execute({
+          ...input,
+          organizationId: existing.organizationId,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

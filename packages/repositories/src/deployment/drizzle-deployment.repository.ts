@@ -9,6 +9,8 @@ import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { BaseRepository } from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
+const MAX_IN_CLAUSE_ITEMS = 1_000;
+
 export class DrizzleDeploymentRepository
   extends BaseRepository<typeof deployment, Deployment, CreateDeploymentDTO>
   implements IDeploymentRepository
@@ -45,6 +47,19 @@ export class DrizzleDeploymentRepository
       .orderBy(desc(deployment.createdAt))
       .limit(Math.max(1, Math.min(limit, 1_000)));
     return rows as Deployment[];
+  }
+
+  async findByIds(ids: readonly string[]): Promise<Deployment[]> {
+    const uniqueIds = [...new Set(ids)];
+    const results: Deployment[] = [];
+    for (const batch of chunk(uniqueIds, MAX_IN_CLAUSE_ITEMS)) {
+      const rows = await this.executor
+        .select(this.listColumns)
+        .from(deployment)
+        .where(inArray(deployment.id, batch));
+      results.push(...(rows as Deployment[]));
+    }
+    return results;
   }
 
   async findRecentByResourceIds(
@@ -204,4 +219,12 @@ export class DrizzleDeploymentRepository
       .returning();
     return updated ? (updated as Deployment) : null;
   }
+}
+
+function chunk<T>(values: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push([...values.slice(index, index + size)]);
+  }
+  return chunks;
 }

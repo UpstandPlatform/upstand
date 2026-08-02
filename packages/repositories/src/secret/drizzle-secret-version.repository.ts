@@ -12,6 +12,7 @@ import {
   encryptSecret,
 } from "@upstand/platform/crypto/secret-box";
 import { and, desc, eq } from "drizzle-orm";
+import { MAX_REPOSITORY_READS } from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
 function getEncryptedPayload(value: string): EncryptedPayload | null {
@@ -105,7 +106,7 @@ export class DrizzleSecretVersionRepository
     organizationId: string,
   ): Promise<SecretVersion[]> {
     if (scopeType === "resource") {
-      return (await this.executor
+      const rows = await this.executor
         .select(secretVersionMetadataSelection)
         .from(secretVersion)
         .innerJoin(
@@ -123,10 +124,17 @@ export class DrizzleSecretVersionRepository
             eq(project.organizationId, organizationId),
           ),
         )
-        .orderBy(desc(secretVersion.version))) as SecretVersion[];
+        .orderBy(desc(secretVersion.version))
+        .limit(MAX_REPOSITORY_READS + 1);
+      if (rows.length > MAX_REPOSITORY_READS) {
+        throw new Error(
+          "Secret version history exceeded the maximum supported row count",
+        );
+      }
+      return rows as SecretVersion[];
     }
 
-    return (await this.executor
+    const rows = await this.executor
       .select(secretVersionMetadataSelection)
       .from(secretVersion)
       .innerJoin(
@@ -143,7 +151,14 @@ export class DrizzleSecretVersionRepository
           eq(project.organizationId, organizationId),
         ),
       )
-      .orderBy(desc(secretVersion.version))) as SecretVersion[];
+      .orderBy(desc(secretVersion.version))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "Secret version history exceeded the maximum supported row count",
+      );
+    }
+    return rows as SecretVersion[];
   }
 
   async findByScopeVersion(

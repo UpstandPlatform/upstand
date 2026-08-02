@@ -1,7 +1,8 @@
 import { auth } from "@upstand/api/auth";
 import { closeDb } from "@upstand/db";
 import { env } from "@upstand/env/server";
-import { closeRedis, redis } from "@upstand/redis";
+import { closeRemoteDockerProxies } from "@upstand/infrastructure";
+import { closeRedis, getRedisWithTimeout, redis } from "@upstand/redis";
 import {
   GetWebServerSettingsUseCaseToken,
   PublishNotificationUseCaseToken,
@@ -34,11 +35,14 @@ import { registerWebhookRoutes } from "./http/routes/webhooks";
 import type { AppEnv } from "./http/types";
 import { initializeMonitoring } from "./monitoring-agent";
 import { runDatabaseMigrations } from "./startup";
+import { terminalBroker } from "./terminal-broker";
 
-const fileDrain = createFsDrain({ maxFiles: 7 });
+const fileDrain = createFsDrain({
+  maxFiles: 7,
+  maxSizePerFile: 16 * 1024 * 1024,
+});
 const otlpEndpoint =
-  process.env.OTLP_ENDPOINT?.trim() ||
-  process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
+  env.OTLP_ENDPOINT?.trim() || env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
 const otlpDrain = otlpEndpoint
   ? createOTLPDrain({
       endpoint: otlpEndpoint,
@@ -65,7 +69,7 @@ async function waitForMigrationBarrier() {
   const deadline = Date.now() + 10 * 60 * 1000;
   while (Date.now() < deadline) {
     try {
-      if ((await redis.get(key)) === "ready") return;
+      if ((await getRedisWithTimeout(redis, key, 1_000)) === "ready") return;
     } catch {
       // Redis readiness is checked again on the next attempt.
     }
@@ -95,6 +99,8 @@ const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
 const app = new Hono<AppEnv>();
 let shuttingDown = false;
 let caddyReady = false;
+let monitoringReady = env.NODE_ENV !== "production";
+let httpServer: Bun.Server<unknown> | null = null;
 
 app.use(evlog());
 
@@ -145,6 +151,8 @@ registerSystemRoutes(app, {
       clearTimeout(timeout);
     }
   },
+  isMonitoringReady: () => monitoringReady,
+  monitoringRequired: env.NODE_ENV === "production",
 });
 
 // Initialize Caddy Web Server on Startup
@@ -166,16 +174,21 @@ getCaddySettingsUseCase
   )
   .finally(() => caddyInitScope.dispose());
 
-initializeMonitoring().catch((err) => {
-  log.error({
-    message: "Monitoring initialization error",
-    err: err instanceof Error ? err.message : String(err),
+initializeMonitoring()
+  .then(() => {
+    monitoringReady = true;
+  })
+  .catch((err) => {
+    monitoringReady = false;
+    log.error({
+      message: "Monitoring initialization error; readiness will fail closed",
+      err: err instanceof Error ? err.message : String(err),
+    });
   });
-});
 
 log.info({ message: "Upstand Control Plane API Server started 🚀" });
 
-const completedUpdateVersion = process.env.UPSTAND_UPDATE_COMPLETION_VERSION;
+const completedUpdateVersion = env.UPSTAND_UPDATE_COMPLETION_VERSION;
 if (completedUpdateVersion) {
   setTimeout(() => {
     const scope = getServiceProvider().createScope();
@@ -203,7 +216,14 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   log.info({ message: "Graceful shutdown started", signal });
 
+  terminalBroker.stop();
+  if (httpServer) {
+    await Promise.race([httpServer.stop(), Bun.sleep(30_000)]);
+    if (httpServer) await httpServer.stop(true);
+    httpServer = null;
+  }
   await closeRedis(redis);
+  closeRemoteDockerProxies();
   await closeDb();
   log.info({ message: "Graceful shutdown completed", signal });
   process.exit(0);
@@ -215,9 +235,11 @@ process.once("SIGINT", () => void shutdown("SIGINT"));
 export default {
   // Bind on all interfaces so the same process works for host development,
   // Docker port forwarding, and the self-hosted runtime.
-  hostname: process.env.HOST || "0.0.0.0",
+  hostname: env.HOST,
   port: env.PORT,
-  fetch: (request: Request, bunServer: Bun.Server<unknown>) =>
-    app.fetch(request, { server: bunServer }),
+  fetch: (request: Request, bunServer: Bun.Server<unknown>) => {
+    httpServer = bunServer;
+    return app.fetch(request, { server: bunServer });
+  },
   websocket,
 };

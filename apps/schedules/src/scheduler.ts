@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Server } from "@upstand/domain";
 import { DockerCleanupService } from "@upstand/infrastructure";
 import { redis } from "@upstand/redis";
@@ -20,6 +21,13 @@ import {
 } from "@upstand/usecases/tokens";
 import { log } from "evlog";
 import { getServiceProvider } from "./di";
+
+const RELEASE_LOCK_IF_OWNED = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+`;
 
 export class ScheduledDockerCleanup {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -67,7 +75,7 @@ export class ScheduledDockerCleanup {
     if (now.getHours() < 3 || this.lastRunDate === date) return;
 
     const lockKey = `scheduler:docker-cleanup:${date}`;
-    const lockToken = `${process.pid}:${Date.now()}:${Math.random()}`;
+    const lockToken = randomUUID();
     try {
       const acquired = await redis.set(
         lockKey,
@@ -129,15 +137,17 @@ export class ScheduledDockerCleanup {
         }
       }
 
-      const servers = await uow.serverRepository.findMany();
-      const eligibleServers = servers.filter(
-        (candidate: Server) =>
-          candidate.enableDockerCleanup &&
-          !this.completedTargets.has(candidate.id),
+      const eligibleServers = uow.serverRepository.findCleanupCandidates
+        ? await uow.serverRepository.findCleanupCandidates()
+        : (await uow.serverRepository.findMany())
+            .filter((candidate: Server) => candidate.enableDockerCleanup)
+            .map((candidate) => ({ id: candidate.id, name: candidate.name }));
+      const pendingServers = eligibleServers.filter(
+        (candidate) => !this.completedTargets.has(candidate.id),
       );
 
       await Promise.allSettled(
-        eligibleServers.map(async (server: Server) => {
+        pendingServers.map(async (server) => {
           let remote: Awaited<
             ReturnType<typeof resolveDockerCliEnvironmentForServer>
           > | null = null;
@@ -223,11 +233,7 @@ export class ScheduledDockerCleanup {
       const hasPendingTargets =
         Boolean(
           settings?.dailyDockerCleanup && !this.completedTargets.has("local"),
-        ) ||
-        servers.some(
-          (server: Server) =>
-            server.enableDockerCleanup && !this.completedTargets.has(server.id),
-        );
+        ) || pendingServers.length > 0;
       if (!hasPendingTargets) this.lastRunDate = date;
     } catch (error: unknown) {
       log.error({
@@ -238,9 +244,7 @@ export class ScheduledDockerCleanup {
       this.running = false;
       await scope.dispose();
       try {
-        if ((await redis.get(lockKey)) === lockToken) {
-          await redis.del(lockKey);
-        }
+        await redis.eval(RELEASE_LOCK_IF_OWNED, 1, lockKey, lockToken);
       } catch (error) {
         log.warn({
           message: "Unable to release distributed Docker cleanup lock",

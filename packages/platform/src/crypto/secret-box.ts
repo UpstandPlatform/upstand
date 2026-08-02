@@ -22,7 +22,7 @@ function getMasterKey(keyVersion: number): Buffer {
   }
   let raw = env.ENCRYPTION_KEY_V1;
   if (!raw) {
-    if (process.env.NODE_ENV === "test") {
+    if (env.NODE_ENV === "test") {
       raw = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=";
     } else {
       throw new Error(

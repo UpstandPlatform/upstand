@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const DeleteEnvironmentInputSchema = z.object({
   id: z.string().min(1, "Environment ID is required"),
+  organizationId: z.string().min(1, "Organization ID is required").optional(),
 });
 
 export type DeleteEnvironmentInput = z.infer<
@@ -16,6 +17,16 @@ export class DeleteEnvironmentUseCase {
     return this.uow.transaction(async (tx) => {
       const environment = await tx.environmentRepository.findById(input.id);
       if (!environment) {
+        throw new ValidationError("Environment not found");
+      }
+      const project = await tx.projectRepository.findById(
+        environment.projectId,
+      );
+      if (
+        !project ||
+        !input.organizationId ||
+        project.organizationId !== input.organizationId
+      ) {
         throw new ValidationError("Environment not found");
       }
 

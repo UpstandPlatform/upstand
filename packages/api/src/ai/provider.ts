@@ -1,5 +1,4 @@
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGateway } from "@ai-sdk/gateway";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
@@ -13,6 +12,7 @@ import type {
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
+import { isBlockedAddress } from "@upstand/platform/network/outbound";
 import type { LanguageModel } from "ai";
 import { UpGalError } from "./upgal-errors";
 
@@ -44,31 +44,6 @@ const OFFICIAL_PROVIDER_HOSTS: Record<AIProvider, ReadonlySet<string>> = {
   gateway: new Set(["ai-gateway.vercel.sh"]),
 };
 
-function isPrivateAddress(address: string): boolean {
-  if (isIP(address) === 4) {
-    const [a = 0, b = 0] = address.split(".").map(Number);
-    return (
-      a === 10 ||
-      a === 127 ||
-      a === 0 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    );
-  }
-  const normalized = address.toLowerCase();
-  return (
-    normalized === "::1" ||
-    normalized === "::" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe8") ||
-    normalized.startsWith("fe9") ||
-    normalized.startsWith("fea") ||
-    normalized.startsWith("feb")
-  );
-}
-
 export async function assertSafeProviderBaseUrl(
   baseUrl: string | null | undefined,
   provider: AIProvider,
@@ -94,7 +69,7 @@ export async function assertSafeProviderBaseUrl(
   }
   if (official) return;
 
-  if (isPrivateAddress(hostname)) {
+  if (isBlockedAddress(hostname)) {
     throw new UpGalError(
       "validation",
       "AI provider endpoints cannot target private, loopback, or metadata addresses.",
@@ -109,7 +84,7 @@ export async function assertSafeProviderBaseUrl(
       "AI provider hostname could not be resolved.",
     );
   }
-  if (addresses.some(({ address }) => isPrivateAddress(address))) {
+  if (addresses.some(({ address }) => isBlockedAddress(address))) {
     throw new UpGalError(
       "validation",
       "AI provider endpoints cannot resolve to private, loopback, or metadata addresses.",

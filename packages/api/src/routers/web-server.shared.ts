@@ -1,3 +1,4 @@
+import { env } from "@upstand/env/server";
 import {
   getDockerInstance,
   type NotificationPublisher,
@@ -284,12 +285,24 @@ export async function execInContainer(
 export async function getRedisPassword(): Promise<string> {
   const service = getDockerInstance().getService(UPSTAND_REDIS_SERVICE);
   const inspect = await service.inspect();
-  const entry = inspect.Spec.TaskTemplate?.ContainerSpec?.Env?.find(
-    (value: string) => value.startsWith("REDIS_PASSWORD="),
+  return resolveRedisPassword(
+    env.REDIS_PASSWORD,
+    inspect.Spec.TaskTemplate?.ContainerSpec?.Env,
+  );
+}
+
+export function resolveRedisPassword(
+  runtimePassword: string | undefined,
+  serviceEnvironment: readonly string[] | undefined,
+): string {
+  if (runtimePassword) return runtimePassword;
+  const entry = serviceEnvironment?.find((value) =>
+    value.startsWith("REDIS_PASSWORD="),
   );
   const password = entry?.slice("REDIS_PASSWORD=".length);
-  if (!password)
+  if (!password) {
     throw new Error("Redis password is not configured on the service");
+  }
   return password;
 }
 

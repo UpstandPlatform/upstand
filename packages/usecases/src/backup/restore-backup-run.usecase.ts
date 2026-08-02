@@ -1,9 +1,11 @@
 import { type IUnitOfWork, ValidationError } from "@upstand/domain";
 import { z } from "zod";
+import { resolveCertificateForOrganization } from "../certificate/certificate-reference";
 import {
   BackupRuntimeService,
   withBackupRuntime,
 } from "./backup-runtime.service";
+import { resolveBackupOrganizationId } from "./backup-schedule.service";
 import { withBackupCaCertificate } from "./backup-storage";
 
 export const RestoreBackupRunInputSchema = z.object({
@@ -38,9 +40,22 @@ export class RestoreBackupRunUseCase {
     }
     if (!destination) throw new ValidationError("Backup destination not found");
 
-    const caCert = destination.certificateId
-      ? await this.uow.certificateRepository.findById(destination.certificateId)
-      : null;
+    const organizationId =
+      schedule.organizationId ??
+      (resource ? await resolveBackupOrganizationId(this.uow, resource) : null);
+    if (!organizationId || run.organizationId !== organizationId) {
+      throw new ValidationError("Backup run belongs to another organization");
+    }
+    if (destination.organizationId !== organizationId) {
+      throw new ValidationError(
+        "Backup destination belongs to another organization",
+      );
+    }
+    const caCert = await resolveCertificateForOrganization(
+      this.uow,
+      destination.certificateId,
+      organizationId,
+    );
     const effectiveDestination = withBackupCaCertificate(
       destination,
       caCert?.certificatePem,

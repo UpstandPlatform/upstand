@@ -15,7 +15,7 @@ export async function resolveDockerInspectionTarget(
     allowLocalInCloud?: boolean;
   } = {},
 ): Promise<DockerInspectionTarget> {
-  const localServerIds = options.localServerIds ?? ["local"];
+  const localServerIds = options.localServerIds ?? ["local", "manager"];
   if (!input.serverId || localServerIds.includes(input.serverId)) {
     if (requiresRemoteServerPlacement() && !options.allowLocalInCloud) {
       throw new Error(

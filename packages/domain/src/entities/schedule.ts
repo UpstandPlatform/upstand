@@ -96,6 +96,7 @@ export type GetScheduleLogsInput = z.infer<typeof GetScheduleLogsInputSchema>;
 export const CreateScheduleInputSchema = z
   .object({
     resourceId: z.string().min(1),
+    organizationId: z.string().min(1).optional(),
     name: ScheduleNameSchema,
     description: z.string().trim().max(500).optional().nullable(),
     cronExpression: ScheduleCronSchema,
@@ -149,6 +150,7 @@ export type CreateScheduleInput = z.infer<typeof CreateScheduleInputSchema>;
 
 export const UpdateScheduleInputSchema = z.object({
   id: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
   name: ScheduleNameSchema.optional(),
   description: z.string().trim().max(500).nullable().optional(),
   cronExpression: ScheduleCronSchema.optional(),
@@ -173,6 +175,7 @@ export type UpdateScheduleInput = z.infer<typeof UpdateScheduleInputSchema>;
 
 export const DeleteScheduleInputSchema = z.object({
   id: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
 });
 
 export type DeleteScheduleInput = z.infer<typeof DeleteScheduleInputSchema>;

@@ -1,6 +1,9 @@
 import type { IUnitOfWork, Schedule } from "@upstand/domain";
 import { z } from "zod";
-import { findOrganizationResourceIds } from "../deployment/organization-resources.helper";
+import {
+  findOrganizationResourceIds,
+  mapWithConcurrency,
+} from "../deployment/organization-resources.helper";
 
 export const GetOrganizationSchedulesInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -25,10 +28,8 @@ export class GetOrganizationSchedulesUseCase {
       input.organizationId,
     );
     const schedules = (
-      await Promise.all(
-        resourceIds.map((resourceId) =>
-          this.uow.scheduleRepository.findByResourceId(resourceId),
-        ),
+      await mapWithConcurrency(resourceIds, (resourceId) =>
+        this.uow.scheduleRepository.findByResourceId(resourceId),
       )
     ).flat();
 
@@ -42,8 +43,8 @@ export class GetOrganizationSchedulesUseCase {
       ),
     ];
 
-    const resourceEntities = await Promise.all(
-      uniqueResourceIds.map((id) => this.uow.resourceRepository.findById(id)),
+    const resourceEntities = await mapWithConcurrency(uniqueResourceIds, (id) =>
+      this.uow.resourceRepository.findById(id),
     );
     const resourceMap = new Map(
       resourceEntities
@@ -57,8 +58,8 @@ export class GetOrganizationSchedulesUseCase {
       ),
     ];
 
-    const envEntities = await Promise.all(
-      uniqueEnvIds.map((id) => this.uow.environmentRepository.findById(id)),
+    const envEntities = await mapWithConcurrency(uniqueEnvIds, (id) =>
+      this.uow.environmentRepository.findById(id),
     );
     const envMap = new Map(
       envEntities
@@ -70,8 +71,8 @@ export class GetOrganizationSchedulesUseCase {
       ...new Set([...envMap.values()].map((e) => e.projectId).filter(Boolean)),
     ];
 
-    const projectEntities = await Promise.all(
-      uniqueProjectIds.map((id) => this.uow.projectRepository.findById(id)),
+    const projectEntities = await mapWithConcurrency(uniqueProjectIds, (id) =>
+      this.uow.projectRepository.findById(id),
     );
     const projectMap = new Map(
       projectEntities

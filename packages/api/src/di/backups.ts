@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { IUnitOfWork } from "@upstand/domain";
+import { type IUnitOfWork, ResourceAppNameSchema } from "@upstand/domain";
 import { readResponseTextLimited } from "@upstand/platform/network/response-body";
 import { TriggerBackupRunUseCase } from "@upstand/usecases/backup/trigger-backup-run.usecase";
 import { QueueDeploymentUseCase } from "@upstand/usecases/deployment/queue-deployment.usecase";
@@ -173,7 +173,15 @@ export function registerBackups(
 
               try {
                 // Determine target URL for resource
-                const baseUrl = `http://${resource.appName || resource.id}`;
+                const resourceHost = ResourceAppNameSchema.safeParse(
+                  resource.appName || resource.id,
+                );
+                if (!resourceHost.success) {
+                  throw new Error(
+                    "Resource service name is invalid for an HTTP cron schedule",
+                  );
+                }
+                const baseUrl = `http://${resourceHost.data}`;
 
                 let cronSecret = "";
                 const resourceSecret = await uow.transaction(async (tx) => {
@@ -210,12 +218,17 @@ export function registerBackups(
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
-                const response = await fetch(targetUrl, {
-                  method: schedule.httpMethod || "GET",
-                  headers,
-                  signal: controller.signal,
-                });
-                clearTimeout(timeoutId);
+                let response: Response;
+                try {
+                  response = await fetch(targetUrl, {
+                    method: schedule.httpMethod || "GET",
+                    headers,
+                    redirect: "error",
+                    signal: controller.signal,
+                  });
+                } finally {
+                  clearTimeout(timeoutId);
+                }
 
                 statusCode = response.status;
                 const text = await readResponseTextLimited(response, 4096);

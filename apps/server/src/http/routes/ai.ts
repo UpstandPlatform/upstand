@@ -30,6 +30,11 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
+import { incrementUpGalDailyBudget } from "./ai-budget";
+import {
+  type McpConnectionLease,
+  RedisMcpConnectionLimiter,
+} from "./mcp-connection-limiter";
 
 export function registerAiRoutes(app: Hono<AppEnv>): void {
   const MAX_AI_REQUEST_BYTES = 512 * 1024;
@@ -51,6 +56,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
         413,
       ),
   });
+  const mcpConnectionLimiter = new RedisMcpConnectionLimiter(redis);
 
   app.use(
     "/api/ai/chat",
@@ -109,30 +115,6 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     }
     await checkPermission(session.user.id, body.organizationId, "ai:view");
 
-    if (env.NODE_ENV !== "test") {
-      const budgetKey = `upgal:daily-runs:${body.organizationId}:${new Date()
-        .toISOString()
-        .slice(0, 10)}`;
-      let runCount: number;
-      try {
-        runCount = await redis.incr(budgetKey);
-        if (runCount === 1) {
-          await redis.expire(budgetKey, 90_000);
-        }
-      } catch (error) {
-        requestLog.error(error instanceof Error ? error : String(error), {
-          message: "Unable to enforce UpGal daily budget",
-          organizationId: body.organizationId,
-        });
-        return c.json({ error: "UpGal is temporarily unavailable" }, 503);
-      }
-      if (runCount > env.UPGAL_DAILY_RUN_LIMIT) {
-        return c.json(
-          { error: "UpGal daily organization run limit exceeded" },
-          429,
-        );
-      }
-    }
     const conversationId = body.conversationId || randomUUID();
     const ownedConversation = await getConversationForUser(
       conversationId,
@@ -189,6 +171,29 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       );
     }
     try {
+      if (env.NODE_ENV !== "test") {
+        const now = new Date();
+        let runCount: number;
+        try {
+          runCount = await incrementUpGalDailyBudget(
+            redis,
+            body.organizationId,
+            now,
+          );
+        } catch (error) {
+          requestLog.error(error instanceof Error ? error : String(error), {
+            message: "Unable to enforce UpGal daily budget",
+            organizationId: body.organizationId,
+          });
+          return c.json({ error: "UpGal is temporarily unavailable" }, 503);
+        }
+        if (runCount > env.UPGAL_DAILY_RUN_LIMIT) {
+          return c.json(
+            { error: "UpGal daily organization run limit exceeded" },
+            429,
+          );
+        }
+      }
       await saveIncomingMessages(
         conversationId,
         messages,
@@ -267,54 +272,87 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
 
   // GET: legacy SSE transport — MCP 2024-11-05 and older clients.
   const handleMcpGet = async (c: Context<AppEnv>) => {
+    const requestLog = c.get("log");
     const key = await resolveMcpKey(c);
     if (!key) {
       return c.json({ error: "Invalid or expired API key" }, 401);
     }
-    setApiKeyRateLimitHeaders(key, (name, value) => c.header(name, value));
-
-    const requestUrl = new URL(c.req.url);
-    const sessionId =
-      c.req.query("sessionId") || c.req.query("session_id") || randomUUID();
-
-    const postUrlObj = new URL(
-      `${requestUrl.origin}${requestUrl.pathname.replace(/\/+$/, "")}`,
-    );
-    postUrlObj.searchParams.set("sessionId", sessionId);
-
-    // Preserve only the transport session identifier. Authentication must be
-    // supplied in request headers and must never be echoed into a URL.
-    for (const [k, v] of requestUrl.searchParams.entries()) {
-      if (
-        k !== "sessionId" &&
-        k !== "session_id" &&
-        k !== "api_key" &&
-        k !== "token" &&
-        k !== "apiKey"
-      ) {
-        postUrlObj.searchParams.set(k, v);
-      }
+    let lease: McpConnectionLease | null;
+    try {
+      lease = await mcpConnectionLimiter.acquire(key.keyId);
+    } catch (error) {
+      requestLog.error("MCP connection capacity check failed", { err: error });
+      return c.json({ error: "MCP temporarily unavailable" }, 503);
     }
-    const postUrl = postUrlObj.toString();
+    if (!lease) {
+      c.header("Retry-After", "30");
+      return c.json({ error: "Too many MCP connections" }, 429);
+    }
+    let released = false;
+    const release = async () => {
+      if (released) return;
+      released = true;
+      await lease.release();
+    };
 
-    c.header("Content-Type", "text/event-stream");
-    c.header("Cache-Control", "no-cache, no-transform");
-    c.header("Connection", "keep-alive");
-    c.header("X-Accel-Buffering", "no");
-    c.header("Mcp-Session-Id", sessionId);
+    try {
+      setApiKeyRateLimitHeaders(key, (name, value) => c.header(name, value));
 
-    return streamSSE(c, async (stream) => {
-      // MCP legacy SSE transport: first event must be "endpoint".
-      await stream.writeSSE({ event: "endpoint", data: postUrl });
+      const requestUrl = new URL(c.req.url);
+      const sessionId =
+        c.req.query("sessionId") || c.req.query("session_id") || randomUUID();
 
-      // Keep the SSE connection alive with periodic heartbeats.
-      while (!stream.aborted) {
-        await stream.sleep(30_000);
-        if (!stream.aborted) {
-          await stream.writeSSE({ event: "ping", data: "" });
+      const postUrlObj = new URL(
+        `${requestUrl.origin}${requestUrl.pathname.replace(/\/+$/, "")}`,
+      );
+      postUrlObj.searchParams.set("sessionId", sessionId);
+
+      // Preserve only the transport session identifier. Authentication must be
+      // supplied in request headers and must never be echoed into a URL.
+      for (const [k, v] of requestUrl.searchParams.entries()) {
+        if (
+          k !== "sessionId" &&
+          k !== "session_id" &&
+          k !== "api_key" &&
+          k !== "token" &&
+          k !== "apiKey"
+        ) {
+          postUrlObj.searchParams.set(k, v);
         }
       }
-    });
+      const postUrl = postUrlObj.toString();
+
+      c.header("Content-Type", "text/event-stream");
+      c.header("Cache-Control", "no-cache, no-transform");
+      c.header("Connection", "keep-alive");
+      c.header("X-Accel-Buffering", "no");
+      c.header("Mcp-Session-Id", sessionId);
+
+      return await streamSSE(c, async (stream) => {
+        stream.onAbort(() => void release());
+        try {
+          // MCP legacy SSE transport: first event must be "endpoint".
+          await stream.writeSSE({ event: "endpoint", data: postUrl });
+
+          // Keep the SSE connection alive with periodic heartbeats.
+          while (!stream.aborted) {
+            await stream.sleep(30_000);
+            if (!stream.aborted) {
+              if (!(await lease.renew())) {
+                requestLog.warn("MCP connection lease expired");
+                break;
+              }
+              await stream.writeSSE({ event: "ping", data: "" });
+            }
+          }
+        } finally {
+          await release();
+        }
+      });
+    } catch (error) {
+      await release();
+      throw error;
+    }
   };
 
   // POST: Streamable HTTP transport + legacy SSE message endpoint.

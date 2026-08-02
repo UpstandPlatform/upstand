@@ -1,6 +1,10 @@
 import * as fs from "node:fs";
 import type { IUnitOfWork } from "@upstand/domain";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
+import {
+  readResponseJsonLimited,
+  readResponseTextLimited,
+} from "@upstand/platform/network/response-body";
 import { hostVerifierForFingerprint } from "@upstand/platform/ssh/host-key";
 import type { MonitoringAgentPort } from "@upstand/usecases/ports/monitoring";
 import { Client, type ClientChannel } from "ssh2";
@@ -145,12 +149,14 @@ export async function requestMonitoringAgent<T>(
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    const message = await response.text().catch(() => "");
+    const message = await readResponseTextLimited(response, 8 * 1024).catch(
+      () => "",
+    );
     throw new Error(
       `Monitoring agent request failed (${response.status})${message ? `: ${message}` : ""}`,
     );
   }
-  return (await response.json()) as T;
+  return await readResponseJsonLimited<T>(response);
 }
 
 async function requestThroughSsh<T>(

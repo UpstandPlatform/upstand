@@ -1,6 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { parseDomainMappings } from "@upstand/domain";
-import { generateCaddyfileContent } from "./caddy.service";
+import {
+  CaddyService,
+  generateCaddyfileContent,
+  hasPinnedImage,
+} from "./caddy.service";
+
+test("recognizes only the pinned Caddy image digest", () => {
+  const reference = "caddy:2.8-alpine@sha256:abc123";
+  expect(
+    hasPinnedImage({ RepoDigests: ["caddy@sha256:abc123"] }, reference),
+  ).toBe(true);
+  expect(
+    hasPinnedImage({ RepoDigests: ["caddy@sha256:other"] }, reference),
+  ).toBe(false);
+  expect(hasPinnedImage({ RepoTags: ["caddy:2.8-alpine"] }, reference)).toBe(
+    false,
+  );
+});
 
 describe("Caddy domain configuration", () => {
   test("normalizes legacy mappings and creates an Automatic HTTPS site", () => {
@@ -460,6 +477,84 @@ describe("Caddy domain configuration", () => {
     expect(caddyfile).toContain('uri "/verify"');
     expect(caddyfile).toContain("copy_headers X-User");
     expect(caddyfile).toContain("copy_headers X-Email");
+  });
+
+  test("rejects private forward-auth endpoints unless explicitly allowlisted", () => {
+    expect(() =>
+      generateCaddyfileContent({}, [
+        {
+          id: "resource-private-auth",
+          name: "private auth",
+          type: "application",
+          appName: "private-auth",
+          domains: JSON.stringify([
+            {
+              host: "private-auth.example.com",
+              forwardAuth: {
+                address: "http://127.0.0.1:8080/verify",
+                uri: "/verify",
+                copyHeaders: [],
+              },
+            },
+          ]),
+        },
+      ]),
+    ).toThrow("Forward-auth endpoint is not allowed");
+
+    const previousAllowedHosts = process.env.UPSTAND_OUTBOUND_ALLOWED_HOSTS;
+    process.env.UPSTAND_OUTBOUND_ALLOWED_HOSTS = "auth.internal.example.com";
+    try {
+      expect(() =>
+        generateCaddyfileContent({}, [
+          {
+            id: "resource-allowed-auth",
+            name: "allowed auth",
+            type: "application",
+            appName: "allowed-auth",
+            domains: JSON.stringify([
+              {
+                host: "allowed-auth.example.com",
+                forwardAuth: {
+                  address: "http://auth.internal.example.com:8080/verify",
+                  uri: "/verify",
+                  copyHeaders: [],
+                },
+              },
+            ]),
+          },
+        ]),
+      ).not.toThrow();
+    } finally {
+      if (previousAllowedHosts === undefined) {
+        delete process.env.UPSTAND_OUTBOUND_ALLOWED_HOSTS;
+      } else {
+        process.env.UPSTAND_OUTBOUND_ALLOWED_HOSTS = previousAllowedHosts;
+      }
+    }
+  });
+
+  test("re-resolves allowlisted forward-auth endpoints before live sync", async () => {
+    const service = new CaddyService({} as never, ["localhost"]);
+    await expect(
+      service.syncResourceConfigs([
+        {
+          id: "resource-runtime-auth",
+          name: "runtime auth",
+          type: "application",
+          appName: "runtime-auth",
+          domains: JSON.stringify([
+            {
+              host: "runtime-auth.example.com",
+              forwardAuth: {
+                address: "http://localhost:8080/verify",
+                uri: "/verify",
+                copyHeaders: [],
+              },
+            },
+          ]),
+        },
+      ]),
+    ).rejects.toThrow("blocked address");
   });
 
   test("renders typed managed middlewares before resource routes", () => {

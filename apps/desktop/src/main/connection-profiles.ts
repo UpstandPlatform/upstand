@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { app } from "electron";
 import type { DesktopConnectionProfile } from "../shared/connection";
@@ -130,8 +130,4 @@ export async function setActiveConnectionProfile(
 
   await writeProfileStore(store);
   return { ...profile, isActive: true };
-}
-
-export async function clearConnectionProfiles(): Promise<void> {
-  await rm(profilesFile(), { force: true });
 }

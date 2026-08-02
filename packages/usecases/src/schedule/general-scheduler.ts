@@ -24,7 +24,7 @@ export interface GeneralSchedulerDependencies {
 
 export class GeneralScheduler extends BaseCronScheduler<CustomScheduleItem> {
   constructor(private readonly dependencies: GeneralSchedulerDependencies) {
-    super("Failed to refresh custom schedules");
+    super("Failed to refresh custom schedules", "general");
   }
 
   loadSchedules(): Promise<CustomScheduleItem[]> {

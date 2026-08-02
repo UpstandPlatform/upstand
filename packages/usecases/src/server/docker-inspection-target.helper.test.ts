@@ -15,6 +15,15 @@ describe("resolveDockerInspectionTarget", () => {
     expect(target).toEqual({ kind: "local", name: "Local Docker" });
   });
 
+  test("treats the manager alias as the local target", async () => {
+    const target = await resolveDockerInspectionTarget(createUow(), {
+      organizationId: "org-1",
+      serverId: "manager",
+    });
+
+    expect(target).toEqual({ kind: "local", name: "Local Docker" });
+  });
+
   test("rejects local target when in cloud mode", async () => {
     const originalIsCloud = process.env.IS_CLOUD;
     process.env.IS_CLOUD = "true";

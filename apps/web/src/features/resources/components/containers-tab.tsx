@@ -149,11 +149,11 @@ export function ContainersTab({
       const params = new URLSearchParams({
         organizationId: organization.id,
         destination: uploadDestination.trim(),
-        resourceId: resource.id,
       });
+      params.set("serverId", resource.serverId ?? "local");
       await uploadArchive({
         url: getServerApiUrl(
-          `/api/docker/containers/${encodeURIComponent(uploadContainerTarget.id)}/upload?${params.toString()}`,
+          `/api/resources/${encodeURIComponent(resource.id)}/containers/${encodeURIComponent(uploadContainerTarget.id)}/upload?${params.toString()}`,
         ),
         file: uploadFile,
       });

@@ -6,7 +6,6 @@ import { request as httpRequest, type RequestOptions } from "node:http";
 import { request as httpsRequest } from "node:https";
 import net from "node:net";
 import path from "node:path";
-import { Readable } from "node:stream";
 import {
   type ApplicationBuildConfig,
   ConflictError,
@@ -16,13 +15,16 @@ import {
   type Resource,
   type ResourceAdvancedConfig,
 } from "@upstand/domain";
-import { env } from "@upstand/env/server";
+import { env, getInheritedEnv } from "@upstand/env/server";
 import { isBlockedAddress } from "@upstand/platform/network/outbound";
 import { redis } from "@upstand/redis";
 import {
+  assertManagedDatabaseCredentials,
+  assertSafeGitNetworkUrl,
   assertSafeGitRef,
   assertSafeGitUrl,
   detectApplicationBuildConfig,
+  normalizeBuildImageTag,
 } from "@upstand/usecases";
 import type {
   ContainerRuntimeStats,
@@ -66,6 +68,7 @@ import type Docker from "dockerode";
 import { log } from "evlog";
 import yaml from "yaml";
 import { getDockerInstance } from "./docker-client";
+import { createPinnedGitSshEnvironment, isSshGitUrl } from "./git-host-key";
 
 function isDockerTarget(value: unknown): value is Docker {
   return (
@@ -110,6 +113,34 @@ function stopReadableStream(stream: NodeJS.ReadableStream): void {
   if ("destroy" in stream && typeof stream.destroy === "function") {
     stream.destroy();
   }
+}
+
+const DEFAULT_CONTAINER_COMMAND_TIMEOUT_SECONDS = 300;
+const MAX_CONTAINER_COMMAND_OUTPUT_BYTES = 50 * 1024 * 1024;
+const DOCKER_STATS_CONCURRENCY = 16;
+const DOCKER_STATS_TIMEOUT_MS = 10_000;
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  if (values.length === 0) return [];
+
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(DOCKER_STATS_CONCURRENCY, values.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= values.length) return;
+        results[index] = await mapper(values[index] as T);
+      }
+    }),
+  );
+
+  return results;
 }
 
 interface DockerTaskStatus {
@@ -570,8 +601,6 @@ export class DockerService {
       targetPath = envVars.PGDATA || "/var/lib/postgresql/18/docker";
       ports.push(5432);
       defaultEnv.POSTGRES_USER = envVars.POSTGRES_USER || "upstand";
-      defaultEnv.POSTGRES_PASSWORD =
-        envVars.POSTGRES_PASSWORD || "upstand-password";
       defaultEnv.POSTGRES_DB = envVars.POSTGRES_DB || "upstand";
     } else if (dbType === "mysql" || dbType === "mariadb") {
       image =
@@ -583,11 +612,8 @@ export class DockerService {
             : "mariadb:11";
       targetPath = "/var/lib/mysql";
       ports.push(3306);
-      defaultEnv.MYSQL_ROOT_PASSWORD =
-        envVars.MYSQL_ROOT_PASSWORD || "upstand-password";
       defaultEnv.MYSQL_DATABASE = envVars.MYSQL_DATABASE || "upstand";
       defaultEnv.MYSQL_USER = envVars.MYSQL_USER || "upstand";
-      defaultEnv.MYSQL_PASSWORD = envVars.MYSQL_PASSWORD || "upstand-password";
     } else if (dbType === "mongodb") {
       image =
         resource.dockerImage &&
@@ -598,8 +624,6 @@ export class DockerService {
       ports.push(27017);
       defaultEnv.MONGO_INITDB_ROOT_USERNAME =
         envVars.MONGO_INITDB_ROOT_USERNAME || "upstand";
-      defaultEnv.MONGO_INITDB_ROOT_PASSWORD =
-        envVars.MONGO_INITDB_ROOT_PASSWORD || "upstand-password";
     } else if (dbType === "redis") {
       image =
         resource.dockerImage &&
@@ -613,7 +637,7 @@ export class DockerService {
         resource.dockerImage &&
         isSupportedDatabaseImage(dbType, resource.dockerImage, true)
           ? resource.dockerImage
-          : "ghcr.io/tursodatabase/libsql-server:latest";
+          : "ghcr.io/tursodatabase/libsql-server:0.24.32";
       targetPath = "/var/lib/sqld";
       ports.push(
         LIBSQL_CONTAINER_PORTS.http,
@@ -656,6 +680,7 @@ export class DockerService {
     }
 
     const mergedEnv = { ...defaultEnv, ...envVars };
+    assertManagedDatabaseCredentials(dbType, mergedEnv);
     if (dbType === "postgres" && replicationConfig.enabled) {
       const primaryName = this.sanitizeName(resource.appName || resource.name);
       const password =
@@ -880,6 +905,8 @@ export class DockerService {
     onGitCloned?: (clonePath: string) => Promise<Resource | undefined>,
     revision?: DeploymentRevisionOptions,
     buildEnvVars?: Record<string, string>,
+    gitEnvironment?: Record<string, string>,
+    sshHostKeyFingerprint?: string,
   ): Promise<void> {
     let currentResource = resource;
     const serviceName = this.sanitizeName(
@@ -887,7 +914,7 @@ export class DockerService {
         currentResource.appName ||
         currentResource.name,
     );
-    const imageName = `upstand-app-${currentResource.id}:latest`;
+    const imageName = `upstand-app-${currentResource.id}:${normalizeBuildImageTag(revision?.imageTagSuffix)}`;
     const buildImageName = registryInfo ? registryInfo.imageTag : imageName;
     const networkId = (
       await this.ensureDeploymentNetwork(currentResource, destinationDocker)
@@ -898,6 +925,7 @@ export class DockerService {
     const sourceConfig = parseResourceAdvancedConfig(
       currentResource.advancedConfig,
     ).source;
+    let cleanupSourceEnvironment: (() => void) | undefined;
 
     if (currentResource.provider === "drop") {
       const dropsDir = path.join(
@@ -939,32 +967,59 @@ export class DockerService {
         // Credentials are optional for direct Git providers; defaults remain safe.
       }
 
-      const gitEnvironment = sshKeyPath
-        ? {
-            ...process.env,
-            GIT_SSH_COMMAND: `ssh -i "${sshKeyPath}" -o StrictHostKeyChecking=accept-new`,
-          }
-        : undefined;
       assertSafeGitUrl(cloneUrl);
-      await this.prepareGitWorkspace(
-        clonePath,
-        cloneUrl,
-        branch,
-        sourceRevision,
-        sourceConfig,
-        onLog,
-        gitEnvironment,
-      );
-
-      if (submodules) {
-        onLog("Initializing submodules...\n");
-        await this.runCommandAsync(
-          "git",
-          ["-C", clonePath, "submodule", "update", "--init", "--recursive"],
-          onLog,
+      await assertSafeGitNetworkUrl(cloneUrl);
+      let sourceEnvironment: NodeJS.ProcessEnv | undefined;
+      if (isSshGitUrl(cloneUrl)) {
+        if (!sshHostKeyFingerprint) {
+          throw new Error(
+            "SSH Git deployments require a pinned host-key fingerprint",
+          );
+        }
+        const pinned = await createPinnedGitSshEnvironment(
+          cloneUrl,
+          sshHostKeyFingerprint,
+          sshKeyPath,
           gitEnvironment,
-          { timeoutMs: sourceConfig.timeoutSeconds * 1_000 },
+          sourceConfig.timeoutSeconds * 1_000,
         );
+        sourceEnvironment = pinned.environment;
+        cleanupSourceEnvironment = pinned.cleanup;
+      } else if (sshKeyPath || gitEnvironment) {
+        sourceEnvironment = {
+          ...getInheritedEnv(),
+          ...(gitEnvironment ?? {}),
+          ...(sshKeyPath
+            ? {
+                GIT_SSH_COMMAND: `ssh -i "${sshKeyPath}" -o IdentitiesOnly=yes`,
+              }
+            : {}),
+        };
+      }
+      try {
+        await this.prepareGitWorkspace(
+          clonePath,
+          cloneUrl,
+          branch,
+          sourceRevision,
+          sourceConfig,
+          onLog,
+          sourceEnvironment,
+        );
+
+        if (submodules) {
+          onLog("Initializing submodules...\n");
+          await this.runCommandAsync(
+            "git",
+            ["-C", clonePath, "submodule", "update", "--init", "--recursive"],
+            onLog,
+            sourceEnvironment,
+            { timeoutMs: sourceConfig.timeoutSeconds * 1_000 },
+          );
+        }
+      } catch (error) {
+        cleanupSourceEnvironment?.();
+        throw error;
       }
     }
 
@@ -1102,6 +1157,7 @@ export class DockerService {
         destinationDocker,
       );
     } finally {
+      cleanupSourceEnvironment?.();
       onLog("Cleaning up build directory...\n");
       if (!sourceConfig.reuseWorkspace) {
         fs.rmSync(clonePath, { recursive: true, force: true });
@@ -1115,6 +1171,8 @@ export class DockerService {
     onLog: (log: string) => void,
     sshKeyPath?: string,
     sourceRevision?: string,
+    gitEnvironment?: Record<string, string>,
+    sshHostKeyFingerprint?: string,
   ): Promise<string> {
     const buildDir = path.join(process.cwd(), ".builds");
     const clonePath = path.join(buildDir, `${resource.id}-compose`);
@@ -1147,14 +1205,37 @@ export class DockerService {
       // Defaults are safe when optional source metadata is malformed.
     }
 
-    const sshEnvironment = sshKeyPath
-      ? {
-          ...process.env,
-          GIT_SSH_COMMAND: `ssh -i "${sshKeyPath}" -o StrictHostKeyChecking=accept-new`,
-        }
-      : undefined;
+    let sshEnvironment: NodeJS.ProcessEnv | undefined;
+    let cleanupSshEnvironment: (() => void) | undefined;
     try {
       assertSafeGitUrl(cloneUrl);
+      await assertSafeGitNetworkUrl(cloneUrl);
+      if (isSshGitUrl(cloneUrl)) {
+        if (!sshHostKeyFingerprint) {
+          throw new Error(
+            "SSH Git deployments require a pinned host-key fingerprint",
+          );
+        }
+        const pinned = await createPinnedGitSshEnvironment(
+          cloneUrl,
+          sshHostKeyFingerprint,
+          sshKeyPath,
+          gitEnvironment,
+          sourceConfig.timeoutSeconds * 1_000,
+        );
+        sshEnvironment = pinned.environment;
+        cleanupSshEnvironment = pinned.cleanup;
+      } else if (sshKeyPath || gitEnvironment) {
+        sshEnvironment = {
+          ...getInheritedEnv(),
+          ...(gitEnvironment ?? {}),
+          ...(sshKeyPath
+            ? {
+                GIT_SSH_COMMAND: `ssh -i "${sshKeyPath}" -o IdentitiesOnly=yes`,
+              }
+            : {}),
+        };
+      }
       await this.prepareGitWorkspace(
         clonePath,
         cloneUrl,
@@ -1186,6 +1267,7 @@ export class DockerService {
       }
       return fs.readFileSync(resolvedComposePath, "utf8");
     } finally {
+      cleanupSshEnvironment?.();
       if (!sourceConfig.reuseWorkspace) {
         fs.rmSync(clonePath, { recursive: true, force: true });
       }
@@ -1526,7 +1608,7 @@ export class DockerService {
         args,
         onLog,
         Object.keys(buildSecrets).length
-          ? { ...process.env, ...buildSecrets, DOCKER_BUILDKIT: "1" }
+          ? { ...getInheritedEnv(buildSecrets), DOCKER_BUILDKIT: "1" }
           : undefined,
         { redactions: Object.values(buildSecrets) },
       );
@@ -1940,7 +2022,7 @@ export class DockerService {
   private getBuildEnvironment(
     envVars: Record<string, string>,
   ): NodeJS.ProcessEnv {
-    return { ...process.env, ...envVars };
+    return getInheritedEnv(envVars);
   }
 
   private async ensureRailpack(
@@ -2133,8 +2215,9 @@ export class DockerService {
         });
 
         if (containers.length > 0) {
-          const states = await Promise.all(
-            containers.map(async (container) => {
+          const states = await mapWithConcurrency(
+            containers,
+            async (container) => {
               const inspected = await this.docker
                 .getContainer(container.Id)
                 .inspect();
@@ -2144,7 +2227,7 @@ export class DockerService {
                 exitCode: inspected.State?.ExitCode ?? 0,
                 health: inspected.State?.Health?.Status,
               };
-            }),
+            },
           );
 
           const failed = states.find(
@@ -2232,10 +2315,8 @@ export class DockerService {
               label: [`com.docker.compose.project=${serviceName}`],
             }),
           });
-          await Promise.all(
-            containers.map((container) =>
-              this.docker.getContainer(container.Id).remove({ force: true }),
-            ),
+          await mapWithConcurrency(containers, (container) =>
+            this.docker.getContainer(container.Id).remove({ force: true }),
           );
         } else {
           await this.runCommandAsync(
@@ -2888,7 +2969,7 @@ export class DockerService {
       // Default to combined/multiplexed logs if no specific containerId is requested
       const containers = await this.getContainers(resource);
       if (containers.length > 0) {
-        const logsPromises = containers.map(async (con) => {
+        const results = await mapWithConcurrency(containers, async (con) => {
           try {
             const rawLogs = await this.getLogs(
               resource,
@@ -2924,8 +3005,6 @@ export class DockerService {
             ];
           }
         });
-
-        const results = await Promise.all(logsPromises);
         const allLines = results.flat();
 
         // Sort chronologically. If timestamp is missing, place it at the end.
@@ -3045,7 +3124,7 @@ export class DockerService {
       const p = spawn(cmd, args, {
         shell: false,
         env: {
-          ...process.env,
+          ...getInheritedEnv(),
           ...this.commandEnvironment,
           ...(env ?? {}),
         },
@@ -3118,6 +3197,11 @@ export class DockerService {
     containerId: string,
     resolveSwarmTask = true,
   ): Promise<ContainerRuntimeStats> {
+    const abortController = new AbortController();
+    const timeout = setTimeout(
+      () => abortController.abort(),
+      DOCKER_STATS_TIMEOUT_MS,
+    );
     try {
       let realContainerId = containerId;
 
@@ -3146,7 +3230,10 @@ export class DockerService {
       }
 
       const container = this.docker.getContainer(realContainerId);
-      const stats = await container.stats({ stream: false });
+      const stats = (await container.stats({
+        stream: false,
+        abortSignal: abortController.signal,
+      } as never)) as unknown as Docker.ContainerStats;
 
       let cpuPercent = 0;
       if (stats.cpu_stats && stats.precpu_stats) {
@@ -3203,6 +3290,8 @@ export class DockerService {
         networkRxBytes: 0,
         networkTxBytes: 0,
       };
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -3214,10 +3303,8 @@ export class DockerService {
     ]);
     const info = isUnknownRecord(rawInfo) ? rawInfo : {};
     const diskUsage = isUnknownRecord(rawDiskUsage) ? rawDiskUsage : {};
-    const containerStats = await Promise.all(
-      containers.map((container) =>
-        this.getContainerStats(container.Id, false),
-      ),
+    const containerStats = await mapWithConcurrency(containers, (container) =>
+      this.getContainerStats(container.Id, false),
     );
     const totals = containerStats.reduce<ContainerRuntimeStats>(
       (aggregate, current) => ({
@@ -3314,13 +3401,11 @@ export class DockerService {
               label: [`com.docker.compose.project=${serviceName}`],
             }),
           });
-          await Promise.all(
-            containers.map((container) =>
-              this.docker
-                .getContainer(container.Id)
-                .remove({ force: true })
-                .catch(() => undefined),
-            ),
+          await mapWithConcurrency(containers, (container) =>
+            this.docker
+              .getContainer(container.Id)
+              .remove({ force: true })
+              .catch(() => undefined),
           );
         } else {
           await this.runCommandAsync(
@@ -3485,6 +3570,10 @@ export class DockerService {
     resource: Resource,
     command: string,
     targetDocker?: DockerApiTarget,
+    options?: {
+      timeoutSeconds?: number;
+      maxOutputBytes?: number;
+    },
   ): Promise<string> {
     const docker = targetDocker
       ? requireDockerTarget(targetDocker)
@@ -3513,14 +3602,84 @@ export class DockerService {
 
     const stream = await exec.start({ Detach: false });
     const chunks: Buffer[] = [];
+    const timeoutSeconds = Math.min(
+      1_800,
+      Math.max(
+        1,
+        Math.floor(
+          options?.timeoutSeconds ?? DEFAULT_CONTAINER_COMMAND_TIMEOUT_SECONDS,
+        ),
+      ),
+    );
+    const maxOutputBytes = Math.min(
+      MAX_CONTAINER_COMMAND_OUTPUT_BYTES,
+      Math.max(
+        1_024,
+        Math.floor(
+          options?.maxOutputBytes ?? MAX_CONTAINER_COMMAND_OUTPUT_BYTES,
+        ),
+      ),
+    );
     return new Promise<string>((resolve, reject) => {
+      let settled = false;
+      let outputBytes = 0;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        stopReadableStream(stream);
+        reject(
+          new Error(
+            `Container command execution timed out after ${timeoutSeconds}s`,
+          ),
+        );
+      }, timeoutSeconds * 1_000);
+      timer.unref?.();
+
       stream.on("data", (chunk: Buffer | string) => {
-        chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+        if (settled) return;
+        const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+        outputBytes += buffer.byteLength;
+        if (outputBytes > maxOutputBytes) {
+          settled = true;
+          clearTimeout(timer);
+          stopReadableStream(stream);
+          reject(
+            new Error(
+              `Container command output exceeded the ${maxOutputBytes}-byte limit`,
+            ),
+          );
+          return;
+        }
+        chunks.push(buffer);
       });
       stream.on("end", () => {
-        resolve(this.cleanDockerLogs(Buffer.concat(chunks)).trim());
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        void exec
+          .inspect()
+          .then((inspection) => {
+            const exitCode = inspection.ExitCode ?? 0;
+            if (exitCode !== 0) {
+              reject(
+                new Error(`Container command exited with code ${exitCode}`),
+              );
+              return;
+            }
+            resolve(this.cleanDockerLogs(Buffer.concat(chunks)).trim());
+          })
+          .catch((error: unknown) => {
+            reject(
+              new Error(
+                `Unable to inspect container command result: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+            );
+          });
       });
       stream.on("error", (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         reject(err);
       });
     });
@@ -3533,14 +3692,19 @@ export class DockerService {
     options?: { timeoutSeconds?: number; onLog?: (chunk: string) => void },
   ): Promise<{ output: string; stderr?: string; exitCode: number }> {
     const list = await this.docker.listContainers({ all: false });
-    let containerInfo = list.find((c) =>
-      c.Names?.some(
-        (n) => n.includes(serviceName) || n.replace(/^\//, "") === serviceName,
-      ),
+    const normalizedServiceName = serviceName.replace(/^\/+/, "");
+    const containerInfo = list.find(
+      (c) =>
+        c.Names?.some((n) => {
+          const normalizedName = n.replace(/^\/+/, "");
+          return (
+            normalizedName === normalizedServiceName ||
+            normalizedName.startsWith(`${normalizedServiceName}.`)
+          );
+        }) ||
+        c.Labels?.["com.docker.swarm.service.name"] === normalizedServiceName ||
+        c.Labels?.["com.docker.compose.service"] === normalizedServiceName,
     );
-    if (!containerInfo && list.length > 0) {
-      containerInfo = list[0];
-    }
     if (!containerInfo) {
       throw new Error(
         `No running container found for service '${serviceName}'`,
@@ -3559,7 +3723,10 @@ export class DockerService {
     const timeoutMs = (options?.timeoutSeconds ?? 300) * 1000;
 
     await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let outputBytes = 0;
       const timer = setTimeout(() => {
+        settled = true;
         try {
           stopReadableStream(stream);
         } catch {}
@@ -3571,7 +3738,20 @@ export class DockerService {
       }, timeoutMs);
 
       stream.on("data", (chunk: Buffer | string) => {
+        if (settled) return;
         const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+        outputBytes += buf.byteLength;
+        if (outputBytes > MAX_CONTAINER_COMMAND_OUTPUT_BYTES) {
+          settled = true;
+          clearTimeout(timer);
+          stopReadableStream(stream);
+          reject(
+            new Error(
+              `Container command output exceeded the ${MAX_CONTAINER_COMMAND_OUTPUT_BYTES}-byte limit`,
+            ),
+          );
+          return;
+        }
         stdoutChunks.push(buf);
         if (options?.onLog) {
           const cleaned = this.cleanDockerLogs(buf);
@@ -3579,10 +3759,14 @@ export class DockerService {
         }
       });
       stream.on("end", () => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve();
       });
       stream.on("error", (err) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         reject(err);
       });
@@ -3591,11 +3775,8 @@ export class DockerService {
     const cleanOutput = this.cleanDockerLogs(
       Buffer.concat(stdoutChunks),
     ).trim();
-    let exitCode = 0;
-    try {
-      const inspect = await exec.inspect();
-      exitCode = inspect.ExitCode ?? 0;
-    } catch {}
+    const inspect = await exec.inspect();
+    const exitCode = inspect.ExitCode ?? 0;
 
     return { output: cleanOutput, stderr: "", exitCode };
   }
@@ -3617,14 +3798,8 @@ export class DockerService {
     try {
       const image = this.docker.getImage(imageName);
       const stream = await image.get();
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      const tarBuffer = Buffer.concat(chunks);
-      const responseStream = await requireDockerImageTarget(
-        targetDocker,
-      ).loadImage(Readable.from(tarBuffer));
+      const responseStream =
+        await requireDockerImageTarget(targetDocker).loadImage(stream);
       if (responseStream && typeof responseStream.on === "function") {
         await new Promise<void>((resolve, reject) => {
           responseStream.on("data", (chunk: Buffer) => {

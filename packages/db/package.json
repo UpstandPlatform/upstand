@@ -15,6 +15,7 @@
     "db:generate": "bun scripts/db-generate.ts",
     "db:studio": "drizzle-kit studio",
     "db:migrate": "drizzle-kit migrate",
+    "test": "bun test src",
     "check-types": "tsc --noEmit",
     "lint": "biome check ."
   },

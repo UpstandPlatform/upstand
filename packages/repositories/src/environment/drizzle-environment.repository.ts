@@ -2,13 +2,17 @@ import { environment, environmentSecret } from "@upstand/db";
 import type {
   CreateEnvironmentDTO,
   Environment,
+  EnvironmentSummaryProjection,
   IEnvironmentRepository,
   UpdateEnvironmentDTO,
 } from "@upstand/domain";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { DrizzleSecretVersionRepository } from "../secret/drizzle-secret-version.repository";
 import { BaseRepository } from "../shared/base.repository";
+import { normalizeStoredSecret } from "../shared/secret-normalization";
 import type { Executor } from "../shared/types";
+
+const MAX_ENVIRONMENT_READS = 10_000;
 
 export class DrizzleEnvironmentRepository
   extends BaseRepository<typeof environment, Environment, CreateEnvironmentDTO>
@@ -33,6 +37,21 @@ export class DrizzleEnvironmentRepository
       .select()
       .from(environmentSecret)
       .where(inArray(environmentSecret.environmentId, ids));
+    await Promise.all(
+      secretRows.map(async (secret) => {
+        const envVars = normalizeStoredSecret(secret.envVars);
+        if (envVars === secret.envVars) return;
+        await this.executor
+          .update(environmentSecret)
+          .set({ envVars })
+          .where(
+            and(
+              eq(environmentSecret.environmentId, secret.environmentId),
+              eq(environmentSecret.envVars, secret.envVars),
+            ),
+          );
+      }),
+    );
     const secretsById = new Map(secretRows.map((s) => [s.environmentId, s]));
     return rows.map((row) => {
       const secret = secretsById.get(row.id);
@@ -56,12 +75,83 @@ export class DrizzleEnvironmentRepository
     return hydrated[0] ?? null;
   }
 
+  async findSummaryById(
+    id: string,
+  ): Promise<EnvironmentSummaryProjection | null> {
+    const [row] = await this.executor
+      .select({
+        id: environment.id,
+        projectId: environment.projectId,
+        parentEnvironmentId: environment.parentEnvironmentId,
+        inheritsVariables: environment.inheritsVariables,
+        name: environment.name,
+        slug: environment.slug,
+        description: environment.description,
+        isDefault: environment.isDefault,
+        isProtected: environment.isProtected,
+        resourceCount: environment.resourceCount,
+        createdAt: environment.createdAt,
+        updatedAt: environment.updatedAt,
+        envVarsConfigured: sql<boolean>`${environmentSecret.environmentId} IS NOT NULL`,
+      })
+      .from(environment)
+      .leftJoin(
+        environmentSecret,
+        eq(environmentSecret.environmentId, environment.id),
+      )
+      .where(eq(environment.id, id))
+      .limit(1);
+    return row ?? null;
+  }
+
   async findByProjectId(projectId: string): Promise<Environment[]> {
     const rows = await this.executor
       .select()
       .from(environment)
-      .where(eq(environment.projectId, projectId));
+      .where(eq(environment.projectId, projectId))
+      .limit(MAX_ENVIRONMENT_READS + 1);
+    assertEnvironmentReadLimit(rows.length);
     return this.hydrateWithSecrets(rows);
+  }
+
+  async findSummariesByProjectId(
+    projectId: string,
+  ): Promise<EnvironmentSummaryProjection[]> {
+    const rows = await this.executor
+      .select({
+        id: environment.id,
+        projectId: environment.projectId,
+        parentEnvironmentId: environment.parentEnvironmentId,
+        inheritsVariables: environment.inheritsVariables,
+        name: environment.name,
+        slug: environment.slug,
+        description: environment.description,
+        isDefault: environment.isDefault,
+        isProtected: environment.isProtected,
+        resourceCount: environment.resourceCount,
+        createdAt: environment.createdAt,
+        updatedAt: environment.updatedAt,
+        envVarsConfigured: sql<boolean>`${environmentSecret.environmentId} IS NOT NULL`,
+      })
+      .from(environment)
+      .leftJoin(
+        environmentSecret,
+        eq(environmentSecret.environmentId, environment.id),
+      )
+      .where(eq(environment.projectId, projectId))
+      .limit(MAX_ENVIRONMENT_READS + 1);
+    assertEnvironmentReadLimit(rows.length);
+    return rows;
+  }
+
+  async findIdsByProjectId(projectId: string): Promise<string[]> {
+    const rows = await this.executor
+      .select({ id: environment.id })
+      .from(environment)
+      .where(eq(environment.projectId, projectId))
+      .limit(MAX_ENVIRONMENT_READS + 1);
+    assertEnvironmentReadLimit(rows.length);
+    return rows.map((row) => row.id);
   }
 
   async findAncestors(id: string): Promise<Environment[]> {
@@ -79,7 +169,11 @@ export class DrizzleEnvironmentRepository
   }
 
   override async findMany(_options?: unknown): Promise<Environment[]> {
-    const rows = await this.executor.select().from(environment);
+    const rows = await this.executor
+      .select()
+      .from(environment)
+      .limit(MAX_ENVIRONMENT_READS + 1);
+    assertEnvironmentReadLimit(rows.length);
     return this.hydrateWithSecrets(rows);
   }
 
@@ -141,5 +235,13 @@ export class DrizzleEnvironmentRepository
     }
 
     return this.findById(id);
+  }
+}
+
+function assertEnvironmentReadLimit(rowCount: number): void {
+  if (rowCount > MAX_ENVIRONMENT_READS) {
+    throw new Error(
+      "Environment discovery exceeded the maximum supported environment count",
+    );
   }
 }

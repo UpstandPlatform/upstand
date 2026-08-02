@@ -1,0 +1,458 @@
+---
+title: Production readiness audit
+description: Evidence-based production readiness scorecard, risks, blockers, and release conditions for Upstand.
+---
+
+## Executive summary
+
+Upstand has undergone a broad production-hardening pass covering tenant
+boundaries, credential references, outbound requests, AI and MCP controls,
+webhooks, deployment queues, database migrations, backups, Docker execution,
+container hardening, release images, and shutdown behavior.
+
+The repository checks and local acceptance contracts are green, but this is not
+a production sign-off. The current verdict is **conditionally ready for
+controlled acceptance only**. General production use remains blocked until the
+release workflow completes on native Linux Docker Swarm and the target operator
+environment completes the external-service, backup-recovery, egress, and
+observability checks listed below.
+
+This report records the state on **2026-08-02**. It is intentionally a release
+gate, not a claim that a local Windows Docker Desktop environment is equivalent
+to a production Linux Swarm.
+
+## Open findings register
+
+The following findings remain open in the current tree. Each one has a concrete
+closure condition; passing unit tests alone does not close the deployment and
+operational findings.
+
+Each finding records the requested File, Function/Class, Severity, Category,
+Problem, Evidence, Impact, reproduction guidance where applicable,
+Recommended Fix, and an Example Fix. Security findings also include an Attack
+Scenario.
+
+The release workflow’s disposable external-data phase uses one PostgreSQL and
+one Redis service to validate external URL wiring, migrations, and stateless
+control-plane HA. It is not evidence of PostgreSQL/Redis HA or failover.
+
+### Encrypted Swarm task attachment is unverified
+
+- **File:** `install.sh`, `validate_swarm_network_runtime`; `.github/workflows/release.yml`, `pre-release-acceptance`
+- **Function/Class:** `validate_swarm_network_runtime`; native Linux
+  `pre-release-acceptance` probe
+- **Severity:** Critical
+- **Category:** Infrastructure / deployment
+- **Problem:** Encrypted overlay creation can succeed while task attachment fails
+  because the host kernel lacks the required VXLAN/IPsec support.
+- **Evidence:** On 2026-08-02, Docker Desktop 29.4.0 with the WSL2 kernel
+  `5.15.167.4-microsoft-standard-WSL2` created the encrypted network but
+  rejected the non-root runtime probe with `network sandbox join failed` and
+  `iptables ... policy revision 0 not supported, missing kernel module?`.
+  A disposable Linux Docker-in-Docker daemon on the same kernel reproduced the
+  same rejection, so the result is not specific to the host-side Docker CLI.
+  The installer and release workflow now fail closed on that probe; all
+  temporary probe services, networks, and the disposable daemon were removed
+  after testing.
+- **Impact:** A release can be unavailable or partially deployed if the target
+  host is not validated before rollout.
+- **How to reproduce:** Run the encrypted overlay probe on a host with the
+  unsupported Docker kernel; task state becomes `Failed` or `Rejected`.
+- **Recommended fix:** Run the pinned release acceptance workflow on supported
+  native Linux Docker Swarm and retain the logs, host image, and image digests.
+- **Example fix:** Execute the release workflow on a supported Linux kernel,
+  require the disposable non-root encrypted-overlay task to reach `Complete`,
+  and attach the probe state, node inventory, host kernel, and immutable image
+  digests to the release record.
+
+### Manager-local acceptance cannot prove remote task health
+
+- **File:** `scripts/production-acceptance.sh`, strict task inspection path
+- **Function/Class:** `assert_service`
+- **Severity:** Major
+- **Category:** Operations / reliability
+- **Problem:** A manager Docker daemon cannot inspect process and health state
+  for tasks running on other nodes.
+- **Evidence:** The strict gate rejects incomplete local inspection and exposes
+  `--allow-remote-tasks` as an explicitly weaker service-level mode. The gate
+  now also supports `--node-local`, which reports the Swarm node identity and
+  checks every locally visible Upstand task and monitoring agent. The release
+  workflow now exercises `--node-local` in its pinned Ubuntu 24.04 single-node
+  bundled and stateless-HA phases and uploads a secret-safe
+  `production-acceptance-evidence` bundle
+  containing manager host identity, node/service/task state, immutable image
+  references, and encrypted network properties.
+- **Impact:** Operators can receive a false negative during a legitimate
+  multi-node rollout or, if they use the weaker mode without review, miss a
+  remote task failure.
+- **How to reproduce:** Run the strict gate from a manager whose services have
+  tasks scheduled on another node.
+- **Recommended fix:** Run `bash /etc/upstand/production-acceptance.sh
+  --node-local` on every node that can host an Upstand task and archive the
+  outputs with the manager acceptance record; keep the strict default
+  fail-closed behavior.
+- **Example fix:** From a manager with the operator's SSH identity and a
+  pre-populated strict `known_hosts` file, run
+  `bash /etc/upstand/production-acceptance-cluster.sh --output
+  /var/tmp/upstand-acceptance --ssh-user upstand` (the script discovers every
+  Ready/Active node and invokes the existing node-local gate). It writes one
+  result per node and fails unless all nodes pass; it never reads service
+  environments, secrets, or logs.
+- **Closure condition:** A native multi-node acceptance run must execute the
+  node-local check on every task-bearing node and retain the node IDs, task
+  counts, image digests, and pass/fail output. The checked-in cluster
+  aggregator now makes that run deterministic, but the target cluster still
+  needs to execute it and attach the resulting evidence.
+
+### Application DNS checks are not an egress boundary
+
+- **File:** `packages/platform/src/network/outbound.ts`, `assertConfiguredHttpUrl`
+- **Function/Class:** `assertConfiguredHttpUrl`; outbound integration callers
+- **Severity:** Major
+- **Category:** Security / SSRF
+- **Problem:** Application checks cannot guarantee that a permitted hostname
+  remains bound to the validated address through socket connection, or prevent
+  another process from making an unapproved outbound request.
+- **Evidence:** `assertConfiguredHttpUrl` now resolves exact allowlisted
+  hostnames at validation time and rejects loopback, link-local, metadata,
+  unspecified, multicast, and other hard-blocked answers; RFC1918/ULA answers
+  are accepted only for explicitly allowlisted private services. Secret
+  providers, Git providers, Caddy forward-auth, and SSH host-key scanning use
+  the same pre-connection policy. The runbook still requires a production
+  egress firewall or proxy because application validation is defense in depth.
+- **Impact:** A compromised integration, DNS change, or future code path could
+  reach metadata, private services, or internal control-plane endpoints.
+- **Attack scenario:** An attacker controls or compromises an allowed DNS name,
+  changes its answer to an internal address, and causes a notification or
+  object-storage request to reach that address.
+- **Recommended fix:** Enforce deny-by-default egress at the host/network layer
+  and permit only approved notification, storage, source-provider, and telemetry
+  destinations.
+- **Example fix:** Deploy a host firewall or egress proxy that denies loopback,
+  private, link-local, and metadata ranges by default and allows only the
+  approved destination hostnames and ports; retain a blocked-request test.
+
+### Recovery objectives are not installation-specific
+
+- **File:** `packages/usecases/src/backup/backup-runtime.service.ts`,
+  `buildSafeArchiveRestoreCommand`; `scripts/backup-restore-rehearsal.ps1`,
+  `scripts/backup-restore-rehearsal.sh`
+- **Function/Class:** `BackupRuntimeService.buildSafeArchiveRestoreCommand`;
+  backup rehearsal scripts
+- **Severity:** Major
+- **Category:** Backup / disaster recovery
+- **Problem:** Restore validation and rollback logic exist, but no production
+  installation has yet supplied measured RTO/RPO evidence against its external
+  object store and database service.
+- **Evidence:** The local rehearsal validates a disposable object store,
+  PostgreSQL dump/restore, and durable data assertion. It now emits bounded
+  readiness, transfer, restore, and total timings and fails when configured
+  budgets are exceeded; the native Linux release gate runs it with a 900-second
+  total and 300-second restore smoke budget, and uploads the output as
+  `production-recovery-evidence`. The runbook still requires a separate
+  rehearsal against the intended services.
+- **Impact:** A customer outage or destructive deployment may exceed the
+  organization’s recovery commitments despite a passing application test run.
+- **How to reproduce:** Run only the local rehearsal and compare it with a
+  managed database/object-store topology; the production-specific timings and
+  failure behavior remain unknown.
+- **Recommended fix:** Set installation-specific RTO/RPO budgets, run the
+  external restore rehearsal with `UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS`
+  and `UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS`, test a failed extraction
+  and database recovery, and attach the record to the release.
+- **Example fix:** Run the pinned rehearsal against the intended object store
+  and managed database, record backup recovery point, restore duration,
+  application/queue checks, failed-extraction behavior, and the accountable
+  recovery owner in the release record.
+
+### Capacity and failure envelope is not measured
+
+- **File:** Repository-wide operational gap; no checked-in target-scale
+  load/soak/chaos workload or SLO evidence
+- **Function/Class:** Not applicable; release and operator workload harness
+- **Severity:** Major
+- **Category:** Scalability / reliability
+- **Problem:** Queue bounds, pagination, timeouts, and replica settings are
+  implemented, but target throughput, latency, concurrency, and failure
+  thresholds are not established.
+- **Evidence:** The repository contains unit/integration/acceptance contracts,
+  bounded release health p50/p95/p99 baselines, a reusable time-bounded soak
+  harness, and an operator harness that
+  can run the same bounded measurement against an authenticated endpoint
+  without printing its credential or accepting embedded URL credentials. The
+  native release workflow now executes the documented 100/1,000/10,000 request
+  profiles and a 60-second bounded soak window against its disposable
+  stateless-HA topology, and performs a
+  disposable PostgreSQL/Redis stop-and-recover rehearsal that requires
+  readiness to fail closed and then recover. These are infrastructure-readiness
+  measurements only; target-scale authenticated load, soak,
+  deployment-concurrency, node-loss, and database/Redis HA failover results
+  remain open. The soak harness now preserves per-window latency and failure
+  evidence, but no target installation has supplied those results yet.
+- **Impact:** Capacity planning, pricing limits, and incident response remain
+  assumptions; a busy tenant or deployment burst can exhaust workers, Redis,
+  database connections, or Docker API capacity.
+- **Recommended fix:** Run the checked-in representative 100/1,000/10,000-user
+  profiles and time-bounded soak harness against the intended authenticated
+  workload, then run deployment concurrency, Redis/database failure, node-loss,
+  and rolling-upgrade tests; publish SLOs and resource limits.
+- **Example fix:** Add a bounded, repeatable workload suite that records p50/p95
+  latency, error rate, queue depth, worker utilization, database connections,
+  and Docker API pressure while injecting Redis/database/node failures; fail
+  the release when defined SLOs are exceeded.
+
+### Telemetry and alert ownership is not evidenced
+
+- **File:** `apps/server/src/server.ts`, `apps/schedules/src/index.ts`,
+  `apps/web/src/lib/evlog.ts`, and production environment configuration
+- **Function/Class:** OTLP initialization in server/schedules/web/docs;
+  `assert_observability`
+- **Severity:** Major
+- **Category:** Observability / operations
+- **Problem:** Telemetry export and health endpoints are wired, but a collector,
+  dashboards, actionable alerts, retention policy, and an on-call owner are
+  installation-level dependencies.
+- **Evidence:** The installer persists the explicit unobserved-production
+  acknowledgement, the server now fails readiness when production monitoring
+  initialization fails, and the acceptance gate requires a valid
+  `OTLP_ENDPOINT` on all application services. The gate also verifies locally
+  visible monitoring-agent image, health, identity, capability, and filesystem
+  controls. The Linux release acceptance deploys a pinned disposable collector
+  and verifies an OTLP log probe. A checked-in Bun threshold harness now
+  verifies readiness, queue, outbox, and optional backup-freshness conditions
+  against the private service endpoints. The release workflow also preserves a
+  secret-safe acceptance evidence bundle. The schedules service now emits
+  deduplicated structured operational alerts for Redis, database status, queue,
+  outbox, and backup conditions through the existing Evlog/OTLP path, including
+  an explicit required-success backup policy. No target collector, dashboard,
+  alert route, retention, or on-call evidence is present for the intended
+  installation. The repository now includes a private Prometheus metrics
+  endpoint plus checked-in Prometheus alert rules and a Grafana dashboard;
+  native release acceptance also scrapes the endpoint and retains evidence.
+- **Impact:** Queue stalls, failed backups, rate-limit fallback, and partial
+  deployments may remain undetected until customers report them.
+- **Recommended fix:** Deploy the checked-in collector integration and
+  dashboards, exercise alert routes, set retention and escalation ownership,
+  and attach an alert test to the production acceptance record.
+- **Example fix:** Configure the target OTLP collector and Prometheus scrape,
+  import `ops/observability/upstand-schedules-dashboard.json`, fire a
+  synthetic alert through the real escalation path, and record retention and
+  on-call ownership.
+
+### Closed high-risk finding: arbitrary Docker hook fallback
+
+- **File:** `packages/infrastructure/src/docker/docker.service.ts`,
+  `execContainerCommand`
+- **Function/Class:** `DockerService.execContainerCommand`
+- **Severity:** Critical (closed)
+- **Category:** Security / deployment isolation
+- **Problem:** The previous implementation selected the first running container
+  when the requested service name was absent.
+- **Evidence:** The current implementation throws `No running container found`
+  and the regression test asserts that `getContainer` is not called.
+- **Impact:** Before closure, a deployment hook could execute in an unrelated
+  workload, causing cross-resource mutation or data exposure.
+- **Attack scenario:** A stale or mistyped service identifier during a tenant
+  deployment caused a shell hook to run in whichever container appeared first.
+- **Recommended fix:** Completed in the current tree; preserve the fail-closed
+  regression test.
+- **Example fix:** Keep exact service/task identity matching, reject absent or
+  ambiguous targets, and retain regression coverage proving no arbitrary
+  container fallback can execute a hook.
+
+### Closed hardening finding: writable control-plane container roots
+
+- **File:** `docker-compose.prod.yml`, `server`, `schedules`, and `migrate`
+  service definitions; `scripts/production-acceptance.sh`
+- **Function/Class:** Production Swarm container runtime configuration and
+  operator acceptance gate
+- **Severity:** Major (closed)
+- **Category:** Infrastructure / isolation
+- **Problem:** A compromised control-plane process previously had a writable
+  container root filesystem, increasing persistence and tampering options.
+- **Evidence:** The production stack now sets `read_only: true` for migration,
+  server, and schedules services and provides bounded tmpfs mounts for their
+  required temporary workspaces, explicitly owned by UID 10001. Acceptance
+  checks both the Swarm service template and every locally inspectable task
+  container, while the native release workflow also runs the non-root image
+  probe against each writable path and the immutable application layer.
+- **Impact:** Before closure, post-exploitation changes could persist inside
+  the image layer for the lifetime of a task and expand the mutation surface.
+- **Recommended fix:** Completed; preserve the read-only-root and writable-tmpfs
+  contract tests.
+- **Example fix:** Keep all runtime writes under explicitly sized tmpfs mounts
+  and fail acceptance when a control-plane root becomes writable.
+
+### Closed reliability finding: monitoring readiness raced sidecar health
+
+- **File:** `apps/server/src/monitoring-agent.ts`,
+  `initializeMonitoring`; `apps/server/src/server.ts`, readiness wiring
+- **Function/Class:** `initializeMonitoring`, `waitForMonitoringHealth`
+- **Severity:** Major (closed)
+- **Category:** Observability / reliability
+- **Problem:** Starting the monitoring container was previously treated as
+  successful before its healthcheck had completed.
+- **Evidence:** Initialization now polls the sidecar health state for a bounded
+  60-second interval and rejects unhealthy, exited, missing-healthcheck, or
+  timed-out containers. Production server readiness remains false until that
+  promise resolves.
+- **Impact:** Before closure, traffic could be admitted while host metrics and
+  threshold alerts were unavailable, delaying detection of resource incidents.
+- **Recommended fix:** Completed; preserve the startup health-wait tests and
+  fail-closed readiness behavior.
+- **Example fix:** Gate readiness on a bounded, observable dependency-health
+  probe rather than on process start alone.
+
+### Closed compatibility finding: Evlog fallback path was incompatible with read-only roots
+
+- **File:** `docker-compose.prod.yml`, `server`, `schedules`, `web`, and
+  `fumadocs` environment blocks
+- **Function/Class:** `createFsDrain` fallback configuration
+- **Severity:** Major (closed)
+- **Category:** Reliability / operations
+- **Problem:** The server and schedules services use Evlog’s filesystem drain;
+  its default `.evlog/logs` directory is under the application root and would
+  fail after the control-plane root was made read-only.
+- **Evidence:** All four application services now set `EVLOG_FS_DIR` to
+  `/tmp/.evlog/logs`, and CI’s production Compose contract verifies the path
+  alongside the writable tmpfs and read-only-root settings.
+- **Impact:** Before closure, collector outages or drain fallback could turn
+  ordinary logging into filesystem write errors and hide the original event.
+- **Recommended fix:** Completed; preserve the Compose contract and keep the
+  fallback directory on a bounded writable mount.
+- **Example fix:** Route only the bounded Evlog fallback directory to tmpfs;
+  keep the application layer immutable.
+
+## Production readiness scorecard
+
+Scores reflect the strength of current evidence, not a guarantee of production
+behavior. Open deployment findings cap the overall verdict.
+
+| Category | Score /10 | Notes |
+| --- | --- | --- |
+| Security | 8/10 | Tenant, auth, secret, AI, and SSRF regression coverage exists; egress enforcement and independent assessment remain open. |
+| Backend architecture | 8/10 | Layer boundaries and bounded workflows are checked; target-scale behavior remains unmeasured. |
+| Frontend | 7/10 | Production build and axe public-surface checks pass across Chromium, Firefox, and WebKit; authenticated customer flows and performance budgets remain open. |
+| Database | 8/10 | Migration generation/checks pass; intended-service fresh, upgrade, failover, and recovery rehearsal remain open. |
+| Infrastructure | 6/10 | Hardened images and fail-closed acceptance exist; native Linux encrypted-overlay execution is unverified. |
+| Reliability | 7/10 | Leases, timeouts, shutdown, rollback, and backup validation are implemented; RTO/RPO and failure drills remain open. |
+| Scalability | 5/10 | HA topology, bounded load profiles, and a short soak are represented in CI; no target-scale authenticated load, long soak, or chaos evidence exists. |
+| Testing | 8/10 | Repository gates and contracts are green; external runtime acceptance is still pending. |
+| Observability | 7/10 | Health, OTLP, deduplicated queue/outbox/backup alert events, a private Prometheus metrics surface, checked-in alert/dashboard definitions, and native release scrape evidence exist; target collector deployment, routing, retention, and ownership are not evidenced. |
+| AI safety | 7/10 | Organization-scoped budgets, redaction, MCP restrictions, bounded tools, and a Redis-backed public docs-chat limiter are covered; production abuse/cost testing remains open. |
+
+## Security risk matrix
+
+| Risk | Severity | Current treatment | Closure evidence |
+| --- | --- | --- | --- |
+| Encrypted overlay cannot attach tasks on an unsupported Docker/kernel combination | Critical | Installer and release acceptance fail before deployment when the runtime probe fails | Native Linux Swarm probe completes successfully on the supported host image |
+| A production deployment uses bundled single-node data services for an HA requirement | High | Installer requires explicit acknowledgement and rejects bundled multi-replica data services | External PostgreSQL/Redis HA acceptance and operator review |
+| DNS validation is bypassed by later DNS changes | High | Exact host allowlists and private-range checks are enforced in application code | Production egress firewall/proxy policy is deployed and tested |
+| A backup artifact is malicious, corrupt, or path-traversing | High | Restore stages, validates, rejects traversal and unsafe archive entries, and rolls back | External restore rehearsal with recorded recovery point and result |
+| Redis outage bypasses mutation or authentication rate limits | High | Sensitive traffic fails closed; ordinary reads use bounded fallback | Alert fires and recovery behavior is observed in the target topology |
+| Remote task state is not inspectable from a single manager | Medium | Strict acceptance fails closed; an explicitly weaker remote-task mode is documented | Cluster-wide acceptance evidence from an operator host |
+| Release artifact or registry compromise | Medium | Immutable digests, pinned CI actions, signed GitHub OCI provenance attestations verified against the release workflow, provenance/SBOM metadata, release manifest, and hashes for fetched Compose/acceptance artifacts; legacy manifests are rejected by default and require explicit acknowledgement | Consumer-side signature policy and an executed release record |
+| No independent penetration test has been recorded | Medium | Regression suites cover known findings and security-sensitive boundaries | Independent assessment and remediation record |
+
+## Technical debt and scalability matrix
+
+| Topic | Impact | Current position | Next action |
+| --- | --- | --- | --- |
+| Production performance envelope | Capacity decisions cannot be evidence-based without target traffic data | Queue and repository paths are bounded and paginated; release CI now records bounded health p50/p95/p99 profiles and a short soak baseline | Run representative authenticated load, soak, and deployment-concurrency tests; record installation SLOs |
+| Multi-node operational visibility | Manager-local Docker inspection is incomplete for remote tasks | `production-acceptance.sh --node-local` plus the checked-in SSH aggregator now checks and archives every Ready/Active node | Execute the aggregator on the target cluster and retain one passing result per task-bearing node |
+| Recovery objectives | Restore behavior exists but RTO/RPO are not installation-specific | Local rehearsal emits bounded readiness/transfer/restore/total timings and supports explicit budgets | Set RTO/RPO, run the intended external restore, and retain the evidence |
+| Observability ownership | Telemetry without alert ownership does not provide operational readiness | Health endpoints, OTLP hooks, configurable deduplicated operational alert events, and checked-in Prometheus/Grafana definitions now exist | Deploy the definitions, prove scrape/delivery/retention, and assign escalation and retention owners in the target incident system |
+| Artifact trust policy | Digests prevent tag drift but do not independently prove publisher identity | Stable and canary image workflows now emit signed OCI provenance attestations; stable release acceptance verifies repository, workflow, and source-ref identity before publishing | Execute the signed release workflow and adopt consumer-side verification where required |
+
+## Scalability assessment
+
+These are risk estimates until workload and failure tests produce measured
+limits. They assume the documented external PostgreSQL/Redis mode for larger
+installations; the bundled data services are not an HA scaling strategy.
+
+| Scale | Likely pressure points | Readiness position |
+| --- | --- | --- |
+| 100 users | Docker API bursts, webhook spikes, and default worker concurrency | Likely suitable for controlled staging after runtime acceptance and observability checks. |
+| 1,000 users | Database connections, Redis queue depth, audit-log growth, and concurrent builds | Requires measured load, connection-pool sizing, queue alerts, and external data services. |
+| 10,000 users | Deployment/build concurrency, tenant-heavy queries, Docker manager load, and notification fan-out | No evidence supports this scale yet; capacity tests and workload isolation are required. |
+| 100,000 users | Control-plane sharding, queue partitioning, database read/write topology, and tenant hot spots | Architecture is not evidenced for this scale; a scale-out design and performance program are required. |
+| 1,000,000 users | Multi-region control plane, regional queues, global identity/session strategy, and fleet-level orchestration | Not a supported claim in the current evidence; treat as a new architecture project. |
+
+## Missing or not-yet-evidenced systems
+
+These are not necessarily missing application features; they are production
+systems or operating evidence that must exist for a general-availability
+deployment:
+
+- A supported native Linux Swarm host or cluster with encrypted VXLAN task
+  attachment.
+- Managed or independently operated PostgreSQL and Redis services for HA
+  installations, including credentials, backups, failover ownership, and
+  maintenance windows.
+- An independent object-storage destination with versioning or object lock and
+  a documented restore owner.
+- An egress firewall or proxy enforcing the approved destination policy.
+- An OTLP collector, dashboards, actionable alerts, log retention, and an
+  on-call escalation path.
+- Release-specific load, failover, restore, and security-assessment evidence.
+
+## Top 20 fixes by ROI
+
+1. Run the Linux release acceptance workflow and preserve its logs and image
+   digests.
+2. Run the operator acceptance gate against the intended Swarm topology.
+3. Validate external PostgreSQL and Redis HA behavior.
+4. Rehearse fresh and upgraded migrations.
+5. Perform an external object-store backup and restore rehearsal.
+6. Set and record RTO/RPO targets.
+7. Deploy the production egress firewall or proxy.
+8. Deploy the OTLP collector and verify delivery.
+9. Deploy the checked-in readiness, queue, outbox, and backup dashboard and
+   alert rules; extend them for deployment and rate-limit SLOs.
+10. Test alert routing and assign on-call ownership.
+11. Run the bounded release health-load rehearsal, then run deployment-
+    concurrency, queue-backlog, and representative authenticated load tests.
+12. Run Redis/database outage and recovery tests.
+13. Run Swarm node-loss and rolling-upgrade tests.
+14. Publish resource limits and worker/database connection budgets.
+15. Complete an independent security review or penetration test.
+16. Enforce release signature/attestation verification where required by policy.
+17. Expand the public Chromium/Firefox/WebKit axe baseline to authenticated
+    customer flows and performance budgets.
+18. Record tenant growth, audit retention, and object-storage cost budgets.
+19. Add a documented customer incident/status communication process.
+20. Re-run all acceptance and repository gates for the immutable release digest.
+
+## Top release blockers
+
+The following conditions must remain release-blocking until evidence is
+attached to the release record:
+
+1. Native Linux encrypted-overlay runtime probe has not completed.
+2. The target production cluster has not passed the read-only acceptance gate.
+3. Intended external database and Redis services have not passed release
+   acceptance and failover checks.
+4. Fresh and upgraded migrations have not been rehearsed against the intended
+   database service.
+5. Intended object storage has not passed a restore rehearsal.
+6. Egress controls are not confirmed for the target installation.
+7. Telemetry, alerting, retention, and on-call ownership are not confirmed.
+8. Target-scale load and failure testing has not established SLOs.
+9. Independent security review has not been recorded before exposure to
+   untrusted tenants.
+10. Artifact signature verification remains a blocker where the organization’s
+    supply-chain policy requires it.
+
+## Final verdict
+
+**NOT PRODUCTION READY.** The repository
+is materially stronger and suitable for controlled Linux acceptance, staging,
+and security review. Promote a release to general production only after all
+ten blockers above are evidenced, the release workflow is green, the operator
+acceptance gate passes, and the owning team signs the recovery and observability
+records. Policy-dependent items must be explicitly accepted by the security and
+operations owners. This corresponds to the `NOT PRODUCTION READY` verdict until
+the release blockers are evidenced.
+
+Use [Production readiness and recovery runbook](./production-readiness) for the
+commands and operational procedure that close these conditions.

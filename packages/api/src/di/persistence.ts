@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import * as dependencies from "./dependencies";
 
 type ServiceCollection = InstanceType<typeof dependencies.ServiceCollection>;
@@ -5,6 +6,11 @@ type ServiceCollection = InstanceType<typeof dependencies.ServiceCollection>;
 export function registerPersistence(services: ServiceCollection) {
   // 1. Database Infrastructure
   services.addSingleton(dependencies.DbToken, () => dependencies.db);
+  services.addSingleton(dependencies.DatabaseHealthToken, (c) => ({
+    ping: async () => {
+      await c.resolve(dependencies.DbToken).execute(sql`select 1`);
+    },
+  }));
   services.addScoped(
     dependencies.AIRepositoryToken,
     (c) =>

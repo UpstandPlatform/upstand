@@ -36,5 +36,11 @@ describe("procedure authorization coverage", () => {
       ),
     ).toBe(false);
     expect(publicProcedures.size).toBe(PUBLIC_PROCEDURES.length);
+    expect(SESSION_ONLY_PROCEDURES).toContain("database.command");
+    expect(SESSION_ONLY_PROCEDURES).toContain("database.runMigration");
+    expect(API_KEY_ROUTE_CAPABILITIES).not.toHaveProperty("database.command");
+    expect(API_KEY_ROUTE_CAPABILITIES).not.toHaveProperty(
+      "resource.databaseCommand",
+    );
   });
 });

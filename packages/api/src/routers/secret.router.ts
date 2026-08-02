@@ -114,7 +114,7 @@ export const secretRouter = router({
       );
       await ctx.scope
         .resolve(DeleteSecretProviderUseCaseToken)
-        .execute(input.id);
+        .execute({ ...input, organizationId: provider.organizationId });
       return { success: true };
     }),
   updateProvider: twoFactorVerifiedProcedure
@@ -133,7 +133,9 @@ export const secretRouter = router({
         provider.organizationId,
         "environment:update",
       );
-      return ctx.scope.resolve(UpdateSecretProviderUseCaseToken).execute(input);
+      return ctx.scope
+        .resolve(UpdateSecretProviderUseCaseToken)
+        .execute({ ...input, organizationId: provider.organizationId });
     }),
   testConnection: twoFactorVerifiedProcedure
     .input(TestSecretProviderConnectionInputSchema)
@@ -220,7 +222,7 @@ export const secretRouter = router({
       );
       return ctx.scope
         .resolve(UpdateSecretRotationScheduleUseCaseToken)
-        .execute(input);
+        .execute({ ...input, organizationId: schedule.organizationId });
     }),
   deleteRotationSchedule: twoFactorVerifiedProcedure
     .input(z.object({ id: z.string().min(1) }))
@@ -240,6 +242,6 @@ export const secretRouter = router({
       );
       return ctx.scope
         .resolve(DeleteSecretRotationScheduleUseCaseToken)
-        .execute(input.id);
+        .execute({ ...input, organizationId: schedule.organizationId });
     }),
 });

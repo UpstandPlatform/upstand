@@ -1,11 +1,14 @@
 const composeFile = "docker-compose.local.yml";
-const networkName = process.env.DOCKER_NETWORK || "upstand-network";
-const apiBaseUrl = process.env.LOCAL_API_URL || "http://localhost:3000";
-const webBaseUrl = process.env.LOCAL_WEB_URL || "http://localhost:3001";
-const docsBaseUrl = process.env.LOCAL_DOCS_URL || "http://localhost:4000";
-const timeoutMs = Number(process.env.LOCAL_VERIFY_TIMEOUT_MS || 60_000);
-const expectedMode = process.env.LOCAL_EXPECTED_MODE;
-const runtime = process.env.LOCAL_RUNTIME || "compose";
+
+import { env } from "@upstand/env/testing";
+
+const networkName = env.DOCKER_NETWORK;
+const apiBaseUrl = env.LOCAL_API_URL;
+const webBaseUrl = env.LOCAL_WEB_URL;
+const docsBaseUrl = env.LOCAL_DOCS_URL;
+const timeoutMs = env.LOCAL_VERIFY_TIMEOUT_MS;
+const expectedMode = env.LOCAL_EXPECTED_MODE;
+const runtime = env.LOCAL_RUNTIME;
 
 function fail(message: string): never {
   console.error(`\nLocal parity verification failed: ${message}`);
@@ -82,9 +85,16 @@ if (runtime === "compose") {
     "{{.Driver}} {{.Attachable}}",
     networkName,
   ]);
-  if (!network.success || network.stdout !== "overlay true") {
+  const [networkDriver, networkAttachable] = network.stdout
+    .split(/\s+/)
+    .filter(Boolean);
+  if (
+    !network.success ||
+    networkDriver !== "overlay" ||
+    networkAttachable !== "true"
+  ) {
     fail(
-      `network '${networkName}' must be an attachable overlay network. Run 'bun dev' or 'bun run setup' first.`,
+      `network '${networkName}' must be an attachable overlay network. Stop services, recreate it with '--driver overlay --attachable', then run 'bun dev' or 'bun run setup' again.`,
     );
   }
   console.log(`✔ Docker network: ${networkName} (${network.stdout})`);
@@ -147,5 +157,3 @@ await waitForEndpoint(
   async (response) => response.ok,
 );
 console.log("\nLocal parity verification passed.");
-
-export {};

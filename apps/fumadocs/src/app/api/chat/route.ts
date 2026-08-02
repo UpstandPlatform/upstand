@@ -13,8 +13,17 @@ import { Document, type DocumentData } from "flexsearch";
 import { z } from "zod";
 import { useLogger, withEvlog } from "@/lib/evlog";
 import { source } from "@/lib/source";
-
 import type { ChatUIMessage, SearchTool } from "../../../components/ai/search";
+import {
+  CHAT_RATE_LIMIT_MAX_REQUESTS,
+  type ChatRateLimitResult,
+  enforceChatRateLimit,
+} from "./rate-limit";
+import {
+  MAX_CHAT_REQUEST_BYTES,
+  parseChatRequest,
+  readBoundedRequestBody,
+} from "./request";
 
 interface CustomDocument extends DocumentData {
   url: string;
@@ -77,7 +86,49 @@ const systemPrompt = [
 export const POST = withEvlog(
   async (req: Request, _ctx: RouteContext<"/api/chat">) => {
     const requestLog = useLogger();
-    const reqJson = await req.json();
+    let rateLimit: ChatRateLimitResult;
+    try {
+      rateLimit = await enforceChatRateLimit(req);
+    } catch {
+      requestLog.error("Documentation chat rate limiter unavailable", {
+        message: "Failing closed to prevent unbounded AI spend",
+      });
+      return new Response("Chat is temporarily unavailable", { status: 503 });
+    }
+    const rateLimitHeaders = {
+      "X-RateLimit-Limit": String(CHAT_RATE_LIMIT_MAX_REQUESTS),
+      "X-RateLimit-Remaining": String(rateLimit.remaining),
+      "X-RateLimit-Reset": String(
+        Math.floor(Date.now() / 1000) + rateLimit.resetAfterSeconds,
+      ),
+    };
+    if (!rateLimit.allowed) {
+      return new Response("Chat rate limit exceeded", {
+        status: 429,
+        headers: {
+          ...rateLimitHeaders,
+          "Retry-After": String(rateLimit.resetAfterSeconds),
+        },
+      });
+    }
+    const requestBody = await readBoundedRequestBody(
+      req,
+      MAX_CHAT_REQUEST_BYTES,
+    );
+    if (requestBody.tooLarge) {
+      return new Response("Chat request is too large", {
+        status: 413,
+        headers: rateLimitHeaders,
+      });
+    }
+
+    const parsedRequest = parseChatRequest(requestBody.body);
+    if ("error" in parsedRequest) {
+      return new Response("Invalid chat request", {
+        status: 400,
+        headers: rateLimitHeaders,
+      });
+    }
 
     const result = streamText({
       model: openrouter.chat(
@@ -90,7 +141,7 @@ export const POST = withEvlog(
       messages: [
         { role: "system", content: systemPrompt },
         ...(await convertToModelMessages<ChatUIMessage>(
-          reqJson.messages ?? [],
+          parsedRequest.messages as ChatUIMessage[],
           {
             convertDataPart(part) {
               if (part.type === "data-client")

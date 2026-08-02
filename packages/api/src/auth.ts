@@ -3,43 +3,48 @@ import { type AuthCallbacks, createAuth } from "@upstand/auth";
 import { createStepUpAuth } from "@upstand/auth/step-up-auth";
 import { db } from "@upstand/db";
 import * as authSchema from "@upstand/db/schema/auth";
+import { backupRun, backupSchedule } from "@upstand/db/schema/backup";
 import { notificationChannel } from "@upstand/db/schema/notification";
 import { NotificationChannelSchema } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { NotificationTransportRegistry } from "@upstand/infrastructure";
-import { redis } from "@upstand/redis";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import { decryptNotificationConfiguration } from "@upstand/usecases";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, gt, sql } from "drizzle-orm";
 
 export const notificationTransport = new NotificationTransportRegistry();
 
 const stepUp = createStepUpAuth({
-  get: (key) => redis.get(key),
-  set: (key, value, mode, ttl) => redis.set(key, value, mode, ttl),
-  del: (key) => redis.del(key),
+  get: (key) => withRedisTimeout(redis.get(key)),
+  set: (key, value, mode, ttl) =>
+    withRedisTimeout(redis.set(key, value, mode, ttl)),
+  del: (key) => withRedisTimeout(redis.del(key)),
 });
 
 const secondaryStorage = {
-  get: async (key: string) => (await redis.get(key)) || null,
+  get: async (key: string) => (await withRedisTimeout(redis.get(key))) || null,
   set: async (key: string, value: string, ttl?: number) => {
-    if (ttl) await redis.set(key, value, "EX", ttl);
-    else await redis.set(key, value);
+    if (ttl) await withRedisTimeout(redis.set(key, value, "EX", ttl));
+    else await withRedisTimeout(redis.set(key, value));
   },
   // Better Auth uses increment for its distributed rate limiter when it is
   // available. Keep the increment and first-write expiry in one Redis script
   // so concurrent API instances cannot bypass the limit or create immortal
   // counters.
   increment: async (key: string, ttl: number) => {
-    const result = await redis.eval(
-      "local value = redis.call('INCR', KEYS[1]); if value == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return value",
-      1,
-      key,
-      String(Math.max(1, Math.ceil(ttl))),
+    const result = await withRedisTimeout(
+      redis.eval(
+        "local value = redis.call('INCR', KEYS[1]); if value == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return value",
+        1,
+        key,
+        String(Math.max(1, Math.ceil(ttl))),
+      ),
     );
     return Number(result);
   },
-  delete: (key: string) => redis.del(key).then(() => undefined),
+  delete: (key: string) =>
+    withRedisTimeout(redis.del(key)).then(() => undefined),
 };
 
 const callbacks: AuthCallbacks = {
@@ -89,8 +94,31 @@ const callbacks: AuthCallbacks = {
     }
   },
 
+  async assertOrganizationDeletionAllowed(organizationId) {
+    const [schedule] = await db
+      .select({ id: backupSchedule.id })
+      .from(backupSchedule)
+      .where(eq(backupSchedule.organizationId, organizationId))
+      .limit(1);
+    if (schedule) {
+      return "Delete all organization backup schedules before deleting the organization, so stored backup artifacts can be cleaned safely.";
+    }
+
+    const [run] = await db
+      .select({ id: backupRun.id })
+      .from(backupRun)
+      .where(eq(backupRun.organizationId, organizationId))
+      .limit(1);
+    if (run) {
+      return "This organization still has backup history. Remove the backup history through the backup workflow before deleting the organization.";
+    }
+
+    return null;
+  },
+
   async isSsoEnforced(email) {
-    const enforced = await db
+    const normalizedEmail = email.trim().toLowerCase();
+    const enforcedMemberships = await db
       .select({ metadata: authSchema.organization.metadata })
       .from(authSchema.user)
       .innerJoin(
@@ -108,9 +136,36 @@ const callbacks: AuthCallbacks = {
           eq(authSchema.ssoProvider.domainVerified, true),
         ),
       )
-      .where(eq(authSchema.user.email, email.toLowerCase()))
+      .where(eq(authSchema.user.email, normalizedEmail))
       .limit(20);
-    return enforced.some((row) => {
+
+    // An invitee may not have a user or membership row yet. Check pending
+    // invitations as well, otherwise a password sign-up can be used to join
+    // an organization that explicitly requires its verified SSO provider.
+    const enforcedInvitations = await db
+      .select({ metadata: authSchema.organization.metadata })
+      .from(authSchema.invitation)
+      .innerJoin(
+        authSchema.organization,
+        eq(authSchema.invitation.organizationId, authSchema.organization.id),
+      )
+      .innerJoin(
+        authSchema.ssoProvider,
+        and(
+          eq(authSchema.ssoProvider.organizationId, authSchema.organization.id),
+          eq(authSchema.ssoProvider.domainVerified, true),
+        ),
+      )
+      .where(
+        and(
+          sql`lower(${authSchema.invitation.email}) = ${normalizedEmail}`,
+          eq(authSchema.invitation.status, "pending"),
+          gt(authSchema.invitation.expiresAt, new Date()),
+        ),
+      )
+      .limit(20);
+
+    return [...enforcedMemberships, ...enforcedInvitations].some((row) => {
       try {
         return (
           (

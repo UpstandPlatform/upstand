@@ -1,0 +1,123 @@
+groups:
+  - name: upstand-schedules
+    interval: 30s
+    rules:
+      - alert: UpstandSchedulesMetricsUnavailable
+        expr: upstand_schedules_collection_success == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand schedules metrics collection is unavailable
+          description: The schedules service cannot collect its database, Redis, queue, outbox, or backup status.
+
+      - alert: UpstandSchedulesWorkersNotReady
+        expr: upstand_schedules_workers_ready == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand schedules workers are not ready
+          description: Traffic and background processing should be investigated before accepting production work.
+
+      - alert: UpstandSchedulesDatabaseNotReady
+        expr: upstand_schedules_database_ready == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand schedules cannot read database-backed status
+          description: Outbox or backup operational status is unavailable.
+
+      - alert: UpstandSchedulesRedisNotReady
+        expr: upstand_schedules_redis_ready == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand schedules cannot reach Redis
+          description: Queue processing and distributed rate limits may be impaired.
+
+      - alert: UpstandSchedulesQueueUnhealthy
+        expr: upstand_schedules_queue_healthy == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: An Upstand BullMQ queue is unhealthy
+          description: Queue {{ $labels.queue }} failed its health check.
+
+      - alert: UpstandSchedulesQueueBacklog
+        expr: upstand_schedules_queue_waiting >= 1000
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-schedules
+        annotations:
+          summary: Upstand queue backlog is growing
+          description: Queue {{ $labels.queue }} has at least 1000 waiting jobs.
+
+      - alert: UpstandSchedulesQueueFailures
+        expr: upstand_schedules_queue_failed >= 1
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand queue has failed jobs
+          description: Queue {{ $labels.queue }} has one or more failed jobs.
+
+      - alert: UpstandSchedulesOutboxBacklog
+        expr: upstand_schedules_outbox_pending >= 1000
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-schedules
+        annotations:
+          summary: Upstand transactional outbox backlog is growing
+          description: At least 1000 outbox records are pending publication.
+
+      - alert: UpstandSchedulesOutboxDeadLetters
+        expr: upstand_schedules_outbox_dead_letter >= 1
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand transactional outbox has dead letters
+          description: One or more durable events require investigation or replay.
+
+      - alert: UpstandSchedulesBackupMissing
+        expr: upstand_schedules_backup_success_present == 0
+        for: 15m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand has no successful backup
+          description: No successful backup timestamp is available.
+
+      - alert: UpstandSchedulesBackupStale
+        expr: upstand_schedules_backup_age_seconds > 172800
+        for: 10m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand backup is stale
+          description: The most recent successful backup is older than 48 hours.
+
+      - alert: UpstandSchedulesBackupFailed
+        expr: upstand_schedules_backup_last_failure_timestamp_seconds > upstand_schedules_backup_last_success_timestamp_seconds
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: The most recent Upstand backup failed
+          description: A failed backup has not yet been followed by a successful backup.

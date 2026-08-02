@@ -6,6 +6,7 @@ import {
   parseDomainMappings,
   parseResourceAdvancedConfig,
   type Resource,
+  ResourceAppNameSchema,
   ResourceComposeTypeSchema,
   serializeApplicationBuildConfig,
   serializeDomainMappings,
@@ -30,13 +31,15 @@ import { validateLibsqlSettings } from "./libsql-settings";
 import { serializeResourceCredentials } from "./resource-credentials";
 import { serializeResourceEnvironmentVariables } from "./resource-environment";
 import { ResourcePreviewFieldsSchema } from "./resource-preview-fields.schema";
+import { validateResourceCredentialReferences } from "./validate-resource-credential-references";
 
 export const UpdateResourceInputSchema = z
   .object({
     id: z.string().min(1, "Resource ID is required"),
+    organizationId: z.string().min(1, "Organization ID is required").optional(),
     name: z.string().optional(),
     status: z.enum(["running", "stopped"]).optional(),
-    appName: z.string().optional(),
+    appName: ResourceAppNameSchema.optional(),
     description: z.string().optional(),
     provider: z.string().optional(),
     dbType: z.string().optional(),
@@ -95,6 +98,19 @@ export class UpdateResourceUseCase {
   async execute(input: UpdateResourceInput): Promise<Resource | null> {
     const resource = await this.uow.resourceRepository.findById(input.id);
     if (!resource) {
+      throw new ValidationError("Resource not found");
+    }
+    const resourceEnvironment = await this.uow.environmentRepository.findById(
+      resource.environmentId,
+    );
+    const resourceProject = resourceEnvironment
+      ? await this.uow.projectRepository.findById(resourceEnvironment.projectId)
+      : null;
+    if (
+      !resourceProject ||
+      !input.organizationId ||
+      resourceProject.organizationId !== input.organizationId
+    ) {
       throw new ValidationError("Resource not found");
     }
 
@@ -284,6 +300,18 @@ export class UpdateResourceUseCase {
       patch.composeType = input.composeType;
     }
     if (input.credentials !== undefined) {
+      const environment = await this.uow.environmentRepository.findById(
+        resource.environmentId,
+      );
+      const project = environment
+        ? await this.uow.projectRepository.findById(environment.projectId)
+        : null;
+      if (!project) throw new ValidationError("Project not found");
+      await validateResourceCredentialReferences(
+        this.uow,
+        project.organizationId,
+        input.credentials,
+      );
       try {
         patch.credentials = serializeResourceCredentials(input.credentials);
       } catch (error: unknown) {
@@ -483,10 +511,16 @@ export class UpdateResourceUseCase {
       input.advancedConfig !== undefined;
     const candidate = { ...resource, ...patch } as Resource;
 
-    const resources = routingChanged
-      ? await this.uow.resourceRepository.findMany()
-      : [];
     const serverId = resource.serverId;
+    const resources = routingChanged
+      ? this.uow.resourceRepository.findForCaddyByDeploymentServerId
+        ? await this.uow.resourceRepository.findForCaddyByDeploymentServerId(
+            serverId,
+          )
+        : this.uow.resourceRepository.findByDeploymentServerId
+          ? await this.uow.resourceRepository.findByDeploymentServerId(serverId)
+          : await this.uow.resourceRepository.findMany()
+      : [];
     const certificates =
       (await this.uow.certificateRepository.findAll?.()) ?? [];
     const sameServerResources =

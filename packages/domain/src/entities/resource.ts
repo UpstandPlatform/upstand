@@ -1,6 +1,36 @@
 import { z } from "zod";
 import { EntityIconSchema } from "./icon";
 
+/**
+ * Resource app names are also used as internal Docker DNS hostnames by
+ * scheduled HTTP callbacks. Keep them within one DNS label so they cannot
+ * introduce a port, path, credentials, or another hostname.
+ */
+const RESERVED_RESOURCE_APP_NAMES = new Set([
+  "localhost",
+  "localhost6",
+  "ip6-localhost",
+  "ip6-loopback",
+  "loopback",
+  "host",
+  "gateway",
+]);
+
+export const ResourceAppNameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1, "App Name is required")
+  .max(63, "App names must not exceed 63 characters")
+  .regex(
+    /^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/,
+    "App names may contain only lowercase letters, numbers, hyphens, and underscores",
+  )
+  .refine(
+    (value) => !RESERVED_RESOURCE_APP_NAMES.has(value),
+    "This app name is reserved and cannot be used as an internal callback host",
+  );
+
 const RelativeBuildPathSchema = z
   .string()
   .trim()
@@ -22,7 +52,7 @@ export const DATABASE_IMAGE_OPTIONS = {
   mariadb: ["mariadb:10.11", "mariadb:11"],
   mongodb: ["mongo:6.0", "mongo:7.0"],
   redis: ["redis:8.8-alpine"],
-  libsql: ["ghcr.io/tursodatabase/libsql-server:latest"],
+  libsql: ["ghcr.io/tursodatabase/libsql-server:0.24.32"],
 } as const;
 
 export type DatabaseType = keyof typeof DATABASE_IMAGE_OPTIONS;

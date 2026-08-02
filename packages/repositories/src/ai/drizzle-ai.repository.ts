@@ -23,7 +23,10 @@ import type {
   UpdateAIProviderConfig,
 } from "@upstand/domain";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { MAX_REPOSITORY_READS } from "../shared/base.repository";
 import type { Executor } from "../shared/types";
+
+const MAX_AI_MESSAGE_READS = 2_000;
 
 export class DrizzleAIRepository implements IAIRepository {
   constructor(private readonly executor: Executor) {}
@@ -37,7 +40,13 @@ export class DrizzleAIRepository implements IAIRepository {
       .select()
       .from(aiProviderConfig)
       .where(eq(aiProviderConfig.organizationId, organizationId))
-      .orderBy(asc(aiProviderConfig.createdAt));
+      .orderBy(asc(aiProviderConfig.createdAt))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "AI provider discovery exceeded the maximum supported row count",
+      );
+    }
     return rows.map((r) => ({
       ...r,
       enabled: r.enabled === 1,
@@ -170,10 +179,17 @@ export class DrizzleAIRepository implements IAIRepository {
   async listFeatureAssignments(
     organizationId: string,
   ): Promise<AIFeatureAssignmentRecord[]> {
-    return this.executor
+    const rows = await this.executor
       .select()
       .from(aiFeatureAssignment)
-      .where(eq(aiFeatureAssignment.organizationId, organizationId));
+      .where(eq(aiFeatureAssignment.organizationId, organizationId))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "AI feature assignment discovery exceeded the maximum supported row count",
+      );
+    }
+    return rows;
   }
 
   async findFeatureAssignment(
@@ -423,11 +439,17 @@ export class DrizzleAIRepository implements IAIRepository {
   // ── Messages ──────────────────────────────────────────────────────────────
 
   async listMessages(conversationId: string): Promise<AIMessageRecord[]> {
-    return this.executor
+    // Conversation history is user-controlled JSON and can grow without a
+    // fixed database row count. Keep the read bounded and retain the newest
+    // messages so a long-lived conversation cannot turn a normal load into an
+    // unbounded memory or serialization operation.
+    const rows = await this.executor
       .select()
       .from(aiMessage)
       .where(eq(aiMessage.conversationId, conversationId))
-      .orderBy(aiMessage.createdAt, aiMessage.id);
+      .orderBy(desc(aiMessage.createdAt), desc(aiMessage.id))
+      .limit(MAX_AI_MESSAGE_READS);
+    return rows.reverse();
   }
 
   async saveMessages(

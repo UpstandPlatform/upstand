@@ -1,4 +1,7 @@
-import type { IUnitOfWork, Resource } from "@upstand/domain";
+import type {
+  IUnitOfWork,
+  ResourceAutoscalingProjection,
+} from "@upstand/domain";
 import { parseResourceAdvancedConfig } from "@upstand/domain";
 import type { CaddyServicePort } from "../ports/caddy";
 import type { DockerServicePort } from "../ports/docker";
@@ -46,7 +49,7 @@ export class AutoscalingService {
   ) {}
 
   async reconcileResource(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
   ): Promise<AutoscalingDecision | null> {
     const config = parseResourceAdvancedConfig(
       resource.advancedConfig,
@@ -95,7 +98,7 @@ export class AutoscalingService {
   }
 
   private async reconcileWithMetrics(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
     config: ReturnType<typeof parseResourceAdvancedConfig>["autoscaling"],
     current: number,
     metrics: MetricRecord[],
@@ -160,7 +163,9 @@ export class AutoscalingService {
   }
 
   async reconcileAll(): Promise<AutoscalingDecision[]> {
-    const allResources = await this.uow.resourceRepository.findMany();
+    const allResources = this.uow.resourceRepository.findForAutoscaling
+      ? await this.uow.resourceRepository.findForAutoscaling()
+      : await this.uow.resourceRepository.findMany();
     const candidateResources = allResources.filter((resource) => {
       if (resource.type === "compose" || resource.type === "database")
         return false;
@@ -187,7 +192,7 @@ export class AutoscalingService {
   }
 
   private async currentReplicaCount(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
     docker: DockerServicePort,
   ): Promise<number> {
     const containers = await docker.getContainers(resource);
@@ -195,7 +200,7 @@ export class AutoscalingService {
   }
 
   private async metrics(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
     caddy?: CaddyServicePort,
   ): Promise<MetricRecord[]> {
     const result = await requestMonitoringAgent<unknown>(
@@ -226,7 +231,7 @@ export class AutoscalingService {
 }
 
 function trafficMetricForResource(
-  resource: Resource,
+  resource: ResourceAutoscalingProjection,
   content: string,
 ): MetricRecord | null {
   let domains: unknown;

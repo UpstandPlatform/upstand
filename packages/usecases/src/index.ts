@@ -91,6 +91,7 @@ export * from "./resource/control-resource.usecase";
 // Resources
 export * from "./resource/create-resource.usecase";
 export * from "./resource/database-command.usecase";
+export * from "./resource/database-credentials";
 export * from "./resource/database-environment";
 export * from "./resource/delete-resource.usecase";
 export * from "./resource/deploy-resource.usecase";
@@ -128,6 +129,7 @@ export * from "./schedule/sync-upstand-config.usecase";
 export * from "./scim/scim.usecase";
 export * from "./search/global-search.usecase";
 export * from "./secrets/secret-version.usecases";
+export * from "./server/container-ownership";
 export * from "./server/create-server.usecase";
 export * from "./server/delete-server.usecase";
 export * from "./server/docker-inspection-target.helper";

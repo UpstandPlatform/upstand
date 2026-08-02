@@ -7,6 +7,13 @@ import {
 
 export type ResourceCredentials = Record<string, unknown>;
 
+export class ResourceCredentialsError extends Error {
+  constructor(message = "Resource credentials are invalid") {
+    super(message);
+    this.name = "ResourceCredentialsError";
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -28,6 +35,21 @@ function asCredentials(value: unknown): ResourceCredentials {
   return isRecord(value) ? value : {};
 }
 
+function parseCredentialDocument(value: string): ResourceCredentials {
+  const parsed = JSON.parse(value) as unknown;
+  if (isEncryptedPayload(parsed)) {
+    const decrypted = JSON.parse(decryptSecret(parsed)) as unknown;
+    if (!isRecord(decrypted)) {
+      throw new ResourceCredentialsError();
+    }
+    return decrypted;
+  }
+  if (!isRecord(parsed)) {
+    throw new ResourceCredentialsError();
+  }
+  return parsed;
+}
+
 /**
  * Resource source/database/Compose credentials are one authenticated document
  * at rest. Legacy plaintext JSON and the previous database-only envelope are
@@ -38,13 +60,21 @@ export function parseResourceCredentials(
 ): ResourceCredentials {
   if (!value) return {};
   try {
-    const parsed = JSON.parse(value) as unknown;
-    if (isEncryptedPayload(parsed)) {
-      return asCredentials(JSON.parse(decryptSecret(parsed)));
-    }
-    return asCredentials(parsed);
+    return parseCredentialDocument(value);
   } catch {
     return {};
+  }
+}
+
+export function parseResourceCredentialsStrict(
+  value: string | null | undefined,
+): ResourceCredentials {
+  if (!value) return {};
+  try {
+    return parseCredentialDocument(value);
+  } catch (error) {
+    if (error instanceof ResourceCredentialsError) throw error;
+    throw new ResourceCredentialsError();
   }
 }
 

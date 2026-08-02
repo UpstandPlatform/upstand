@@ -98,6 +98,7 @@
       "cache": false,
       "env": [
         "E2E_BASE_URL",
+        "E2E_SERVER_AVAILABLE",
         "E2E_AUTH_COOKIE",
         "E2E_API_KEY",
         "E2E_RESOURCE_ID",

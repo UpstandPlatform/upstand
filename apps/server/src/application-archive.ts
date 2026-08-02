@@ -15,7 +15,32 @@ export const APPLICATION_ARCHIVE_LIMITS = {
 } as const;
 
 const MAX_CONCURRENT_EXTRACTIONS = 2;
+const ARCHIVE_COMMAND_TIMEOUT_MS = 120_000;
+const ARCHIVE_COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 let activeExtractions = 0;
+
+function runArchiveCommand(args: string[]) {
+  return execFileAsync("tar", args, {
+    maxBuffer: ARCHIVE_COMMAND_MAX_BUFFER,
+    timeout: ARCHIVE_COMMAND_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+  });
+}
+
+export async function validateApplicationArchiveFile(
+  archivePath: string,
+): Promise<{ entryCount: number; totalSize: number }> {
+  const archiveSize = fs.statSync(archivePath).size;
+  const [listing, detailedListing] = await Promise.all([
+    runArchiveCommand(["-tf", archivePath]),
+    runArchiveCommand(["-tvf", archivePath]),
+  ]);
+  return validateApplicationArchiveListings(
+    archiveSize,
+    listing.stdout,
+    detailedListing.stdout,
+  );
+}
 
 export class ApplicationArchiveValidationError extends Error {
   constructor(message: string) {
@@ -170,16 +195,8 @@ export async function extractApplicationArchive(
 
   try {
     fs.mkdirSync(stagingDir, { recursive: true });
-    const [listing, detailedListing] = await Promise.all([
-      execFileAsync("tar", ["-tf", archivePath]),
-      execFileAsync("tar", ["-tvf", archivePath]),
-    ]);
-    validateApplicationArchiveListings(
-      fs.statSync(archivePath).size,
-      listing.stdout,
-      detailedListing.stdout,
-    );
-    await execFileAsync("tar", ["-xf", archivePath, "-C", stagingDir, "-k"]);
+    await validateApplicationArchiveFile(archivePath);
+    await runArchiveCommand(["-xf", archivePath, "-C", stagingDir, "-k"]);
     validateExtractedTree(stagingDir);
 
     if (fs.existsSync(dropsDir)) {

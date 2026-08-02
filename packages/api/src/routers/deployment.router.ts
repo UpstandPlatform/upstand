@@ -1,5 +1,5 @@
 import { type IUnitOfWork, ValidationError } from "@upstand/domain";
-import { redis } from "@upstand/redis";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import { getDeploymentQueueName } from "@upstand/usecases";
 import {
   DeployResourceUseCaseToken,
@@ -252,11 +252,13 @@ export const deploymentRouter = router({
           Boolean(serverId && values.indexOf(serverId) === index),
         );
 
-        await redis.set(
-          `upstand:deployment:cancel:${deploymentId}`,
-          "1",
-          "EX",
-          3600,
+        await withRedisTimeout(
+          redis.set(
+            `upstand:deployment:cancel:${deploymentId}`,
+            "1",
+            "EX",
+            3600,
+          ),
         );
 
         let job: Awaited<ReturnType<Queue["getJob"]>> | null = null;
@@ -326,11 +328,13 @@ export const deploymentRouter = router({
           throw new ValidationError("Deployment job not found in queue");
         const state = await job.getState();
         if (state === "active") {
-          await redis.set(
-            `upstand:deployment:cancel:${input.deploymentId}`,
-            "1",
-            "EX",
-            3600,
+          await withRedisTimeout(
+            redis.set(
+              `upstand:deployment:cancel:${input.deploymentId}`,
+              "1",
+              "EX",
+              3600,
+            ),
           );
           return { success: true, state, cancellationRequested: true };
         }

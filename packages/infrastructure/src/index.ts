@@ -2,6 +2,7 @@ export { CaddyService, generateCaddyfileContent } from "./caddy/caddy.service";
 export { DockerService } from "./docker/docker.service";
 export { DockerCleanupService } from "./docker/docker-cleanup.service";
 export {
+  closeRemoteDockerProxies,
   createDockerInfrastructureResolver,
   getDockerInstance,
 } from "./docker/docker-client";

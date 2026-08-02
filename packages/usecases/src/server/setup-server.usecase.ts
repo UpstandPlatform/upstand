@@ -287,9 +287,7 @@ export class SetupServerUseCase {
           "Creating Upstand overlay network",
           `Creating overlay network 'upstand-network'...`,
         );
-        await privileged(
-          "docker network inspect upstand-network >/dev/null 2>&1 || docker network create --driver overlay --attachable upstand-network",
-        );
+        await privileged(buildEncryptedUpstandNetworkCommand());
         await progress(
           "Creating Upstand overlay network",
           "Overlay network ready. ✅",
@@ -401,131 +399,210 @@ export class SetupServerUseCase {
       configuredMonitoringImage || "upstand-monitoring-agent";
     let remoteTarPath: string | undefined;
     let remoteSrcPath: string | undefined;
+    let localTarPath: string | undefined;
 
-    if (configuredMonitoringImage) {
-      if (
-        env.NODE_ENV === "production" &&
-        !/@sha256:[a-f0-9]{64}$/i.test(configuredMonitoringImage)
-      ) {
-        throw new Error(
-          "UPSTAND_MONITORING_IMAGE must use an immutable sha256 digest in production",
+    try {
+      if (configuredMonitoringImage) {
+        if (
+          env.NODE_ENV === "production" &&
+          !/@sha256:[a-f0-9]{64}$/i.test(configuredMonitoringImage)
+        ) {
+          throw new Error(
+            "UPSTAND_MONITORING_IMAGE must use an immutable sha256 digest in production",
+          );
+        }
+        log.info({
+          message: `[Monitoring Setup] Pulling immutable monitoring image ${configuredMonitoringImage} on ${server.ipAddress}...`,
+        });
+        await privileged(
+          `docker pull ${shellQuote(configuredMonitoringImage)}`,
+        );
+      } else {
+        if (env.NODE_ENV === "production") {
+          throw new Error(
+            "UPSTAND_MONITORING_IMAGE is required in production for remote monitoring setup",
+          );
+        }
+
+        let monitoringPath = path.join(process.cwd(), "apps", "monitoring");
+        if (!fs.existsSync(monitoringPath)) {
+          const alternativePath = path.join(
+            process.cwd(),
+            "..",
+            "..",
+            "apps",
+            "monitoring",
+          );
+          if (fs.existsSync(alternativePath)) monitoringPath = alternativePath;
+        }
+        if (!fs.existsSync(monitoringPath)) {
+          throw new Error(
+            `Monitoring agent source path not found: ${monitoringPath}`,
+          );
+        }
+
+        const tarFileName = `monitoring-${server.id}-${Date.now()}.tar.gz`;
+        localTarPath = path.join(process.cwd(), ".builds", tarFileName);
+        fs.mkdirSync(path.dirname(localTarPath), { recursive: true });
+        const { exec } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execAsync = promisify(exec);
+        log.info({
+          message: `[Monitoring Setup] Creating tarball at ${localTarPath}`,
+        });
+        await execAsync(`tar -czf "${localTarPath}" -C "${monitoringPath}" .`);
+
+        remoteTarPath = `/tmp/${tarFileName}`;
+        remoteSrcPath = `/tmp/monitoring-src-${server.id}`;
+        log.info({
+          message: `[Monitoring Setup] Uploading tarball to ${server.ipAddress}:${remoteTarPath}`,
+        });
+        if (!remoteTarPath) throw new Error("Remote archive path is missing");
+        await session.upload(localTarPath, remoteTarPath);
+        fs.unlinkSync(localTarPath);
+
+        log.info({
+          message:
+            "[Monitoring Setup] Extracting and building Docker image on remote server...",
+        });
+        await privileged(
+          `mkdir -p ${remoteSrcPath} && tar -xzf ${remoteTarPath} -C ${remoteSrcPath}`,
+        );
+        await privileged(
+          `docker build -t ${shellQuote(monitoringImage)} ${shellQuote(remoteSrcPath)}`,
         );
       }
-      log.info({
-        message: `[Monitoring Setup] Pulling immutable monitoring image ${configuredMonitoringImage} on ${server.ipAddress}...`,
-      });
-      await privileged(`docker pull ${shellQuote(configuredMonitoringImage)}`);
-    } else {
-      if (env.NODE_ENV === "production") {
-        throw new Error(
-          "UPSTAND_MONITORING_IMAGE is required in production for remote monitoring setup",
-        );
-      }
 
-      let monitoringPath = path.join(process.cwd(), "apps", "monitoring");
-      if (!fs.existsSync(monitoringPath)) {
-        const alternativePath = path.join(
-          process.cwd(),
-          "..",
-          "..",
-          "apps",
-          "monitoring",
-        );
-        if (fs.existsSync(alternativePath)) monitoringPath = alternativePath;
-      }
-      if (!fs.existsSync(monitoringPath)) {
-        throw new Error(
-          `Monitoring agent source path not found: ${monitoringPath}`,
-        );
-      }
+      const containerName = "upstand-monitoring-agent";
+      const globalSettings =
+        await this.uow.webServerSettingsRepository.findGlobal();
+      const controlPlaneIp = globalSettings?.serverIp || "localhost";
 
-      const tarFileName = `monitoring-${server.id}-${Date.now()}.tar.gz`;
-      const localTarPath = path.join(process.cwd(), ".builds", tarFileName);
-      fs.mkdirSync(path.dirname(localTarPath), { recursive: true });
-      const { exec } = await import("node:child_process");
-      const { promisify } = await import("node:util");
-      const execAsync = promisify(exec);
-      log.info({
-        message: `[Monitoring Setup] Creating tarball at ${localTarPath}`,
-      });
-      await execAsync(`tar -czf "${localTarPath}" -C "${monitoringPath}" .`);
-
-      remoteTarPath = `/tmp/${tarFileName}`;
-      remoteSrcPath = `/tmp/monitoring-src-${server.id}`;
-      log.info({
-        message: `[Monitoring Setup] Uploading tarball to ${server.ipAddress}:${remoteTarPath}`,
-      });
-      if (!remoteTarPath) throw new Error("Remote archive path is missing");
-      await session.upload(localTarPath, remoteTarPath);
-      fs.unlinkSync(localTarPath);
-
-      log.info({
-        message:
-          "[Monitoring Setup] Extracting and building Docker image on remote server...",
-      });
-      await privileged(
-        `mkdir -p ${remoteSrcPath} && tar -xzf ${remoteTarPath} -C ${remoteSrcPath}`,
-      );
-      await privileged(
-        `docker build -t ${shellQuote(monitoringImage)} ${shellQuote(remoteSrcPath)}`,
-      );
-    }
-
-    const containerName = "upstand-monitoring-agent";
-    const globalSettings =
-      await this.uow.webServerSettingsRepository.findGlobal();
-    const controlPlaneIp = globalSettings?.serverIp || "localhost";
-
-    const metricsConfig = {
-      server: {
-        serverId: server.id,
-        refreshRate: 25,
-        port: 3001,
-        serverType: "Remote",
-        token: token,
-        urlCallback: `http://${controlPlaneIp}:${env.PORT}/api/monitoring/alerts`,
-        retentionDays: 7,
-        cronJob: "0 0 * * *",
-        thresholds: {
-          cpu: settings.cpuThreshold,
-          memory: settings.memoryThreshold,
+      const metricsConfig = {
+        server: {
+          serverId: server.id,
+          refreshRate: 25,
+          port: 3001,
+          serverType: "Remote",
+          token: token,
+          urlCallback: `http://${controlPlaneIp}:${env.PORT}/api/monitoring/alerts`,
+          retentionDays: 7,
+          cronJob: "0 0 * * *",
+          thresholds: {
+            cpu: settings.cpuThreshold,
+            memory: settings.memoryThreshold,
+          },
         },
-      },
-      containers: {
-        refreshRate: 25,
-        services: {
-          include: [],
-          exclude: [],
+        containers: {
+          refreshRate: 25,
+          services: {
+            include: [],
+            exclude: [],
+          },
         },
-      },
-    };
+      };
 
-    log.info({
-      message: `[Monitoring Setup] Starting upstand-monitoring-agent container on ${server.ipAddress}...`,
-    });
-    const monitoringCommand = buildMonitoringAgentContainerCommand({
-      containerName,
-      monitoringImage,
-      metricsConfig,
-    });
-    await privileged(`sh -ec ${shellQuote(monitoringCommand)}`);
+      // Do not put the monitoring token in the remote docker command line.
+      // Shell command lines are visible to process inspection and can be
+      // retained by SSH/session logging. Upload a temporary, mode-restricted
+      // env file and remove it after the container has been replaced.
+      const configSuffix = randomBytes(12).toString("hex");
+      const localMetricsConfigPath = path.join(
+        process.cwd(),
+        ".builds",
+        `monitoring-config-${configSuffix}.env`,
+      );
+      const remoteMetricsConfigPath = `/tmp/upstand-monitoring-config-${configSuffix}.env`;
+      fs.mkdirSync(path.dirname(localMetricsConfigPath), { recursive: true });
+      fs.writeFileSync(
+        localMetricsConfigPath,
+        `METRICS_CONFIG=${JSON.stringify(metricsConfig)}\n`,
+        { encoding: "utf8", mode: 0o600 },
+      );
 
-    if (remoteTarPath && remoteSrcPath) {
-      await privileged(`rm -rf ${remoteTarPath} ${remoteSrcPath}`);
+      log.info({
+        message: `[Monitoring Setup] Starting upstand-monitoring-agent container on ${server.ipAddress}...`,
+      });
+      try {
+        await session.upload(localMetricsConfigPath, remoteMetricsConfigPath);
+        await privileged(`chmod 0600 ${shellQuote(remoteMetricsConfigPath)}`);
+        const dockerSocketGid = (
+          await privileged("stat -c '%g' /var/run/docker.sock")
+        ).trim();
+        const monitoringCommand = buildMonitoringAgentContainerCommand({
+          containerName,
+          monitoringImage,
+          metricsConfigPath: remoteMetricsConfigPath,
+          dockerSocketGid,
+        });
+        await privileged(`sh -ec ${shellQuote(monitoringCommand)}`);
+      } finally {
+        try {
+          await privileged(`rm -f ${shellQuote(remoteMetricsConfigPath)}`);
+        } catch (error) {
+          log.warn({
+            message: "Unable to remove temporary remote monitoring config",
+            serverId: server.id,
+            err: error,
+          });
+        }
+        try {
+          fs.rmSync(localMetricsConfigPath, { force: true });
+        } catch (error) {
+          log.warn({
+            message: "Unable to remove temporary local monitoring config",
+            serverId: server.id,
+            err: error,
+          });
+        }
+      }
+
+      log.info({
+        message: `[Monitoring Setup] Monitoring Agent configured successfully on ${server.ipAddress}! ✅`,
+      });
+    } finally {
+      if (localTarPath) {
+        try {
+          fs.rmSync(localTarPath, { force: true });
+        } catch (error) {
+          log.warn({
+            message: "Unable to remove temporary local monitoring archive",
+            serverId: server.id,
+            err: error,
+          });
+        }
+      }
+      if (remoteTarPath && remoteSrcPath) {
+        try {
+          await privileged(
+            `rm -rf ${shellQuote(remoteTarPath)} ${shellQuote(remoteSrcPath)}`,
+          );
+        } catch (error) {
+          log.warn({
+            message: "Unable to remove temporary remote monitoring source",
+            serverId: server.id,
+            err: error,
+          });
+        }
+      }
     }
-    log.info({
-      message: `[Monitoring Setup] Monitoring Agent configured successfully on ${server.ipAddress}! ✅`,
-    });
   }
 }
 
 export function buildMonitoringAgentContainerCommand(input: {
   containerName: string;
   monitoringImage: string;
-  metricsConfig: object;
+  metricsConfigPath: string;
+  dockerSocketGid: string;
 }): string {
+  if (!/^\d+$/.test(input.dockerSocketGid)) {
+    throw new Error("Remote Docker socket group ID must be numeric");
+  }
+
   const containerName = shellQuote(input.containerName);
   const monitoringImage = shellQuote(input.monitoringImage);
+  const metricsConfigPath = shellQuote(input.metricsConfigPath);
+  const dockerSocketGid = shellQuote(input.dockerSocketGid);
 
   return [
     "set -eu",
@@ -544,6 +621,7 @@ export function buildMonitoringAgentContainerCommand(input: {
       `--name ${containerName} ` +
       "--label com.upstand.component=monitoring-agent " +
       "--restart always " +
+      `--group-add ${dockerSocketGid} ` +
       "--security-opt no-new-privileges:true " +
       "--read-only " +
       "--tmpfs /tmp:rw,nosuid,nodev,size=16m " +
@@ -552,13 +630,35 @@ export function buildMonitoringAgentContainerCommand(input: {
       "--log-opt max-size=10m --log-opt max-file=3 " +
       "-p 127.0.0.1:3001:3001 " +
       "-e DB_PATH=/data/monitoring.db " +
-      `-e METRICS_CONFIG=${shellQuote(JSON.stringify(input.metricsConfig))} ` +
       "-v /var/run/docker.sock:/var/run/docker.sock:ro " +
       "-v /proc:/host/proc:ro " +
       "-v /sys:/host/sys:ro " +
       "-v /etc/os-release:/etc/os-release:ro " +
+      `--env-file ${metricsConfigPath} ` +
       "-v upstand-monitoring-data:/data " +
       monitoringImage,
+  ].join("\n");
+}
+
+export function buildEncryptedUpstandNetworkCommand(
+  networkName = env.DOCKER_NETWORK || "upstand-network",
+): string {
+  const quotedNetworkName = shellQuote(networkName);
+  return [
+    "set -eu",
+    `if docker network inspect ${quotedNetworkName} >/dev/null 2>&1; then`,
+    `  driver="$(docker network inspect -f '{{.Driver}}' ${quotedNetworkName})"`,
+    `  scope="$(docker network inspect -f '{{.Scope}}' ${quotedNetworkName})"`,
+    `  attachable="$(docker network inspect -f '{{.Attachable}}' ${quotedNetworkName})"`,
+    `  options="$(docker network inspect -f '{{json .Options}}' ${quotedNetworkName})"`,
+    `  if [ "$driver" != overlay ] || [ "$scope" != swarm ] || [ "$attachable" != true ]; then echo "existing Upstand network must be an attachable Swarm overlay" >&2; exit 1; fi`,
+    `  case "$options" in`,
+    `    *"encrypted"*) : ;;`,
+    `    *) echo "existing Upstand network must be encrypted" >&2; exit 1 ;;`,
+    "  esac",
+    "else",
+    `  docker network create --driver overlay --opt encrypted --attachable ${quotedNetworkName}`,
+    "fi",
   ].join("\n");
 }
 

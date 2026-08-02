@@ -13,7 +13,10 @@ import type {
 } from "@upstand/domain";
 import { ConflictError } from "@upstand/domain";
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
-import { BaseRepository } from "../shared/base.repository";
+import {
+  BaseRepository,
+  MAX_REPOSITORY_READS,
+} from "../shared/base.repository";
 import { isPostgresUniqueViolation } from "../shared/database-errors";
 import type { Executor } from "../shared/types";
 
@@ -74,7 +77,13 @@ export class DrizzleScimRepository
     const rows = await this.executor
       .select()
       .from(scimProvider)
-      .where(eq(scimProvider.organizationId, organizationId));
+      .where(eq(scimProvider.organizationId, organizationId))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "SCIM provider discovery exceeded the maximum supported row count",
+      );
+    }
     return rows.map(mapProvider);
   }
 

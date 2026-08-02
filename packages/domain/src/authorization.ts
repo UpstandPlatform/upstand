@@ -145,6 +145,13 @@ export const CAPABILITY_CATALOG = {
     assurance: "standard",
     roles: ownerAdminMember,
   },
+  "environment:secrets:view": {
+    scope: "organization",
+    apiKey: false,
+    customRole: false,
+    assurance: "recent-2fa",
+    roles: ownerAdmin,
+  },
   "environment:update": {
     scope: "organization",
     apiKey: true,
@@ -186,6 +193,13 @@ export const CAPABILITY_CATALOG = {
     customRole: true,
     assurance: "standard",
     roles: ownerAdminMember,
+  },
+  "resource:execute": {
+    scope: "resource",
+    apiKey: false,
+    customRole: false,
+    assurance: "recent-2fa",
+    roles: ownerAdmin,
   },
   "resource:delete": {
     scope: "resource",
@@ -645,7 +659,6 @@ export const API_KEY_ROUTE_CAPABILITIES = {
   "database.update": "resource:update",
   "database.control": "resource:update",
   "database.rebuild": "resource:update",
-  "database.command": "resource:update",
   "database.delete": "resource:delete",
   "domain.validate": "resource:view",
   "project.list": "project:view",
@@ -667,7 +680,6 @@ export const API_KEY_ROUTE_CAPABILITIES = {
   "resource.deploy": "resource:update",
   "resource.control": "resource:update",
   "resource.rebuildDatabase": "resource:update",
-  "resource.databaseCommand": "resource:update",
   "server.inventory": "server:view",
   "server.count": "server:view",
   "server.one": "server:view",

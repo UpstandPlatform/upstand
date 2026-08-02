@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       # Next.js validates this public build-time variable even though CI does
@@ -65,6 +65,35 @@ jobs:
           bun audit
           bash -n install.sh
           bash -n apps/server/docker-entrypoint.sh
+          bash -n scripts/production-acceptance.sh
+          bash -n scripts/production-acceptance-fixture-docker.sh
+          bash -n scripts/backup-restore-rehearsal.sh
+          bash -n scripts/backup-restore-rehearsal-contract.test.sh
+          bash -n scripts/external-services-smoke-contract.test.sh
+          bash -n scripts/health-load-rehearsal.sh
+          bash -n scripts/health-load-rehearsal-contract.test.sh
+          bash -n scripts/health-load-rehearsal.test.sh
+          bash -n scripts/production-evidence-collect.sh
+          bash -n scripts/production-evidence-collect-contract.test.sh
+          bash -n scripts/production-acceptance-contract.test.sh
+          bash -n scripts/observability-contract.test.sh
+          bash -n scripts/production-acceptance-cluster.sh
+          bash -n scripts/production-acceptance-cluster-contract.test.sh
+          bash -n scripts/health-soak-rehearsal.sh
+          bash -n scripts/health-soak-rehearsal-contract.test.sh
+          bash -n scripts/release-acceptance-contract.test.sh
+          bash scripts/installer-contract.test.sh
+          bash scripts/backup-restore-rehearsal-contract.test.sh
+          bash scripts/external-services-smoke-contract.test.sh
+          bun test scripts/operational-status-rehearsal.test.ts
+          bash scripts/health-load-rehearsal-contract.test.sh
+          bash scripts/health-load-rehearsal.test.sh
+          bash scripts/production-evidence-collect-contract.test.sh
+          bash scripts/production-acceptance-contract.test.sh
+          bash scripts/observability-contract.test.sh
+          bash scripts/production-acceptance-cluster-contract.test.sh
+          bash scripts/health-soak-rehearsal-contract.test.sh
+          bash scripts/release-acceptance-contract.test.sh
 
       - name: Restore Turbo cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -105,7 +134,6 @@ jobs:
             scope: upstand-web
             build_args: |
               NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
-              NEXT_PUBLIC_UPSTAND_VERSION=${{ inputs.release_ref || github.ref_name }}
           - name: fumadocs
             context: .
             file: apps/fumadocs/Dockerfile
@@ -120,6 +148,9 @@ jobs:
       contents: read
       packages: write
       actions: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout Code
@@ -152,18 +183,29 @@ jobs:
           echo "repo=${REPO_LOWER}" >> "$GITHUB_OUTPUT"
 
       - name: Build and Push ${{ matrix.name }}
+        id: push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ steps.meta.outputs.repo }}-${{ matrix.name }}:${{ steps.meta.outputs.tag }}
-          build-args: ${{ matrix.build_args }}
+          build-args: |
+            ${{ matrix.build_args }}
+            ${{ matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag) || '' }}
           cache-from: type=gha,scope=${{ matrix.scope }}
           cache-to: type=gha,scope=${{ matrix.scope }},mode=max
           provenance: mode=max
           sbom: true
+
+      - name: Generate signed image provenance attestation
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
+        with:
+          subject-name: ghcr.io/${{ steps.meta.outputs.repo }}-${{ matrix.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
   build-desktop:
     needs: verify
@@ -216,8 +258,8 @@ jobs:
           retention-days: 7
 
   publish-release:
-    if: startsWith(inputs.release_ref || github.ref_name, 'v')
-    needs: [build-and-publish, build-desktop]
+    if: startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')
+    needs: [build-and-publish, build-desktop, pre-release-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -229,6 +271,11 @@ jobs:
         with:
           pattern: desktop-*
           path: ${{ runner.temp }}/desktop-assets
+
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_ref || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
@@ -243,15 +290,24 @@ jobs:
       - name: Verify all release images and create manifest
         env:
           GH_REPO: ${{ github.repository }}
-          RELEASE_VERSION: ${{ inputs.release_ref || github.ref_name }}
+          RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
         run: |
           set -euo pipefail
+          release_version="${RELEASE_REF##*/}"
           repo="${GH_REPO,,}"
           manifest_file="$RUNNER_TEMP/upstand-release-manifest.json"
           images='[]'
+          docker_compose_sha256="$(sha256sum docker-compose.prod.yml | awk '{print $1}')"
+          production_acceptance_sha256="$(sha256sum scripts/production-acceptance.sh | awk '{print $1}')"
+          production_evidence_collect_sha256="$(sha256sum scripts/production-evidence-collect.sh | awk '{print $1}')"
+          production_acceptance_cluster_sha256="$(sha256sum scripts/production-acceptance-cluster.sh | awk '{print $1}')"
+          [[ "$docker_compose_sha256" =~ ^[a-f0-9]{64}$ && "$production_acceptance_sha256" =~ ^[a-f0-9]{64}$ && "$production_evidence_collect_sha256" =~ ^[a-f0-9]{64}$ && "$production_acceptance_cluster_sha256" =~ ^[a-f0-9]{64}$ ]] || {
+            echo "Could not hash the release deployment artifacts" >&2
+            exit 1
+          }
 
           for name in server schedules web fumadocs monitoring; do
-            image="ghcr.io/${repo}-${name}:${RELEASE_VERSION}"
+            image="ghcr.io/${repo}-${name}:${release_version}"
             inspect="$(docker buildx imagetools inspect "$image")"
             digest="$(awk '$1 == "Digest:" { print $2; exit }' <<< "$inspect")"
             if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
@@ -262,19 +318,24 @@ jobs:
           done
 
           jq -n \
-            --arg version "$RELEASE_VERSION" \
+            --arg version "$release_version" \
             --argjson images "$images" \
-            '{schemaVersion: 1, version: $version, images: $images}' \
+            --arg docker_compose_sha256 "$docker_compose_sha256" \
+            --arg production_acceptance_sha256 "$production_acceptance_sha256" \
+            --arg production_evidence_collect_sha256 "$production_evidence_collect_sha256" \
+            --arg production_acceptance_cluster_sha256 "$production_acceptance_cluster_sha256" \
+            '{schemaVersion: 1, version: $version, images: $images, artifacts: {dockerComposeProdSha256: $docker_compose_sha256, productionAcceptanceSha256: $production_acceptance_sha256, productionEvidenceCollectSha256: $production_evidence_collect_sha256, productionAcceptanceClusterSha256: $production_acceptance_cluster_sha256}}' \
             > "$manifest_file"
 
           cat "$manifest_file"
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.release_ref || github.ref_name }}
+          RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
           MANIFEST_FILE: ${{ runner.temp }}/upstand-release-manifest.json
         run: |
           set -euo pipefail
+          release_version="${RELEASE_REF##*/}"
           mapfile -d '' assets < <(
             find "$RUNNER_TEMP/desktop-assets" -type f \
               \( -name '*.deb' -o -name '*.dmg' -o -name '*.exe' -o -name '*.nupkg' -o -name '*.zip' \) \
@@ -284,15 +345,530 @@ jobs:
             echo "Desktop release assets were not downloaded" >&2
             exit 1
           fi
-          if gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $RELEASE_VERSION already exists; refusing to overwrite immutable release assets" >&2
+          if gh release view "$release_version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $release_version already exists; refusing to overwrite immutable release assets" >&2
             exit 1
           else
-            gh release create "$RELEASE_VERSION" \
+            gh release create "$release_version" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
-              --title "Upstand $RELEASE_VERSION" \
+              --title "Upstand $release_version" \
               --generate-notes \
               "$MANIFEST_FILE#upstand-release-manifest.json" \
               "${assets[@]}"
           fi
+
+  pre-release-acceptance:
+    if: startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')
+    needs: build-and-publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    env:
+      GH_REPO: ${{ github.repository }}
+      RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
+      STACK_NAME: upstand-release-acceptance
+      DOCKER_NETWORK: upstand-release-acceptance-network
+      UPSTAND_SECRETS_DIR: ${{ runner.temp }}/upstand-release-secrets
+      NETWORK_PROBE_NAME: upstand-release-acceptance-network-probe
+      OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector
+      OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config
+      OTEL_COLLECTOR_IMAGE: docker.io/otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7
+      HEALTH_LOAD_IMAGE: curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
+      BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt
+      ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_ref || github.ref }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+
+      - name: Resolve immutable pushed image digests
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_REF##*/}"
+          repo="${GH_REPO,,}"
+          for name in server schedules web fumadocs monitoring; do
+            image="ghcr.io/${repo}-${name}:${release_version}"
+            digest="$(docker buildx imagetools inspect "$image" | awk '$1 == "Digest:" { print $2; exit }')"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "Could not resolve an immutable digest for $image" >&2
+              exit 1
+            }
+            resolved="$image@$digest"
+            case "$name" in
+              server) echo "UPSTAND_SERVER_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
+              schedules) echo "UPSTAND_SCHEDULES_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
+              web) echo "UPSTAND_WEB_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
+              fumadocs) echo "UPSTAND_DOCS_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
+              monitoring) echo "UPSTAND_MONITORING_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
+            esac
+          done
+
+      - name: Verify signed image provenance attestations
+        env:
+          GH_REPO: ${{ github.repository }}
+          RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_REF##*/}"
+          repo="${GH_REPO,,}"
+          for name in server schedules web fumadocs monitoring; do
+            image="ghcr.io/${repo}-${name}:${release_version}"
+            gh attestation verify "oci://${image}" \
+              --repo "$GH_REPO" \
+              --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
+              --source-ref "$RELEASE_REF"
+          done
+
+      - name: Deploy and verify a disposable production Swarm
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_REF##*/}"
+          docker run --rm --read-only --user 10001:10001 \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
+            --tmpfs /app/.builds:rw,nosuid,nodev,size=128m,uid=10001,gid=0,mode=0700 \
+            --tmpfs /home/upstand/.docker:rw,nosuid,nodev,noexec,size=16m,uid=10001,gid=0,mode=0700 \
+            --entrypoint /bin/sh \
+            "$UPSTAND_SERVER_IMAGE" \
+            -ec 'set -eu; touch /tmp/upstand-rootfs-probe /app/.builds/upstand-rootfs-probe /home/upstand/.docker/upstand-rootfs-probe; if touch /app/upstand-rootfs-probe 2>/dev/null; then echo "production rootfs is writable" >&2; exit 1; fi'
+          evidence_collected=false
+          collect_acceptance_evidence() {
+            [[ "$evidence_collected" == true ]] && return 0
+            evidence_collected=true
+            if docker info >/dev/null 2>&1; then
+              DOCKER_BIN=docker RELEASE_REF="$RELEASE_REF" \
+                bash scripts/production-evidence-collect.sh \
+                  --output "$ACCEPTANCE_EVIDENCE_DIR" \
+                  --stack "$STACK_NAME" \
+                  --network "$DOCKER_NETWORK" || true
+            fi
+          }
+          remove_stack() {
+            docker stack rm "$STACK_NAME" >/dev/null 2>&1 || true
+            for _ in {1..30}; do
+              docker stack services "$STACK_NAME" >/dev/null 2>&1 || break
+              sleep 1
+            done
+            for secret in postgres_password redis_password better_auth_secret encryption_key database_url redis_url; do
+              docker secret rm "${STACK_NAME}_${secret}" >/dev/null 2>&1 || true
+            done
+          }
+          cleanup() {
+            collect_acceptance_evidence
+            remove_stack
+            docker service rm "${STACK_NAME}_external_postgres" "${STACK_NAME}_external_redis" >/dev/null 2>&1 || true
+            docker service rm "$NETWORK_PROBE_NAME" >/dev/null 2>&1 || true
+            docker service rm "$OTEL_COLLECTOR_SERVICE" >/dev/null 2>&1 || true
+            docker config rm "$OTEL_COLLECTOR_CONFIG" >/dev/null 2>&1 || true
+            docker network rm "$DOCKER_NETWORK" >/dev/null 2>&1 || true
+            docker swarm leave --force >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          mkdir -p "$UPSTAND_SECRETS_DIR"
+          mkdir -p "$ACCEPTANCE_EVIDENCE_DIR"
+          chmod 700 "$ACCEPTANCE_EVIDENCE_DIR"
+          printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/postgres_password"
+          printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/redis_password"
+          printf '%s' 'upstand-ci-auth-secret-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/better_auth_secret"
+          printf '%s' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' > "$UPSTAND_SECRETS_DIR/encryption_key"
+          printf '%s' 'postgresql://upstand:upstand-ci-password@postgres:5432/upstand' > "$UPSTAND_SECRETS_DIR/database_url"
+          printf '%s' 'redis://:upstand-ci-password@redis:6379' > "$UPSTAND_SECRETS_DIR/redis_url"
+
+          UPSTAND_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+          export UPSTAND_DOCKER_GID
+          export UPSTAND_MIGRATION_ID="$STACK_NAME"
+          export UPSTAND_VERSION="$release_version"
+          export BETTER_AUTH_URL=https://api.example.invalid
+          export CORS_ORIGIN=https://app.example.invalid
+          export NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
+          export UPSTAND_BUNDLED_POSTGRES_REPLICAS=1
+          export UPSTAND_BUNDLED_REDIS_REPLICAS=1
+          export UPSTAND_SERVER_REPLICAS=1
+          export UPSTAND_SCHEDULES_REPLICAS=1
+          export UPSTAND_WEB_REPLICAS=1
+          export UPSTAND_FUMADOCS_REPLICAS=1
+
+          {
+            printf 'release_ref=%s\n' "$RELEASE_REF"
+            printf 'server_image=%s\n' "$UPSTAND_SERVER_IMAGE"
+            printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            UPSTAND_BACKUP_REHEARSAL_IMAGE="$UPSTAND_SERVER_IMAGE" \
+            UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS=900 \
+            UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS=300 \
+              bash scripts/backup-restore-rehearsal.sh
+          } 2>&1 | tee "$BACKUP_REHEARSAL_LOG"
+
+          advertise_addr="$(ip -4 route get 1.1.1.1 | awk '{for (index = 1; index <= NF; index++) if ($index == \"src\") { print $(index + 1); exit }}')"
+          [[ "$advertise_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Could not determine a routable Swarm advertise address" >&2
+            exit 1
+          }
+          docker swarm init --advertise-addr "$advertise_addr"
+          docker network create --driver overlay --attachable --opt encrypted "$DOCKER_NETWORK"
+
+          docker service create \
+            --name "$NETWORK_PROBE_NAME" \
+            --network "$DOCKER_NETWORK" \
+            --cap-drop ALL \
+            --user "10001:${UPSTAND_DOCKER_GID}" \
+            --entrypoint /bin/true \
+            --restart-condition none \
+            --with-registry-auth \
+            "$UPSTAND_SERVER_IMAGE" >/dev/null
+          probe_completed=false
+          for attempt in {1..30}; do
+            probe_state="$(docker service ps "$NETWORK_PROBE_NAME" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
+            if [[ "$probe_state" == Complete\ * ]]; then
+              probe_completed=true
+              break
+            fi
+            if [[ "$probe_state" == Failed\ * || "$probe_state" == Rejected\ * || "$probe_state" == Shutdown\ * ]]; then
+              echo "Encrypted-network runtime probe failed: $probe_state" >&2
+              docker service ps "$NETWORK_PROBE_NAME" --no-trunc >&2 || true
+              exit 1
+            fi
+            sleep 2
+          done
+          [[ "$probe_completed" == true ]] || {
+            echo "Encrypted-network runtime probe did not complete before timeout" >&2
+            docker service ps "$NETWORK_PROBE_NAME" --no-trunc >&2 || true
+            exit 1
+          }
+          docker service rm "$NETWORK_PROBE_NAME" >/dev/null
+
+          docker config create "$OTEL_COLLECTOR_CONFIG" scripts/otel-collector-acceptance.yaml >/dev/null
+          docker service create \
+            --name "$OTEL_COLLECTOR_SERVICE" \
+            --network "$DOCKER_NETWORK" \
+            --cap-drop ALL \
+            --user 10001:10001 \
+            --config "source=$OTEL_COLLECTOR_CONFIG,target=/etc/otelcol-contrib/config.yaml,mode=0444" \
+            "$OTEL_COLLECTOR_IMAGE" >/dev/null
+          collector_ready=false
+          for attempt in {1..30}; do
+            collector_state="$(docker service ps "$OTEL_COLLECTOR_SERVICE" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
+            if [[ "$collector_state" == Running\ * ]] \
+              && docker run --rm --network "$DOCKER_NETWORK" \
+                --cap-drop ALL --user 10001:10001 \
+                --entrypoint /bin/sh \
+                alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
+                -c 'wget -qO- "http://$1:13133/" >/dev/null' sh "$OTEL_COLLECTOR_SERVICE"; then
+              collector_ready=true
+              break
+            fi
+            if [[ "$collector_state" == Failed\ * || "$collector_state" == Rejected\ * || "$collector_state" == Shutdown\ * ]]; then
+              echo "OTLP collector failed to start: $collector_state" >&2
+              docker service ps "$OTEL_COLLECTOR_SERVICE" --no-trunc >&2 || true
+              exit 1
+            fi
+            sleep 2
+          done
+          [[ "$collector_ready" == true ]] || {
+            echo "OTLP collector health endpoint did not become ready before timeout" >&2
+            docker service ps "$OTEL_COLLECTOR_SERVICE" --no-trunc >&2 || true
+            exit 1
+          }
+          export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"
+
+          docker stack deploy --with-registry-auth --compose-file docker-compose.prod.yml "$STACK_NAME"
+
+          bundled_accepted=false
+          for attempt in {1..60}; do
+            if DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+              --stack "$STACK_NAME" --network "$DOCKER_NETWORK"; then
+              bundled_accepted=true
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$bundled_accepted" != true ]]; then
+            echo "Bundled single-node production acceptance did not converge before timeout" >&2
+            docker stack services "$STACK_NAME" || true
+            docker service ls || true
+            exit 1
+          fi
+          # Exercise the same node-local inspection path operators must run on
+          # every task-bearing node in a real multi-node cluster. The hosted
+          # runner is single-node, so this validates local process, health,
+          # identity, capability, and filesystem checks without overclaiming
+          # remote-node coverage.
+          DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+            --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --node-local \
+            2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/node-local-bundled.txt"
+
+          remove_stack
+          export UPSTAND_BUNDLED_POSTGRES_REPLICAS=0
+          export UPSTAND_BUNDLED_REDIS_REPLICAS=0
+          export UPSTAND_SERVER_REPLICAS=2
+          export UPSTAND_SCHEDULES_REPLICAS=2
+          export UPSTAND_WEB_REPLICAS=2
+          export UPSTAND_FUMADOCS_REPLICAS=2
+
+          # These disposable data services are deliberately single-replica
+          # integration fixtures. This phase proves external URL wiring,
+          # migration compatibility, and stateless control-plane HA; it does
+          # not claim PostgreSQL or Redis HA/failover evidence.
+          docker service create \
+            --name "${STACK_NAME}_external_postgres" \
+            --network "$DOCKER_NETWORK" \
+            --cap-drop ALL \
+            --cap-add CHOWN \
+            --cap-add DAC_OVERRIDE \
+            --cap-add SETGID \
+            --cap-add SETUID \
+            --env POSTGRES_DB=upstand \
+            --env POSTGRES_USER=upstand \
+            --env POSTGRES_PASSWORD=upstand-ci-password \
+            --health-cmd "pg_isready -U upstand -d upstand" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 10 \
+            --health-start-period 20s \
+            postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+          docker service create \
+            --name "${STACK_NAME}_external_redis" \
+            --network "$DOCKER_NETWORK" \
+            --cap-drop ALL \
+            --cap-add CHOWN \
+            --cap-add DAC_OVERRIDE \
+            --cap-add SETGID \
+            --cap-add SETUID \
+            --health-cmd "redis-cli --no-auth-warning -a upstand-ci-password ping" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 10 \
+            --health-start-period 10s \
+            redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb \
+            redis-server --appendonly yes --appendfsync everysec --requirepass upstand-ci-password
+
+          for attempt in {1..60}; do
+            if docker run --rm --network "$DOCKER_NETWORK" \
+              --entrypoint pg_isready \
+              postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15 \
+              -h "${STACK_NAME}_external_postgres" -U upstand -d upstand >/dev/null 2>&1 \
+              && docker run --rm --network "$DOCKER_NETWORK" \
+                --entrypoint redis-cli \
+                redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb \
+                -h "${STACK_NAME}_external_redis" -a upstand-ci-password ping 2>/dev/null | grep -q PONG; then
+              break
+            fi
+            if [[ "$attempt" == 60 ]]; then
+              echo "External acceptance data services did not become ready" >&2
+              docker service ls || true
+              exit 1
+            fi
+            sleep 5
+          done
+
+          printf '%s' "postgresql://upstand:upstand-ci-password@${STACK_NAME}_external_postgres:5432/upstand" > "$UPSTAND_SECRETS_DIR/database_url"
+          printf '%s' "redis://:upstand-ci-password@${STACK_NAME}_external_redis:6379" > "$UPSTAND_SECRETS_DIR/redis_url"
+          export UPSTAND_BUNDLED_POSTGRES_REPLICAS=0
+          export UPSTAND_BUNDLED_REDIS_REPLICAS=0
+          export UPSTAND_SERVER_REPLICAS=2
+          export UPSTAND_SCHEDULES_REPLICAS=2
+          export UPSTAND_WEB_REPLICAS=2
+          export UPSTAND_FUMADOCS_REPLICAS=2
+          docker stack deploy --with-registry-auth --compose-file docker-compose.prod.yml "$STACK_NAME"
+
+          otlp_probe_payload='{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"upstand-release-acceptance"},"logRecords":[{"timeUnixNano":"1700000000000000000","severityNumber":9,"severityText":"INFO","body":{"stringValue":"upstand acceptance OTLP probe"},"attributes":[]}]}]}]}'
+          docker run --rm --network "$DOCKER_NETWORK" \
+            --cap-drop ALL --user 10001:10001 \
+            --entrypoint /bin/sh \
+            alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
+            -c 'wget -qO- --header="Content-Type: application/json" --post-data="$1" "http://$2:4318/v1/logs" >/dev/null' \
+            sh "$otlp_probe_payload" "$OTEL_COLLECTOR_SERVICE"
+          telemetry_delivered=false
+          for attempt in {1..30}; do
+            if docker service logs --raw "$OTEL_COLLECTOR_SERVICE" 2>&1 | grep -Fq "upstand acceptance OTLP probe"; then
+              telemetry_delivered=true
+              break
+            fi
+            sleep 2
+          done
+          [[ "$telemetry_delivered" == true ]] || {
+            echo "OTLP collector did not record the acceptance probe" >&2
+            docker service logs --raw "$OTEL_COLLECTOR_SERVICE" >&2 || true
+            exit 1
+          }
+
+          external_accepted=false
+          for attempt in {1..60}; do
+            if DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+              --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --require-ha \
+              --external-postgres-service "${STACK_NAME}_external_postgres" \
+              --external-redis-service "${STACK_NAME}_external_redis"; then
+              external_accepted=true
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$external_accepted" != true ]]; then
+            echo "External-data integration and stateless-HA acceptance did not converge before timeout" >&2
+            docker stack services "$STACK_NAME" || true
+            docker service ls || true
+            exit 1
+          fi
+          DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+            --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --node-local \
+            2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/node-local-external-ha.txt"
+
+          dependency_failure_log="$ACCEPTANCE_EVIDENCE_DIR/dependency-failure.txt"
+          : > "$dependency_failure_log"
+          probe_server_readiness() {
+            expected="$1"
+            label="$2"
+            for attempt in {1..30}; do
+              set +e
+              status_code="$(docker run --rm --network "$DOCKER_NETWORK" \
+                --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+                --user 10001:10001 --entrypoint /bin/sh "$HEALTH_LOAD_IMAGE" \
+                -c 'curl --silent --output /dev/null --write-out "%{http_code}" --max-time 10 "http://$1:3000/health/ready"' \
+                sh "${STACK_NAME}_server" 2>/dev/null)"
+              set -e
+              printf '%s attempt=%s status=%s\n' "$label" "$attempt" "$status_code" | tee -a "$dependency_failure_log"
+              if [[ "$status_code" == "$expected" ]]; then
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+          restore_dependency_service() {
+            service_name="$1"
+            docker service update --replicas 1 "$service_name" >/dev/null
+            running=false
+            for attempt in {1..60}; do
+              service_state="$(docker service ps "$service_name" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
+              if [[ "$service_state" == Running\ * ]]; then
+                running=true
+                break
+              fi
+              sleep 2
+            done
+            [[ "$running" == true ]] || return 1
+            probe_server_readiness 200 "${service_name}-recovered"
+          }
+
+          docker service update --replicas 0 "${STACK_NAME}_external_redis" >/dev/null
+          probe_server_readiness 503 redis-unavailable
+          restore_dependency_service "${STACK_NAME}_external_redis"
+
+          docker service update --replicas 0 "${STACK_NAME}_external_postgres" >/dev/null
+          probe_server_readiness 503 postgres-unavailable
+          restore_dependency_service "${STACK_NAME}_external_postgres"
+
+          docker run --rm --network "$DOCKER_NETWORK" \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --user 10001:10001 \
+            --entrypoint /bin/sh \
+            "$HEALTH_LOAD_IMAGE" \
+            -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -Fq "\"backup\""' \
+            sh "${STACK_NAME}_schedules"
+
+          docker run --rm --network "$DOCKER_NETWORK" \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --user 10001:10001 \
+            --entrypoint /bin/sh \
+            "$HEALTH_LOAD_IMAGE" \
+            -c 'set -eu; metrics="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/metrics")"; printf "%s\n" "$metrics" | tee /tmp/schedules-metrics.txt; printf "%s\n" "$metrics" | grep -Fq "upstand_schedules_collection_success 1"; printf "%s\n" "$metrics" | grep -Fq "upstand_schedules_workers_ready 1"' \
+            sh "${STACK_NAME}_schedules" \
+            | tee "$ACCEPTANCE_EVIDENCE_DIR/schedules-metrics.txt"
+
+          docker run --rm --network "$DOCKER_NETWORK" \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --user 10001:10001 \
+            --volume "${GITHUB_WORKSPACE}/scripts/operational-status-rehearsal.ts:/tmp/operational-status-rehearsal.ts:ro" \
+            --env OPERATIONAL_STATUS_MAX_WAITING_COUNT=1000 \
+            --env OPERATIONAL_STATUS_MAX_FAILED_COUNT=0 \
+            --env OPERATIONAL_STATUS_MAX_DEAD_LETTER_COUNT=0 \
+            --env OPERATIONAL_STATUS_MAX_OUTBOX_PENDING_COUNT=1000 \
+            --env OPERATIONAL_STATUS_MAX_OUTBOX_PUBLISHING_COUNT=100 \
+            --entrypoint /usr/local/bin/bun \
+            "$UPSTAND_SERVER_IMAGE" \
+            /tmp/operational-status-rehearsal.ts \
+            "http://${STACK_NAME}_server:3000" \
+            "http://${STACK_NAME}_schedules:3002"
+
+          docker run --rm --network "$DOCKER_NETWORK" \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --user 10001:10001 \
+            --entrypoint /bin/sh \
+            --volume "${GITHUB_WORKSPACE}/scripts/health-load-rehearsal.sh:/tmp/health-load-rehearsal.sh:ro" \
+            --env HEALTH_LOAD_REQUESTS=120 \
+            --env HEALTH_LOAD_CONCURRENCY=12 \
+            --env HEALTH_LOAD_MAX_FAILURES=0 \
+            "$HEALTH_LOAD_IMAGE" \
+          /tmp/health-load-rehearsal.sh "http://${STACK_NAME}_server:3000"
+
+          # Run the documented bounded load profiles against the same
+          # externally backed stateless-HA topology. These are infrastructure
+          # readiness profiles, not a claim of authenticated customer-scale
+          # capacity; retain the output so operators can compare it with their
+          # target SLOs before selecting production replica and pool budgets.
+          for profile in "100 10" "1000 25" "10000 50"; do
+            set -- $profile
+            requests="$1"
+            concurrency="$2"
+            docker run --rm --network "$DOCKER_NETWORK" \
+              --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+              --user 10001:10001 \
+              --entrypoint /bin/sh \
+              --volume "${GITHUB_WORKSPACE}/scripts/health-load-rehearsal.sh:/tmp/health-load-rehearsal.sh:ro" \
+              --env HEALTH_LOAD_REQUESTS="$requests" \
+              --env HEALTH_LOAD_CONCURRENCY="$concurrency" \
+              --env HEALTH_LOAD_MAX_FAILURES=0 \
+              "$HEALTH_LOAD_IMAGE" \
+              /tmp/health-load-rehearsal.sh "http://${STACK_NAME}_server:3000" \
+              2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/health-load-${requests}.txt"
+          done
+
+          docker run --rm --network "$DOCKER_NETWORK" \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --user 10001:10001 \
+            --entrypoint /bin/sh \
+            --volume "${GITHUB_WORKSPACE}/scripts/health-load-rehearsal.sh:/tmp/health-load-rehearsal.sh:ro" \
+            --volume "${GITHUB_WORKSPACE}/scripts/health-soak-rehearsal.sh:/tmp/health-soak-rehearsal.sh:ro" \
+            --env HEALTH_SOAK_DURATION_SECONDS=60 \
+            --env HEALTH_SOAK_WINDOW_REQUESTS=120 \
+            --env HEALTH_SOAK_WINDOW_CONCURRENCY=12 \
+            --env HEALTH_SOAK_MAX_FAILURES_PER_WINDOW=0 \
+            --env HEALTH_SOAK_MAX_P95_MS=0 \
+            --env HEALTH_SOAK_MAX_P99_MS=0 \
+            --env HEALTH_SOAK_OUTPUT_FILE=/tmp/health-soak.txt \
+            "$HEALTH_LOAD_IMAGE" \
+            /tmp/health-soak-rehearsal.sh "http://${STACK_NAME}_server:3000" \
+            2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/health-soak.txt"
+
+      - name: Upload recovery rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-recovery-evidence
+          path: ${{ runner.temp }}/upstand-backup-rehearsal.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload production acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-acceptance-evidence
+          path: ${{ runner.temp }}/upstand-acceptance-evidence
+          if-no-files-found: ignore
+          retention-days: 14

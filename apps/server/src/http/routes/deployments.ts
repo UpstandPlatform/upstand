@@ -2,8 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { auth } from "@upstand/api/auth";
+import { requireInstanceOwner } from "@upstand/api/instance-access";
 import { checkPermission } from "@upstand/api/permissions";
-import { redis } from "@upstand/redis";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import {
   hashWebhookToken,
   matchesDockerImageWebhook,
@@ -22,6 +23,7 @@ import { z } from "zod";
 import {
   ApplicationArchiveValidationError,
   extractApplicationArchive,
+  validateApplicationArchiveFile,
 } from "../../application-archive";
 import { isStepUpAuthenticationSatisfied } from "../../step-up-auth";
 import { logRequestError } from "../error-logging";
@@ -48,30 +50,13 @@ async function validateSafeTarArchive(
   fs.mkdirSync(path.dirname(tempArchive), { recursive: true });
   fs.writeFileSync(tempArchive, buffer);
   try {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFile);
-    const listing = await execFileAsync("tar", ["-tf", tempArchive]);
-    const detailedListing = await execFileAsync("tar", ["-tvf", tempArchive]);
-    if (
-      detailedListing.stdout
-        .split(/\r?\n/)
-        .some((entry) => /^[lh]/i.test(entry))
-    ) {
-      return `Symbolic and hard links are not allowed in ${uploadTypeName} uploads`;
-    }
-    const unsafeEntry = listing.stdout
-      .split(/\r?\n/)
-      .map((entry) => entry.trim())
-      .find((entry) => {
-        if (!entry || path.isAbsolute(entry)) return Boolean(entry);
-        const normalized = path.posix.normalize(entry.replaceAll("\\", "/"));
-        return normalized === ".." || normalized.startsWith("../");
-      });
-    if (unsafeEntry) {
-      return `Archive entry escapes the destination: ${unsafeEntry}`;
-    }
+    await validateApplicationArchiveFile(tempArchive);
     return null;
+  } catch (error) {
+    if (error instanceof ApplicationArchiveValidationError) {
+      return `${uploadTypeName} archive rejected: ${error.message}`;
+    }
+    return `${uploadTypeName} archive could not be validated`;
   } finally {
     fs.rmSync(tempArchive, { force: true });
   }
@@ -158,12 +143,14 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
       createHash("sha256").update(`${resource.id}:${rawBody}`).digest("hex");
     let acceptedDelivery: string | null = null;
     try {
-      acceptedDelivery = await redis.set(
-        `deployment-webhook:${resource.id}:${deliveryId}`,
-        "1",
-        "EX",
-        300,
-        "NX",
+      acceptedDelivery = await withRedisTimeout(
+        redis.set(
+          `deployment-webhook:${resource.id}:${deliveryId}`,
+          "1",
+          "EX",
+          300,
+          "NX",
+        ),
       );
     } catch (error) {
       logRequestError(c.get("log"), error, {
@@ -366,6 +353,17 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
       if (!(await isStepUpAuthenticationSatisfied(session))) {
         return c.json({ error: "2FA verification required" }, 403);
       }
+      const serverId = c.req.query("serverId") || undefined;
+      if (!serverId || serverId === "local" || serverId === "manager") {
+        try {
+          await requireInstanceOwner(session.user.id, "session");
+        } catch {
+          return c.json(
+            { error: "Local Docker volume upload requires instance ownership" },
+            403,
+          );
+        }
+      }
 
       const body = await c.req.parseBody();
       const file = body.file;
@@ -389,7 +387,7 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
 
       const parsed = UploadDockerVolumeInputSchema.parse({
         organizationId,
-        serverId: c.req.query("serverId") || undefined,
+        serverId,
         volumeName: c.req.param("volumeName"),
         destination: c.req.query("destination") || "/",
       });

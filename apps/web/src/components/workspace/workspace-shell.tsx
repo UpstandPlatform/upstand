@@ -1,12 +1,9 @@
 "use client";
 
 import {
-  AppStoreIcon,
   ArrowDown01Icon,
-  Briefcase01Icon,
   CloudServerIcon,
   Folder01Icon,
-  Home01Icon,
   JobSearchIcon,
   Moon02Icon,
   Rocket01Icon,
@@ -56,7 +53,7 @@ type WorkspaceOrganization = {
 type WorkspaceNavigationItem = {
   label: string;
   href: string;
-  icon: typeof Home01Icon;
+  icon: typeof Folder01Icon;
   capability?: "remoteServers" | "jobs";
 };
 
@@ -67,39 +64,30 @@ const navigationGroups: ReadonlyArray<{
   {
     label: "Main",
     items: [
-      { label: "Home", href: "/workspace", icon: Home01Icon },
-      { label: "Projects", href: "/workspace/projects", icon: Folder01Icon },
-      { label: "Apps", href: "/workspace/apps", icon: AppStoreIcon },
+      { label: "Projects", href: "/projects", icon: Folder01Icon },
       {
         label: "Deployments",
-        href: "/workspace/deployments",
+        href: "/observation?tab=deployments",
         icon: Rocket01Icon,
       },
     ],
   },
   {
     label: "Settings",
-    items: [
-      {
-        label: "Backups",
-        href: "/workspace/backups",
-        icon: Briefcase01Icon,
-      },
-      { label: "Settings", href: "/workspace/settings", icon: Settings01Icon },
-    ],
+    items: [{ label: "Settings", href: "/settings", icon: Settings01Icon }],
   },
   {
     label: "Infrastructure",
     items: [
       {
         label: "Servers",
-        href: "/workspace/servers",
+        href: "/remote-servers",
         icon: CloudServerIcon,
         capability: "remoteServers",
       },
       {
-        label: "Jobs",
-        href: "/workspace/jobs",
+        label: "Cron jobs",
+        href: "/observation?tab=cron-jobs",
         icon: JobSearchIcon,
         capability: "jobs",
       },
@@ -185,7 +173,7 @@ function WorkspaceSidebar() {
           <Button
             className="h-10 w-full rounded-xl bg-linear-to-r from-amber-400 via-orange-500 to-rose-500 font-semibold text-white shadow-lg shadow-orange-500/15 hover:brightness-110"
             onClick={() => {
-              window.location.assign("/workspace/projects");
+              window.location.assign("/projects");
             }}
           >
             <span className="text-lg">+</span>

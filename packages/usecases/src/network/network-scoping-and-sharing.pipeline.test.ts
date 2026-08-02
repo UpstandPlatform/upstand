@@ -209,6 +209,7 @@ services:
         Name: UPSTAND_SWARM_NETWORK,
         Driver: "overlay",
         Attachable: true,
+        Options: { encrypted: "" },
       });
     });
 
@@ -220,6 +221,7 @@ services:
             Driver: "overlay",
             Scope: "swarm",
             Attachable: true,
+            Options: { encrypted: "" },
           }),
         }),
         createNetwork: async () => {
@@ -249,6 +251,24 @@ services:
 
       await expect(ensureUpstandOverlayNetwork(mockDocker)).rejects.toThrow(
         ConflictError,
+      );
+    });
+
+    test("rejects an existing unencrypted shared overlay network", async () => {
+      const mockDocker = {
+        getNetwork: () => ({
+          inspect: async () => ({
+            Id: "net-unencrypted-123",
+            Driver: "overlay",
+            Scope: "swarm",
+            Attachable: true,
+            Options: {},
+          }),
+        }),
+      } as unknown as Docker;
+
+      await expect(ensureUpstandOverlayNetwork(mockDocker)).rejects.toThrow(
+        "encrypted",
       );
     });
 

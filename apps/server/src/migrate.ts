@@ -1,9 +1,10 @@
 import { closeDb } from "@upstand/db";
+import { env } from "@upstand/env/server";
 import { closeRedis, redis } from "@upstand/redis";
 import { log } from "evlog";
 import { runDatabaseMigrations } from "./startup";
 
-const migrationId = process.env.UPSTAND_MIGRATION_ID;
+const migrationId = env.UPSTAND_MIGRATION_ID;
 const migrationKey = migrationId
   ? `upstand:migrations:ready:${migrationId}`
   : undefined;
@@ -15,5 +16,5 @@ try {
   log.info({ message: "Standalone database migration completed" });
 } finally {
   await closeDb();
-  if (migrationKey) await closeRedis(redis);
+  await closeRedis(redis);
 }

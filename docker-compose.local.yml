@@ -17,6 +17,7 @@ services:
     volumes:
       - postgres_data_v18:/var/lib/postgresql
     networks:
+      - default
       - upstand-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -271,6 +272,7 @@ services:
     volumes:
       - redis_data:/data
     networks:
+      - default
       - upstand-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

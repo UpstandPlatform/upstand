@@ -1,4 +1,4 @@
-import "@upstand/env/web";
+import { env } from "@upstand/env/web";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -8,12 +8,12 @@ const nextConfig: NextConfig = {
   } as NonNullable<NextConfig["experimental"]>,
   typescript: {
     ignoreBuildErrors:
-      process.env.SKIP_TYPECHECK === "1" ||
-      process.env.SKIP_TYPECHECK === "true",
+      env.NODE_ENV !== "production" &&
+      (env.SKIP_TYPECHECK === "1" || env.SKIP_TYPECHECK === "true"),
   },
   typedRoutes: true,
   // The compiler is valuable for production optimization.
-  reactCompiler: process.env.NODE_ENV === "production",
+  reactCompiler: env.NODE_ENV === "production",
   output: "standalone",
   devIndicators: false,
   allowedDevOrigins: [
@@ -57,6 +57,14 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
+    const isDev = env.NODE_ENV !== "production";
+    const scriptSrc = isDev
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+      : "script-src 'self' 'unsafe-inline'";
+    const connectSrc = isDev
+      ? "connect-src 'self' http: https: ws: wss:"
+      : "connect-src 'self' https: wss:";
+
     return [
       {
         source: "/:path*",
@@ -76,6 +84,10 @@ const nextConfig: NextConfig = {
           {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",
+          },
+          {
+            key: "Content-Security-Policy",
+            value: `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; ${connectSrc}; img-src 'self' data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; ${scriptSrc}`,
           },
         ],
       },

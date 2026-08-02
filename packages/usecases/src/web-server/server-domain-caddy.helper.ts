@@ -1,4 +1,4 @@
-import type { WebServerSettings } from "@upstand/domain";
+import { isLocalOrInternalHost, type WebServerSettings } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { getConfiguredControlPlaneMode } from "../platform/platform.types";
 
@@ -38,15 +38,17 @@ export function buildServerDomainCaddySnippet(
 
   let tlsDirective = "";
   const isDesktop = getConfiguredControlPlaneMode() === "desktop";
-  if (isDesktop && (provider === "letsencrypt" || provider === "zerossl")) {
-    tlsDirective = "\ttls internal";
-  } else if (provider === "self-signed") {
-    tlsDirective = "\ttls internal";
-  } else if (provider === "custom") {
+  if (provider === "custom") {
     const certId = settings?.certificateId?.trim();
     tlsDirective = certId
       ? `\ttls /etc/caddy/certificates/${certId}.crt /etc/caddy/certificates/${certId}.key`
       : "\ttls internal";
+  } else if (
+    isDesktop ||
+    provider === "self-signed" ||
+    isLocalOrInternalHost(domain)
+  ) {
+    tlsDirective = "\ttls internal";
   } else if (provider === "zerossl") {
     tlsDirective = email
       ? `\ttls ${email} {\n\t\tca https://acme.zerossl.com/v2/DV90\n\t}`

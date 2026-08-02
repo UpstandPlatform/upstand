@@ -165,6 +165,7 @@ const STARTUP_TOKENS: readonly Token[] = [
   dependencies.DockerServiceToken,
   dependencies.AIRepositoryToken,
   dependencies.CaddyServiceToken,
+  dependencies.DatabaseHealthToken,
   dependencies.UnitOfWorkToken,
   dependencies.DbToken,
 ];

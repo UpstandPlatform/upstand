@@ -1,11 +1,16 @@
 import { Readable } from "node:stream";
 import type { DomainMapping } from "@upstand/domain";
 import {
+  isLocalOrInternalHost,
   parseCaddyMiddlewares,
   parseDomainMappings,
   parseResourceAdvancedConfig,
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
+import {
+  assertConfiguredHttpUrl,
+  assertConfiguredHttpUrlSyntax,
+} from "@upstand/platform/network/outbound";
 import type {
   CaddyCertificate,
   CaddyResource,
@@ -22,7 +27,8 @@ import { log } from "evlog";
 import { getDockerInstance } from "../docker/docker-client";
 
 const CADDY_CONTAINER_NAME = "upstand-caddy";
-const CADDY_IMAGE = "caddy:2.8-alpine";
+const CADDY_IMAGE =
+  "caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17";
 const CADDYFILE_PATH = "/etc/caddy/Caddyfile";
 const CADDYFILE_CANDIDATE_PATH = "/etc/caddy/Caddyfile.next";
 const CADDYFILE_BACKUP_PATH = "/etc/caddy/Caddyfile.previous";
@@ -31,6 +37,25 @@ const CADDY_DATA_VOLUME = "upstand-caddy-data";
 const CADDY_CONFIG_VOLUME = "upstand-caddy-config";
 const CADDY_LOG_VOLUME = "upstand-caddy-logs";
 export const CADDY_ACCESS_LOG_PATH = "/var/log/caddy/access.log";
+const MAX_CADDY_EXEC_OUTPUT_BYTES = 2 * 1024 * 1024;
+
+export function hasPinnedImage(
+  image: { RepoDigests?: string[] | null; RepoTags?: string[] | null },
+  imageReference: string,
+): boolean {
+  const [imageWithTag, digest] = imageReference.split("@");
+  if (!digest || !imageWithTag) return false;
+  const repository = imageWithTag.replace(/:[^/:]+$/, "");
+  const expectedDigests = new Set([
+    `${repository}@${digest}`,
+    `docker.io/library/${repository}@${digest}`,
+  ]);
+  return (
+    image.RepoDigests?.some((imageDigest) =>
+      expectedDigests.has(imageDigest),
+    ) ?? false
+  );
+}
 const CONTROL_PLANE_PORTS_LABEL = "com.upstand.control-plane.ip-ports";
 
 const CONTROL_PLANE_SERVICES = [
@@ -73,6 +98,59 @@ function sanitizeServiceName(name: string): string {
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9_-]/g, "-");
+}
+
+function assertSafeForwardAuthAddress(
+  address: string,
+  allowlistedHosts: readonly string[] = getOutboundAllowlistedHosts(),
+): void {
+  try {
+    assertConfiguredHttpUrlSyntax(address, allowlistedHosts);
+  } catch (error) {
+    throw new Error(
+      `Forward-auth endpoint is not allowed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+function getOutboundAllowlistedHosts(): string[] {
+  return (env.UPSTAND_OUTBOUND_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Validate forward-auth destinations immediately before syncing a live
+ * configuration. The synchronous Caddyfile generator still performs syntax
+ * validation, while this runtime path also validates DNS answers so an
+ * allowlisted private hostname cannot be redirected to metadata or loopback.
+ */
+async function assertSafeForwardAuthAddresses(
+  resources: CaddyResource[],
+  certificates: CaddyCertificate[],
+  allowlistedHosts: readonly string[],
+): Promise<void> {
+  const endpoints = [
+    ...new Set(
+      getRoutes(resources, certificates, allowlistedHosts).flatMap((route) =>
+        route.forwardAuth ? [route.forwardAuth.address] : [],
+      ),
+    ),
+  ];
+  await Promise.all(
+    endpoints.map(async (address) => {
+      try {
+        await assertConfiguredHttpUrl(address, allowlistedHosts);
+      } catch (error) {
+        throw new Error(
+          `Forward-auth endpoint is not allowed: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        );
+      }
+    }),
+  );
 }
 
 function caddySettingsWithDefaults(settings: CaddySettings = {}) {
@@ -284,6 +362,7 @@ function createTarArchive(fileName: string, content: string): Readable {
 function getRoutes(
   resources: CaddyResource[],
   certificates: CaddyCertificate[] = [],
+  allowlistedHosts: readonly string[] = getOutboundAllowlistedHosts(),
 ): CaddyRoute[] {
   const routes: CaddyRoute[] = [];
   const certificateById = new Map(
@@ -368,6 +447,12 @@ function getRoutes(
               ),
             )
           : undefined;
+      if (mapping.forwardAuth) {
+        assertSafeForwardAuthAddress(
+          mapping.forwardAuth.address,
+          allowlistedHosts,
+        );
+      }
       routes.push({
         ...mapping,
         resourceId: resource.id,
@@ -487,6 +572,7 @@ export function generateCaddyfileContent(
   settings: CaddySettings = {},
   resources: CaddyResource[] = [],
   certificates: CaddyCertificate[] = [],
+  outboundAllowlistedHosts: readonly string[] = getOutboundAllowlistedHosts(),
 ): string {
   const effectiveSettings = caddySettingsWithDefaults(settings);
   validateManagedDirectives(effectiveSettings.globalCaddyfile);
@@ -496,7 +582,7 @@ export function generateCaddyfileContent(
   )) {
     validateManagedDirectives(middleware.body);
   }
-  const routes = getRoutes(resources, certificates);
+  const routes = getRoutes(resources, certificates, outboundAllowlistedHosts);
   const groupedRoutes = new Map<string, CaddyRoute[]>();
 
   for (const route of routes) {
@@ -547,8 +633,14 @@ export function generateCaddyfileContent(
       sites.push("\t}");
     }
     const certificateType = routesForHost[0]?.certificateType;
-    if (protocol === "https" && certificateType === "internal") {
-      sites.push("\ttls internal");
+    if (protocol === "https" && certificateType === "custom") {
+      const certificate = routesForHost[0]?.customCertificate;
+      if (!certificate) {
+        throw new Error(`Custom certificate for ${host} is not available`);
+      }
+      sites.push(
+        `\ttls /etc/caddy/certificates/${certificate.id}.crt /etc/caddy/certificates/${certificate.id}.key`,
+      );
     } else if (protocol === "https" && certificateType === "zerossl") {
       const email = effectiveSettings.letsEncryptEmail?.trim();
       if (email) {
@@ -567,14 +659,11 @@ export function generateCaddyfileContent(
       sites.push("\ttls {");
       sites.push(`\t\tdns cloudflare ${token}`);
       sites.push("\t}");
-    } else if (protocol === "https" && certificateType === "custom") {
-      const certificate = routesForHost[0]?.customCertificate;
-      if (!certificate) {
-        throw new Error(`Custom certificate for ${host} is not available`);
-      }
-      sites.push(
-        `\ttls /etc/caddy/certificates/${certificate.id}.crt /etc/caddy/certificates/${certificate.id}.key`,
-      );
+    } else if (
+      (protocol === "https" && certificateType === "internal") ||
+      (protocol === "https" && host && isLocalOrInternalHost(host))
+    ) {
+      sites.push("\ttls internal");
     } else if (protocol === "https") {
       const email = effectiveSettings.letsEncryptEmail?.trim();
       if (email) {
@@ -622,9 +711,14 @@ export class CaddyService {
   private static configurationTail: Promise<void> = Promise.resolve();
   private readonly docker: Docker;
   private readonly networkName = env.DOCKER_NETWORK;
+  private readonly outboundAllowlistedHosts: readonly string[];
 
-  constructor(docker: Docker = getDockerInstance()) {
+  constructor(
+    docker: Docker = getDockerInstance(),
+    outboundAllowlistedHosts: readonly string[] = getOutboundAllowlistedHosts(),
+  ) {
     this.docker = docker;
+    this.outboundAllowlistedHosts = outboundAllowlistedHosts;
   }
 
   private async serializeConfiguration<T>(work: () => Promise<T>): Promise<T> {
@@ -867,14 +961,7 @@ export class CaddyService {
 
   private async ensureImage(): Promise<void> {
     const images = await this.docker.listImages();
-    const hasImage = images.some((image) =>
-      image.RepoTags?.some(
-        (tag) =>
-          tag === CADDY_IMAGE ||
-          tag === `docker.io/library/${CADDY_IMAGE}` ||
-          tag.endsWith(`/${CADDY_IMAGE}`),
-      ),
-    );
+    const hasImage = images.some((image) => hasPinnedImage(image, CADDY_IMAGE));
     if (hasImage) {
       return;
     }
@@ -1043,11 +1130,38 @@ export class CaddyService {
     });
     const stream = await execution.start({});
     const chunks: Buffer[] = [];
-    stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    let outputBytes = 0;
 
     await new Promise<void>((resolve, reject) => {
-      stream.on("end", resolve);
-      stream.on("error", reject);
+      let settled = false;
+      stream.on("data", (chunk) => {
+        if (settled) return;
+        const bytes = Buffer.from(chunk);
+        outputBytes += bytes.byteLength;
+        if (outputBytes > MAX_CADDY_EXEC_OUTPUT_BYTES) {
+          settled = true;
+          try {
+            stream.destroy();
+          } catch {}
+          reject(
+            new Error(
+              `Caddy command output exceeded the ${MAX_CADDY_EXEC_OUTPUT_BYTES}-byte limit`,
+            ),
+          );
+          return;
+        }
+        chunks.push(bytes);
+      });
+      stream.on("end", () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      });
+      stream.on("error", (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
     });
 
     const result = await execution.inspect();
@@ -1100,14 +1214,22 @@ export class CaddyService {
     settings: CaddySettings = {},
     certificates: CaddyCertificate[] = [],
   ): Promise<{ success: true; domains: string[]; changed: boolean }> {
+    await assertSafeForwardAuthAddresses(
+      resources,
+      certificates,
+      this.outboundAllowlistedHosts,
+    );
     const caddyfile = generateCaddyfileContent(
       settings,
       resources,
       certificates,
+      this.outboundAllowlistedHosts,
     );
-    const domains = getRoutes(resources, certificates).map(
-      (route) => route.host,
-    );
+    const domains = getRoutes(
+      resources,
+      certificates,
+      this.outboundAllowlistedHosts,
+    ).map((route) => route.host);
     let changed = false;
     let stage = "initialize Caddy";
     const startedAt = Date.now();
@@ -1322,7 +1444,14 @@ export class CaddyService {
     try {
       const container = await this.findContainer();
       if (!container) return "Caddy container has not been initialized.";
-      const logs = await container.logs({ stdout: true, stderr: true, tail });
+      const safeTail = Number.isFinite(tail)
+        ? Math.max(1, Math.min(Math.trunc(tail), 10_000))
+        : 100;
+      const logs = await container.logs({
+        stdout: true,
+        stderr: true,
+        tail: safeTail,
+      });
       return this.cleanDockerLogs(logs);
     } catch (error) {
       return `Failed to fetch Caddy logs: ${error instanceof Error ? error.message : "unknown error"}`;

@@ -4,7 +4,10 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import type { IUnitOfWork, Resource } from "@upstand/domain";
+import type {
+  IUnitOfWork,
+  ResourceAutoscalingProjection,
+} from "@upstand/domain";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { hostVerifierForFingerprint } from "@upstand/platform/ssh/host-key";
 import {
@@ -24,7 +27,11 @@ let proxyStarted = false;
 const PROXY_PORT = 23775;
 // Port range for remote Docker SSH proxies on Windows (Unix sockets unsupported).
 let nextRemoteProxyPort = 23776;
-type RemoteProxyEntry = { socketPath: string } | { host: string; port: number };
+const MAX_REMOTE_DOCKER_PROXIES = 256;
+const releasedRemoteProxyPorts: number[] = [];
+type RemoteProxyEntry =
+  | { socketPath: string; close: () => void }
+  | { host: string; port: number; close: () => void };
 const remoteDockerProxies = new Map<string, RemoteProxyEntry>();
 
 export function getDockerInstance(): Docker {
@@ -95,6 +102,9 @@ function ensureRemoteDockerProxy(
     .digest("hex");
   const existing = remoteDockerProxies.get(key);
   if (existing) return existing;
+  if (remoteDockerProxies.size >= MAX_REMOTE_DOCKER_PROXIES) {
+    throw new Error("Remote Docker proxy capacity has been reached");
+  }
 
   // Build the per-connection SSH-tunnel proxy server. Each incoming TCP/socket
   // connection opens a fresh SSH session and pipes data through
@@ -175,26 +185,52 @@ function ensureRemoteDockerProxy(
   // Windows does not support Unix-domain sockets on arbitrary file paths.
   // Use a local TCP port instead so dockerode can reach the SSH tunnel proxy.
   if (process.platform === "win32") {
-    const localPort = nextRemoteProxyPort++;
+    const localPort = releasedRemoteProxyPorts.pop() ?? nextRemoteProxyPort++;
+    let closed = false;
     proxy.once("error", () => {
       remoteDockerProxies.delete(key);
     });
     proxy.listen(localPort, "127.0.0.1");
-    const entry: RemoteProxyEntry = { host: "127.0.0.1", port: localPort };
+    const entry: RemoteProxyEntry = {
+      host: "127.0.0.1",
+      port: localPort,
+      close: () => {
+        if (closed) return;
+        closed = true;
+        remoteDockerProxies.delete(key);
+        proxy.close();
+        releasedRemoteProxyPorts.push(localPort);
+      },
+    };
     remoteDockerProxies.set(key, entry);
     return entry;
   }
 
   const socketPath = path.join(os.tmpdir(), `upstand-docker-${key}.sock`);
   fs.rmSync(socketPath, { force: true });
+  let closed = false;
   proxy.once("error", () => {
     remoteDockerProxies.delete(key);
     fs.rmSync(socketPath, { force: true });
   });
   proxy.listen(socketPath);
-  const entry: RemoteProxyEntry = { socketPath };
+  const entry: RemoteProxyEntry = {
+    socketPath,
+    close: () => {
+      if (closed) return;
+      closed = true;
+      remoteDockerProxies.delete(key);
+      proxy.close();
+      fs.rmSync(socketPath, { force: true });
+    },
+  };
   remoteDockerProxies.set(key, entry);
   return entry;
+}
+
+export function closeRemoteDockerProxies(): void {
+  for (const entry of remoteDockerProxies.values()) entry.close();
+  remoteDockerProxies.clear();
 }
 
 export function createRemoteDockerCliEnvironment(
@@ -222,7 +258,7 @@ export function createRemoteDockerCliEnvironment(
     environment: {
       DOCKER_HOST: dockerHost,
     },
-    cleanup: () => {},
+    cleanup: entry.close,
   };
 }
 
@@ -362,7 +398,7 @@ export async function resolveDockerServiceForServer(
 }
 
 export async function resolveServicesForResource(
-  resource: Resource,
+  resource: ResourceAutoscalingProjection,
   uow: IUnitOfWork,
   defaultDockerService: DockerServicePort,
   defaultCaddyService: CaddyService,

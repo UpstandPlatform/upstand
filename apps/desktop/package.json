@@ -18,11 +18,11 @@
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
-    "@electron-forge/core": "^7.11.1",
     "@electron-forge/maker-deb": "^7.11.1",
     "@electron-forge/maker-dmg": "^7.11.1",
     "@electron-forge/maker-squirrel": "^7.11.1",
     "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/shared-types": "^7.11.1",
     "@types/bun": "catalog:",
     "@types/node": "^26.0.0",
     "electron": "^40.8.0",

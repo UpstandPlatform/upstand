@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import type { Schedule } from "@upstand/domain";
 import {
   CreateScheduleInputSchema,
   DeleteScheduleInputSchema,
@@ -22,7 +23,10 @@ import type { AuthenticatedContext } from "../context";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission, type PermissionAction } from "../permissions";
-import { authorizeResource as authorizeResourceScope } from "./shared/resource-authorization";
+import {
+  authorizeResource as authorizeResourceScope,
+  resolveResourceTarget,
+} from "./shared/resource-authorization";
 
 async function authorizeResource(
   ctx: AuthenticatedContext,
@@ -33,6 +37,18 @@ async function authorizeResource(
     action,
     missingProjectMessage: "Project not found",
   });
+}
+
+export function requireScheduleResourceId(
+  schedule: Pick<Schedule, "resourceId">,
+): string {
+  if (!schedule.resourceId) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Schedule not found",
+    });
+  }
+  return schedule.resourceId;
 }
 
 export const scheduleRouter = router({
@@ -87,9 +103,11 @@ export const scheduleRouter = router({
             message: "Schedule not found",
           });
         }
-        if (schedule.resourceId) {
-          await authorizeResource(ctx, schedule.resourceId, "resource:view");
-        }
+        await authorizeResource(
+          ctx,
+          requireScheduleResourceId(schedule),
+          "resource:view",
+        );
       }
       return ctx.scope.resolve(GetScheduleLogsUseCaseToken).execute(input);
     }),
@@ -97,10 +115,14 @@ export const scheduleRouter = router({
     .input(CreateScheduleInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeResource(ctx, input.resourceId, "resource:update");
+      const { organizationId } = await resolveResourceTarget(
+        ctx,
+        input.resourceId,
+      );
       try {
         const result = await ctx.scope
           .resolve(CreateScheduleUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId });
         await ctx.scope.resolve(GeneralSchedulerToken).refresh();
         return result;
       } catch (error) {
@@ -124,10 +146,14 @@ export const scheduleRouter = router({
         schedule.resourceId || "",
         "resource:update",
       );
+      const { organizationId } = await resolveResourceTarget(
+        ctx,
+        schedule.resourceId || "",
+      );
       try {
         const result = await ctx.scope
           .resolve(UpdateScheduleUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId });
         await ctx.scope.resolve(GeneralSchedulerToken).refresh();
         return result;
       } catch (error) {
@@ -171,9 +197,13 @@ export const scheduleRouter = router({
         schedule.resourceId || "",
         "resource:update",
       );
+      const { organizationId } = await resolveResourceTarget(
+        ctx,
+        schedule.resourceId || "",
+      );
       const deleted = await ctx.scope
         .resolve(DeleteScheduleUseCaseToken)
-        .execute(input);
+        .execute({ ...input, organizationId });
       await ctx.scope.resolve(GeneralSchedulerToken).refresh();
       return { deleted };
     }),

@@ -1,9 +1,14 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { IUnitOfWork } from "@upstand/domain";
-import { assertPublicHttpUrl } from "@upstand/platform/network/outbound";
+import { env, getInheritedEnv } from "@upstand/env/server";
+import { assertConfiguredHttpUrl } from "@upstand/platform/network/outbound";
 import { z } from "zod";
-import { ensureCaCertificateFile } from "../backup/backup-storage";
+import {
+  buildRcloneS3Configuration,
+  filterSafeS3AdditionalFlags,
+} from "../backup/backup-storage";
+import { resolveCertificateForOrganization } from "../certificate/certificate-reference";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,12 +30,8 @@ export type TestS3DestinationConnectionInput = z.infer<
   typeof TestS3DestinationConnectionInputSchema
 >;
 
-const SAFE_CONNECTION_FLAG_PATTERN =
-  /^--(no-check-certificate|ca-cert|s3-insecure-skip-verify|s3-(server-side-encryption|sse-kms-key-id|sse-customer-algorithm|sse-customer-key|sse-customer-key-md5))(=.*)?$/i;
-
 export function filterSafeEncryptionFlags(flags?: string[]): string[] {
-  if (!Array.isArray(flags)) return [];
-  return flags.filter((flag) => SAFE_CONNECTION_FLAG_PATTERN.test(flag.trim()));
+  return filterSafeS3AdditionalFlags(flags);
 }
 
 export function buildRcloneArguments(
@@ -46,24 +47,18 @@ export function buildRcloneArguments(
     | "additionalFlags"
   >,
 ): string[] {
-  const encryptionFlags = filterSafeEncryptionFlags(input.additionalFlags);
-  const caFlags: string[] = [];
-  if (input.caCertificatePem?.trim()) {
-    const certPath = ensureCaCertificateFile(input.caCertificatePem);
-    caFlags.push(`--ca-cert=${certPath}`);
-  }
-
+  const configuration = buildRcloneS3Configuration({
+    accessKeyId: input.accessKeyId,
+    secretAccessKey: input.secretAccessKey,
+    provider: input.provider,
+    region: input.region,
+    endpoint: input.endpoint,
+    caCertificatePem: input.caCertificatePem,
+    additionalFlags: input.additionalFlags,
+  });
   return [
     "ls",
-    `--s3-provider=${input.provider}`,
-    `--s3-access-key-id=${input.accessKeyId}`,
-    `--s3-secret-access-key=${input.secretAccessKey}`,
-    `--s3-region=${input.region}`,
-    `--s3-endpoint=${input.endpoint}`,
-    "--s3-no-check-bucket",
-    "--s3-force-path-style",
-    ...caFlags,
-    ...encryptionFlags,
+    ...configuration.flags,
     "--retries",
     "1",
     "--low-level-retries",
@@ -72,8 +67,23 @@ export function buildRcloneArguments(
     "10s",
     "--contimeout",
     "5s",
-    `:s3:${input.bucket}`,
+    `upstand:${input.bucket}`,
   ];
+}
+
+export function buildRcloneEnvironment(
+  input: Pick<
+    TestS3DestinationConnectionInput,
+    | "provider"
+    | "accessKeyId"
+    | "secretAccessKey"
+    | "region"
+    | "endpoint"
+    | "caCertificatePem"
+    | "additionalFlags"
+  >,
+): Record<string, string> {
+  return buildRcloneS3Configuration(input).environment;
 }
 
 export class TestS3DestinationConnectionUseCase {
@@ -85,13 +95,21 @@ export class TestS3DestinationConnectionUseCase {
     try {
       let caCertificatePem = input.caCertificatePem;
       if (!caCertificatePem && input.certificateId && this.uow) {
-        const cert = await this.uow.certificateRepository.findById(
+        const cert = await resolveCertificateForOrganization(
+          this.uow,
           input.certificateId,
+          input.organizationId,
         );
         caCertificatePem = cert?.certificatePem;
       }
 
-      const endpoint = await assertPublicHttpUrl(input.endpoint);
+      const endpoint = await assertConfiguredHttpUrl(
+        input.endpoint,
+        (env.UPSTAND_OUTBOUND_ALLOWED_HOSTS ?? "")
+          .split(",")
+          .map((host) => host.trim())
+          .filter(Boolean),
+      );
       const { stdout } = await execFileAsync(
         "rclone",
         buildRcloneArguments({
@@ -99,7 +117,18 @@ export class TestS3DestinationConnectionUseCase {
           endpoint: endpoint.toString(),
           caCertificatePem,
         }),
-        { timeout: 15_000, maxBuffer: 1024 * 1024 },
+        {
+          timeout: 15_000,
+          maxBuffer: 1024 * 1024,
+          env: {
+            ...getInheritedEnv(),
+            ...buildRcloneEnvironment({
+              ...input,
+              endpoint: endpoint.toString(),
+              caCertificatePem,
+            }),
+          },
+        },
       );
       return { success: true, output: stdout };
     } catch (error: unknown) {

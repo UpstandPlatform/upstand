@@ -45,6 +45,7 @@ const ResourceCredentialsSchema = z
     enableSubmodules: z.boolean().optional(),
     repositoryUrl: z.string().optional(),
     sshKeyId: z.string().optional(),
+    sshHostKeyFingerprint: z.string().optional(),
     composeFile: z.string().optional(),
   })
   .catchall(z.unknown());

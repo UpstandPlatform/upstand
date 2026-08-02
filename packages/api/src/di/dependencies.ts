@@ -251,6 +251,7 @@ export {
   CreateTemplateUseCaseToken,
   CreateWebServerBackupScheduleUseCaseToken,
   DatabaseCommandUseCaseToken,
+  DatabaseHealthToken,
   DeleteBackupScheduleUseCaseToken,
   DeleteCertificateUseCaseToken,
   DeleteDockerRegistryUseCaseToken,

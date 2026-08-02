@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { migrateDatabase } from "@upstand/db";
+import {
+  MigrationPreconditionError,
+  migrateDatabase,
+  pool,
+  validateMigrationPreconditions,
+} from "@upstand/db";
 import { env } from "@upstand/env/server";
 import { log } from "evlog";
 
@@ -43,6 +48,7 @@ export async function runDatabaseMigrations(options?: {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
+      await validateMigrationPreconditions(pool);
       await migrateDatabase(migrationsFolder);
       log.info({
         message: "Database migrations completed",
@@ -51,6 +57,7 @@ export async function runDatabaseMigrations(options?: {
       });
       return;
     } catch (error) {
+      if (error instanceof MigrationPreconditionError) throw error;
       lastError = error;
       log.warn({
         message: "Database migration attempt failed",

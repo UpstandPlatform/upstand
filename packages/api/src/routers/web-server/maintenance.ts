@@ -1,4 +1,5 @@
-import { redis } from "@upstand/redis";
+import { readResponseJsonLimited } from "@upstand/platform/network/response-body";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import {
   ReloadWebServerUseCaseToken,
   UnitOfWorkToken,
@@ -113,11 +114,13 @@ export const webServerMaintenanceProcedures = {
         });
         await Promise.all(
           cancelledDeploymentIds.map((deploymentId) =>
-            redis.set(
-              `upstand:deployment:cancel:${deploymentId}`,
-              "1",
-              "EX",
-              3600,
+            withRedisTimeout(
+              redis.set(
+                `upstand:deployment:cancel:${deploymentId}`,
+                "1",
+                "EX",
+                3600,
+              ),
             ),
           ),
         );
@@ -246,8 +249,14 @@ export const webServerMaintenanceProcedures = {
       let ip = input?.ip;
       if (!ip) {
         try {
-          const res = await fetch("https://api.ipify.org?format=json");
-          const data = (await res.json()) as { ip: string };
+          const res = await fetch("https://api.ipify.org?format=json", {
+            redirect: "error",
+            signal: AbortSignal.timeout(3_000),
+          });
+          const data = await readResponseJsonLimited<{ ip: string }>(
+            res,
+            8 * 1024,
+          );
           ip = data.ip;
         } catch (error) {
           try {

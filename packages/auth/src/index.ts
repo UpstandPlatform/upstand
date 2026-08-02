@@ -34,6 +34,9 @@ export interface AuthCallbacks {
   createPersonalOrganization(user: { id: string }): Promise<void>;
   canCreateInitialAccount(): Promise<boolean>;
   isPersonalOrganization(organizationId: string): Promise<boolean>;
+  assertOrganizationDeletionAllowed(
+    organizationId: string,
+  ): Promise<string | null>;
   isSsoEnforced(email: string): Promise<boolean>;
   sendInvitationEmail(input: {
     id: string;
@@ -295,6 +298,23 @@ export function createAuth(options: {
               { status: 403 },
             );
           }
+
+          if (ctx.request) {
+            const body: UnknownRecord = await readJsonRecord(
+              ctx.request.clone(),
+            );
+            const email =
+              typeof body.email === "string" ? body.email.trim() : "";
+            if (email && (await callbacks.isSsoEnforced(email))) {
+              return ctx.json(
+                {
+                  error:
+                    "This organization requires sign-in through its verified SSO provider.",
+                },
+                { status: 403 },
+              );
+            }
+          }
         }
 
         if (ctx.path.startsWith("/organization/delete")) {
@@ -311,6 +331,12 @@ export function createAuth(options: {
               { error: "Cannot delete personal organization" },
               { status: 400 },
             );
+          }
+
+          const deletionBlocker =
+            await callbacks.assertOrganizationDeletionAllowed(organizationId);
+          if (deletionBlocker) {
+            return ctx.json({ error: deletionBlocker }, { status: 409 });
           }
         }
 

@@ -5,8 +5,29 @@ import { Client } from "ssh2";
 import { generateCaddyfileContent } from "../caddy/caddy.service";
 
 const CADDY_CONTAINER_NAME = "upstand-caddy";
-const CADDY_IMAGE = "caddy:2.8-alpine";
+const CADDY_IMAGE =
+  "caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17";
 const CADDY_NETWORK = "upstand-network";
+export const MAX_SSH_STDOUT_BYTES = 2 * 1024 * 1024;
+export const MAX_SSH_STDERR_BYTES = 512 * 1024;
+
+export function appendBoundedSshOutput(
+  current: string,
+  chunk: Buffer | string,
+  maxBytes: number,
+  streamName: "stdout" | "stderr",
+): string {
+  const text = chunk.toString();
+  if (
+    Buffer.byteLength(current, "utf8") + Buffer.byteLength(text, "utf8") >
+    maxBytes
+  ) {
+    throw new Error(
+      `SSH ${streamName} output exceeded the ${maxBytes}-byte safety limit`,
+    );
+  }
+  return current + text;
+}
 
 export function createServerProvisioningPort(): ServerProvisioningPort {
   return {
@@ -221,17 +242,28 @@ async function execute(
       let stderr = "";
       let exitCode: number | null = null;
       let finished = false;
+      const terminate = () => {
+        try {
+          (stream as unknown as { signal?: (signal: string) => void }).signal?.(
+            "KILL",
+          );
+        } catch {
+          // Closing the SSH channel below remains the fallback when the
+          // server does not support channel signals.
+        }
+        stream.destroy();
+      };
       const finish = (code: number | null) => {
         if (finished) return;
         finished = true;
         if (timer) clearTimeout(timer);
         resolve({ code, stdout, stderr });
-        stream.destroy();
+        terminate();
       };
       timer = setTimeout(() => {
         if (!finished) {
           finished = true;
-          stream.destroy();
+          terminate();
           reject(
             new Error(
               `SSH command execution timed out after ${timeoutMs / 1000}s`,
@@ -249,10 +281,38 @@ async function execute(
         reject(err);
       });
       stream.on("data", (data: Buffer | string) => {
-        stdout += data.toString();
+        try {
+          stdout = appendBoundedSshOutput(
+            stdout,
+            data,
+            MAX_SSH_STDOUT_BYTES,
+            "stdout",
+          );
+        } catch (error) {
+          if (timer) clearTimeout(timer);
+          if (!finished) {
+            finished = true;
+            terminate();
+            reject(error);
+          }
+        }
       });
       stream.stderr.on("data", (data: Buffer | string) => {
-        stderr += data.toString();
+        try {
+          stderr = appendBoundedSshOutput(
+            stderr,
+            data,
+            MAX_SSH_STDERR_BYTES,
+            "stderr",
+          );
+        } catch (error) {
+          if (timer) clearTimeout(timer);
+          if (!finished) {
+            finished = true;
+            terminate();
+            reject(error);
+          }
+        }
       });
     });
   });

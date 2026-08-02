@@ -7,6 +7,7 @@ import {
 } from "../platform/platform.types";
 
 export const MigrateResourceInputSchema = z.object({
+  organizationId: z.string().min(1, "Organization ID is required"),
   resourceId: z.string().min(1, "Resource ID is required"),
   targetServerId: z.string().min(1, "Target Server ID is required"),
 });
@@ -38,12 +39,35 @@ export class MigrateResourceUseCase {
       if (!resource) {
         throw new Error("Resource not found");
       }
+      const environment = await tx.environmentRepository.findById(
+        resource.environmentId,
+      );
+      const project = environment
+        ? await tx.projectRepository.findById(environment.projectId)
+        : null;
+      if (!project || project.organizationId !== input.organizationId) {
+        throw new Error("Resource not found");
+      }
 
       const targetServer = await tx.serverRepository.findById(
         input.targetServerId,
       );
-      if (!targetServer) {
+      if (
+        !targetServer ||
+        targetServer.organizationId !== input.organizationId
+      ) {
         throw new Error("Target server not found");
+      }
+
+      const sourceServerId = resource.serverId ?? "local";
+      if (sourceServerId !== "local") {
+        const sourceServer = await tx.serverRepository.findById(sourceServerId);
+        if (
+          !sourceServer ||
+          sourceServer.organizationId !== input.organizationId
+        ) {
+          throw new Error("Resource not found");
+        }
       }
 
       if (targetServer.status !== "ready") {
@@ -52,7 +76,6 @@ export class MigrateResourceUseCase {
         );
       }
 
-      const sourceServerId = resource.serverId ?? "local";
       if (sourceServerId === input.targetServerId) {
         throw new Error("Resource is already placed on the target server");
       }

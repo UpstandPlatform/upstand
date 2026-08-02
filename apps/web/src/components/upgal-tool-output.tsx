@@ -322,10 +322,11 @@ function WebSearchResult({ output }: { output: RecordValue }) {
         <div className="flex flex-col gap-2">
           {results.map((result, index) => {
             const url = stringValue(result.url);
+            const safeUrl = url && /^https?:\/\//i.test(url) ? url : undefined;
             return (
               <a
                 className="rounded-md border bg-muted/20 px-3 py-2 hover:bg-muted/50"
-                href={url}
+                href={safeUrl}
                 key={`${url ?? "result"}-${index}`}
                 rel="noreferrer"
                 target="_blank"

@@ -283,7 +283,21 @@ describe("server use cases", () => {
     });
 
     await expect(
-      new DeleteServerUseCase(uow).execute({ id: "server-1" }),
+      new DeleteServerUseCase(uow).execute({
+        id: "server-1",
+        organizationId: "org-1",
+      }),
     ).rejects.toThrow("Reassign those resources before deleting the server");
+  });
+
+  test("rejects deleting a server from another organization", async () => {
+    const { uow } = createUow();
+
+    await expect(
+      new DeleteServerUseCase(uow).execute({
+        id: "server-1",
+        organizationId: "org-2",
+      }),
+    ).rejects.toThrow("another organization");
   });
 });

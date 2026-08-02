@@ -20,7 +20,7 @@ bun setup
 bun dev
 ```
 
-`bun setup` is safe to re-run. It creates ignored local environment files for the API and web app from the checked-in examples, installs the frozen lockfile, starts local PostgreSQL 18 and Redis 8.8, waits for PostgreSQL, synchronizes only the local database password without deleting data, and applies the checked-in migrations. The PostgreSQL 18 upgrade intentionally uses the versioned `postgres_data_v18` volume; if you need old local data, follow the database upgrade runbook first. `bun dev` starts the API, web console, and Fumadocs together.
+`bun setup` is safe to re-run. It creates ignored local environment files for the API and web app from the checked-in examples, installs the frozen lockfile, starts local PostgreSQL 18 and Redis 8.8, waits for PostgreSQL, synchronizes only the local database password without deleting data, and applies the checked-in migrations. The local Swarm overlay is created with IPsec encryption and setup refuses to reuse an unencrypted network. The PostgreSQL 18 upgrade intentionally uses the versioned `postgres_data_v18` volume; if you need old local data, follow the database upgrade runbook first. `bun dev` starts the API, web console, and Fumadocs together.
 
 Next.js production builds use Turbopack by default. Local development uses the
 Webpack dev server because the current Next.js Turbopack dev server can return

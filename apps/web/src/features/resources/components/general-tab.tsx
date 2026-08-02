@@ -264,6 +264,7 @@ export function GeneralTab({
 
   const [gitUrl, setGitUrl] = useState("");
   const [gitSshKeyId, setGitSshKeyId] = useState("");
+  const [gitSshHostKeyFingerprint, setGitSshHostKeyFingerprint] = useState("");
   const [gitBranch, setGitBranch] = useState("master");
   const [gitComposePath, setGitComposePath] = useState("./docker-compose.yml");
   const [gitTriggerType, setGitTriggerType] = useState("push");
@@ -511,6 +512,7 @@ export function GeneralTab({
         } else if (config.provider === "git") {
           setGitUrl(config.repositoryUrl ?? "");
           setGitSshKeyId(config.sshKeyId ?? "");
+          setGitSshHostKeyFingerprint(config.sshHostKeyFingerprint ?? "");
           setGitBranch(config.branch ?? "master");
           setGitComposePath(config.composePath ?? "./docker-compose.yml");
           setGitTriggerType(
@@ -670,6 +672,9 @@ export function GeneralTab({
         ...config,
         repositoryUrl: gitUrl,
         sshKeyId: gitSshKeyId,
+        ...(gitSshHostKeyFingerprint.trim()
+          ? { sshHostKeyFingerprint: gitSshHostKeyFingerprint.trim() }
+          : {}),
         branch: gitBranch,
         ...(resource.type === "compose" ? { composePath: gitComposePath } : {}),
         triggerType: gitTriggerType,
@@ -2877,6 +2882,21 @@ export function GeneralTab({
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>SSH Host-Key Fingerprint</Label>
+                    <Input
+                      value={gitSshHostKeyFingerprint}
+                      onChange={(e) =>
+                        setGitSshHostKeyFingerprint(e.target.value)
+                      }
+                      placeholder="SHA256:..."
+                    />
+                    <p className="text-muted-foreground text-xs">
+                      Required for SSH repository URLs. Copy the SHA256 host
+                      fingerprint from your Git server; deployments fail closed
+                      if it does not match.
+                    </p>
                   </div>
                   {resource.type === "compose" ? (
                     <div className="grid gap-4 sm:grid-cols-2">

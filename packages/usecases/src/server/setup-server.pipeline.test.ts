@@ -22,6 +22,7 @@ function createMockProvisioningPort(
     dockerPresent?: boolean;
     swarmFail?: boolean;
     sshFail?: boolean;
+    monitoringBuildFail?: boolean;
   } = {},
 ): {
   port: ServerProvisioningPort;
@@ -68,6 +69,10 @@ function createMockProvisioningPort(
             return { code: 0, stdout: "Docker version 27.0.3", stderr: "" };
           }
 
+          if (cmd.includes("stat -c '%g' /var/run/docker.sock")) {
+            return { code: 0, stdout: "998\n", stderr: "" };
+          }
+
           if (cmd.includes("docker swarm init")) {
             if (options.swarmFail) {
               return {
@@ -86,6 +91,14 @@ function createMockProvisioningPort(
             cmd.includes("docker network")
           ) {
             return { code: 0, stdout: "ok", stderr: "" };
+          }
+
+          if (cmd.includes("docker build") && options.monitoringBuildFail) {
+            return {
+              code: 1,
+              stdout: "",
+              stderr: "Error: monitoring image build failed",
+            };
           }
 
           return { code: 0, stdout: "", stderr: "" };
@@ -255,5 +268,25 @@ describe("SetupServerUseCase pipeline tests", () => {
 
     expect(server.status).toBe("failed");
     expect(server.setupError).toBeDefined();
+  });
+
+  test("cleans monitoring source artifacts when the remote image build fails", async () => {
+    const { uow, server } = createTestUow({ serverType: "deploy" });
+    const { port, state } = createMockProvisioningPort({
+      monitoringBuildFail: true,
+    });
+
+    const useCase = new SetupServerUseCase(uow, port);
+    await expect(useCase.execute({ id: server.id })).rejects.toThrow(
+      "monitoring image build failed",
+    );
+
+    expect(
+      state.commandsExecuted.some(
+        (command) =>
+          command.includes("rm -rf '/tmp/monitoring-") &&
+          command.includes("'/tmp/monitoring-src-server-1'"),
+      ),
+    ).toBe(true);
   });
 });

@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { env } from "@upstand/env/testing";
 
 export type E2eResource = {
   id: string;
@@ -24,26 +25,24 @@ export type LocalE2eContext = {
   backupDestinationId: string;
 };
 
-const requestTimeoutMs = Number(process.env.E2E_REQUEST_TIMEOUT_MS ?? 5000);
+const requestTimeoutMs = env.E2E_REQUEST_TIMEOUT_MS;
 
 export const e2eContext: LocalE2eContext = {
-  baseUrl: process.env.E2E_BASE_URL ?? "http://localhost:3000",
-  authCookie: process.env.E2E_AUTH_COOKIE ?? "e2e-auth-cookie",
-  apiKey: process.env.E2E_API_KEY ?? "e2e-api-key",
-  resourceId: process.env.E2E_RESOURCE_ID ?? "res-e2e-default",
-  remoteServerId: process.env.E2E_REMOTE_SERVER_ID ?? "server-e2e-default",
-  organizationId: process.env.E2E_ORGANIZATION_ID ?? "org-e2e-default",
+  baseUrl: env.E2E_BASE_URL,
+  authCookie: env.E2E_AUTH_COOKIE,
+  apiKey: env.E2E_API_KEY,
+  resourceId: env.E2E_RESOURCE_ID,
+  remoteServerId: env.E2E_REMOTE_SERVER_ID,
+  organizationId: env.E2E_ORGANIZATION_ID,
   mutationsAllowed: true,
   // Live HTTP checks are opt-in. The repository test suite must remain safe
   // to run without a server listening on localhost:3000.
   serverAvailable:
-    process.env.E2E_SERVER_AVAILABLE === "true" ||
-    process.env.E2E_BASE_URL !== undefined,
+    env.E2E_SERVER_AVAILABLE || env.E2E_BASE_URL !== "http://localhost:3000",
   resourceConfigured: true,
   remoteServerConfigured: true,
   organizationConfigured: true,
-  backupDestinationId:
-    process.env.E2E_BACKUP_DESTINATION_ID ?? "backup-dest-default",
+  backupDestinationId: env.E2E_BACKUP_DESTINATION_ID,
 };
 
 export function fetchWithTimeout(input: string, init?: RequestInit) {

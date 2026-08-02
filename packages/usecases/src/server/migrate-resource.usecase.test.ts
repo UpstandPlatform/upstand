@@ -34,6 +34,7 @@ function createMigrateTestUow() {
       "res-1",
       {
         id: "res-1",
+        environmentId: "env-1",
         organizationId: "org-1",
         name: "Test App",
         serverId: "server-source",
@@ -44,12 +45,26 @@ function createMigrateTestUow() {
 
   const deployments = new Map<string, Deployment>();
   const outbox = new Map<string, Record<string, unknown>>();
+  const environments = new Map([
+    ["env-1", { id: "env-1", projectId: "project-1" }],
+    ["env-2", { id: "env-2", projectId: "project-2" }],
+  ]);
+  const projects = new Map([
+    ["project-1", { id: "project-1", organizationId: "org-1" }],
+    ["project-2", { id: "project-2", organizationId: "org-2" }],
+  ]);
 
   const uow = {
     transaction: async <T>(fn: (tx: IUnitOfWork) => Promise<T>): Promise<T> =>
       fn(uow as unknown as IUnitOfWork),
     serverRepository: {
       findById: async (id: string) => servers.get(id) ?? null,
+    },
+    environmentRepository: {
+      findById: async (id: string) => environments.get(id) ?? null,
+    },
+    projectRepository: {
+      findById: async (id: string) => projects.get(id) ?? null,
     },
     resourceRepository: {
       findById: async (id: string) => resources.get(id) ?? null,
@@ -92,6 +107,7 @@ describe("MigrateResourceUseCase", () => {
 
     const useCase = new MigrateResourceUseCase(uow);
     const result = await useCase.execute({
+      organizationId: "org-1",
       resourceId: "res-1",
       targetServerId: "server-target",
     });
@@ -110,9 +126,57 @@ describe("MigrateResourceUseCase", () => {
     const useCase = new MigrateResourceUseCase(uow);
     await expect(
       useCase.execute({
+        organizationId: "org-1",
         resourceId: "res-1",
         targetServerId: "server-source",
       }),
     ).rejects.toThrow("Resource is already placed on the target server");
+  });
+
+  test("rejects a resource owned by another organization", async () => {
+    const { uow, resources, deployments, outbox } = createMigrateTestUow();
+    resources.set("res-other-org", {
+      id: "res-other-org",
+      environmentId: "env-2",
+      organizationId: "org-2",
+      name: "Other App",
+      serverId: "server-source",
+      status: "running",
+    } as unknown as Resource);
+
+    const useCase = new MigrateResourceUseCase(uow);
+    await expect(
+      useCase.execute({
+        organizationId: "org-1",
+        resourceId: "res-other-org",
+        targetServerId: "server-target",
+      }),
+    ).rejects.toThrow("Resource not found");
+    expect(resources.get("res-other-org")?.serverId).toBe("server-source");
+    expect(deployments.size).toBe(0);
+    expect(outbox.size).toBe(0);
+  });
+
+  test("rejects a target server owned by another organization", async () => {
+    const { uow, servers, resources, deployments, outbox } =
+      createMigrateTestUow();
+    servers.set("server-other-org", {
+      id: "server-other-org",
+      organizationId: "org-2",
+      name: "Other Node",
+      status: "ready",
+    } as unknown as Server);
+
+    const useCase = new MigrateResourceUseCase(uow);
+    await expect(
+      useCase.execute({
+        organizationId: "org-1",
+        resourceId: "res-1",
+        targetServerId: "server-other-org",
+      }),
+    ).rejects.toThrow("Target server not found");
+    expect(resources.get("res-1")?.serverId).toBe("server-source");
+    expect(deployments.size).toBe(0);
+    expect(outbox.size).toBe(0);
   });
 });

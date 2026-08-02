@@ -150,6 +150,7 @@ export type CreateNotificationChannelInput = z.infer<
 
 export const UpdateNotificationChannelInputSchema = z.object({
   id: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
   name: z.string().trim().min(1).max(120).optional(),
   events: z.array(NotificationEventTypeSchema).min(1).max(16).optional(),
   configuration: z.record(z.string(), z.unknown()).optional(),

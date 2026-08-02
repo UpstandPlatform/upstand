@@ -4,6 +4,7 @@ import {
   validateArchiveFile,
 } from "./archive-upload";
 import { downloadText, normalizeDownloadFilename } from "./browser";
+import { safeExternalUrl } from "./safe-external-url";
 
 describe("browser helpers", () => {
   test("normalizes unsafe download filenames", () => {
@@ -58,6 +59,18 @@ describe("browser helpers", () => {
     ).toContain("Supported archive types");
     expect(validateArchiveDestination("tmp")).toContain("absolute");
     expect(validateArchiveDestination("/tmp")).toBeNull();
+  });
+
+  test("allows only absolute HTTP(S) external URLs", () => {
+    expect(safeExternalUrl("https://example.com/path?q=1")).toBe(
+      "https://example.com/path?q=1",
+    );
+    expect(safeExternalUrl("http://git.internal.example/")).toBe(
+      "http://git.internal.example/",
+    );
+    expect(safeExternalUrl("javascript:alert(1)")).toBeUndefined();
+    expect(safeExternalUrl("data:text/html,pwned")).toBeUndefined();
+    expect(safeExternalUrl("/relative/path")).toBeUndefined();
   });
 });
 

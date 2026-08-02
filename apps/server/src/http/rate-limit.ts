@@ -1,6 +1,7 @@
 import { resolveClientIp } from "@upstand/api/client-ip";
 import {
   enforceRequestRateLimit,
+  RateLimiterUnavailableError,
   type RateLimitProfile,
 } from "@upstand/api/rate-limiting";
 import type { Context, MiddlewareHandler } from "hono";
@@ -43,6 +44,12 @@ export function createHttpRateLimitMiddleware(
         setHeader: (name, value) => c.header(name, value),
       });
     } catch (error) {
+      if (error instanceof RateLimiterUnavailableError) {
+        return c.json(
+          { error: "Rate limiting is temporarily unavailable" },
+          503,
+        );
+      }
       if (error instanceof Error && error.message.startsWith("Rate limit")) {
         return options.onRejected(c, error.message);
       }

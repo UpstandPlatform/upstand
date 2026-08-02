@@ -11,6 +11,7 @@ const SCIM_STATUS_CODES = [
   400, 401, 404, 405, 409, 413, 422, 429, 500,
 ] as const;
 type ScimStatus = (typeof SCIM_STATUS_CODES)[number];
+const MAX_SCIM_OFFSET = 1_000_000;
 
 export function registerScimRoutes(app: Hono<AppEnv>): void {
   app.use(
@@ -332,6 +333,9 @@ export function registerScimRoutes(app: Hono<AppEnv>): void {
     const startIndex = Number.isFinite(requestedStart)
       ? Math.max(1, Math.trunc(requestedStart))
       : 1;
+    if (startIndex - 1 > MAX_SCIM_OFFSET) {
+      return scimError(c, 400, "SCIM startIndex is too large");
+    }
     const requestedCount = Number(c.req.query("count") || 100);
     const countLimit = Math.min(
       1000,

@@ -1,4 +1,8 @@
-import type { Environment, IUnitOfWork } from "@upstand/domain";
+import type {
+  Environment,
+  EnvironmentSummaryProjection,
+  IUnitOfWork,
+} from "@upstand/domain";
 import { z } from "zod";
 
 export const GetEnvironmentInputSchema = z.object({
@@ -13,6 +17,24 @@ export class GetEnvironmentUseCase {
   async execute(input: GetEnvironmentInput): Promise<Environment | null> {
     return this.uow.transaction(async (tx) => {
       return await tx.environmentRepository.findById(input.id);
+    });
+  }
+
+  async executeSummary(
+    input: GetEnvironmentInput,
+  ): Promise<EnvironmentSummaryProjection | null> {
+    return this.uow.transaction(async (tx) => {
+      if (tx.environmentRepository.findSummaryById) {
+        return tx.environmentRepository.findSummaryById(input.id);
+      }
+
+      const environment = await tx.environmentRepository.findById(input.id);
+      if (!environment) return null;
+      const { envVars, ...summary } = environment;
+      return {
+        ...summary,
+        envVarsConfigured: Boolean(envVars),
+      };
     });
   }
 }

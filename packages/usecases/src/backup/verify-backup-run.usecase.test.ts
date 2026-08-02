@@ -36,10 +36,16 @@ function createUseCase(
       },
     },
     backupScheduleRepository: {
-      findById: async () => ({ kind: "web-server" }),
+      findById: async () => ({
+        kind: "web-server",
+        organizationId: "organization-1",
+      }),
     },
     s3DestinationRepository: {
-      findById: async () => ({ id: "destination-1" }),
+      findById: async () => ({
+        id: "destination-1",
+        organizationId: "organization-1",
+      }),
     },
   };
   const runtime = { verifyBackup };
@@ -90,6 +96,22 @@ describe("VerifyBackupRunUseCase", () => {
 
     await expect(useCase.execute(incomplete.id)).rejects.toThrow(
       "Completed backup artifact not found",
+    );
+    expect(updates).toEqual([]);
+  });
+
+  test("rejects a backup run whose organization disagrees with its schedule", async () => {
+    const mismatched = {
+      ...run,
+      organizationId: "organization-2",
+    } satisfies BackupRun;
+    const { useCase, updates } = createUseCase(
+      async () => undefined,
+      mismatched,
+    );
+
+    await expect(useCase.execute(mismatched.id)).rejects.toThrow(
+      "Backup run belongs to another organization",
     );
     expect(updates).toEqual([]);
   });

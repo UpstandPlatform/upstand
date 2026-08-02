@@ -1,6 +1,7 @@
-import { redis } from "@upstand/redis";
+import { type Redis, redis } from "@upstand/redis";
 
 export const BACKUP_LOCK_TTL_MS = 6 * 60 * 60 * 1_000;
+const BACKUP_LOCK_OPERATION_TIMEOUT_MS = 2_000;
 
 const COMPARE_AND_DELETE = `
 if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -16,6 +17,23 @@ end
 return 0
 `;
 
+type BackupLockRedis = Pick<Redis, "set" | "eval">;
+
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    operation,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Backup lock Redis operation timed out")),
+        timeoutMs,
+      );
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 export function backupRunLockKey(scheduleId: string): string {
   return `upstand:backup:run:${scheduleId}`;
 }
@@ -23,13 +41,17 @@ export function backupRunLockKey(scheduleId: string): string {
 export async function acquireBackupRunLock(
   scheduleId: string,
   runId: string,
+  client: BackupLockRedis = redis,
 ): Promise<boolean> {
-  const acquired = await redis.set(
-    backupRunLockKey(scheduleId),
-    runId,
-    "PX",
-    BACKUP_LOCK_TTL_MS,
-    "NX",
+  const acquired = await withTimeout(
+    client.set(
+      backupRunLockKey(scheduleId),
+      runId,
+      "PX",
+      BACKUP_LOCK_TTL_MS,
+      "NX",
+    ),
+    BACKUP_LOCK_OPERATION_TIMEOUT_MS,
   );
   return acquired === "OK";
 }
@@ -37,20 +59,37 @@ export async function acquireBackupRunLock(
 export async function renewBackupRunLock(
   scheduleId: string,
   runId: string,
+  client: BackupLockRedis = redis,
 ): Promise<boolean> {
-  const renewed = await redis.eval(
-    COMPARE_AND_RENEW,
-    1,
-    backupRunLockKey(scheduleId),
-    runId,
-    String(BACKUP_LOCK_TTL_MS),
+  const renewed = await withTimeout(
+    client.eval(
+      COMPARE_AND_RENEW,
+      1,
+      backupRunLockKey(scheduleId),
+      runId,
+      String(BACKUP_LOCK_TTL_MS),
+    ),
+    BACKUP_LOCK_OPERATION_TIMEOUT_MS,
   );
   return Number(renewed) === 1;
+}
+
+export async function ensureBackupRunLock(
+  scheduleId: string,
+  runId: string,
+  client: BackupLockRedis = redis,
+): Promise<boolean> {
+  if (await renewBackupRunLock(scheduleId, runId, client)) return true;
+  return acquireBackupRunLock(scheduleId, runId, client);
 }
 
 export async function releaseBackupRunLock(
   scheduleId: string,
   runId: string,
+  client: BackupLockRedis = redis,
 ): Promise<void> {
-  await redis.eval(COMPARE_AND_DELETE, 1, backupRunLockKey(scheduleId), runId);
+  await withTimeout(
+    client.eval(COMPARE_AND_DELETE, 1, backupRunLockKey(scheduleId), runId),
+    BACKUP_LOCK_OPERATION_TIMEOUT_MS,
+  );
 }

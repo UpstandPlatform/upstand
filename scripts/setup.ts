@@ -3,6 +3,7 @@ import path from "node:path";
 const root = path.resolve(import.meta.dir, "..");
 const serverDirectory = path.join(root, "apps", "server");
 const webDirectory = path.join(root, "apps", "web");
+const fumadocsDirectory = path.join(root, "apps", "fumadocs");
 const requiredBunVersion = "1.3.14";
 const composeFile = path.join(root, "docker-compose.local.yml");
 
@@ -75,7 +76,7 @@ function ensureLocalSwarmNetwork(env: NodeJS.ProcessEnv, networkName: string) {
       "network",
       "inspect",
       "--format",
-      "{{.Driver}} {{.Attachable}}",
+      "{{.Driver}} {{.Attachable}} {{json .Options}}",
       networkName,
     ],
     cwd: root,
@@ -85,9 +86,11 @@ function ensureLocalSwarmNetwork(env: NodeJS.ProcessEnv, networkName: string) {
   });
   if (network.success) {
     const [driver, attachable] = network.stdout.toString().trim().split(/\s+/);
-    if (driver === "overlay" && attachable === "true") return;
+    if (driver === "overlay" && attachable === "true") {
+      return;
+    }
     fail(
-      `Docker network '${networkName}' already exists but is not an attachable overlay network. Remove or rename that network before starting local parity mode.`,
+      `Docker network '${networkName}' already exists but is not an attachable overlay network. Recreate it with '--driver overlay --attachable' (after stopping services) or choose another network name before starting local parity mode.`,
     );
   }
 
@@ -237,6 +240,10 @@ async function main(): Promise<void> {
   await copyIfMissing(
     path.join(webDirectory, ".env.example"),
     path.join(webDirectory, ".env.local"),
+  );
+  await copyIfMissing(
+    path.join(fumadocsDirectory, ".env.example"),
+    path.join(fumadocsDirectory, ".env.local"),
   );
   console.log("✔ Environment configurations verified (.env, .env.local)");
 

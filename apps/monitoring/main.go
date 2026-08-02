@@ -25,6 +25,7 @@ func main() {
 	cfg := config.GetMetricsConfig()
 	token := cfg.Server.Token
 	METRICS_URL_CALLBACK := cfg.Server.UrlCallback
+	monitoring.SetHealthStaleAfter(time.Duration(maxInt(cfg.Server.RefreshRate*3, 30)) * time.Second)
 	log.Printf("Environment variables:")
 	log.Printf("Monitoring configuration loaded")
 
@@ -44,11 +45,20 @@ func main() {
 	}
 	defer cleanupCron.Stop()
 
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		BodyLimit:    32 * 1024,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	})
 
 	app.Get("/health", func(c *fiber.Ctx) error {
 		status, lastCollectedAt, collectionError := monitoring.Health()
-		return c.JSON(fiber.Map{
+		statusCode := fiber.StatusOK
+		if status != "ok" {
+			statusCode = fiber.StatusServiceUnavailable
+		}
+		return c.Status(statusCode).JSON(fiber.Map{
 			"status":          status,
 			"lastCollectedAt": lastCollectedAt,
 			"collectionError": collectionError,
@@ -140,8 +150,9 @@ func main() {
 		}
 
 		if err != nil {
+			log.Printf("Error getting container metrics: %v", err)
 			return c.Status(500).JSON(fiber.Map{
-				"error": "Error getting container metrics: " + err.Error(),
+				"error": "Failed to fetch container metrics",
 			})
 		}
 
@@ -210,6 +221,13 @@ func parseLimit(value string) int {
 		return 5000
 	}
 	return limit
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func parseMetricRange(c *fiber.Ctx) (time.Time, time.Time, bool, error) {

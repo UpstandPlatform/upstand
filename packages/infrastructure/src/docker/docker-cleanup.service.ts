@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { getInheritedEnv } from "@upstand/env/server";
 import { z } from "zod";
 
 const execFileAsync = promisify(execFile);
@@ -53,7 +54,7 @@ async function executeDocker(
   signal?: AbortSignal,
 ): Promise<CommandResult> {
   return execFileAsync("docker", args, {
-    env: { ...process.env, ...environment },
+    env: getInheritedEnv(environment),
     maxBuffer: 2 * 1024 * 1024,
     signal,
   });

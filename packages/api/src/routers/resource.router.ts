@@ -260,7 +260,10 @@ export const resourceRouter = router({
 
       const updateUseCase = ctx.scope.resolve(UpdateResourceUseCaseToken);
       try {
-        const updated = await updateUseCase.execute(input);
+        const updated = await updateUseCase.execute({
+          ...input,
+          organizationId: project.organizationId,
+        });
         return updated ? publicResource(updated) : updated;
       } catch (error) {
         handleUseCaseError(error, ctx.log);
@@ -309,7 +312,10 @@ export const resourceRouter = router({
 
       const deleteUseCase = ctx.scope.resolve(DeleteResourceUseCaseToken);
       try {
-        return await deleteUseCase.execute(input);
+        return await deleteUseCase.execute({
+          ...input,
+          organizationId: project.organizationId,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -479,7 +485,11 @@ export const resourceRouter = router({
   databaseCommand: twoFactorVerifiedProcedure
     .input(DatabaseCommandInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await resolveResourceAndCheckPermission(ctx, input.id, "resource:update");
+      await resolveResourceAndCheckPermission(
+        ctx,
+        input.id,
+        "resource:execute",
+      );
       try {
         return await ctx.scope
           .resolve(DatabaseCommandUseCaseToken)

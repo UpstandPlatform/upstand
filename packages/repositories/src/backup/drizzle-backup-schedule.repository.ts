@@ -5,6 +5,10 @@ import type {
   IBackupScheduleRepository,
 } from "@upstand/domain";
 import { desc, eq } from "drizzle-orm";
+import {
+  assertBoundedRepositoryRead,
+  MAX_REPOSITORY_READS,
+} from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
 export class DrizzleBackupScheduleRepository
@@ -22,28 +26,43 @@ export class DrizzleBackupScheduleRepository
   }
 
   async findByResourceId(resourceId: string): Promise<BackupSchedule[]> {
-    return (await this.executor
+    const rows = await this.executor
       .select()
       .from(backupSchedule)
       .where(eq(backupSchedule.resourceId, resourceId))
-      .orderBy(desc(backupSchedule.createdAt))) as BackupSchedule[];
+      .orderBy(desc(backupSchedule.createdAt))
+      .limit(MAX_REPOSITORY_READS + 1);
+    return assertBoundedRepositoryRead(
+      rows,
+      "Backup schedule",
+    ) as BackupSchedule[];
   }
 
   async findByOrganizationId(
     organizationId: string,
   ): Promise<BackupSchedule[]> {
-    return (await this.executor
+    const rows = await this.executor
       .select()
       .from(backupSchedule)
       .where(eq(backupSchedule.organizationId, organizationId))
-      .orderBy(desc(backupSchedule.createdAt))) as BackupSchedule[];
+      .orderBy(desc(backupSchedule.createdAt))
+      .limit(MAX_REPOSITORY_READS + 1);
+    return assertBoundedRepositoryRead(
+      rows,
+      "Backup schedule",
+    ) as BackupSchedule[];
   }
 
   async findEnabled(): Promise<BackupSchedule[]> {
-    return (await this.executor
+    const rows = await this.executor
       .select()
       .from(backupSchedule)
-      .where(eq(backupSchedule.enabled, true))) as BackupSchedule[];
+      .where(eq(backupSchedule.enabled, true))
+      .limit(MAX_REPOSITORY_READS + 1);
+    return assertBoundedRepositoryRead(
+      rows,
+      "Enabled backup schedule",
+    ) as BackupSchedule[];
   }
 
   async create(data: CreateBackupScheduleDTO): Promise<BackupSchedule> {

@@ -2,7 +2,6 @@
 
 import {
   AnalyticsUpIcon,
-  AppStoreIcon,
   Briefcase01Icon,
   CloudServerIcon,
   ContainerIcon,
@@ -26,7 +25,7 @@ import {
   CommandList,
 } from "@upstand/ui/components/command";
 import type { Route } from "next";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
 import { trpc } from "@/utils/trpc";
@@ -37,12 +36,6 @@ const QUICK_NAVIGATION = [
     description: "Applications and environments",
     href: "/projects",
     icon: Folder01Icon,
-  },
-  {
-    label: "Apps",
-    description: "Catalog and installed Apps",
-    href: "/workspace/apps",
-    icon: AppStoreIcon,
   },
   {
     label: "Deployments",
@@ -57,9 +50,9 @@ const QUICK_NAVIGATION = [
     icon: CloudServerIcon,
   },
   {
-    label: "Jobs",
+    label: "Cron jobs",
     description: "Schedules and automation",
-    href: "/workspace/jobs",
+    href: "/observation?tab=cron-jobs",
     icon: JobSearchIcon,
   },
   {
@@ -77,7 +70,7 @@ const QUICK_NAVIGATION = [
   {
     label: "Settings",
     description: "Workspace and control-plane settings",
-    href: "/workspace/settings",
+    href: "/settings",
     icon: Settings01Icon,
   },
 ] as const;
@@ -96,7 +89,6 @@ const RESULT_LABELS = {
 
 export function GlobalSearch() {
   const router = useRouter();
-  const pathname = usePathname();
   const organizationState = useRequiredActiveOrganization();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -157,15 +149,7 @@ export function GlobalSearch() {
 
   const navigateTo = (href: string) => {
     closeSearch();
-    const workspaceHref = pathname.startsWith("/workspace")
-      ? ({
-          "/projects": "/workspace/projects",
-          "/observation?tab=deployments": "/workspace/deployments",
-          "/remote-servers": "/workspace/servers",
-          "/observation?tab=cron-jobs": "/workspace/jobs",
-        }[href] ?? href)
-      : href;
-    router.push(workspaceHref as Route);
+    router.push(href as Route);
   };
 
   const openSettings = (page: string) => {

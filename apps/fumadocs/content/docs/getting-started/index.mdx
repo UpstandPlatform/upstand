@@ -29,52 +29,31 @@ flowchart TD
 
 ---
 
-## 5-Minute Quickstart
+## Production Quickstart
 
-Follow these steps to spin up Upstand on a fresh Linux server:
+Use the [production self-hosting guide](/docs/getting-started/self-hosting) and
+the audited installer for production deployments. The installer creates the
+encrypted, attachable Swarm network, pins every Upstand image to an immutable
+digest, provisions file-backed secrets, and runs the migration and runtime
+acceptance checks.
 
-### Step 1: Install Docker & Docker Swarm
-Execute the official Docker installation script and initialize a Swarm cluster on your server:
-
-```bash
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-docker swarm init
-```
-
-### Step 2: Launch Upstand via Docker Compose
-Create a `docker-compose.yml` file for Upstand:
-
-```yaml
-version: '3.8'
-services:
-  upstand:
-    image: ghcr.io/upstandplatform/upstand-server:latest
-    restart: always
-    ports:
-      - "3000:3000"
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - upstand_data:/app/data
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://upstand:upstand@postgres:5432/upstand
-      - REDIS_URL=redis://redis:6379
-
-volumes:
-  upstand_data:
-```
-
-Launch the services:
+Pin the exact release tag that has been reviewed before downloading the
+installer:
 
 ```bash
-docker compose up -d
+export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
+  | sudo -E bash
 ```
 
-### Step 3: Complete Initial Setup
-Open `http://<your-server-ip>:3000` in your browser, create your root administrator account, and configure your first Organization and Project.
+Do not use a mutable `latest` image, a mutable branch URL, plaintext database
+credentials, or a direct Docker Compose deployment for production. The
+installer also requires explicit acknowledgement before granting the control
+plane access to the host Docker socket.
+
+For a local development or evaluation environment, use the repository's
+development setup instructions instead of adapting a production deployment.
 
 ---
 

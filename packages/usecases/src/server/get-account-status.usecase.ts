@@ -1,5 +1,6 @@
 import type { IUnitOfWork } from "@upstand/domain";
 import { z } from "zod";
+import { findOrganizationResourceTopology } from "../deployment/organization-resources.helper";
 
 export const GetAccountStatusInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -21,10 +22,11 @@ export class GetAccountStatusUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: GetAccountStatusInput): Promise<AccountStatus> {
-    const [projects, servers] = await Promise.all([
-      this.uow.projectRepository.findByOrganizationId(input.organizationId),
+    const [topology, servers] = await Promise.all([
+      findOrganizationResourceTopology(this.uow, input.organizationId),
       this.uow.serverRepository.findByOrganizationId(input.organizationId),
     ]);
+    const { projects, environments, resources } = topology;
 
     if (projects.length === 0) {
       return {
@@ -38,14 +40,6 @@ export class GetAccountStatusUseCase {
       };
     }
 
-    const environments = (
-      await Promise.all(
-        projects.map((project) =>
-          this.uow.environmentRepository.findByProjectId(project.id),
-        ),
-      )
-    ).flat();
-
     if (environments.length === 0) {
       return {
         organizationId: input.organizationId,
@@ -57,14 +51,6 @@ export class GetAccountStatusUseCase {
         checkedAt: new Date().toISOString(),
       };
     }
-
-    const resources = (
-      await Promise.all(
-        environments.map((environment) =>
-          this.uow.resourceRepository.findByEnvironmentId(environment.id),
-        ),
-      )
-    ).flat();
 
     const resourceIds = resources.map((r) => r.id);
     const deployments =

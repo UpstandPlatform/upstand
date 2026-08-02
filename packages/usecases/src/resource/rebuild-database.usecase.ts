@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { IUnitOfWork, Resource } from "@upstand/domain";
+import {
+  type IUnitOfWork,
+  type Resource,
+  ValidationError,
+} from "@upstand/domain";
 import { z } from "zod";
+import { assertManagedDatabaseCredentials } from "./database-credentials";
 import { getDatabaseEnvironment } from "./database-environment";
 import type { DockerDatabaseDeploymentService as DockerService } from "./docker-client";
 import { resolveDockerServiceForServer } from "./docker-client";
@@ -26,6 +31,16 @@ export class RebuildDatabaseUseCase {
     if (!resource) throw new Error("Resource not found");
     if (resource.type !== "database") {
       throw new Error("Only database resources can be rebuilt");
+    }
+
+    try {
+      assertManagedDatabaseCredentials(
+        resource.dbType?.toLowerCase() ?? "",
+        getDatabaseEnvironment(resource),
+      );
+    } catch (error) {
+      if (error instanceof ValidationError) throw error;
+      throw new ValidationError("Database credentials are invalid");
     }
 
     const deploymentId = `dep-${randomUUID()}`;

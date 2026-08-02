@@ -7,5 +7,3 @@ export { PortsVolumesCard } from "./ports-volumes-card";
 export { RawJsonCard } from "./raw-json-card";
 export { ResourcesCard } from "./resources-card";
 export { SecurityCard } from "./security-card";
-export type { AdvancedCardProps } from "./types";
-export { splitLines } from "./types";

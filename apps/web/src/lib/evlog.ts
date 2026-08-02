@@ -1,13 +1,16 @@
+import { env } from "@upstand/env/web";
 import type { DrainContext } from "evlog";
 import { createFsDrain } from "evlog/fs";
 import { createEvlog } from "evlog/next";
 import { createInstrumentation } from "evlog/next/instrumentation/create";
 import { createOTLPDrain } from "evlog/otlp";
 
-const fileDrain = createFsDrain({ maxFiles: 7 });
+const fileDrain = createFsDrain({
+  maxFiles: 7,
+  maxSizePerFile: 16 * 1024 * 1024,
+});
 const otlpEndpoint =
-  process.env.OTLP_ENDPOINT?.trim() ||
-  process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
+  env.OTLP_ENDPOINT?.trim() || env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
 const otlpDrain = otlpEndpoint
   ? createOTLPDrain({
       endpoint: otlpEndpoint,

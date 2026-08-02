@@ -7,13 +7,15 @@ import {
   type PreviewDeployment,
   parseResourceAdvancedConfig,
   type Resource,
+  type ResourceRoutingProjection,
 } from "@upstand/domain";
+import { env } from "@upstand/env/server";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { closeRedis, createRedis, type Redis, redis } from "@upstand/redis";
 import { DelayedError, type Job, Worker } from "bullmq";
 import { log } from "evlog";
 import { resolveEnvironmentVariables } from "../environment/update-environment.usecase";
-import { assertSafeGitUrl } from "../git-provider/git-url-sanitizer";
+import { isSshGitUrl } from "../git-provider/git-url-sanitizer";
 import { getInstallationToken } from "../git-provider/github-client";
 import type { NotificationPublisher } from "../notification/publish-notification.usecase";
 import type { CaddyResource } from "../ports/caddy";
@@ -26,6 +28,7 @@ import {
   resolveResourceBuildEnvironmentVariables,
   resolveResourceEnvironmentVariables,
 } from "../resource/resource-environment";
+import { validateResourceCredentialReferences } from "../resource/validate-resource-credential-references";
 import { SyncUpstandConfigUseCase } from "../schedule/sync-upstand-config.usecase";
 import { requestMonitoringAgent } from "../server/monitoring-agent.client";
 import {
@@ -35,6 +38,10 @@ import {
 import type { CaddyService } from "../web-server/caddy.service";
 import { buildRegistryImageTag } from "./build-registry";
 import { getDeploymentQueueName } from "./deployment-queue-name";
+import {
+  createGitBasicAuthEnvironment,
+  removeGitUrlCredentials,
+} from "./git-source-auth";
 import { ResourceLock } from "./resource-lock";
 
 export interface DeploymentWorkerScope {
@@ -61,8 +68,17 @@ interface DockerHookService {
   runCommandInResourceContainer(
     resource: Resource,
     command: string,
+    target?: DockerApiTarget,
+    options?: { timeoutSeconds?: number; maxOutputBytes?: number },
   ): Promise<string>;
 }
+
+type GitSource = {
+  cloneUrl: string;
+  sshKeyPath?: string;
+  gitEnvironment?: Record<string, string>;
+  sshHostKeyFingerprint?: string;
+};
 
 function supportsDockerHookService(
   service: DockerService,
@@ -109,7 +125,7 @@ function parseFirstDomain(value: string): Record<string, unknown> {
 function isLocalServerIp(ip: string): boolean {
   if (!ip) return false;
   if (["127.0.0.1", "localhost", "::1", "0.0.0.0"].includes(ip)) return true;
-  if (process.env.HOST_IP && process.env.HOST_IP === ip) return true;
+  if (env.HOST_IP && env.HOST_IP === ip) return true;
   try {
     const interfaces = os.networkInterfaces();
     for (const name of Object.keys(interfaces)) {
@@ -657,6 +673,20 @@ export class DeploymentWorker {
       if (!resource) {
         throw new Error("Resource not found");
       }
+      const environment = await uow.environmentRepository.findById(
+        resource.environmentId,
+      );
+      const project = environment
+        ? await uow.projectRepository.findById(environment.projectId)
+        : null;
+      if (!project) {
+        throw new Error("Resource project not found");
+      }
+      await validateResourceCredentialReferences(
+        uow,
+        project.organizationId,
+        resource.credentials,
+      );
       if (executionLeaseLost) {
         throw new Error(
           "Deployment canceled: execution lease was lost to another worker.",
@@ -897,7 +927,11 @@ export class DeploymentWorker {
           const serviceName = dockerService.sanitizeName(
             deployedResource.appName || deployedResource.name,
           );
-          const imageTag = buildRegistryImageTag(registry, serviceName);
+          const imageTag = buildRegistryImageTag(
+            registry,
+            serviceName,
+            deploymentId,
+          );
 
           registryInfo = {
             url: cleanUrl,
@@ -968,15 +1002,18 @@ export class DeploymentWorker {
       const revisionServiceName = stagedDelivery
         ? `${baseServiceName.slice(0, 48)}-upstand-${deploymentId.slice(0, 8)}`
         : undefined;
-      const revisionOptions = stagedDelivery
-        ? {
-            serviceNameOverride: revisionServiceName,
-            replicasOverride:
-              deploymentStrategy.type === "canary"
-                ? (deploymentStrategy.canaryReplicas ?? 1)
-                : (advancedConfig.replicas ?? 1),
-          }
-        : undefined;
+      const revisionOptions = {
+        imageTagSuffix: deploymentId,
+        ...(stagedDelivery
+          ? {
+              serviceNameOverride: revisionServiceName,
+              replicasOverride:
+                deploymentStrategy.type === "canary"
+                  ? (deploymentStrategy.canaryReplicas ?? 1)
+                  : (advancedConfig.replicas ?? 1),
+            }
+          : {}),
+      };
 
       if (resource.type === "database") {
         appendLog("Preparing database deployment...\n");
@@ -1020,6 +1057,8 @@ export class DeploymentWorker {
             appendLog,
             source.sshKeyPath,
             sourceRevision,
+            source.gitEnvironment,
+            source.sshHostKeyFingerprint,
           );
         }
         if (!composeFile) {
@@ -1109,6 +1148,8 @@ export class DeploymentWorker {
             `Setting up Git deployment provider: ${resource.provider}...\n`,
           );
           let cloneUrl = "";
+          let gitEnvironment: Record<string, string> | undefined;
+          let sshHostKeyFingerprint: string | undefined;
           let credentialsObj: Record<string, unknown> = {};
           try {
             credentialsObj = parseResourceCredentials(resource.credentials);
@@ -1150,14 +1191,19 @@ export class DeploymentWorker {
                 String(config.githubPrivateKey ?? ""),
                 String(config.githubInstallationId ?? ""),
               );
-              cloneUrl = `https://x-access-token:${token}@github.com/${repository}.git`;
+              cloneUrl = `https://github.com/${repository}.git`;
+              gitEnvironment = createGitBasicAuthEnvironment(
+                "x-access-token",
+                token,
+              );
             } else if (resource.provider === "gitlab") {
               appendLog("Connecting to GitLab using OAuth access token...\n");
               const token = String(config.accessToken ?? "");
               const gitlabHost = String(
                 config.gitlabUrl ?? "https://gitlab.com",
               ).replace(/https?:\/\//, "");
-              cloneUrl = `https://oauth2:${token}@${gitlabHost}/${repository}.git`;
+              cloneUrl = `https://${gitlabHost}/${repository}.git`;
+              gitEnvironment = createGitBasicAuthEnvironment("oauth2", token);
             } else if (resource.provider === "gitea") {
               appendLog("Connecting to Gitea using OAuth access token...\n");
               const token = String(config.accessToken ?? "");
@@ -1165,17 +1211,28 @@ export class DeploymentWorker {
                 /https?:\/\//,
                 "",
               );
-              cloneUrl = `https://oauth2:${token}@${giteaHost}/${repository}.git`;
+              cloneUrl = `https://${giteaHost}/${repository}.git`;
+              gitEnvironment = createGitBasicAuthEnvironment("oauth2", token);
             } else if (resource.provider === "bitbucket") {
               appendLog("Connecting to Bitbucket using app password...\n");
-              cloneUrl = `https://${String(config.bitbucketUsername ?? "")}:${String(config.appPassword ?? "")}@bitbucket.org/${repository}.git`;
+              cloneUrl = `https://bitbucket.org/${repository}.git`;
+              gitEnvironment = createGitBasicAuthEnvironment(
+                String(config.bitbucketUsername ?? ""),
+                String(config.appPassword ?? ""),
+              );
             }
           } else if (resource.provider === "git") {
             cloneUrl = stringField(credentialsObj, "repositoryUrl") ?? "";
             if (!cloneUrl) {
               throw new Error("Repository URL is empty in configuration");
             }
-            assertSafeGitUrl(cloneUrl);
+            const source = removeGitUrlCredentials(cloneUrl);
+            cloneUrl = source.cloneUrl;
+            gitEnvironment = source.gitEnvironment;
+            sshHostKeyFingerprint = stringField(
+              credentialsObj,
+              "sshHostKeyFingerprint",
+            );
 
             const sshKeyId = stringField(credentialsObj, "sshKeyId");
             if (sshKeyId) {
@@ -1210,6 +1267,12 @@ export class DeploymentWorker {
           } else {
             throw new Error(
               `Unsupported deployment provider: ${resource.provider}`,
+            );
+          }
+
+          if (isSshGitUrl(cloneUrl) && !sshHostKeyFingerprint) {
+            throw new Error(
+              "SSH Git deployments require a pinned host-key fingerprint",
             );
           }
 
@@ -1257,6 +1320,8 @@ export class DeploymentWorker {
             },
             revisionOptions,
             buildEnvVars,
+            gitEnvironment,
+            sshHostKeyFingerprint,
           );
           appendLog(
             "Build compiled successfully and Swarm Service registered.\n",
@@ -1344,6 +1409,8 @@ export class DeploymentWorker {
               const output = await dockerService.runCommandInResourceContainer(
                 deployedResource,
                 advancedConfig.preDeployHook.command,
+                undefined,
+                { timeoutSeconds },
               );
               hookResult = { output, exitCode: 0 };
               if (output) appendLog(`${output}\n`);
@@ -1536,6 +1603,8 @@ export class DeploymentWorker {
             const output = await dockerService.runCommandInResourceContainer(
               deployedResource,
               advancedConfig.postDeployHook.command,
+              undefined,
+              { timeoutSeconds },
             );
             hookResult = { output, exitCode: 0 };
             if (output) appendLog(`${output}\n`);
@@ -1651,7 +1720,7 @@ export class DeploymentWorker {
 }
 
 function resourceMatchesServer(
-  resource: Resource,
+  resource: Pick<ResourceRoutingProjection, "serverId">,
   serverId: string | null | undefined,
 ): boolean {
   if (serverId && !["local", "manager"].includes(serverId)) {
@@ -1670,9 +1739,15 @@ async function syncCaddyRouting(
   if (!deployedResource.domains && !previewDeploymentId) return;
   const [resources, settings, allPreviews] = await uow.transaction(
     async (tx) => [
-      await tx.resourceRepository.findMany(),
+      tx.resourceRepository.findForCaddyByDeploymentServerId
+        ? await tx.resourceRepository.findForCaddyByDeploymentServerId(
+            deployedResource.serverId,
+          )
+        : await tx.resourceRepository.findMany(),
       await tx.webServerSettingsRepository.findGlobal(),
-      await tx.previewDeploymentRepository.findMany(),
+      tx.previewDeploymentRepository.findForCaddy
+        ? await tx.previewDeploymentRepository.findForCaddy(previewDeploymentId)
+        : await tx.previewDeploymentRepository.findMany(),
     ],
   );
   const routingResources = resources
@@ -1791,10 +1866,12 @@ async function resolveGitSource(
   resource: Resource,
   uow: IUnitOfWork,
   appendLog: (log: string) => void,
-): Promise<{ cloneUrl: string; sshKeyPath?: string }> {
+): Promise<GitSource> {
   const credentials = parseResourceCredentials(resource.credentials);
   let cloneUrl = "";
   let sshKeyPath: string | undefined;
+  let gitEnvironment: Record<string, string> | undefined;
+  let sshHostKeyFingerprint: string | undefined;
 
   if (
     ["github", "gitlab", "bitbucket", "gitea", "generic"].includes(
@@ -1828,20 +1905,29 @@ async function resolveGitSource(
         String(config.githubPrivateKey ?? ""),
         String(config.githubInstallationId ?? ""),
       );
-      cloneUrl = `https://x-access-token:${token}@github.com/${repository}.git`;
+      cloneUrl = `https://github.com/${repository}.git`;
+      gitEnvironment = createGitBasicAuthEnvironment("x-access-token", token);
     } else if (resource.provider === "gitlab") {
       appendLog("Connecting to GitLab using OAuth access token...\n");
       const gitlabHost = String(
         config.gitlabUrl ?? "https://gitlab.com",
       ).replace(/https?:\/\//, "");
-      cloneUrl = `https://oauth2:${String(config.accessToken ?? "")}@${gitlabHost}/${repository}.git`;
+      cloneUrl = `https://${gitlabHost}/${repository}.git`;
+      gitEnvironment = createGitBasicAuthEnvironment(
+        "oauth2",
+        String(config.accessToken ?? ""),
+      );
     } else if (resource.provider === "gitea") {
       appendLog("Connecting to Gitea using OAuth access token...\n");
       const giteaHost = String(config.giteaUrl ?? "").replace(
         /https?:\/\//,
         "",
       );
-      cloneUrl = `https://oauth2:${String(config.accessToken ?? "")}@${giteaHost}/${repository}.git`;
+      cloneUrl = `https://${giteaHost}/${repository}.git`;
+      gitEnvironment = createGitBasicAuthEnvironment(
+        "oauth2",
+        String(config.accessToken ?? ""),
+      );
     } else if (resource.provider === "generic") {
       appendLog(
         "Connecting to generic Git repository (Forgejo/Sourcehut/Bare Git)...\n",
@@ -1852,6 +1938,12 @@ async function resolveGitSource(
         "";
       if (!cloneUrl)
         throw new Error("Repository URL is empty in generic Git configuration");
+      const source = removeGitUrlCredentials(cloneUrl);
+      cloneUrl = source.cloneUrl;
+      gitEnvironment = source.gitEnvironment;
+      sshHostKeyFingerprint =
+        stringField(credentials, "sshHostKeyFingerprint") ??
+        stringField(config, "sshHostKeyFingerprint");
       const sshKeyId =
         stringField(credentials, "sshKeyId") ?? stringField(config, "sshKeyId");
       if (sshKeyId) {
@@ -1873,17 +1965,26 @@ async function resolveGitSource(
         sshKeyPath = path.join(buildDir, `ssh-key-${resource.id}`);
         fs.writeFileSync(sshKeyPath, `${privateKey.trim()}\n`, { mode: 0o600 });
       } else if (stringField(config, "accessToken")) {
-        const cleanRepo = cloneUrl.replace(/^https?:\/\//, "");
-        cloneUrl = `https://oauth2:${stringField(config, "accessToken")}@${cleanRepo}`;
+        gitEnvironment = createGitBasicAuthEnvironment(
+          "oauth2",
+          stringField(config, "accessToken") ?? "",
+        );
       }
     } else {
       appendLog("Connecting to Bitbucket using app password...\n");
-      cloneUrl = `https://${String(config.bitbucketUsername ?? "")}:${String(config.appPassword ?? "")}@bitbucket.org/${repository}.git`;
+      cloneUrl = `https://bitbucket.org/${repository}.git`;
+      gitEnvironment = createGitBasicAuthEnvironment(
+        String(config.bitbucketUsername ?? ""),
+        String(config.appPassword ?? ""),
+      );
     }
   } else if (resource.provider === "git") {
     cloneUrl = stringField(credentials, "repositoryUrl") ?? "";
     if (!cloneUrl) throw new Error("Repository URL is empty in configuration");
-    assertSafeGitUrl(cloneUrl);
+    const source = removeGitUrlCredentials(cloneUrl);
+    cloneUrl = source.cloneUrl;
+    gitEnvironment = source.gitEnvironment;
+    sshHostKeyFingerprint = stringField(credentials, "sshHostKeyFingerprint");
 
     const sshKeyId = stringField(credentials, "sshKeyId");
     if (sshKeyId) {
@@ -1908,5 +2009,16 @@ async function resolveGitSource(
     );
   }
 
-  return { cloneUrl, sshKeyPath };
+  if (isSshGitUrl(cloneUrl) && !sshHostKeyFingerprint) {
+    throw new Error(
+      "SSH Git deployments require a pinned host-key fingerprint",
+    );
+  }
+
+  return {
+    cloneUrl,
+    sshKeyPath,
+    gitEnvironment,
+    sshHostKeyFingerprint,
+  };
 }

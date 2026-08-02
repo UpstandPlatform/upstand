@@ -1,4 +1,4 @@
-import type { Resource } from "@upstand/domain";
+import type { Resource, ResourceAutoscalingProjection } from "@upstand/domain";
 import type { DockerLogLevel } from "../resource/docker-log-filter";
 import type { CaddyServicePort } from "./caddy";
 
@@ -65,6 +65,7 @@ export interface ConvergenceOptions {
 export interface DeploymentRevisionOptions {
   serviceNameOverride?: string;
   replicasOverride?: number;
+  imageTagSuffix?: string;
 }
 
 export interface ConvergenceResult {
@@ -108,6 +109,8 @@ export interface DockerServicePort {
     onGitCloned?: (clonePath: string) => Promise<Resource | undefined>,
     revision?: DeploymentRevisionOptions,
     buildEnvVars?: Record<string, string>,
+    gitEnvironment?: Record<string, string>,
+    sshHostKeyFingerprint?: string,
   ): Promise<void>;
   readComposeFileFromGit(
     resource: Resource,
@@ -115,6 +118,8 @@ export interface DockerServicePort {
     onLog: (log: string) => void,
     sshKeyPath?: string,
     sourceRevision?: string,
+    gitEnvironment?: Record<string, string>,
+    sshHostKeyFingerprint?: string,
   ): Promise<string>;
   deployComposeStack(
     resource: Resource,
@@ -153,7 +158,10 @@ export interface DockerServicePort {
     resource: Resource,
     revisionServiceName: string,
   ): Promise<void>;
-  scaleService(resource: Resource, replicas: number): Promise<void>;
+  scaleService(
+    resource: ResourceAutoscalingProjection,
+    replicas: number,
+  ): Promise<void>;
   configureDatabaseReplication(
     resource: Resource,
     envVars: Record<string, string>,
@@ -173,7 +181,9 @@ export interface DockerServicePort {
     containerId: string,
     command: "start" | "stop" | "restart" | "kill",
   ): Promise<void>;
-  getContainers(resource: Resource): Promise<DockerResourceContainer[]>;
+  getContainers(
+    resource: ResourceAutoscalingProjection,
+  ): Promise<DockerResourceContainer[]>;
   getRoutingServices(resource: Resource): Promise<string[]>;
   getLogs(
     resource: Resource,
@@ -190,6 +200,10 @@ export interface DockerServicePort {
     resource: Resource,
     command: string,
     target?: DockerApiTarget,
+    options?: {
+      timeoutSeconds?: number;
+      maxOutputBytes?: number;
+    },
   ): Promise<string>;
 }
 
@@ -456,7 +470,7 @@ export interface DockerInfrastructureResolverPort {
     cleanup: () => void;
   }>;
   resolveServicesForResource(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
     uow: import("@upstand/domain").IUnitOfWork,
     defaultDockerService: DockerServicePort,
     defaultCaddyService: CaddyServicePort,

@@ -76,10 +76,16 @@ RUN --mount=type=cache,target=/root/.bun/install/cache bun install --production 
 COPY --from=builder /app/apps/schedules/dist ./apps/schedules/dist
 COPY --from=builder /app/packages/db/src/migrations ./packages/db/src/migrations
 COPY --from=pruner /out/full/apps/schedules/docker-entrypoint.sh ./apps/schedules/docker-entrypoint.sh
-RUN chmod 0755 ./apps/schedules/docker-entrypoint.sh
+RUN chmod 0755 ./apps/schedules/docker-entrypoint.sh \
+    && groupadd --gid 10001 upstand \
+    && useradd --uid 10001 --gid upstand --create-home --shell /usr/sbin/nologin upstand \
+    && mkdir -p /home/upstand/.docker /tmp/upstand \
+    && chown -R upstand:upstand /home/upstand /tmp/upstand
 
 ENV PORT=3002
+ENV HOME=/home/upstand
 EXPOSE 3002
 
+USER upstand
 ENTRYPOINT ["/app/apps/schedules/docker-entrypoint.sh"]
 CMD ["bun", "run", "apps/schedules/dist/index.mjs"]

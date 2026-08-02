@@ -1,4 +1,6 @@
 import { TRPCError } from "@trpc/server";
+import { db } from "@upstand/db";
+import * as authSchema from "@upstand/db/schema/auth";
 import {
   API_KEY_CONFIG_ID,
   API_KEY_PRESETS,
@@ -6,7 +8,9 @@ import {
   ApiKeyPresetSchema,
   apiKeyPermissionsToStatements,
 } from "@upstand/domain";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { assertApiKeyInOrganization } from "../api-key-scope";
 import { auth } from "../auth";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission } from "../permissions";
@@ -80,6 +84,28 @@ function mapKey(key: ApiKeyRecord) {
 
 async function requireKeyAdmin(userId: string, organizationId: string) {
   return checkPermission(userId, organizationId, "api_key:manage");
+}
+
+async function requireOrganizationKey(
+  keyId: string,
+  organizationId: string,
+): Promise<void> {
+  const key = await db
+    .select({
+      configId: authSchema.apikey.configId,
+      referenceId: authSchema.apikey.referenceId,
+    })
+    .from(authSchema.apikey)
+    .where(
+      and(
+        eq(authSchema.apikey.id, keyId),
+        eq(authSchema.apikey.configId, API_KEY_CONFIG_ID),
+      ),
+    )
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  assertApiKeyInOrganization(key, organizationId);
 }
 
 export const apiKeyRouter = router({
@@ -174,6 +200,7 @@ export const apiKeyRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await requireKeyAdmin(ctx.session.user.id, input.organizationId);
+      await requireOrganizationKey(input.keyId, input.organizationId);
       const result = await auth.api.updateApiKey({
         body: {
           configId: API_KEY_CONFIG_ID,
@@ -210,6 +237,7 @@ export const apiKeyRouter = router({
     .input(organizationInput.extend({ keyId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await requireKeyAdmin(ctx.session.user.id, input.organizationId);
+      await requireOrganizationKey(input.keyId, input.organizationId);
       await auth.api.deleteApiKey({
         headers: headersFrom(ctx),
         body: { configId: API_KEY_CONFIG_ID, keyId: input.keyId },

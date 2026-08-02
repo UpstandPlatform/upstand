@@ -48,7 +48,8 @@ async function syncCertificateRoutes(
   if (!settings) return;
   const certificates = (await uow.certificateRepository.findAll?.()) ?? [];
   await caddyService.syncResourceConfigs(
-    await uow.resourceRepository.findMany(),
+    (await uow.resourceRepository.findForCaddy?.()) ??
+      (await uow.resourceRepository.findMany()),
     settings,
     certificates,
   );
@@ -113,7 +114,7 @@ export const certificateRouter = router({
       try {
         const certificate = await ctx.scope
           .resolve(UpdateCertificateUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId: existing.organizationId });
         if (!certificate)
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -145,7 +146,9 @@ export const certificateRouter = router({
         "certificate:delete",
       );
       try {
-        const resources = await uow.resourceRepository.findMany();
+        const resources =
+          (await uow.resourceRepository.findForCaddy?.()) ??
+          (await uow.resourceRepository.findMany());
         const isInUse = resources.some((resource) => {
           try {
             return parseDomainMappings(resource.domains).some(
@@ -178,7 +181,7 @@ export const certificateRouter = router({
         }
         const result = await ctx.scope
           .resolve(DeleteCertificateUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId: existing.organizationId });
         await syncCertificateRoutes(
           ctx.scope.resolve(UnitOfWorkToken),
           ctx.scope.resolve(CaddyServiceToken),

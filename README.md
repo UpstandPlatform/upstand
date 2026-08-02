@@ -168,13 +168,14 @@ To install Self-Hosted Upstand on a fresh Linux Swarm manager node:
 
 The installer also supports a zero-configuration bootstrap. When image tags,
 digests, and secrets are omitted, it generates random secrets in
-`/etc/upstand/secrets/`, detects the host address, resolves the latest stable
-release, downloads the matching production stack file, and pulls the release
-images from GHCR. It resolves the stable channel to immutable digests before
+`/etc/upstand/secrets/`, detects the host address, downloads the stack file for
+the explicitly selected audited release tag, and pulls that release's images
+from GHCR. It resolves the release manifest to immutable digests before
 deploying:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash
+export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
 To build from source instead, opt in explicitly with `UPSTAND_BUILD_FROM_SOURCE=true`.
@@ -184,7 +185,8 @@ use an internal Go mirror, override it explicitly before running the installer:
 
 ```bash
 export GOPROXY='https://go-proxy.example.com|direct'
-curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo -E bash
+export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
 The `|` separator is intentional: Go only tries the next source for all proxy
@@ -214,7 +216,8 @@ export UPSTAND_REGISTRY=ghcr.io
 export UPSTAND_REGISTRY_USERNAME=<registry-user>
 export UPSTAND_REGISTRY_PASSWORD=<registry-token>
 
-curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash
+export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
 ### 2. Cloud Mode (Multi-Tenant SaaS)
@@ -235,7 +238,8 @@ export UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
 export UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
 export UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
 
-curl -fsSL https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh | sudo bash - --cloud
+export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash -s -- --cloud
 ```
 
 The `--cloud` flag sets the server cloud mode. The web console reads that mode from the API at runtime, so the same immutable web image is used for cloud and self-hosted installations. The installer validates all configured API, dashboard, and documentation origins from the deployment host before reporting success.

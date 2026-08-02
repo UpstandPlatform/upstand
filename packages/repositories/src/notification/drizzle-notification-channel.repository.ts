@@ -5,6 +5,7 @@ import type {
   NotificationEventType,
 } from "@upstand/domain";
 import { and, arrayContains, desc, eq } from "drizzle-orm";
+import { MAX_REPOSITORY_READS } from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
 export class DrizzleNotificationChannelRepository
@@ -24,11 +25,18 @@ export class DrizzleNotificationChannelRepository
   async findByOrganizationId(
     organizationId: string,
   ): Promise<NotificationChannel[]> {
-    return (await this.executor
+    const channels = await this.executor
       .select()
       .from(notificationChannel)
       .where(eq(notificationChannel.organizationId, organizationId))
-      .orderBy(desc(notificationChannel.createdAt))) as NotificationChannel[];
+      .orderBy(desc(notificationChannel.createdAt))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (channels.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "Notification channel discovery exceeded the maximum supported row count",
+      );
+    }
+    return channels as NotificationChannel[];
   }
 
   async findByEvent(
@@ -42,11 +50,18 @@ export class DrizzleNotificationChannelRepository
         )
       : arrayContains(notificationChannel.events, [event]);
 
-    return (await this.executor
+    const channels = await this.executor
       .select()
       .from(notificationChannel)
       .where(where)
-      .orderBy(desc(notificationChannel.createdAt))) as NotificationChannel[];
+      .orderBy(desc(notificationChannel.createdAt))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (channels.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "Notification channel discovery exceeded the maximum supported row count",
+      );
+    }
+    return channels as NotificationChannel[];
   }
 
   async create(
