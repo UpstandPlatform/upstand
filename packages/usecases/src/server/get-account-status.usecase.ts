@@ -1,5 +1,6 @@
 import type { IUnitOfWork } from "@upstand/domain";
 import { z } from "zod";
+import { findOrganizationResourceTopology } from "../deployment/organization-resources.helper";
 
 export const GetAccountStatusInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -21,31 +22,44 @@ export class GetAccountStatusUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: GetAccountStatusInput): Promise<AccountStatus> {
-    const [projects, servers] = await Promise.all([
-      this.uow.projectRepository.findByOrganizationId(input.organizationId),
+    const [topology, servers] = await Promise.all([
+      findOrganizationResourceTopology(this.uow, input.organizationId),
       this.uow.serverRepository.findByOrganizationId(input.organizationId),
     ]);
-    const environments = (
-      await Promise.all(
-        projects.map((project) =>
-          this.uow.environmentRepository.findByProjectId(project.id),
-        ),
-      )
-    ).flat();
-    const resources = (
-      await Promise.all(
-        environments.map((environment) =>
-          this.uow.resourceRepository.findByEnvironmentId(environment.id),
-        ),
-      )
-    ).flat();
-    const deployments = (
-      await Promise.all(
-        resources.map((resource) =>
-          this.uow.deploymentRepository.findByResourceId(resource.id),
-        ),
-      )
-    ).flat();
+    const { projects, environments, resources } = topology;
+
+    if (projects.length === 0) {
+      return {
+        organizationId: input.organizationId,
+        projectCount: 0,
+        environmentCount: 0,
+        resourceCount: 0,
+        serverCount: servers.length,
+        recentDeploymentCount: 0,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
+    if (environments.length === 0) {
+      return {
+        organizationId: input.organizationId,
+        projectCount: projects.length,
+        environmentCount: 0,
+        resourceCount: 0,
+        serverCount: servers.length,
+        recentDeploymentCount: 0,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
+    const resourceIds = resources.map((r) => r.id);
+    const deployments =
+      resourceIds.length > 0
+        ? await this.uow.deploymentRepository.findRecentByResourceIds(
+            resourceIds,
+          )
+        : [];
+
     return {
       organizationId: input.organizationId,
       projectCount: projects.length,

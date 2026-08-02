@@ -385,7 +385,12 @@ export function DomainsTab({
       /^(?:\d{1,3}\.){3}\d{1,3}$/,
     )?.[0];
     const configuredIp = webServerSettings.data?.settings.serverIp?.trim();
-    const expectedIp = configuredIp || defaultIp;
+    const isRemoteServer = Boolean(
+      resource.serverId && resource.serverId !== "local",
+    );
+    const expectedIp = isRemoteServer
+      ? defaultIp || configuredIp
+      : configuredIp || defaultIp;
 
     setDnsStatusMap((prev) => ({
       ...prev,
@@ -557,10 +562,32 @@ export function DomainsTab({
   });
 
   const editDomain = (idx: number) => {
-    setEditingDomainIndex(idx);
     const domain = domainList[idx];
     if (!domain) return;
-    form.reset(domain);
+    setEditingDomainIndex(idx);
+    const defaults = emptyDomainMapping();
+    const merged: DomainMapping = {
+      ...defaults,
+      ...domain,
+      forwardAuth: domain.forwardAuth
+        ? {
+            address: domain.forwardAuth.address ?? "",
+            uri: domain.forwardAuth.uri ?? "/verify",
+            copyHeaders: domain.forwardAuth.copyHeaders ?? [],
+          }
+        : undefined,
+      basicAuth: domain.basicAuth
+        ? {
+            username: domain.basicAuth.username ?? "",
+            passwordHash: domain.basicAuth.passwordHash ?? "",
+          }
+        : undefined,
+      securityHeaders: {
+        ...defaults.securityHeaders,
+        ...(domain.securityHeaders ?? {}),
+      },
+    };
+    form.reset(merged);
     setDomainDialogOpen(true);
   };
 
@@ -594,7 +621,7 @@ export function DomainsTab({
 
   const openAddDomain = () => {
     setEditingDomainIndex(null);
-    form.reset();
+    form.reset(emptyDomainMapping());
     setDomainDialogOpen(true);
   };
 
@@ -606,7 +633,12 @@ export function DomainsTab({
       /^(?:\d{1,3}\.){3}\d{1,3}$/,
     )?.[0];
     const configuredIp = webServerSettings.data?.settings.serverIp?.trim();
-    const ip = configuredIp || defaultIp;
+    const isRemoteServer = Boolean(
+      resource.serverId && resource.serverId !== "local",
+    );
+    const ip = isRemoteServer
+      ? defaultIp || configuredIp
+      : configuredIp || defaultIp;
     if (!isPublicIpv4(ip)) {
       toast.error(
         "Set the installation's public IPv4 address before generating sslip.io domains",
@@ -905,6 +937,11 @@ export function DomainsTab({
             </DialogHeader>
 
             <form
+              key={
+                editingDomainIndex !== null
+                  ? `edit-${editingDomainIndex}`
+                  : "new"
+              }
               onSubmit={(e) => {
                 e.preventDefault();
                 e.stopPropagation();

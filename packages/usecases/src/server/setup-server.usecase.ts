@@ -10,6 +10,7 @@ import type {
   ServerProvisioningPort,
   ServerProvisioningSession,
 } from "../ports/server-provisioning";
+import { GetSwarmJoinCommandsUseCase } from "../swarm/get-swarm-join-commands.usecase";
 import { getServerProvisioningPlan } from "./server-role";
 
 export const SetupServerInputSchema = z.object({
@@ -32,42 +33,85 @@ export class SetupServerUseCase {
       throw new Error("Server not found");
     }
 
-    if (!server.sshKeyId) {
-      throw new Error("Server does not have an SSH Key configured");
-    }
     if (!server.sshHostKeyFingerprint) {
       throw new Error("Trust the server SSH host key before provisioning it");
     }
 
-    const sshKey = await this.uow.sshKeyRepository.findById(server.sshKeyId);
-    if (!sshKey) {
-      throw new Error("Configured SSH Key not found");
+    let privateKey: string | undefined;
+    let password: string | undefined;
+
+    const isPasswordAuth =
+      server.authType === "password" ||
+      (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+    if (isPasswordAuth) {
+      if (
+        !server.passwordCiphertext ||
+        !server.passwordIv ||
+        !server.passwordAuthTag ||
+        server.passwordVersion == null
+      ) {
+        throw new Error("Server password credentials are not configured");
+      }
+      password = decryptSecret({
+        ciphertext: server.passwordCiphertext,
+        iv: server.passwordIv,
+        authTag: server.passwordAuthTag,
+        keyVersion: server.passwordVersion,
+      });
+    } else {
+      if (!server.sshKeyId) {
+        throw new Error("Server does not have an SSH Key configured");
+      }
+      const sshKey = await this.uow.sshKeyRepository.findById(server.sshKeyId);
+      if (!sshKey) {
+        throw new Error("Configured SSH Key not found");
+      }
+      privateKey = decryptSecret({
+        ciphertext: sshKey.privateKeyCiphertext,
+        iv: sshKey.privateKeyIv,
+        authTag: sshKey.privateKeyAuthTag,
+        keyVersion: sshKey.privateKeyVersion,
+      });
     }
 
-    // Update status to setting_up
+    // Update status to setting_up, clear any previous progress from prior runs
     await this.uow.serverRepository.updateById(server.id, {
       status: "setting_up",
       setupError: null,
+      setupStage: "Connecting to server via SSH",
+      setupLogs: "",
     });
 
-    // Decrypt the private key
-    const privateKey = decryptSecret({
-      ciphertext: sshKey.privateKeyCiphertext,
-      iv: sshKey.privateKeyIv,
-      authTag: sshKey.privateKeyAuthTag,
-      keyVersion: sshKey.privateKeyVersion,
-    });
-
-    return this.runSetup(server, privateKey, server.sshHostKeyFingerprint);
+    return this.runSetup(
+      server,
+      { privateKey, password },
+      server.sshHostKeyFingerprint,
+    );
   }
 
   private async runSetup(
     server: Server,
-    privateKey: string,
+    credentials: { privateKey?: string; password?: string },
     hostKeyFingerprint: string,
   ): Promise<{ success: boolean; message: string }> {
     let session: ServerProvisioningSession | null = null;
     const plan = getServerProvisioningPlan(server.serverType);
+
+    // Accumulated log lines written to the server record for frontend polling
+    let logBuffer = "";
+
+    // Helper — update the server's live progress visible to the frontend.
+    // Stage is the current human-readable step; detail is appended as a log line.
+    const progress = async (stage: string, detail?: string): Promise<void> => {
+      if (detail) {
+        logBuffer = logBuffer ? `${logBuffer}\n${detail}` : detail;
+      }
+      await this.uow.serverRepository.updateById(server.id, {
+        setupStage: stage,
+        setupLogs: logBuffer,
+      });
+    };
 
     const executeCommand = async (cmd: string): Promise<string> => {
       if (!session) throw new Error("Provisioning session is not connected");
@@ -81,13 +125,22 @@ export class SetupServerUseCase {
     };
 
     try {
+      await progress(
+        "Connecting to server via SSH",
+        `Connecting to ${server.ipAddress}:${server.port} as ${server.username}...`,
+      );
       session = await this.provisioning.connect({
         server,
-        privateKey,
+        privateKey: credentials.privateKey,
+        password: credentials.password,
         hostKeyFingerprint,
       });
       const connectedSession = session;
 
+      await progress(
+        "Verifying SSH permissions",
+        "SSH connection established. Checking privilege level...",
+      );
       let sudo: string;
       try {
         sudo = (
@@ -100,20 +153,36 @@ export class SetupServerUseCase {
           "The SSH user is not root and does not have passwordless sudo access.",
         );
       }
-      const privileged = (command: string) =>
+      const privileged = async (command: string): Promise<string> =>
         executeCommand(`${sudo ? `${sudo} ` : ""}${command}`);
 
       // 1. Install Docker if not present
+      await progress(
+        "Checking Docker installation",
+        `Checking if Docker is installed on ${server.ipAddress}...`,
+      );
       log.info({
         message: `[Server Setup] Checking Docker installation on ${server.ipAddress}`,
       });
       try {
-        await executeCommand("docker --version");
+        const dockerVersion = await executeCommand("docker --version");
+        await progress(
+          "Checking Docker installation",
+          `Docker already installed: ${dockerVersion.trim()}`,
+        );
       } catch {
+        await progress(
+          "Installing Docker Engine",
+          "Docker not found. Installing Docker Engine from official repository...",
+        );
         log.info({
           message: `[Server Setup] Docker not found on ${server.ipAddress}. Installing Docker...`,
         });
         await executeCommand(buildDockerInstallCommand(sudo));
+        await progress(
+          "Installing Docker Engine",
+          "Docker Engine installed successfully.",
+        );
       }
 
       await privileged("systemctl enable --now docker");
@@ -125,9 +194,15 @@ export class SetupServerUseCase {
       // Give the daemon a short, bounded window to become ready before
       // attempting Swarm operations. This also makes retries after a failed
       // setup deterministic instead of depending on daemon startup timing.
+      await progress(
+        "Waiting for Docker daemon",
+        "Docker service enabled. Waiting for daemon socket...",
+      );
       const remoteInfo = await waitForDocker(() =>
         connectedSession.dockerInfo(),
       );
+      await progress("Waiting for Docker daemon", "Docker daemon is ready.");
+
       if (plan.requiresSwarm) {
         // Each deployment/database host owns an independent Swarm. It must
         // never join the control-plane cluster because its resource network,
@@ -136,26 +211,86 @@ export class SetupServerUseCase {
           message: `[Server Setup] Checking Swarm status on ${server.ipAddress}`,
           serverType: server.serverType,
         });
+        await progress(
+          "Checking Docker Swarm status",
+          "Checking Docker Swarm state...",
+        );
         const remoteSwarmStatus =
           remoteInfo.Swarm?.LocalNodeState ?? "inactive";
         if (remoteSwarmStatus === "inactive") {
-          log.info({
-            message: `[Server Setup] Initializing an independent Docker Swarm on ${server.ipAddress}...`,
-            serverType: server.serverType,
-          });
-          await privileged(
-            `docker swarm init --advertise-addr ${shellQuote(server.ipAddress)}`,
-          );
+          let joinedCluster = false;
+          try {
+            const joinInfo = await new GetSwarmJoinCommandsUseCase()
+              .execute()
+              .catch(() => null);
+            if (
+              joinInfo?.workerCommand &&
+              joinInfo.advertiseAddress &&
+              !joinInfo.advertiseAddress.includes("127.0.0.1") &&
+              !joinInfo.advertiseAddress.includes("localhost")
+            ) {
+              await progress(
+                "Joining Docker Swarm cluster",
+                `Joining ${server.name} to control-plane Swarm cluster at ${joinInfo.advertiseAddress}...`,
+              );
+              log.info({
+                message: `[Server Setup] Joining ${server.name} (${server.ipAddress}) to control-plane Swarm cluster...`,
+              });
+              const joinCmd = `${joinInfo.workerCommand} --advertise-addr ${shellQuote(server.ipAddress)}`;
+              await privileged(joinCmd);
+              joinedCluster = true;
+              await progress(
+                "Joining Docker Swarm cluster",
+                "Successfully joined control-plane Swarm cluster. ✅",
+              );
+              log.info({
+                message: `[Server Setup] Server ${server.name} joined control-plane Swarm cluster! ✅`,
+              });
+            }
+          } catch (joinError) {
+            log.info({
+              message: `[Server Setup] Control-plane cluster join unavailable (${joinError instanceof Error ? joinError.message : String(joinError)}); initializing independent Docker Swarm...`,
+            });
+          }
+
+          if (!joinedCluster) {
+            await progress(
+              "Initializing Docker Swarm",
+              `Initializing independent Docker Swarm on ${server.ipAddress}...`,
+            );
+            log.info({
+              message: `[Server Setup] Initializing an independent Docker Swarm on ${server.ipAddress}...`,
+              serverType: server.serverType,
+            });
+            await privileged(
+              `docker swarm init --advertise-addr ${shellQuote(server.ipAddress)}`,
+            );
+            await progress(
+              "Initializing Docker Swarm",
+              "Docker Swarm initialized. ✅",
+            );
+          }
         } else if (remoteSwarmStatus !== "active") {
           throw new Error(
             `Docker Swarm is in '${remoteSwarmStatus}' state. Resolve the Docker or advertised-address issue on the server, then retry setup.`,
+          );
+        } else {
+          await progress(
+            "Checking Docker Swarm status",
+            "Docker Swarm already active — skipping initialization.",
           );
         }
 
         await privileged("docker swarm update --task-history-limit 1");
 
-        await privileged(
-          "docker network inspect upstand-network >/dev/null 2>&1 || docker network create --driver overlay --attachable upstand-network",
+        await progress(
+          "Creating Upstand overlay network",
+          `Creating overlay network 'upstand-network'...`,
+        );
+        await privileged(buildEncryptedUpstandNetworkCommand());
+        await progress(
+          "Creating Upstand overlay network",
+          "Overlay network ready. ✅",
         );
 
         const initializedInfo = await waitForDocker(() =>
@@ -168,20 +303,36 @@ export class SetupServerUseCase {
         }
       } else {
         log.info({
-          message: `[Server Setup] ${server.name} is a build server; Docker was verified without creating a Swarm or public edge.`,
+          message: `[Server Setup] ${server.name} is a build server; Docker was verified without creating a Swarm or public Caddy proxy.`,
         });
       }
 
       if (plan.requiresCaddy) {
         // Only deployment servers expose Caddy. Database servers deliberately
-        // have no edge proxy, so database credentials and ports stay private.
+        // have no Caddy proxy, so database credentials and ports stay private.
+        await progress(
+          "Configuring Caddy reverse proxy",
+          "Initializing Caddy routing service...",
+        );
         const webServerSettings =
           await this.uow.webServerSettingsRepository.findGlobal();
         await connectedSession.initializeCaddy(webServerSettings ?? {});
+        await progress(
+          "Configuring Caddy reverse proxy",
+          "Caddy proxy configured. ✅",
+        );
       }
 
       if (plan.requiresMonitoring) {
+        await progress(
+          "Deploying monitoring agent",
+          "Provisioning Upstand monitoring agent...",
+        );
         await this.setupMonitoringAgent(connectedSession, server, privileged);
+        await progress(
+          "Deploying monitoring agent",
+          "Monitoring agent deployed. ✅",
+        );
       }
 
       log.info({
@@ -190,6 +341,9 @@ export class SetupServerUseCase {
       await this.uow.serverRepository.updateById(server.id, {
         status: "ready",
         setupError: null,
+        // Clear transient progress fields so UI shows clean state on next view
+        setupStage: null,
+        setupLogs: null,
       });
       return {
         success: true,
@@ -201,9 +355,14 @@ export class SetupServerUseCase {
         message: `[Server Setup] Error setting up server ${server.name}: ${message}`,
         err: err instanceof Error ? err.stack : String(err),
       });
+      // Preserve setupStage so the frontend shows "Failed at: <stage>"
+      // but update the status and record the error message.
       await this.uow.serverRepository.updateById(server.id, {
         status: "failed",
         setupError: message,
+        setupLogs: logBuffer
+          ? `${logBuffer}\n\n❌ FAILED: ${message}`
+          : `❌ FAILED: ${message}`,
       });
       throw new Error(message);
     } finally {
@@ -240,131 +399,210 @@ export class SetupServerUseCase {
       configuredMonitoringImage || "upstand-monitoring-agent";
     let remoteTarPath: string | undefined;
     let remoteSrcPath: string | undefined;
+    let localTarPath: string | undefined;
 
-    if (configuredMonitoringImage) {
-      if (
-        env.NODE_ENV === "production" &&
-        !/@sha256:[a-f0-9]{64}$/i.test(configuredMonitoringImage)
-      ) {
-        throw new Error(
-          "UPSTAND_MONITORING_IMAGE must use an immutable sha256 digest in production",
+    try {
+      if (configuredMonitoringImage) {
+        if (
+          env.NODE_ENV === "production" &&
+          !/@sha256:[a-f0-9]{64}$/i.test(configuredMonitoringImage)
+        ) {
+          throw new Error(
+            "UPSTAND_MONITORING_IMAGE must use an immutable sha256 digest in production",
+          );
+        }
+        log.info({
+          message: `[Monitoring Setup] Pulling immutable monitoring image ${configuredMonitoringImage} on ${server.ipAddress}...`,
+        });
+        await privileged(
+          `docker pull ${shellQuote(configuredMonitoringImage)}`,
+        );
+      } else {
+        if (env.NODE_ENV === "production") {
+          throw new Error(
+            "UPSTAND_MONITORING_IMAGE is required in production for remote monitoring setup",
+          );
+        }
+
+        let monitoringPath = path.join(process.cwd(), "apps", "monitoring");
+        if (!fs.existsSync(monitoringPath)) {
+          const alternativePath = path.join(
+            process.cwd(),
+            "..",
+            "..",
+            "apps",
+            "monitoring",
+          );
+          if (fs.existsSync(alternativePath)) monitoringPath = alternativePath;
+        }
+        if (!fs.existsSync(monitoringPath)) {
+          throw new Error(
+            `Monitoring agent source path not found: ${monitoringPath}`,
+          );
+        }
+
+        const tarFileName = `monitoring-${server.id}-${Date.now()}.tar.gz`;
+        localTarPath = path.join(process.cwd(), ".builds", tarFileName);
+        fs.mkdirSync(path.dirname(localTarPath), { recursive: true });
+        const { exec } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execAsync = promisify(exec);
+        log.info({
+          message: `[Monitoring Setup] Creating tarball at ${localTarPath}`,
+        });
+        await execAsync(`tar -czf "${localTarPath}" -C "${monitoringPath}" .`);
+
+        remoteTarPath = `/tmp/${tarFileName}`;
+        remoteSrcPath = `/tmp/monitoring-src-${server.id}`;
+        log.info({
+          message: `[Monitoring Setup] Uploading tarball to ${server.ipAddress}:${remoteTarPath}`,
+        });
+        if (!remoteTarPath) throw new Error("Remote archive path is missing");
+        await session.upload(localTarPath, remoteTarPath);
+        fs.unlinkSync(localTarPath);
+
+        log.info({
+          message:
+            "[Monitoring Setup] Extracting and building Docker image on remote server...",
+        });
+        await privileged(
+          `mkdir -p ${remoteSrcPath} && tar -xzf ${remoteTarPath} -C ${remoteSrcPath}`,
+        );
+        await privileged(
+          `docker build -t ${shellQuote(monitoringImage)} ${shellQuote(remoteSrcPath)}`,
         );
       }
-      log.info({
-        message: `[Monitoring Setup] Pulling immutable monitoring image ${configuredMonitoringImage} on ${server.ipAddress}...`,
-      });
-      await privileged(`docker pull ${shellQuote(configuredMonitoringImage)}`);
-    } else {
-      if (env.NODE_ENV === "production") {
-        throw new Error(
-          "UPSTAND_MONITORING_IMAGE is required in production for remote monitoring setup",
-        );
-      }
 
-      let monitoringPath = path.join(process.cwd(), "apps", "monitoring");
-      if (!fs.existsSync(monitoringPath)) {
-        const alternativePath = path.join(
-          process.cwd(),
-          "..",
-          "..",
-          "apps",
-          "monitoring",
-        );
-        if (fs.existsSync(alternativePath)) monitoringPath = alternativePath;
-      }
-      if (!fs.existsSync(monitoringPath)) {
-        throw new Error(
-          `Monitoring agent source path not found: ${monitoringPath}`,
-        );
-      }
+      const containerName = "upstand-monitoring-agent";
+      const globalSettings =
+        await this.uow.webServerSettingsRepository.findGlobal();
+      const controlPlaneIp = globalSettings?.serverIp || "localhost";
 
-      const tarFileName = `monitoring-${server.id}-${Date.now()}.tar.gz`;
-      const localTarPath = path.join(process.cwd(), ".builds", tarFileName);
-      fs.mkdirSync(path.dirname(localTarPath), { recursive: true });
-      const { exec } = await import("node:child_process");
-      const { promisify } = await import("node:util");
-      const execAsync = promisify(exec);
-      log.info({
-        message: `[Monitoring Setup] Creating tarball at ${localTarPath}`,
-      });
-      await execAsync(`tar -czf "${localTarPath}" -C "${monitoringPath}" .`);
-
-      remoteTarPath = `/tmp/${tarFileName}`;
-      remoteSrcPath = `/tmp/monitoring-src-${server.id}`;
-      log.info({
-        message: `[Monitoring Setup] Uploading tarball to ${server.ipAddress}:${remoteTarPath}`,
-      });
-      if (!remoteTarPath) throw new Error("Remote archive path is missing");
-      await session.upload(localTarPath, remoteTarPath);
-      fs.unlinkSync(localTarPath);
-
-      log.info({
-        message:
-          "[Monitoring Setup] Extracting and building Docker image on remote server...",
-      });
-      await privileged(
-        `mkdir -p ${remoteSrcPath} && tar -xzf ${remoteTarPath} -C ${remoteSrcPath}`,
-      );
-      await privileged(
-        `docker build -t ${shellQuote(monitoringImage)} ${shellQuote(remoteSrcPath)}`,
-      );
-    }
-
-    const containerName = "upstand-monitoring-agent";
-    const globalSettings =
-      await this.uow.webServerSettingsRepository.findGlobal();
-    const controlPlaneIp = globalSettings?.serverIp || "localhost";
-
-    const metricsConfig = {
-      server: {
-        serverId: server.id,
-        refreshRate: 25,
-        port: 3001,
-        serverType: "Remote",
-        token: token,
-        urlCallback: `http://${controlPlaneIp}:${env.PORT}/api/monitoring/alerts`,
-        retentionDays: 7,
-        cronJob: "0 0 * * *",
-        thresholds: {
-          cpu: settings.cpuThreshold,
-          memory: settings.memoryThreshold,
+      const metricsConfig = {
+        server: {
+          serverId: server.id,
+          refreshRate: 25,
+          port: 3001,
+          serverType: "Remote",
+          token: token,
+          urlCallback: `http://${controlPlaneIp}:${env.PORT}/api/monitoring/alerts`,
+          retentionDays: 7,
+          cronJob: "0 0 * * *",
+          thresholds: {
+            cpu: settings.cpuThreshold,
+            memory: settings.memoryThreshold,
+          },
         },
-      },
-      containers: {
-        refreshRate: 25,
-        services: {
-          include: [],
-          exclude: [],
+        containers: {
+          refreshRate: 25,
+          services: {
+            include: [],
+            exclude: [],
+          },
         },
-      },
-    };
+      };
 
-    log.info({
-      message: `[Monitoring Setup] Starting upstand-monitoring-agent container on ${server.ipAddress}...`,
-    });
-    const monitoringCommand = buildMonitoringAgentContainerCommand({
-      containerName,
-      monitoringImage,
-      metricsConfig,
-    });
-    await privileged(`sh -ec ${shellQuote(monitoringCommand)}`);
+      // Do not put the monitoring token in the remote docker command line.
+      // Shell command lines are visible to process inspection and can be
+      // retained by SSH/session logging. Upload a temporary, mode-restricted
+      // env file and remove it after the container has been replaced.
+      const configSuffix = randomBytes(12).toString("hex");
+      const localMetricsConfigPath = path.join(
+        process.cwd(),
+        ".builds",
+        `monitoring-config-${configSuffix}.env`,
+      );
+      const remoteMetricsConfigPath = `/tmp/upstand-monitoring-config-${configSuffix}.env`;
+      fs.mkdirSync(path.dirname(localMetricsConfigPath), { recursive: true });
+      fs.writeFileSync(
+        localMetricsConfigPath,
+        `METRICS_CONFIG=${JSON.stringify(metricsConfig)}\n`,
+        { encoding: "utf8", mode: 0o600 },
+      );
 
-    if (remoteTarPath && remoteSrcPath) {
-      await privileged(`rm -rf ${remoteTarPath} ${remoteSrcPath}`);
+      log.info({
+        message: `[Monitoring Setup] Starting upstand-monitoring-agent container on ${server.ipAddress}...`,
+      });
+      try {
+        await session.upload(localMetricsConfigPath, remoteMetricsConfigPath);
+        await privileged(`chmod 0600 ${shellQuote(remoteMetricsConfigPath)}`);
+        const dockerSocketGid = (
+          await privileged("stat -c '%g' /var/run/docker.sock")
+        ).trim();
+        const monitoringCommand = buildMonitoringAgentContainerCommand({
+          containerName,
+          monitoringImage,
+          metricsConfigPath: remoteMetricsConfigPath,
+          dockerSocketGid,
+        });
+        await privileged(`sh -ec ${shellQuote(monitoringCommand)}`);
+      } finally {
+        try {
+          await privileged(`rm -f ${shellQuote(remoteMetricsConfigPath)}`);
+        } catch (error) {
+          log.warn({
+            message: "Unable to remove temporary remote monitoring config",
+            serverId: server.id,
+            err: error,
+          });
+        }
+        try {
+          fs.rmSync(localMetricsConfigPath, { force: true });
+        } catch (error) {
+          log.warn({
+            message: "Unable to remove temporary local monitoring config",
+            serverId: server.id,
+            err: error,
+          });
+        }
+      }
+
+      log.info({
+        message: `[Monitoring Setup] Monitoring Agent configured successfully on ${server.ipAddress}! ✅`,
+      });
+    } finally {
+      if (localTarPath) {
+        try {
+          fs.rmSync(localTarPath, { force: true });
+        } catch (error) {
+          log.warn({
+            message: "Unable to remove temporary local monitoring archive",
+            serverId: server.id,
+            err: error,
+          });
+        }
+      }
+      if (remoteTarPath && remoteSrcPath) {
+        try {
+          await privileged(
+            `rm -rf ${shellQuote(remoteTarPath)} ${shellQuote(remoteSrcPath)}`,
+          );
+        } catch (error) {
+          log.warn({
+            message: "Unable to remove temporary remote monitoring source",
+            serverId: server.id,
+            err: error,
+          });
+        }
+      }
     }
-    log.info({
-      message: `[Monitoring Setup] Monitoring Agent configured successfully on ${server.ipAddress}! ✅`,
-    });
   }
 }
 
 export function buildMonitoringAgentContainerCommand(input: {
   containerName: string;
   monitoringImage: string;
-  metricsConfig: object;
+  metricsConfigPath: string;
+  dockerSocketGid: string;
 }): string {
+  if (!/^\d+$/.test(input.dockerSocketGid)) {
+    throw new Error("Remote Docker socket group ID must be numeric");
+  }
+
   const containerName = shellQuote(input.containerName);
   const monitoringImage = shellQuote(input.monitoringImage);
+  const metricsConfigPath = shellQuote(input.metricsConfigPath);
+  const dockerSocketGid = shellQuote(input.dockerSocketGid);
 
   return [
     "set -eu",
@@ -383,22 +621,44 @@ export function buildMonitoringAgentContainerCommand(input: {
       `--name ${containerName} ` +
       "--label com.upstand.component=monitoring-agent " +
       "--restart always " +
-      "--cap-drop ALL " +
+      `--group-add ${dockerSocketGid} ` +
       "--security-opt no-new-privileges:true " +
       "--read-only " +
-      "--tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m " +
+      "--tmpfs /tmp:rw,nosuid,nodev,size=16m " +
       "--memory 256m " +
       "--pids-limit 128 " +
       "--log-opt max-size=10m --log-opt max-file=3 " +
       "-p 127.0.0.1:3001:3001 " +
       "-e DB_PATH=/data/monitoring.db " +
-      `-e METRICS_CONFIG=${shellQuote(JSON.stringify(input.metricsConfig))} ` +
       "-v /var/run/docker.sock:/var/run/docker.sock:ro " +
       "-v /proc:/host/proc:ro " +
       "-v /sys:/host/sys:ro " +
       "-v /etc/os-release:/etc/os-release:ro " +
+      `--env-file ${metricsConfigPath} ` +
       "-v upstand-monitoring-data:/data " +
       monitoringImage,
+  ].join("\n");
+}
+
+export function buildEncryptedUpstandNetworkCommand(
+  networkName = env.DOCKER_NETWORK || "upstand-network",
+): string {
+  const quotedNetworkName = shellQuote(networkName);
+  return [
+    "set -eu",
+    `if docker network inspect ${quotedNetworkName} >/dev/null 2>&1; then`,
+    `  driver="$(docker network inspect -f '{{.Driver}}' ${quotedNetworkName})"`,
+    `  scope="$(docker network inspect -f '{{.Scope}}' ${quotedNetworkName})"`,
+    `  attachable="$(docker network inspect -f '{{.Attachable}}' ${quotedNetworkName})"`,
+    `  options="$(docker network inspect -f '{{json .Options}}' ${quotedNetworkName})"`,
+    `  if [ "$driver" != overlay ] || [ "$scope" != swarm ] || [ "$attachable" != true ]; then echo "existing Upstand network must be an attachable Swarm overlay" >&2; exit 1; fi`,
+    `  case "$options" in`,
+    `    *"encrypted"*) : ;;`,
+    `    *) echo "existing Upstand network must be encrypted" >&2; exit 1 ;;`,
+    "  esac",
+    "else",
+    `  docker network create --driver overlay --opt encrypted --attachable ${quotedNetworkName}`,
+    "fi",
   ].join("\n");
 }
 

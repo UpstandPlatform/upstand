@@ -6,8 +6,11 @@ import type {
   IAuditLogRepository,
   ListAuditLogsInput,
 } from "@upstand/domain";
-import { and, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import type { Executor } from "../shared/types";
+
+const MAX_AUDIT_LOG_PAGE_SIZE = 100;
+const MAX_AUDIT_LOG_OFFSET = 1_000_000;
 
 function decodeCursor(cursor: string): { createdAt: Date; id: string } {
   const separator = cursor.indexOf("|");
@@ -39,6 +42,14 @@ export class DrizzleAuditLogRepository implements IAuditLogRepository {
   }
 
   async list(input: ListAuditLogsInput) {
+    const limit = Math.max(
+      1,
+      Math.min(Math.trunc(input.limit), MAX_AUDIT_LOG_PAGE_SIZE),
+    );
+    const offset = Math.min(
+      Math.max(Math.trunc(input.offset ?? 0), 0),
+      MAX_AUDIT_LOG_OFFSET,
+    );
     const conditions = [eq(auditLog.organizationId, input.organizationId)];
     if (input.actorId) conditions.push(eq(auditLog.actorId, input.actorId));
     if (input.action) conditions.push(eq(auditLog.action, input.action));
@@ -75,9 +86,9 @@ export class DrizzleAuditLogRepository implements IAuditLogRepository {
         .from(auditLog)
         .where(where)
         .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
-        .limit(input.limit + 1);
-      const hasMore = rows.length > input.limit;
-      const items = hasMore ? rows.slice(0, input.limit) : rows;
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
       const last = items.at(-1);
       return {
         items: items as AuditLogRecord[],
@@ -91,8 +102,8 @@ export class DrizzleAuditLogRepository implements IAuditLogRepository {
         .from(auditLog)
         .where(where)
         .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
-        .limit(input.limit)
-        .offset(input.offset ?? 0),
+        .limit(limit)
+        .offset(offset),
       this.executor
         .select({ count: sql<number>`count(*)::int` })
         .from(auditLog)
@@ -102,5 +113,27 @@ export class DrizzleAuditLogRepository implements IAuditLogRepository {
       items: items as AuditLogRecord[],
       total: count[0]?.count ?? 0,
     };
+  }
+
+  async deleteOlderThan(before: Date, limit = 1_000): Promise<number> {
+    const safeLimit = Math.max(1, Math.min(limit, 1_000));
+    const candidates = await this.executor
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(lt(auditLog.createdAt, before))
+      .orderBy(auditLog.createdAt, auditLog.id)
+      .limit(safeLimit);
+    if (candidates.length === 0) return 0;
+
+    const deleted = await this.executor
+      .delete(auditLog)
+      .where(
+        inArray(
+          auditLog.id,
+          candidates.map((candidate) => candidate.id),
+        ),
+      )
+      .returning({ id: auditLog.id });
+    return deleted.length;
   }
 }

@@ -18,11 +18,10 @@ function configuration(
 }
 
 describe("authentication origin configuration", () => {
-  test("uses only configured exact origins", () => {
-    expect(resolveTrustedOrigins(configuration())).toEqual([
-      "https://dashboard.example.com",
-      "https://api.example.com",
-    ]);
+  test("uses only configured exact origins in production", () => {
+    expect(
+      resolveTrustedOrigins(configuration({ nodeEnv: "production" })),
+    ).toEqual(["https://dashboard.example.com", "https://api.example.com"]);
   });
 
   test("does not infer a shared cookie domain", () => {

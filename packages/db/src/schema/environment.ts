@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   pgTable,
@@ -38,6 +39,11 @@ export const environment = pgTable(
       table.projectId,
       table.slug,
     ),
+    foreignKey({
+      columns: [table.parentEnvironmentId],
+      foreignColumns: [table.id],
+      name: "environment_parent_environment_id_environment_id_fk",
+    }).onDelete("set null"),
   ],
 );
 

@@ -3,7 +3,9 @@ title: Domains, Caddy & Automatic HTTPS
 description: Learn how to manage public routing, SSL certificates, headers, and reverse proxies using Caddy.
 ---
 
-Upstand orchestrates a central **Caddy Web Server** container to serve as the entry point for all public domain routing.
+Upstand uses **Caddy** as the public `:80`/`:443` entry point and application
+proxy. Caddy preserves domain mappings, middleware, certificates, and atomic
+reload semantics while routing traffic to the configured application services.
 
 ---
 
@@ -28,7 +30,7 @@ Upstand configures and reloads certificates dynamically. You can choose between 
 - Automatically completes ACME HTTP-01 or TLS-ALPN-01 challenges.
 - Optional ACME contact email for certificate expiration alerts and account registration.
 - Caddy caches certificates, private keys, and renewal statuses in a persistent volume.
-- **Prerequisites**: DNS must resolve to the server IP and TCP ports **80** and **443** must be open publicly.
+- **Prerequisites**: DNS must resolve to the Caddy host and TCP ports **80** and **443** must be open publicly.
 
 ### ZeroSSL
 - Issues certificates via ZeroSSL ACME endpoints with ACME contact email registration.
@@ -81,7 +83,7 @@ Operators can define reusable Caddy configuration snippets under **Web Server â†
 }
 ```
 
-- **IP Allowlisting & Geo-Blocking**: Block or restrict route access based on client IP CIDR ranges or Cloudflare country headers (`{http.request.header.CF-IPCountry}`).
+- **IP Allowlisting**: Caddy snippets can restrict access using client IP CIDRs and other Caddy-native request matchers.
 - **Snippet Import**: Import any defined snippet directly on domain mapping cards by selecting it from the **Caddy Snippets** dropdown menu.
 
 ---

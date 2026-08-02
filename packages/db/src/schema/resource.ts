@@ -43,7 +43,9 @@ export const resource = pgTable(
     tagPattern: text("tag_pattern"),
     webhookTokenHash: text("webhook_token_hash").unique(),
     webhookTokenPrefix: text("webhook_token_prefix"),
-    serverId: text("server_id"),
+    serverId: text("server_id").references(() => server.id, {
+      onDelete: "set null",
+    }),
     buildServerId: text("build_server_id").references(() => server.id, {
       onDelete: "set null",
     }),
@@ -64,11 +66,15 @@ export const resource = pgTable(
   },
   (table) => [
     index("resource_environment_idx").on(table.environmentId),
+    index("resource_environment_type_idx").on(table.environmentId, table.type),
     index("resource_server_idx").on(table.serverId),
     index("resource_build_server_idx").on(table.buildServerId),
     index("resource_build_registry_idx").on(table.buildRegistryId),
     index("resource_rollback_registry_idx").on(table.rollbackRegistryId),
     index("resource_app_name_idx").on(table.appName),
+    index("resource_provider_idx").on(table.provider),
+    // The normalized service-key index is managed by the legacy 0049
+    // migration; its historical snapshot predates the expression index.
   ],
 );
 

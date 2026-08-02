@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { BACKUP_RUN_EXECUTION_LEASE_MS } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import {
   BullMqOutboxJobPublisher,
@@ -7,9 +9,11 @@ import {
   BackupRunWorker,
   DeploymentWorker,
   NotificationDeliveryWorker,
+  OUTBOX_COMMAND_TYPES,
   OutboxPublisher,
 } from "@upstand/usecases";
 import {
+  ensureBackupRunLock,
   releaseBackupRunLock,
   renewBackupRunLock,
 } from "@upstand/usecases/backup/backup-run-lock";
@@ -27,15 +31,21 @@ import { getServiceProvider } from "./di";
 const PUBLISH_INTERVAL_MS = 1_000;
 const RETENTION_INTERVAL_MS = 60 * 60_000;
 const PUBLISHED_RETENTION_MS = 30 * 24 * 60 * 60_000;
+const SCHEDULE_LOG_RETENTION_MS = 30 * 24 * 60 * 60_000;
+const STALE_BACKUP_RECOVERY_INTERVAL_MS = 60_000;
+const AUDIT_LOG_PRUNE_BATCH_SIZE = 1_000;
 
 export class OutboxRuntime {
   private started = false;
   private readonly jobPublisher = new BullMqOutboxJobPublisher();
   private publishTimer: ReturnType<typeof setInterval> | null = null;
   private retentionTimer: ReturnType<typeof setInterval> | null = null;
+  private staleBackupRecoveryTimer: ReturnType<typeof setInterval> | null =
+    null;
   private publishInFlight: Promise<void> | null = null;
 
   async start(): Promise<void> {
+    await this.recoverStaleBackupRuns();
     await this.publishBatch();
     this.started = true;
     this.startMaintenance();
@@ -47,23 +57,43 @@ export class OutboxRuntime {
 
   private startMaintenance(): void {
     if (this.publishTimer) return;
-    this.publishTimer = setInterval(
-      () => void this.publishBatch(),
-      PUBLISH_INTERVAL_MS,
-    );
+    this.publishTimer = setInterval(() => {
+      this.publishBatch().catch((error: unknown) => {
+        log.error({
+          message: "Unhandled error in OutboxRuntime publishBatch timer",
+          err: error,
+        });
+      });
+    }, PUBLISH_INTERVAL_MS);
     this.publishTimer.unref?.();
-    this.retentionTimer = setInterval(
-      () => void this.prunePublished(),
-      RETENTION_INTERVAL_MS,
-    );
+    this.retentionTimer = setInterval(() => {
+      this.prunePublished().catch((error: unknown) => {
+        log.warn({
+          message: "Unhandled error in OutboxRuntime prunePublished timer",
+          err: error,
+        });
+      });
+    }, RETENTION_INTERVAL_MS);
     this.retentionTimer.unref?.();
+    this.staleBackupRecoveryTimer = setInterval(() => {
+      this.recoverStaleBackupRuns().catch((error: unknown) => {
+        log.warn({
+          message: "Failed to recover stale backup runs",
+          err: error,
+        });
+      });
+    }, STALE_BACKUP_RECOVERY_INTERVAL_MS);
+    this.staleBackupRecoveryTimer.unref?.();
   }
 
   async stop(): Promise<void> {
     if (this.publishTimer) clearInterval(this.publishTimer);
     if (this.retentionTimer) clearInterval(this.retentionTimer);
+    if (this.staleBackupRecoveryTimer)
+      clearInterval(this.staleBackupRecoveryTimer);
     this.publishTimer = null;
     this.retentionTimer = null;
+    this.staleBackupRecoveryTimer = null;
     this.started = false;
     if (this.publishInFlight) await this.publishInFlight;
     await this.jobPublisher.close();
@@ -113,10 +143,33 @@ export class OutboxRuntime {
       const deleted = await uow.outboxRepository.prunePublished(
         new Date(Date.now() - PUBLISHED_RETENTION_MS),
       );
+      const deletedScheduleLogs =
+        await uow.scheduleLogRepository.deleteOlderThan?.(
+          new Date(Date.now() - SCHEDULE_LOG_RETENTION_MS),
+        );
+      const deletedAuditLogs = await uow.auditLogRepository.deleteOlderThan?.(
+        new Date(
+          Date.now() - env.UPSTAND_AUDIT_LOG_RETENTION_DAYS * 24 * 60 * 60_000,
+        ),
+        AUDIT_LOG_PRUNE_BATCH_SIZE,
+      );
       if (deleted > 0) {
         log.info({
           message: "Published transactional outbox messages pruned",
           deleted,
+        });
+      }
+      if ((deletedScheduleLogs ?? 0) > 0) {
+        log.info({
+          message: "Old schedule logs pruned",
+          deleted: deletedScheduleLogs,
+        });
+      }
+      if ((deletedAuditLogs ?? 0) > 0) {
+        log.info({
+          message: "Old audit logs pruned",
+          deleted: deletedAuditLogs,
+          retentionDays: env.UPSTAND_AUDIT_LOG_RETENTION_DAYS,
         });
       }
     } catch (error: unknown) {
@@ -124,6 +177,51 @@ export class OutboxRuntime {
         message: "Failed to prune published transactional outbox messages",
         err: error,
       });
+    } finally {
+      await scope.dispose();
+    }
+  }
+
+  private async recoverStaleBackupRuns(): Promise<void> {
+    const scope = getServiceProvider().createScope();
+    try {
+      const uow = scope.resolve(UnitOfWorkToken);
+      const now = new Date();
+      const staleBefore = new Date(
+        now.getTime() - BACKUP_RUN_EXECUTION_LEASE_MS,
+      );
+      const runningRuns = await uow.backupRunRepository.findByStatus(
+        "running",
+        100,
+      );
+
+      for (const candidate of runningRuns) {
+        if (candidate.updatedAt >= staleBefore) continue;
+        const recovered = await uow.transaction(async (tx) => {
+          const run = await tx.backupRunRepository.requeueStaleForRecovery?.(
+            candidate.id,
+            now,
+          );
+          if (!run) return null;
+          await tx.outboxRepository.create({
+            id: randomUUID(),
+            type: OUTBOX_COMMAND_TYPES.backupRun,
+            payload: { runId: run.id },
+            aggregateType: "backup_run",
+            aggregateId: run.id,
+            organizationId: run.organizationId,
+            idempotencyKey: `backup-run-recovery:${run.id}:${run.updatedAt.getTime()}`,
+          });
+          return run;
+        });
+        if (recovered) {
+          log.warn({
+            message: "Requeued stale backup run after worker lease expiry",
+            scheduleId: recovered.scheduleId,
+            runId: recovered.id,
+          });
+        }
+      }
     } finally {
       await scope.dispose();
     }
@@ -166,6 +264,29 @@ export class DeploymentRuntime {
 
     this.refreshInFlight = (async () => {
       const serverIds = await this.discoverServerIds();
+      const desiredServerIds = new Set(serverIds);
+      const staleWorkers = [...this.workers.entries()].filter(
+        ([serverId]) => !desiredServerIds.has(serverId),
+      );
+      await Promise.allSettled(
+        staleWorkers.map(async ([serverId, worker]) => {
+          this.workers.delete(serverId);
+          try {
+            await worker.stop();
+            log.info({
+              message: "Deployment queue worker stopped for removed target",
+              serverId,
+            });
+          } catch (error: unknown) {
+            log.error({
+              message:
+                "Failed to stop deployment queue worker for removed target",
+              serverId,
+              err: error,
+            });
+          }
+        }),
+      );
       for (const serverId of serverIds) {
         if (this.workers.has(serverId)) continue;
         const worker = new DeploymentWorker(serverId, {
@@ -232,9 +353,10 @@ export class DeploymentRuntime {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.refreshTimer = null;
 
-    return Promise.allSettled(
-      [...this.workers.values()].map((worker) => worker.stop()),
-    );
+    const workers = [...this.workers.values()];
+    this.workers.clear();
+
+    return Promise.allSettled(workers.map((worker) => worker.stop()));
   }
 
   private async discoverServerIds(): Promise<string[]> {
@@ -244,7 +366,9 @@ export class DeploymentRuntime {
     const scope = getServiceProvider().createScope();
     try {
       const uow = scope.resolve(UnitOfWorkToken);
-      const servers = await uow.serverRepository.findMany();
+      const servers = uow.serverRepository.findDeploymentDiscovery
+        ? await uow.serverRepository.findDeploymentDiscovery()
+        : await uow.serverRepository.findMany();
       const serverById = new Map(servers.map((server) => [server.id, server]));
       const settings = await uow.serverBuildSettingsRepository.findMany();
       for (const setting of settings) {
@@ -296,6 +420,7 @@ export function createBackupRunHandler() {
     const uow = scope.resolve(UnitOfWorkToken);
     let scheduleId: string | null = null;
     let renewalTimer: ReturnType<typeof setInterval> | null = null;
+    let ownsExecution = false;
 
     try {
       const run = await uow.backupRunRepository.findById(runId);
@@ -307,12 +432,22 @@ export function createBackupRunHandler() {
         runId,
         new Date(),
       );
-      if (!claimedRun) return;
+      if (!claimedRun) {
+        // A duplicate delivery may arrive while another worker is still
+        // executing this run. Throw so BullMQ retries after the execution
+        // lease has had a chance to become reclaimable; returning here would
+        // acknowledge the job and could strand a crashed run forever.
+        throw new Error("Backup run is already being processed");
+      }
+      ownsExecution = true;
+      if (!(await ensureBackupRunLock(claimedRun.scheduleId, runId))) {
+        throw new Error("Backup run schedule lock is owned by another run");
+      }
 
-      renewalTimer = setInterval(
-        () =>
-          void renewBackupRunLock(claimedRun.scheduleId, runId)
-            .then((renewed: boolean) => {
+      renewalTimer = setInterval(() => {
+        void Promise.all([
+          renewBackupRunLock(claimedRun.scheduleId, runId).then(
+            (renewed: boolean) => {
               if (!renewed) {
                 log.error({
                   message: "Backup run no longer owns its schedule lock",
@@ -320,17 +455,18 @@ export function createBackupRunHandler() {
                   runId,
                 });
               }
-            })
-            .catch((error: unknown) => {
-              log.warn({
-                message: "Unable to renew backup run lock",
-                scheduleId: claimedRun.scheduleId,
-                runId,
-                err: error,
-              });
-            }),
-        60_000,
-      );
+            },
+          ),
+          uow.backupRunRepository.heartbeatExecution?.(runId, new Date()),
+        ]).catch((error: unknown) => {
+          log.warn({
+            message: "Unable to renew backup run lease",
+            scheduleId: claimedRun.scheduleId,
+            runId,
+            err: error,
+          });
+        });
+      }, 60_000);
       renewalTimer.unref?.();
 
       const execute = scope.resolve(ExecuteBackupRunUseCaseToken);
@@ -339,7 +475,7 @@ export function createBackupRunHandler() {
     } catch (error: unknown) {
       const attempts = job.opts.attempts ?? 1;
       const finalAttempt = job.attemptsMade + 1 >= attempts;
-      if (finalAttempt && scheduleId) {
+      if (finalAttempt && scheduleId && ownsExecution) {
         await releaseBackupRunLock(scheduleId, runId);
       }
       throw error;

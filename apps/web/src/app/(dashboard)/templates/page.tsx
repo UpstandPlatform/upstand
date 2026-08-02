@@ -87,6 +87,7 @@ import { CodeEditor, CodeSurface } from "@/components/shared/code-editor";
 import { UpGalTarget } from "@/components/upgal-target";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
 import { downloadText } from "@/lib/browser";
+import { safeExternalUrl } from "@/lib/safe-external-url";
 import { trpc } from "@/utils/trpc";
 
 const DEFAULT_COMPOSE = `services:
@@ -696,68 +697,74 @@ export default function TemplatesPage() {
                 </Alert>
               ) : catalog.data?.items.length ? (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
-                  {catalog.data.items.map((template) => (
-                    <article
-                      key={template.id}
-                      className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/10 p-4 transition-colors hover:border-primary/35 hover:bg-primary/[0.025]"
-                    >
-                      <div className="flex items-start gap-3">
-                        <TemplateLogo
-                          name={template.name}
-                          src={template.logoUrl}
-                        />
-                        <div className="min-w-0">
-                          <h3 className="truncate font-medium">
-                            {template.name}
-                          </h3>
-                          <p className="mt-1 line-clamp-2 text-muted-foreground text-xs">
-                            {template.description}
-                          </p>
+                  {catalog.data.items.map((template) => {
+                    const githubUrl = safeExternalUrl(template.links?.github);
+                    return (
+                      <article
+                        key={template.id}
+                        className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/10 p-4 transition-colors hover:border-primary/35 hover:bg-primary/[0.025]"
+                      >
+                        <div className="flex items-start gap-3">
+                          <TemplateLogo
+                            name={template.name}
+                            src={template.logoUrl}
+                          />
+                          <div className="min-w-0">
+                            <h3 className="truncate font-medium">
+                              {template.name}
+                            </h3>
+                            <p className="mt-1 line-clamp-2 text-muted-foreground text-xs">
+                              {template.description}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex min-h-6 flex-wrap gap-1">
-                        {template.tags.slice(0, 4).map((tag) => (
-                          <Badge
-                            key={tag}
-                            variant="secondary"
-                            className="text-[10px]"
-                          >
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="mt-auto flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="text-[11px] text-muted-foreground">
-                            {template.version}
-                          </span>
-                          {template.links?.github && (
-                            <a
-                              href={template.links.github}
-                              target="_blank"
-                              rel="noreferrer"
-                              aria-label={`Open ${template.name} on GitHub`}
-                              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        <div className="flex min-h-6 flex-wrap gap-1">
+                          {template.tags.slice(0, 4).map((tag) => (
+                            <Badge
+                              key={tag}
+                              variant="secondary"
+                              className="text-[10px]"
                             >
-                              <GithubMark />
-                            </a>
-                          )}
+                              {tag}
+                            </Badge>
+                          ))}
                         </div>
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            setDeployingSource("builtin");
-                            setDeployingId(template.id);
-                            setResourceName(template.name);
-                            setAppName(slug(template.name));
-                          }}
-                        >
-                          <Rocket data-icon="inline-start" aria-hidden="true" />{" "}
-                          Deploy
-                        </Button>
-                      </div>
-                    </article>
-                  ))}
+                        <div className="mt-auto flex items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="text-[11px] text-muted-foreground">
+                              {template.version}
+                            </span>
+                            {githubUrl && (
+                              <a
+                                href={githubUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`Open ${template.name} on GitHub`}
+                                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <GithubMark />
+                              </a>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setDeployingSource("builtin");
+                              setDeployingId(template.id);
+                              setResourceName(template.name);
+                              setAppName(slug(template.name));
+                            }}
+                          >
+                            <Rocket
+                              data-icon="inline-start"
+                              aria-hidden="true"
+                            />{" "}
+                            Deploy
+                          </Button>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               ) : (
                 <PageEmpty
@@ -1061,12 +1068,13 @@ function MetricCard({
 
 function TemplateLogo({ name, src }: { name: string; src?: string }) {
   const [failed, setFailed] = useState(false);
+  const safeSrc = safeExternalUrl(src);
   return (
     <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-background text-primary">
-      {src && !failed ? (
+      {safeSrc && !failed ? (
         // biome-ignore lint/performance/noImgElement: Catalog logos are external repository assets and need a native fallback on load failure.
         <img
-          src={src}
+          src={safeSrc}
           alt={`${name} logo`}
           width={36}
           height={36}
@@ -1192,6 +1200,7 @@ function DeployDialog({
   const canDeploy = Boolean(
     projectId && environmentId && resourceName.trim() && appName.trim(),
   );
+  const githubUrl = safeExternalUrl(template.links?.github);
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <DialogContent className="no-scrollbar max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-2xl sm:w-[calc(100%-2rem)]">
@@ -1220,9 +1229,9 @@ function DeployDialog({
               {template.description || "Compose template"}
             </p>
           </div>
-          {template.links?.github && (
+          {githubUrl && (
             <a
-              href={template.links.github}
+              href={githubUrl}
               target="_blank"
               rel="noreferrer"
               className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

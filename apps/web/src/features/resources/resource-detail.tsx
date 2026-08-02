@@ -36,6 +36,7 @@ import { useEffect, useMemo, useState } from "react";
 import { EditableEntityIcon } from "@/components/editable-entity-icon";
 import {
   Activity,
+  AlertTriangleIcon,
   Clock,
   Code,
   Globe,
@@ -52,6 +53,7 @@ import { EnvironmentTab } from "./components/environment-tab";
 import { MonitoringTab } from "./components/monitoring-tab";
 import { TagsTab } from "./components/tags-tab";
 import { useResourceDetail } from "./hooks/use-resource-detail";
+import { getResourcePreflightErrors } from "./utils/resource-preflight";
 import {
   determineResourceRuntimeStatus,
   type ResourceRuntimeStatus,
@@ -225,6 +227,11 @@ export default function ResourceDetail({
     return logsData.trim().split("\n");
   }, [logsData]);
 
+  const preflightErrors = useMemo(
+    () => getResourcePreflightErrors(resource, secrets, servers, gitProviders),
+    [resource, secrets, servers, gitProviders],
+  );
+
   const containerList = liveContainers ?? [];
 
   if (loadingResource || !resource) {
@@ -301,6 +308,47 @@ export default function ResourceDetail({
           </div>
         </div>
       </div>
+
+      {/* Pre-flight & Configuration Errors Alert Banner */}
+      {preflightErrors.length > 0 && (
+        <Card className="border-destructive/30 bg-destructive/5 p-4 shadow-sm dark:bg-destructive/10">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 font-semibold text-destructive text-sm">
+              <AlertTriangleIcon className="size-5 shrink-0" />
+              <span>
+                Configuration & Pre-flight Issues Detected (
+                {preflightErrors.length})
+              </span>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Deployment cannot proceed until the following configuration issues
+              are resolved:
+            </p>
+            <div className="space-y-2">
+              {preflightErrors.map((err) => (
+                <div
+                  key={err.id}
+                  className="flex flex-col gap-1 rounded-lg border border-border/40 bg-background/60 p-3 text-xs"
+                >
+                  <div className="flex items-center justify-between font-medium text-foreground">
+                    <span>{err.title}</span>
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-[10px] uppercase"
+                    >
+                      {err.category}
+                    </Badge>
+                  </div>
+                  <p className="text-muted-foreground">{err.message}</p>
+                  <p className="mt-0.5 font-medium text-[11px] text-primary">
+                    👉 {err.actionableTip}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs

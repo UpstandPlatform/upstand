@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { env } from "@upstand/env/server";
+import { readResponseJsonLimited } from "@upstand/platform/network/response-body";
 import { log } from "evlog";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 
 export interface UpdateStatusResult {
   currentVersion: string;
@@ -58,6 +60,20 @@ const VERSION_PATTERN = /^(?:v)?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/i;
 
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
+}
+
+function isTrustedReleaseAssetUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      (url.hostname === "github.com" ||
+        url.hostname === "objects.githubusercontent.com" ||
+        url.hostname.endsWith(".githubusercontent.com"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function compareVersions(left: string, right: string): number {
@@ -127,9 +143,8 @@ export class GetUpdateStatusUseCase {
     // Cloud control planes are updated by the hosting rollout. Exposing the
     // self-hosted mutation here would let a tenant race that rollout and
     // could also make the UI suggest that a managed instance is stale.
-    if (env.IS_CLOUD) {
-      const managedVersion =
-        process.env.UPSTAND_VERSION || env.UPSTAND_VERSION || "managed";
+    if (requiresRemoteServerPlacement()) {
+      const managedVersion = env.UPSTAND_VERSION || "managed";
       return {
         currentVersion: managedVersion,
         latestVersion: managedVersion,
@@ -141,7 +156,7 @@ export class GetUpdateStatusUseCase {
       };
     }
     const requestFetch = options?.fetcher ?? fetch;
-    let currentVersion = process.env.UPSTAND_VERSION || env.UPSTAND_VERSION;
+    let currentVersion = env.UPSTAND_VERSION;
     if (!currentVersion) {
       try {
         const rootPkgPath = path.join(process.cwd(), "package.json");
@@ -153,8 +168,7 @@ export class GetUpdateStatusUseCase {
     }
     if (!currentVersion) currentVersion = "source-local";
 
-    const currentImage =
-      process.env.UPSTAND_SERVER_IMAGE || env.UPSTAND_SERVER_IMAGE || "";
+    const currentImage = env.UPSTAND_SERVER_IMAGE || "";
     const channel: UpdateStatusResult["channel"] = currentImage.includes(
       ":canary",
     )
@@ -163,10 +177,7 @@ export class GetUpdateStatusUseCase {
         ? "source"
         : "stable";
     const checkedAt = new Date().toISOString();
-    const repo =
-      options?.repository ||
-      process.env.GITHUB_REPOSITORY ||
-      env.GITHUB_REPOSITORY;
+    const repo = options?.repository || env.GITHUB_REPOSITORY;
 
     const now = Date.now();
     const cacheKey = `${channel}:${currentVersion}:${repo}`;
@@ -204,9 +215,9 @@ export class GetUpdateStatusUseCase {
         });
 
         if (response.ok) {
-          const data = (await response.json()) as
-            | GitHubRelease
-            | GitHubRelease[];
+          const data = await readResponseJsonLimited<
+            GitHubRelease | GitHubRelease[]
+          >(response);
           const release = Array.isArray(data)
             ? data.find((candidate) =>
                 channel === "canary"
@@ -219,7 +230,10 @@ export class GetUpdateStatusUseCase {
             const manifestAsset = release.assets?.find(
               (asset) => asset.name === RELEASE_MANIFEST_ASSET,
             );
-            if (manifestAsset?.browser_download_url) {
+            if (
+              manifestAsset?.browser_download_url &&
+              isTrustedReleaseAssetUrl(manifestAsset.browser_download_url)
+            ) {
               const manifestResponse = await requestFetch(
                 manifestAsset.browser_download_url,
                 {
@@ -231,7 +245,10 @@ export class GetUpdateStatusUseCase {
                 },
               );
               if (manifestResponse.ok) {
-                manifest = (await manifestResponse.json()) as ReleaseManifest;
+                manifest =
+                  await readResponseJsonLimited<ReleaseManifest>(
+                    manifestResponse,
+                  );
               }
             }
           }
@@ -280,7 +297,10 @@ export class GetUpdateStatusUseCase {
               });
               if (manifestResponse.ok) {
                 latestVersion = tag;
-                manifest = (await manifestResponse.json()) as ReleaseManifest;
+                manifest =
+                  await readResponseJsonLimited<ReleaseManifest>(
+                    manifestResponse,
+                  );
               }
             }
           }

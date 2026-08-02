@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { redis } from "@upstand/redis";
 import { matchesTerminalSession } from "./terminal-broker";
 
 const identity = {
@@ -32,17 +33,44 @@ describe("terminal session identity", () => {
 });
 
 describe("terminal broker local sessions", () => {
-  test("creates a token for local container terminal session", () => {
-    const { terminalBroker } = require("./terminal-broker");
-    const token = terminalBroker.create({
-      userId: "user-1",
-      sessionId: "session-1",
-      twoFactorEnabled: false,
-      isLocal: true,
-      containerId: "cont1",
-    });
-    expect(typeof token).toBe("string");
-    expect(token.length).toBeGreaterThan(0);
+  test("creates a token for local container terminal session", async () => {
+    const setSpy = spyOn(redis, "set").mockResolvedValue("OK");
+
+    try {
+      const { terminalBroker } = require("./terminal-broker");
+      const token = await terminalBroker.create({
+        userId: "user-1",
+        sessionId: "session-1",
+        twoFactorEnabled: false,
+        isLocal: true,
+        containerId: "cont1",
+      });
+      expect(typeof token).toBe("string");
+      expect(token.length).toBeGreaterThan(0);
+    } finally {
+      setSpy.mockRestore();
+    }
+  });
+
+  test("fails closed when Redis cannot persist the terminal hand-off", async () => {
+    const setSpy = spyOn(redis, "set").mockRejectedValue(
+      new Error("Redis unavailable"),
+    );
+
+    try {
+      const { terminalBroker } = require("./terminal-broker");
+      await expect(
+        terminalBroker.create({
+          userId: "user-1",
+          sessionId: "session-1",
+          twoFactorEnabled: false,
+          isLocal: true,
+          containerId: "cont2",
+        }),
+      ).rejects.toThrow("temporarily unavailable");
+    } finally {
+      setSpy.mockRestore();
+    }
   });
 
   test("handles write, resize, and close gracefully for non-existent token", () => {

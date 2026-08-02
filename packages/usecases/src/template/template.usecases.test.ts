@@ -71,6 +71,7 @@ describe("template catalog use cases", () => {
       },
       projectRepository: {
         findById: async () => ({ organizationId: "org-1" }),
+        updateById: async () => null,
       },
       resourceRepository: {
         updateById: async (id: string, patch: Record<string, unknown>) => {
@@ -126,6 +127,7 @@ describe("template catalog use cases", () => {
       },
       projectRepository: {
         findById: async () => ({ organizationId: "org-1" }),
+        updateById: async () => null,
       },
       resourceRepository: { updateById: async () => null },
     } as unknown as IUnitOfWork;

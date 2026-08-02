@@ -59,19 +59,24 @@ export const SourcesContent = ({
 
 export type SourceProps = ComponentProps<"a">;
 
-export const Source = ({ href, title, children, ...props }: SourceProps) => (
-  <a
-    className="flex items-center gap-2"
-    href={href}
-    rel="noreferrer"
-    target="_blank"
-    {...props}
-  >
-    {children ?? (
-      <>
-        <BookIcon className="h-4 w-4" />
-        <span className="block font-medium">{title}</span>
-      </>
-    )}
-  </a>
-);
+export const Source = ({ href, title, children, ...props }: SourceProps) => {
+  const safeHref =
+    typeof href === "string" && /^https?:\/\//i.test(href) ? href : undefined;
+
+  return (
+    <a
+      className="flex items-center gap-2"
+      href={safeHref}
+      rel="noreferrer"
+      target="_blank"
+      {...props}
+    >
+      {children ?? (
+        <>
+          <BookIcon className="h-4 w-4" />
+          <span className="block font-medium">{title}</span>
+        </>
+      )}
+    </a>
+  );
+};

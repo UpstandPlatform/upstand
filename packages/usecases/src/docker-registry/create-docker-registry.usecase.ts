@@ -4,9 +4,9 @@ import {
   type IUnitOfWork,
   ValidationError,
 } from "@upstand/domain";
-import { env } from "@upstand/env/server";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { z } from "zod";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 
 export const CreateDockerRegistryInputSchema = z.object({
   organizationId: z.string().min(1, "Organization ID is required"),
@@ -26,7 +26,7 @@ export class CreateDockerRegistryUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: CreateDockerRegistryInput): Promise<DockerRegistry> {
-    if (env.IS_CLOUD) {
+    if (requiresRemoteServerPlacement()) {
       if (!input.serverId || ["local", "manager"].includes(input.serverId)) {
         throw new ValidationError(
           "Please select a target server for docker registry.",

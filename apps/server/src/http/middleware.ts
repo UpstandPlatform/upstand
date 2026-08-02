@@ -1,6 +1,8 @@
 import { env } from "@upstand/env/server";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { secureHeaders } from "hono/secure-headers";
 import type { ServiceProvider } from "../di";
 import type { AppEnv } from "./types";
 
@@ -15,10 +17,38 @@ export type HttpMiddlewareDependencies = {
   identifyUser: IdentifyUser;
 };
 
+export const MAX_HTTP_REQUEST_BYTES = 16 * 1024 * 1024;
+const PUBLIC_SYSTEM_PATHS = new Set([
+  "/health/live",
+  "/health/ready",
+  "/api/setup/status",
+]);
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 export function registerHttpMiddleware(
   app: Hono<AppEnv>,
   dependencies: HttpMiddlewareDependencies,
 ): void {
+  app.use(
+    "*",
+    secureHeaders({
+      xFrameOptions: "DENY",
+      xContentTypeOptions: "nosniff",
+      referrerPolicy: "strict-origin-when-cross-origin",
+    }),
+  );
+
+  // Keep JSON, auth, terminal, and compatibility transports from buffering an
+  // unbounded request before their route-specific validation runs. Smaller
+  // endpoints (webhooks and AI/MCP) install stricter limits in their routers.
+  app.use(
+    "*",
+    bodyLimit({
+      maxSize: MAX_HTTP_REQUEST_BYTES,
+      onError: (c) => c.json({ error: "Request body is too large" }, 413),
+    }),
+  );
+
   app.use("*", async (c, next) => {
     const scope = dependencies.getServiceProvider().createScope();
     c.set("scope", scope);
@@ -30,11 +60,60 @@ export function registerHttpMiddleware(
   });
 
   app.use("*", async (c, next) => {
-    await dependencies.identifyUser(
-      c.get("log"),
-      c.req.raw.headers,
-      c.req.path,
-    );
+    if (!PUBLIC_SYSTEM_PATHS.has(c.req.path)) {
+      await dependencies.identifyUser(
+        c.get("log"),
+        c.req.raw.headers,
+        c.req.path,
+      );
+    }
+    await next();
+  });
+
+  const trustedOrigins = new Set(
+    [
+      env.CORS_ORIGIN,
+      env.BETTER_AUTH_URL,
+      ...(env.NODE_ENV === "production"
+        ? []
+        : ["http://localhost:3001", "http://127.0.0.1:3001"]),
+    ]
+      .filter((origin): origin is string => Boolean(origin))
+      .map((origin) => {
+        try {
+          return new URL(origin).origin;
+        } catch {
+          return origin;
+        }
+      }),
+  );
+
+  const isTrustedOrigin = (origin: string): boolean => {
+    try {
+      const parsed = new URL(origin);
+      if (trustedOrigins.has(parsed.origin)) return true;
+      return (
+        env.NODE_ENV !== "production" &&
+        ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname)
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  // SameSite cookies are still sent between sibling subdomains. Rejecting an
+  // untrusted Origin on state-changing requests closes that CSRF path while
+  // keeping header-authenticated MCP and non-browser clients available.
+  app.use("*", async (c, next) => {
+    const origin = c.req.header("origin")?.trim();
+    if (
+      origin &&
+      STATE_CHANGING_METHODS.has(c.req.method.toUpperCase()) &&
+      !c.req.path.startsWith("/api/mcp") &&
+      !isTrustedOrigin(origin)
+    ) {
+      return c.json({ error: "Request origin is not allowed" }, 403);
+    }
     await next();
   });
 
@@ -52,44 +131,26 @@ export function registerHttpMiddleware(
     }
   });
 
+  // MCP authentication is header-based API-key authentication. Keep its
+  // intentionally broad origin policy credentialless so arbitrary web pages
+  // cannot combine it with browser cookies, including on CORS preflight.
+  app.use("/api/mcp*", async (c, next) => {
+    await next();
+    c.header("Access-Control-Allow-Credentials", "false");
+  });
+
   app.use(
     "/*",
     cors({
       origin: (origin, c) => {
         if (!origin) return undefined;
-        // Allow any origin for MCP endpoints and discovery metadata so web-based
-        // MCP tools, playgrounds, and inspectors can connect seamlessly.
-        if (
-          c.req.path.startsWith("/api/mcp") ||
-          c.req.path.startsWith("/.well-known")
-        ) {
+        // MCP clients may be hosted on arbitrary origins, but discovery
+        // metadata is served under the normal trusted-origin policy.
+        if (c.req.path.startsWith("/api/mcp")) {
           c.header("Access-Control-Allow-Credentials", "false");
           return origin;
         }
-        if (origin === env.CORS_ORIGIN) return origin;
-
-        try {
-          const originUrl = new URL(origin);
-          if (
-            originUrl.hostname === "localhost" ||
-            originUrl.hostname === "127.0.0.1" ||
-            originUrl.hostname === "::1" ||
-            originUrl.hostname === "[::1]" ||
-            originUrl.hostname.startsWith("127.")
-          ) {
-            return origin;
-          }
-
-          const requestUrl = new URL(c.req.url);
-          if (originUrl.hostname === requestUrl.hostname) return origin;
-
-          const configuredCorsUrl = new URL(
-            env.CORS_ORIGIN || "http://localhost:3001",
-          );
-          if (originUrl.hostname === configuredCorsUrl.hostname) return origin;
-        } catch {
-          // Fall through to the configured origin for malformed origins.
-        }
+        if (isTrustedOrigin(origin)) return new URL(origin).origin;
 
         return env.CORS_ORIGIN || "http://localhost:3001";
       },

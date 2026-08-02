@@ -1,4 +1,5 @@
 import { auth } from "@upstand/api/auth";
+import { requireInstanceOwner } from "@upstand/api/instance-access";
 import { checkPermission } from "@upstand/api/permissions";
 import { env } from "@upstand/env/server";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
@@ -14,8 +15,24 @@ import {
   matchesContainerIdentifier,
 } from "../../container-ownership";
 import { isStepUpAuthenticationSatisfied } from "../../step-up-auth";
-import { matchesTerminalSession, terminalBroker } from "../../terminal-broker";
+import {
+  matchesTerminalSession,
+  type TerminalSessionInput,
+  terminalBroker,
+} from "../../terminal-broker";
 import type { AppEnv } from "../types";
+
+async function createTerminalToken(
+  c: Context<AppEnv>,
+  input: TerminalSessionInput,
+): Promise<string | null> {
+  try {
+    return await terminalBroker.create(input);
+  } catch {
+    c.get("log").warn("Terminal session hand-off could not be persisted");
+    return null;
+  }
+}
 
 export function registerTerminalRoutes(app: Hono<AppEnv>): void {
   app.post("/api/terminal/session", async (c) => {
@@ -36,6 +53,12 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: "Organization is required" }, 400);
     }
 
+    try {
+      await requireInstanceOwner(session.user.id, "session");
+    } catch {
+      return c.json({ error: "Instance owner permission is required" }, 403);
+    }
+
     const scope = c.get("scope");
     const uow = scope.resolve(UnitOfWorkToken);
     try {
@@ -51,7 +74,8 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     let host: string;
     let port: number;
     let username: string;
-    let privateKey: string;
+    let privateKey: string | undefined;
+    let password: string | undefined;
     let hostKeyFingerprint: string;
 
     if (body.serverId) {
@@ -59,28 +83,51 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       if (!server || server.organizationId !== body.organizationId) {
         return c.json({ error: "Server not found in this organization" }, 404);
       }
-      if (!server.sshKeyId) {
-        return c.json(
-          { error: "Server does not have an SSH key configured" },
-          409,
-        );
-      }
       if (!server.sshHostKeyFingerprint) {
         return c.json({ error: "Trust the server SSH host key first" }, 409);
       }
-      const key = await uow.sshKeyRepository.findById(server.sshKeyId);
-      if (!key) {
-        return c.json({ error: "Configured SSH key not found" }, 404);
+      const isPasswordAuth =
+        server.authType === "password" ||
+        (!server.sshKeyId && Boolean(server.passwordCiphertext));
+      if (isPasswordAuth) {
+        if (
+          !server.passwordCiphertext ||
+          !server.passwordIv ||
+          !server.passwordAuthTag ||
+          server.passwordVersion == null
+        ) {
+          return c.json(
+            { error: "Server password credentials are missing" },
+            409,
+          );
+        }
+        password = decryptSecret({
+          ciphertext: server.passwordCiphertext,
+          iv: server.passwordIv,
+          authTag: server.passwordAuthTag,
+          keyVersion: server.passwordVersion,
+        });
+      } else {
+        if (!server.sshKeyId) {
+          return c.json(
+            { error: "Server does not have an SSH key configured" },
+            409,
+          );
+        }
+        const key = await uow.sshKeyRepository.findById(server.sshKeyId);
+        if (!key) {
+          return c.json({ error: "Configured SSH key not found" }, 404);
+        }
+        privateKey = decryptSecret({
+          ciphertext: key.privateKeyCiphertext,
+          iv: key.privateKeyIv,
+          authTag: key.privateKeyAuthTag,
+          keyVersion: key.privateKeyVersion,
+        });
       }
       host = server.ipAddress;
       port = server.port;
       username = server.username;
-      privateKey = decryptSecret({
-        ciphertext: key.privateKeyCiphertext,
-        iv: key.privateKeyIv,
-        authTag: key.privateKeyAuthTag,
-        keyVersion: key.privateKeyVersion,
-      });
       hostKeyFingerprint = server.sshHostKeyFingerprint;
     } else {
       if (!body.sshKeyId) {
@@ -136,7 +183,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       hostKeyFingerprint = controlPlaneFingerprint;
     }
 
-    const token = terminalBroker.create({
+    const token = await createTerminalToken(c, {
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -145,8 +192,15 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       port,
       username,
       privateKey,
+      password,
       hostKeyFingerprint,
     });
+    if (!token) {
+      return c.json(
+        { error: "Terminal service is temporarily unavailable" },
+        503,
+      );
+    }
     return c.json({ token, expiresIn: 60 });
   });
 
@@ -267,7 +321,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     const authorizedContainerId = (selectedContainer as { id: string }).id;
 
     if (targetServerId === "local") {
-      const token = terminalBroker.create({
+      const token = await createTerminalToken(c, {
         userId: session.user.id,
         sessionId: session.session.id,
         twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -282,6 +336,12 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
             ? body.rows
             : undefined,
       });
+      if (!token) {
+        return c.json(
+          { error: "Terminal service is temporarily unavailable" },
+          503,
+        );
+      }
       return c.json({ token, expiresIn: 60 });
     }
 
@@ -289,26 +349,61 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     if (!server || server.organizationId !== body.organizationId) {
       return c.json({ error: "Deployment server not found" }, 404);
     }
-    if (!server.sshKeyId) {
-      return c.json({ error: "Deployment server has no SSH key" }, 409);
-    }
     if (!server.sshHostKeyFingerprint) {
       return c.json(
         { error: "Trust the deployment server SSH host key first" },
         409,
       );
     }
-    const key = await uow.sshKeyRepository.findById(server.sshKeyId);
-    if (!key)
-      return c.json({ error: "Deployment server SSH key was not found" }, 404);
-    const privateKey = decryptSecret({
-      ciphertext: key.privateKeyCiphertext,
-      iv: key.privateKeyIv,
-      authTag: key.privateKeyAuthTag,
-      keyVersion: key.privateKeyVersion,
-    });
+    let privateKey: string | undefined;
+    let password: string | undefined;
 
-    const token = terminalBroker.create({
+    const isPasswordAuth =
+      server.authType === "password" ||
+      (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+    if (isPasswordAuth) {
+      if (
+        !server.passwordCiphertext ||
+        !server.passwordIv ||
+        !server.passwordAuthTag ||
+        server.passwordVersion == null
+      ) {
+        return c.json(
+          { error: "Deployment server password credentials missing" },
+          409,
+        );
+      }
+      password = decryptSecret({
+        ciphertext: server.passwordCiphertext,
+        iv: server.passwordIv,
+        authTag: server.passwordAuthTag,
+        keyVersion: server.passwordVersion,
+      });
+    } else {
+      if (!server.sshKeyId) {
+        return c.json({ error: "Deployment server has no SSH key" }, 409);
+      }
+      const key = await uow.sshKeyRepository.findById(server.sshKeyId);
+      if (!key)
+        return c.json(
+          { error: "Deployment server SSH key was not found" },
+          404,
+        );
+      privateKey = decryptSecret({
+        ciphertext: key.privateKeyCiphertext,
+        iv: key.privateKeyIv,
+        authTag: key.privateKeyAuthTag,
+        keyVersion: key.privateKeyVersion,
+      });
+    }
+
+    const safeContainerId = authorizedContainerId.replace(
+      /[^a-zA-Z0-9_.-]/g,
+      "",
+    );
+
+    const token = await createTerminalToken(c, {
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -317,9 +412,16 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       port: server.port,
       username: server.username,
       privateKey,
+      password,
       hostKeyFingerprint: server.sshHostKeyFingerprint,
-      command: `docker exec -it ${authorizedContainerId} /bin/sh -c "exec /bin/bash 2>/dev/null || exec /bin/sh"`,
+      command: `docker exec -it ${safeContainerId} /bin/sh -c "exec /bin/bash 2>/dev/null || exec /bin/sh"`,
     });
+    if (!token) {
+      return c.json(
+        { error: "Terminal service is temporarily unavailable" },
+        503,
+      );
+    }
     return c.json({ token, expiresIn: 60 });
   });
 
@@ -406,7 +508,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     const authorizedContainerId = (selectedContainer as { id: string }).id;
 
     if (targetServerId === "local") {
-      const token = terminalBroker.create({
+      const token = await createTerminalToken(c, {
         userId: session.user.id,
         sessionId: session.session.id,
         twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -421,6 +523,12 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
             ? body.rows
             : undefined,
       });
+      if (!token) {
+        return c.json(
+          { error: "Terminal service is temporarily unavailable" },
+          503,
+        );
+      }
       return c.json({ token, expiresIn: 60 });
     }
 
@@ -431,26 +539,61 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
         403,
       );
     }
-    if (!server.sshKeyId) {
-      return c.json({ error: "Docker server has no SSH key configured" }, 409);
-    }
     if (!server.sshHostKeyFingerprint) {
       return c.json(
         { error: "Trust the Docker server SSH host key first" },
         409,
       );
     }
-    const key = await uow.sshKeyRepository.findById(server.sshKeyId);
-    if (!key)
-      return c.json({ error: "Docker server SSH key was not found" }, 404);
-    const privateKey = decryptSecret({
-      ciphertext: key.privateKeyCiphertext,
-      iv: key.privateKeyIv,
-      authTag: key.privateKeyAuthTag,
-      keyVersion: key.privateKeyVersion,
-    });
+    let privateKey: string | undefined;
+    let password: string | undefined;
 
-    const token = terminalBroker.create({
+    const isPasswordAuth =
+      server.authType === "password" ||
+      (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+    if (isPasswordAuth) {
+      if (
+        !server.passwordCiphertext ||
+        !server.passwordIv ||
+        !server.passwordAuthTag ||
+        server.passwordVersion == null
+      ) {
+        return c.json(
+          { error: "Docker server password credentials missing" },
+          409,
+        );
+      }
+      password = decryptSecret({
+        ciphertext: server.passwordCiphertext,
+        iv: server.passwordIv,
+        authTag: server.passwordAuthTag,
+        keyVersion: server.passwordVersion,
+      });
+    } else {
+      if (!server.sshKeyId) {
+        return c.json(
+          { error: "Docker server has no SSH key configured" },
+          409,
+        );
+      }
+      const key = await uow.sshKeyRepository.findById(server.sshKeyId);
+      if (!key)
+        return c.json({ error: "Docker server SSH key was not found" }, 404);
+      privateKey = decryptSecret({
+        ciphertext: key.privateKeyCiphertext,
+        iv: key.privateKeyIv,
+        authTag: key.privateKeyAuthTag,
+        keyVersion: key.privateKeyVersion,
+      });
+    }
+
+    const safeContainerId = authorizedContainerId.replace(
+      /[^a-zA-Z0-9_.-]/g,
+      "",
+    );
+
+    const token = await createTerminalToken(c, {
       userId: session.user.id,
       sessionId: session.session.id,
       twoFactorEnabled: session.user.twoFactorEnabled === true,
@@ -459,9 +602,16 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       port: server.port,
       username: server.username,
       privateKey,
+      password,
       hostKeyFingerprint: server.sshHostKeyFingerprint,
-      command: `docker exec -it ${authorizedContainerId} /bin/sh`,
+      command: `docker exec -it ${safeContainerId} /bin/sh`,
     });
+    if (!token) {
+      return c.json(
+        { error: "Terminal service is temporarily unavailable" },
+        503,
+      );
+    }
     return c.json({ token, expiresIn: 60 });
   });
 
@@ -469,7 +619,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     "/api/terminal/connect",
     upgradeWebSocket((c) => {
       let token: string | null = null;
-      const requestedToken = c.req.query("token");
+      let authenticating = false;
       let socketOpen = true;
       let wsRef: {
         send(data: string | ArrayBuffer): void;
@@ -505,37 +655,10 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
               closeSocket(1008, "Authentication required");
               return;
             }
-            token = await terminalBroker.connectForSession(
-              currentSession.user.id,
-              currentSession.session.id,
-              (data) =>
-                sendSocket(
-                  data.buffer.slice(
-                    data.byteOffset,
-                    data.byteOffset + data.byteLength,
-                  ) as ArrayBuffer,
-                ),
-              (message) => closeSocket(1000, message),
-              async (identity) => {
-                const refreshedSession = await auth.api.getSession({
-                  headers: c.req.raw.headers,
-                });
-                if (!refreshedSession) return false;
-                if (
-                  !matchesTerminalSession(identity, {
-                    userId: refreshedSession.user.id,
-                    sessionId: refreshedSession.session.id,
-                    twoFactorEnabled:
-                      refreshedSession.user.twoFactorEnabled === true,
-                  })
-                ) {
-                  return false;
-                }
-                return isStepUpAuthenticationSatisfied(refreshedSession);
-              },
-              requestedToken,
-            );
-            sendSocket(JSON.stringify({ type: "terminal.ready" }));
+            // The handoff token is deliberately received in the first
+            // WebSocket frame instead of the URL. This prevents it from being
+            // copied into proxy access logs, browser history, and telemetry.
+            authenticating = true;
           } catch (error) {
             const message =
               error instanceof Error
@@ -547,8 +670,80 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
             }
           }
         },
-        onMessage: (event) => {
-          if (!socketOpen || !token) return;
+        onMessage: async (event) => {
+          if (!socketOpen) return;
+          if (!token) {
+            if (authenticating || typeof event.data !== "string") {
+              let requestedToken: string | undefined;
+              try {
+                const parsed = JSON.parse(String(event.data)) as {
+                  type?: unknown;
+                  token?: unknown;
+                };
+                if (
+                  parsed.type === "terminal.authenticate" &&
+                  typeof parsed.token === "string"
+                ) {
+                  requestedToken = parsed.token;
+                }
+              } catch {
+                // Authentication must be a JSON control frame.
+              }
+              if (!requestedToken) {
+                closeSocket(1008, "Terminal authentication required");
+                return;
+              }
+              try {
+                const currentSession = await auth.api.getSession({
+                  headers: c.req.raw.headers,
+                });
+                if (!currentSession) {
+                  closeSocket(1008, "Authentication required");
+                  return;
+                }
+                token = await terminalBroker.connectForSession(
+                  currentSession.user.id,
+                  currentSession.session.id,
+                  (data) =>
+                    sendSocket(
+                      data.buffer.slice(
+                        data.byteOffset,
+                        data.byteOffset + data.byteLength,
+                      ) as ArrayBuffer,
+                    ),
+                  (message) => closeSocket(1000, message),
+                  async (identity) => {
+                    const refreshedSession = await auth.api.getSession({
+                      headers: c.req.raw.headers,
+                    });
+                    if (!refreshedSession) return false;
+                    if (
+                      !matchesTerminalSession(identity, {
+                        userId: refreshedSession.user.id,
+                        sessionId: refreshedSession.session.id,
+                        twoFactorEnabled:
+                          refreshedSession.user.twoFactorEnabled === true,
+                      })
+                    ) {
+                      return false;
+                    }
+                    return isStepUpAuthenticationSatisfied(refreshedSession);
+                  },
+                  requestedToken,
+                );
+                authenticating = false;
+                sendSocket(JSON.stringify({ type: "terminal.ready" }));
+              } catch (error) {
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : "Terminal connection failed";
+                sendSocket(JSON.stringify({ type: "terminal.error", message }));
+                closeSocket(1011, "Terminal connection failed");
+              }
+            }
+            return;
+          }
           let input: string | Uint8Array | null = null;
           if (typeof event.data === "string") {
             try {

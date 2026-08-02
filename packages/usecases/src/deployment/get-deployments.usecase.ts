@@ -1,11 +1,16 @@
 import type { Environment, IUnitOfWork, Project } from "@upstand/domain";
-import { findOrganizationResourceIds } from "./organization-resources.helper";
+import {
+  findOrganizationResourceIds,
+  mapWithConcurrency,
+} from "./organization-resources.helper";
 
 export interface DeploymentHistoryResult {
   id: string;
   resourceId: string;
   resourceName: string;
   resourceType: string;
+  environmentId: string | null;
+  projectId: string | null;
   environmentName: string;
   projectName: string;
   serverId: string | null;
@@ -36,16 +41,16 @@ export class GetDeploymentsUseCase {
     // argument is used by organization-aware callers; the unscoped form is
     // retained for internal maintenance tooling only.
     const resources = resourceIds
-      ? await Promise.all(
-          resourceIds.map((resourceId) =>
-            this.uow.resourceRepository.findById(resourceId),
-          ),
-        ).then((items) =>
-          items.filter(
+      ? this.uow.resourceRepository.findSummariesByIds
+        ? await this.uow.resourceRepository.findSummariesByIds(resourceIds)
+        : (
+            await mapWithConcurrency(resourceIds, (resourceId) =>
+              this.uow.resourceRepository.findById(resourceId),
+            )
+          ).filter(
             (resource): resource is NonNullable<typeof resource> =>
               resource !== null,
-          ),
-        )
+          )
       : await this.uow.resourceRepository.findMany();
     const deployments = resourceIds
       ? await this.uow.deploymentRepository.findRecentByResourceIds(
@@ -59,20 +64,18 @@ export class GetDeploymentsUseCase {
     let projects: Project[];
     if (resourceIds) {
       const envIds = [...new Set(resources.map((r) => r.environmentId))];
-      environments = await Promise.all(
-        envIds.map((envId) => this.uow.environmentRepository.findById(envId)),
-      ).then((items) =>
-        items.filter((env): env is NonNullable<typeof env> => env !== null),
-      );
+      environments = (
+        await mapWithConcurrency(envIds, (envId) =>
+          this.uow.environmentRepository.findById(envId),
+        )
+      ).filter((env): env is NonNullable<typeof env> => env !== null);
 
       const projectIds = [...new Set(environments.map((env) => env.projectId))];
-      projects = await Promise.all(
-        projectIds.map((projectId) =>
+      projects = (
+        await mapWithConcurrency(projectIds, (projectId) =>
           this.uow.projectRepository.findById(projectId),
-        ),
-      ).then((items) =>
-        items.filter((p): p is NonNullable<typeof p> => p !== null),
-      );
+        )
+      ).filter((p): p is NonNullable<typeof p> => p !== null);
     } else {
       environments = await this.uow.environmentRepository.findMany();
       projects = await this.uow.projectRepository.findMany();
@@ -98,10 +101,12 @@ export class GetDeploymentsUseCase {
         resourceId: dep.resourceId,
         resourceName: resource?.name || "Unknown Service",
         resourceType: resource?.type || "unknown",
+        environmentId: env?.id ?? null,
+        projectId: proj?.id ?? null,
         environmentName: env?.name || "Unknown Env",
         projectName: proj?.name || "Unknown Project",
         serverId: dep.serverId || null,
-        serverName: dep.serverName || "Dokploy Server",
+        serverName: dep.serverName || "Upstand Server",
         title: dep.title,
         status: dep.status,
         logs: dep.logs,

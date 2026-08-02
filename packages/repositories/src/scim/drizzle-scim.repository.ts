@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { member, organization, session, user } from "@upstand/db/schema/auth";
+import { member, organization, user } from "@upstand/db/schema/auth";
 import { scimProvider } from "@upstand/db/schema/scim";
 import type {
   CreateScimProviderInput,
@@ -13,7 +13,10 @@ import type {
 } from "@upstand/domain";
 import { ConflictError } from "@upstand/domain";
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
-import { BaseRepository } from "../shared/base.repository";
+import {
+  BaseRepository,
+  MAX_REPOSITORY_READS,
+} from "../shared/base.repository";
 import { isPostgresUniqueViolation } from "../shared/database-errors";
 import type { Executor } from "../shared/types";
 
@@ -74,7 +77,13 @@ export class DrizzleScimRepository
     const rows = await this.executor
       .select()
       .from(scimProvider)
-      .where(eq(scimProvider.organizationId, organizationId));
+      .where(eq(scimProvider.organizationId, organizationId))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "SCIM provider discovery exceeded the maximum supported row count",
+      );
+    }
     return rows.map(mapProvider);
   }
 
@@ -298,7 +307,10 @@ export class DrizzleScimRepository
         )
         .returning({ id: member.id });
       if (deleted.length === 0) return false;
-      await tx.delete(session).where(eq(session.userId, userId));
+      // Sessions are user-global in Better Auth and do not carry an
+      // organization scope. Deprovisioning one membership must not log the
+      // user out of every other organization. Authorization checks will deny
+      // the removed membership on the next request.
       return true;
     });
   }

@@ -100,4 +100,6 @@ export type ListAuditLogsResult = {
 export interface IAuditLogRepository {
   create(input: CreateAuditLog): Promise<void>;
   list(input: ListAuditLogsInput): Promise<ListAuditLogsResult>;
+  /** Delete one bounded batch of records older than the retention cutoff. */
+  deleteOlderThan?(before: Date, limit?: number): Promise<number>;
 }

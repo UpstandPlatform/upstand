@@ -11,14 +11,14 @@ const archiveDetails =
 describe("application archive validation", () => {
   test("accepts regular files and directories within the archive root", () => {
     expect(
-      validateApplicationArchiveListings(100, archiveNames, archiveDetails),
+      validateApplicationArchiveListings(200, archiveNames, archiveDetails),
     ).toEqual({ entryCount: 2, totalSize: 12 });
   });
 
   test("accepts BSD tar metadata", () => {
     expect(
       validateApplicationArchiveListings(
-        100,
+        20_000,
         "README.md\n",
         "-rw-rw-rw-  0 0      0        7029 Jul 15 13:37 README.md\n",
       ),

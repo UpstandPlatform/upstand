@@ -1,0 +1,4 @@
+ALTER TABLE "deployment" ADD CONSTRAINT "deployment_server_id_server_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."server"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "docker_registry" ADD CONSTRAINT "docker_registry_server_id_server_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."server"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "environment" ADD CONSTRAINT "environment_parent_environment_id_environment_id_fk" FOREIGN KEY ("parent_environment_id") REFERENCES "public"."environment"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "resource_environment_type_idx" ON "resource" USING btree ("environment_id","type");

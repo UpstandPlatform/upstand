@@ -17,6 +17,11 @@ export class DeleteProjectUseCase {
 
   async execute(input: DeleteProjectInput): Promise<Project | null> {
     return this.uow.transaction(async (tx) => {
+      const project = await tx.projectRepository.findById(input.id);
+      if (!project || project.organizationId !== input.organizationId) {
+        return null;
+      }
+
       const environments = await tx.environmentRepository.findByProjectId(
         input.id,
       );

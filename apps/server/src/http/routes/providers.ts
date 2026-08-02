@@ -5,9 +5,11 @@ import {
   readResponseJsonLimited,
   readResponseTextLimited,
 } from "@upstand/platform/network/response-body";
-import { redis } from "@upstand/redis";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import {
-  assertSafeProviderUrl,
+  assertSafeProviderUrlAsync,
+  GITHUB_MANIFEST_WEBHOOK_TTL_SECONDS,
+  gitProviderOAuthManifestWebhookKey,
   gitProviderOAuthStateKey,
   parseGitProviderOAuthState,
 } from "@upstand/usecases";
@@ -28,20 +30,68 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
     const state = c.req.query("state");
     const installationId = c.req.query("installation_id");
 
-    if (!code) {
-      return c.json({ error: "Missing code parameter" }, 400);
+    if ((!code && !installationId) || !state) {
+      return c.json({ error: "Missing GitHub callback parameters" }, 400);
     }
 
     const scope = c.get("scope");
+
+    // GitHub calls setup_url after the app is installed. That callback has an
+    // installation_id but no conversion code and arrives after the one-time
+    // manifest conversion state has been consumed. Resolve the provider via
+    // the durable manifest webhook binding, then bind the installation.
+    if (!code && installationId) {
+      const providerId = await withRedisTimeout(
+        redis.get(gitProviderOAuthManifestWebhookKey(state)),
+      );
+      if (!providerId) {
+        return c.json({ error: "GitHub app setup state is invalid" }, 400);
+      }
+
+      try {
+        const callbackSession = await auth.api.getSession({
+          headers: c.req.raw.headers,
+        });
+        const uow = scope.resolve(UnitOfWorkToken);
+        const provider = await uow.gitProviderRepository.findById(providerId);
+        if (!provider) return c.text("Git Provider not found", 404);
+        if (!callbackSession) {
+          return c.json({ error: "OAuth state actor is no longer valid" }, 403);
+        }
+        await checkPermission(
+          callbackSession.user.id,
+          provider.organizationId,
+          "git_provider:create",
+        );
+
+        const configObj = JSON.parse(provider.config) as Record<
+          string,
+          unknown
+        >;
+        configObj.githubInstallationId = installationId;
+        await uow.gitProviderRepository.updateById(providerId, {
+          config: JSON.stringify(configObj),
+        });
+        return c.redirect(getDashboardUrl("/git-providers"), 307);
+      } catch (err) {
+        c.get("log").error(err instanceof Error ? err : String(err), {
+          message: "GitHub installation update failed",
+          providerId,
+        });
+        return c.text("GitHub installation update failed", 500);
+      }
+    }
 
     const parsedState = parseGitProviderOAuthState(state || "");
     if (!parsedState) {
       return c.json({ error: "Invalid or expired GitHub OAuth state" }, 400);
     }
-    const storedStateSubject = await redis.eval(
-      "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
-      1,
-      gitProviderOAuthStateKey(state || ""),
+    const storedStateSubject = await withRedisTimeout(
+      redis.eval(
+        "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
+        1,
+        gitProviderOAuthStateKey(state || ""),
+      ),
     );
     if (storedStateSubject !== parsedState.providerId) {
       return c.json(
@@ -86,6 +136,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
         "git_provider:create",
       );
 
+      let createdProviderId: string | undefined;
       try {
         const res = await fetch(
           `https://api.github.com/app-manifests/${code}/conversions`,
@@ -128,13 +179,41 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
         };
 
         const createUseCase = scope.resolve(CreateGitProviderUseCaseToken);
-        await createUseCase.execute({
+        const provider = await createUseCase.execute({
           organizationId,
           name: data.name,
           provider: "github",
           config: JSON.stringify(configObj),
         });
+        createdProviderId = provider.id;
+        await withRedisTimeout(
+          redis.set(
+            gitProviderOAuthManifestWebhookKey(state || ""),
+            provider.id,
+            "EX",
+            GITHUB_MANIFEST_WEBHOOK_TTL_SECONDS,
+          ),
+        );
       } catch (err) {
+        await withRedisTimeout(
+          redis.del(gitProviderOAuthManifestWebhookKey(state || "")),
+        ).catch(() => undefined);
+        if (createdProviderId) {
+          await scope
+            .resolve(UnitOfWorkToken)
+            .gitProviderRepository.deleteById(createdProviderId)
+            .catch((cleanupError: unknown) => {
+              c.get("log").error(
+                cleanupError instanceof Error
+                  ? cleanupError
+                  : String(cleanupError),
+                {
+                  message: "Failed to clean up incomplete GitHub provider",
+                  providerId: createdProviderId,
+                },
+              );
+            });
+        }
         c.get("log").error(err instanceof Error ? err : String(err), {
           message: "GitHub setup failed",
           organizationId,
@@ -145,6 +224,9 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       const gitProviderId = rest[0];
       if (!gitProviderId) {
         return c.json({ error: "Missing gitProviderId in state" }, 400);
+      }
+      if (!installationId) {
+        return c.json({ error: "Missing GitHub installation ID" }, 400);
       }
 
       try {
@@ -191,10 +273,12 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
         response: c.json({ error: "Invalid or expired OAuth state" }, 400),
       };
     }
-    const storedProviderId = await redis.eval(
-      "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
-      1,
-      gitProviderOAuthStateKey(state),
+    const storedProviderId = await withRedisTimeout(
+      redis.eval(
+        "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
+        1,
+        gitProviderOAuthStateKey(state),
+      ),
     );
     if (storedProviderId !== parsedState.providerId) {
       return {
@@ -244,7 +328,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       const { provider, uow } = verified;
 
       const configObj = JSON.parse(provider.config);
-      const gitlabUrl = assertSafeProviderUrl(configObj.gitlabUrl);
+      const gitlabUrl = await assertSafeProviderUrlAsync(configObj.gitlabUrl);
       const redirectUri = new URL(
         "/api/providers/gitlab/setup",
         env.BETTER_AUTH_URL,
@@ -312,7 +396,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       const { provider, uow } = verified;
 
       const configObj = JSON.parse(provider.config);
-      const giteaUrl = assertSafeProviderUrl(configObj.giteaUrl);
+      const giteaUrl = await assertSafeProviderUrlAsync(configObj.giteaUrl);
       const redirectUri = new URL(
         "/api/providers/gitea/setup",
         env.BETTER_AUTH_URL,

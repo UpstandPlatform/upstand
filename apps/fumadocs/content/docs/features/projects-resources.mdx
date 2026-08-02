@@ -14,7 +14,7 @@ Upstand enforces network isolation using Docker Swarm attachable overlay network
 ```mermaid
 graph TD
     subgraph IngressNetwork["Shared Application Ingress Network (upstand-network)"]
-        Caddy["Caddy Reverse Proxy Ingress"]
+        Caddy["Caddy Application Proxy (:80/:443)"]
     end
 
     subgraph ResourceA["Resource A: Production App"]
@@ -33,12 +33,12 @@ graph TD
         end
     end
 
-    Caddy -->|"Public Routing (port 80/443)"| AppA
-    Caddy -->|"Public Routing (port 80/443)"| AppB
+    Caddy -->|"Application Routing"| AppA
+    Caddy -->|"Application Routing"| AppB
 ```
 
 ### Network Security Dual-Overlay Model
-1. **Shared Ingress Overlay (`upstand-network`)**: Connects the Caddy reverse proxy container to application services for public HTTP/HTTPS traffic forwarding.
+1. **Shared Ingress Overlay (`upstand-network`)**: Connects the Caddy application proxy container to application services. Caddy owns the public listeners and routes traffic to the selected resource without joining every resource network.
 2. **Per-Resource Isolated Overlay (`upstand-resource-<resource-id>`)**: Created automatically for each resource/stack. Private container-to-container communication (such as an application container talking to its database container) stays strictly isolated inside `upstand-resource-<id>`, preventing cross-tenant or cross-resource container snooping.
 
 ---

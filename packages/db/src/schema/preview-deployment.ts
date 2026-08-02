@@ -1,5 +1,12 @@
 import { relations } from "drizzle-orm";
-import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { resource } from "./resource";
 
 export const previewDeployment = pgTable(
@@ -23,6 +30,10 @@ export const previewDeployment = pgTable(
   (table) => [
     index("preview_deployment_resource_idx").on(table.resourceId),
     index("preview_deployment_status_idx").on(table.status),
+    uniqueIndex("preview_deployment_resource_pr_uidx").on(
+      table.resourceId,
+      table.pullRequestId,
+    ),
   ],
 );
 

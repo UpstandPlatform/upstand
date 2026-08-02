@@ -11,6 +11,7 @@ import {
   GetServerMonitoringStatusInputSchema,
   GetServerRuntimeStatsInputSchema,
   GetServersInputSchema,
+  MigrateResourceInputSchema,
   ScanServerHostKeyInputSchema,
   SetupServerInputSchema,
   UpdateMonitoringSettingsInputSchema,
@@ -26,6 +27,7 @@ import {
   GetServerRuntimeStatsUseCaseToken,
   GetServersUseCaseToken,
   GetServerUseCaseToken,
+  MigrateResourceUseCaseToken,
   ScanServerHostKeyUseCaseToken,
   SetupServerUseCaseToken,
   UnitOfWorkToken,
@@ -35,8 +37,18 @@ import {
 import { z } from "zod";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
+import { requireInstanceOwnerContext } from "../instance-access";
 import { checkPermission } from "../permissions";
 import { authorizeServerAccess } from "../trpc/server-authorization.helper";
+
+async function requireLocalDockerOwner(
+  ctx: Parameters<typeof requireInstanceOwnerContext>[0],
+  serverId: string | undefined,
+): Promise<void> {
+  if (!serverId || serverId === "local" || serverId === "manager") {
+    await requireInstanceOwnerContext(ctx);
+  }
+}
 
 export const serverRouter = router({
   count: twoFactorVerifiedProcedure
@@ -67,6 +79,7 @@ export const serverRouter = router({
     .input(ControlDockerContainerInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeServerAccess(ctx, input.organizationId, "server:update");
+      await requireLocalDockerOwner(ctx, input.serverId);
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
         return await useCase.controlContainer(input);
@@ -79,6 +92,7 @@ export const serverRouter = router({
     .input(ControlDockerResourceInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeServerAccess(ctx, input.organizationId, "server:update");
+      await requireLocalDockerOwner(ctx, input.serverId);
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
         return await useCase.controlResource(input);
@@ -102,6 +116,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
         return await useCase.execute({
@@ -130,6 +145,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
         return await useCase.getHostTime(input);
@@ -146,6 +162,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
         return await useCase.execute(input);
@@ -162,6 +179,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
 
       const useCase = ctx.scope.resolve(GetServerRuntimeStatsUseCaseToken);
       try {
@@ -261,7 +279,10 @@ export const serverRouter = router({
 
       const useCase = ctx.scope.resolve(DeleteServerUseCaseToken);
       try {
-        return await useCase.execute(input);
+        return await useCase.execute({
+          ...input,
+          organizationId: server.organizationId,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -298,6 +319,34 @@ export const serverRouter = router({
         }
         handleUseCaseError(error, ctx.log);
       }
+    }),
+
+  setupProgress: twoFactorVerifiedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      const server = await uow.serverRepository.findById(input.id);
+      if (!server) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Server not found",
+        });
+      }
+
+      await checkPermission(
+        ctx.session.user.id,
+        server.organizationId,
+        "server:view",
+      );
+
+      return {
+        id: server.id,
+        status: server.status,
+        setupStage: server.setupStage ?? null,
+        setupLogs: server.setupLogs ?? null,
+        setupError: server.setupError ?? null,
+        updatedAt: server.updatedAt,
+      };
     }),
 
   scanHostKey: twoFactorVerifiedProcedure
@@ -383,6 +432,23 @@ export const serverRouter = router({
       try {
         return await ctx.scope
           .resolve(GetServerMonitoringStatusUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  migrateResource: twoFactorVerifiedProcedure
+    .input(MigrateResourceInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(MigrateResourceUseCaseToken)
           .execute(input);
       } catch (error) {
         handleUseCaseError(error, ctx.log);

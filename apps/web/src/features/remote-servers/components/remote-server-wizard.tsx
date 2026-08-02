@@ -154,6 +154,8 @@ export function RemoteServerWizard({
   const [name, setName] = useState("My First Server");
   const [description, setDescription] = useState("Production remote server");
   const [serverType, setServerType] = useState<ServerType>("deploy");
+  const [authType, setAuthType] = useState<"ssh_key" | "password">("ssh_key");
+  const [password, setPassword] = useState("");
   const [ipAddress, setIpAddress] = useState("");
   const [port, setPort] = useState(22);
   const [username, setUsername] = useState("root");
@@ -212,6 +214,17 @@ export function RemoteServerWizard({
     onError: (err) => {
       toast.error(err.message || "Server setup encountered an issue");
       refetchServers();
+    },
+  });
+
+  const setupProgressQuery = useQuery({
+    ...trpc.server.setupProgress.queryOptions({
+      id: createdServerId || "",
+    }),
+    enabled: Boolean(createdServerId && step === 4),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "setting_up" ? 1500 : false;
     },
   });
 
@@ -282,8 +295,12 @@ export function RemoteServerWizard({
       toast.error("Please enter your server IP address");
       return;
     }
-    if (!selectedSshKeyId && !activeSshKey?.id) {
+    if (authType === "ssh_key" && !selectedSshKeyId && !activeSshKey?.id) {
       toast.error("Please select or generate an SSH key in Step 2");
+      return;
+    }
+    if (authType === "password" && !password.trim()) {
+      toast.error("Please enter your SSH password in Step 2 or 3");
       return;
     }
 
@@ -309,7 +326,12 @@ export function RemoteServerWizard({
             name: name.trim(),
             description: description.trim() || null,
             serverType,
-            sshKeyId: selectedSshKeyId || activeSshKey?.id || "",
+            authType,
+            sshKeyId:
+              authType === "ssh_key"
+                ? selectedSshKeyId || activeSshKey?.id || ""
+                : null,
+            password: authType === "password" ? password.trim() : undefined,
             ipAddress: ipAddress.trim(),
             port,
             username: username.trim() || "root",
@@ -550,7 +572,7 @@ export function RemoteServerWizard({
             </motion.div>
           )}
 
-          {/* STEP 2: SSH KEY */}
+          {/* STEP 2: SSH KEY / PASSWORD */}
           {step === 2 && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
@@ -560,225 +582,279 @@ export function RemoteServerWizard({
               <div className="flex flex-col gap-1">
                 <h3 className="flex items-center gap-2 font-bold text-base text-foreground sm:text-lg">
                   <KeyRound className="size-5 text-primary" />
-                  2. SSH Key Authorization
+                  2. Authentication Credentials
                 </h3>
                 <FieldDescription>
-                  Select or generate an SSH key pair to grant Upstand secure
-                  access to your server.
+                  Choose SSH key pair authorization or direct username/password
+                  authentication.
                 </FieldDescription>
               </div>
 
-              {/* SSH Key Selection / Generation Card */}
-              <Card>
-                <CardHeader className="p-4 pb-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex flex-col gap-1">
-                      <CardTitle className="font-semibold text-sm">
-                        Active SSH Key Pair
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Choose an existing key or generate a new key pair.
-                      </CardDescription>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Select
-                        items={(sshKeys ?? []).map((k) => ({
-                          value: k.id,
-                          label: `${k.name} (${k.algorithm})`,
-                        }))}
-                        value={selectedSshKeyId || (sshKeys?.[0]?.id ?? "")}
-                        onValueChange={(val) => setSelectedSshKeyId(val || "")}
-                      >
-                        <SelectTrigger className="w-full sm:w-[220px]">
-                          <SelectValue placeholder="Choose SSH Key" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {sshKeys?.map((k) => (
-                              <SelectItem key={k.id} value={k.id}>
-                                {k.name} ({k.algorithm})
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleGenerateKey}
-                        disabled={generateSshKeyMutation.isPending}
-                      >
-                        {generateSshKeyMutation.isPending ? (
-                          <Spinner data-icon="inline-start" />
-                        ) : (
-                          <PlusIcon data-icon="inline-start" />
-                        )}
-                        Generate Key
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                {activeSshKey && (
-                  <CardContent className="p-4 pt-0">
-                    <div className="flex items-center justify-between rounded-lg border bg-muted/40 p-3 text-xs">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <KeyRound className="size-4 shrink-0 text-primary" />
-                        <span className="truncate font-medium text-foreground">
-                          {activeSshKey.name}
-                        </span>
-                        <span className="text-muted-foreground">
-                          ({activeSshKey.algorithm})
-                        </span>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className="shrink-0 font-mono text-[10px]"
-                      >
-                        {activeSshKey.fingerprint?.slice(0, 16)}…
-                      </Badge>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              {/* Radio options for Manual vs Provider setup */}
               <FieldGroup>
-                <FieldLabel>Key Installation Method</FieldLabel>
-                <RadioGroup
-                  value={sshOption}
-                  onValueChange={(val) =>
-                    setSshOption(val as "manual" | "provider")
-                  }
-                  className="grid grid-cols-1 gap-3 sm:grid-cols-2"
-                >
-                  <label
-                    htmlFor="opt-manual"
-                    className={cn(
-                      "flex cursor-pointer flex-col gap-2 rounded-xl border bg-card p-4 transition-all",
-                      sshOption === "manual"
-                        ? "border-primary ring-2 ring-primary/20"
-                        : "border-border hover:border-border/80",
-                    )}
+                <FieldLabel>Authentication Method</FieldLabel>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    type="button"
+                    variant={authType === "ssh_key" ? "default" : "outline"}
+                    className="justify-start gap-2"
+                    onClick={() => setAuthType("ssh_key")}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 font-semibold text-foreground text-sm">
-                        <TerminalIcon className="size-4 text-primary" />
-                        Option A: Manual Command
-                      </span>
-                      <RadioGroupItem value="manual" id="opt-manual" />
-                    </div>
-                    <p className="text-muted-foreground text-xs leading-normal">
-                      Copy and run a single bash command in your VPS terminal to
-                      authorize Upstand.
-                    </p>
-                  </label>
-
-                  <label
-                    htmlFor="opt-provider"
-                    className={cn(
-                      "flex cursor-pointer flex-col gap-2 rounded-xl border bg-card p-4 transition-all",
-                      sshOption === "provider"
-                        ? "border-primary ring-2 ring-primary/20"
-                        : "border-border hover:border-border/80",
-                    )}
+                    <KeyRound className="size-4" />
+                    SSH Key
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={authType === "password" ? "default" : "outline"}
+                    className="justify-start gap-2"
+                    onClick={() => setAuthType("password")}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 font-semibold text-foreground text-sm">
-                        <GlobeIcon className="size-4 text-primary" />
-                        Option B: Provider Dashboard
-                      </span>
-                      <RadioGroupItem value="provider" id="opt-provider" />
-                    </div>
-                    <p className="text-muted-foreground text-xs leading-normal">
-                      Copy the Public SSH Key and paste it into Hostinger,
-                      DigitalOcean, or Hetzner creation menu.
-                    </p>
-                  </label>
-                </RadioGroup>
+                    <KeyRound className="size-4" />
+                    Password
+                  </Button>
+                </div>
               </FieldGroup>
 
-              {/* Display snippet based on selected option */}
-              {sshOption === "manual" ? (
-                <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-2 font-semibold text-foreground text-xs">
-                      <TerminalIcon className="size-4 text-primary" />
-                      Run on VPS Terminal:
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        if (activeSshKey?.publicKey) {
-                          copyText(manualAuthSnippet);
-                          toast.success("Command copied to clipboard!");
-                        } else {
-                          toast.error("No SSH key selected");
-                        }
-                      }}
-                    >
-                      <Copy data-icon="inline-start" />
-                      Copy Command
-                    </Button>
-                  </div>
-                  <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg border bg-background p-3 font-mono text-foreground text-xs leading-relaxed">
-                    {manualAuthSnippet}
-                  </pre>
-                  <ol className="list-inside list-decimal space-y-1 text-muted-foreground text-xs">
-                    <li>
-                      Log into your server:{" "}
-                      <code className="font-mono text-foreground">
-                        ssh root@&lt;YOUR_SERVER_IP&gt;
-                      </code>
-                    </li>
-                    <li>Paste and execute the command above.</li>
-                  </ol>
-                </div>
+              {authType === "password" ? (
+                <Card className="p-4">
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="wiz-ssh-pass">
+                        SSH Password *
+                      </FieldLabel>
+                      <Input
+                        id="wiz-ssh-pass"
+                        type="password"
+                        required
+                        placeholder="Enter SSH password for remote user"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                      />
+                      <FieldDescription>
+                        Password will be encrypted using AES-256-GCM before
+                        storage.
+                      </FieldDescription>
+                    </Field>
+                  </FieldGroup>
+                </Card>
               ) : (
-                <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-foreground text-xs">
-                      Public Key
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (activeSshKey?.publicKey) {
-                          copyText(activeSshKey.publicKey);
-                          toast.success("Public Key copied to clipboard!");
-                        } else {
-                          toast.error("No SSH key selected");
+                <>
+                  {/* SSH Key Selection / Generation Card */}
+                  <Card>
+                    <CardHeader className="p-4 pb-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-1">
+                          <CardTitle className="font-semibold text-sm">
+                            Active SSH Key Pair
+                          </CardTitle>
+                          <CardDescription className="text-xs">
+                            Choose an existing key or generate a new key pair.
+                          </CardDescription>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Select
+                            items={(sshKeys ?? []).map((k) => ({
+                              value: k.id,
+                              label: `${k.name} (${k.algorithm})`,
+                            }))}
+                            value={selectedSshKeyId || (sshKeys?.[0]?.id ?? "")}
+                            onValueChange={(val) =>
+                              setSelectedSshKeyId(val || "")
+                            }
+                          >
+                            <SelectTrigger className="w-full sm:w-[220px]">
+                              <SelectValue placeholder="Choose SSH Key" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {sshKeys?.map((k) => (
+                                  <SelectItem key={k.id} value={k.id}>
+                                    {k.name} ({k.algorithm})
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleGenerateKey}
+                            disabled={generateSshKeyMutation.isPending}
+                          >
+                            {generateSshKeyMutation.isPending ? (
+                              <Spinner data-icon="inline-start" />
+                            ) : (
+                              <PlusIcon data-icon="inline-start" />
+                            )}
+                            Generate Key
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    {activeSshKey && (
+                      <CardContent className="p-4 pt-0">
+                        <div className="flex items-center justify-between rounded-lg border bg-muted/40 p-3 text-xs">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <KeyRound className="size-4 shrink-0 text-primary" />
+                            <span className="truncate font-medium text-foreground">
+                              {activeSshKey.name}
+                            </span>
+                            <span className="text-muted-foreground">
+                              ({activeSshKey.algorithm})
+                            </span>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 font-mono text-[10px]"
+                          >
+                            {activeSshKey.fingerprint?.slice(0, 16)}…
+                          </Badge>
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+
+                  {/* Radio options for Manual vs Provider setup */}
+                  <FieldGroup>
+                    <FieldLabel>Key Installation Method</FieldLabel>
+                    <RadioGroup
+                      value={sshOption}
+                      onValueChange={(val) =>
+                        setSshOption(val as "manual" | "provider")
+                      }
+                      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+                    >
+                      <label
+                        htmlFor="opt-manual"
+                        className={cn(
+                          "flex cursor-pointer flex-col gap-2 rounded-xl border bg-card p-4 transition-all",
+                          sshOption === "manual"
+                            ? "border-primary ring-2 ring-primary/20"
+                            : "border-border hover:border-border/80",
+                        )}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                            <TerminalIcon className="size-4 text-primary" />
+                            Option A: Manual Command
+                          </span>
+                          <RadioGroupItem value="manual" id="opt-manual" />
+                        </div>
+                        <p className="text-muted-foreground text-xs leading-normal">
+                          Copy and run a single bash command in your VPS
+                          terminal to authorize Upstand.
+                        </p>
+                      </label>
+
+                      <label
+                        htmlFor="opt-provider"
+                        className={cn(
+                          "flex cursor-pointer flex-col gap-2 rounded-xl border bg-card p-4 transition-all",
+                          sshOption === "provider"
+                            ? "border-primary ring-2 ring-primary/20"
+                            : "border-border hover:border-border/80",
+                        )}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                            <GlobeIcon className="size-4 text-primary" />
+                            Option B: Provider Dashboard
+                          </span>
+                          <RadioGroupItem value="provider" id="opt-provider" />
+                        </div>
+                        <p className="text-muted-foreground text-xs leading-normal">
+                          Copy the Public SSH Key and paste it into Hostinger,
+                          DigitalOcean, or Hetzner creation menu.
+                        </p>
+                      </label>
+                    </RadioGroup>
+                  </FieldGroup>
+
+                  {/* Display snippet based on selected option */}
+                  {sshOption === "manual" ? (
+                    <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-2 font-semibold text-foreground text-xs">
+                          <TerminalIcon className="size-4 text-primary" />
+                          Run on VPS Terminal:
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (activeSshKey?.publicKey) {
+                              copyText(manualAuthSnippet);
+                              toast.success("Command copied to clipboard!");
+                            } else {
+                              toast.error("No SSH key selected");
+                            }
+                          }}
+                        >
+                          <Copy data-icon="inline-start" />
+                          Copy Command
+                        </Button>
+                      </div>
+                      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg border bg-background p-3 font-mono text-foreground text-xs leading-relaxed">
+                        {manualAuthSnippet}
+                      </pre>
+                      <ol className="list-inside list-decimal space-y-1 text-muted-foreground text-xs">
+                        <li>
+                          Log into your server:{" "}
+                          <code className="font-mono text-foreground">
+                            ssh root@{"<YOUR_SERVER_IP>"}
+                          </code>
+                        </li>
+                        <li>Paste and execute the command above.</li>
+                      </ol>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-foreground text-xs">
+                          Public Key
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (activeSshKey?.publicKey) {
+                              copyText(activeSshKey.publicKey);
+                              toast.success("Public Key copied to clipboard!");
+                            } else {
+                              toast.error("No SSH key selected");
+                            }
+                          }}
+                        >
+                          <Copy data-icon="inline-start" />
+                          Copy Public Key
+                        </Button>
+                      </div>
+                      <Textarea
+                        readOnly
+                        value={
+                          activeSshKey?.publicKey || "No public key available"
                         }
-                      }}
-                    >
-                      <Copy data-icon="inline-start" />
-                      Copy Public Key
-                    </Button>
-                  </div>
-                  <Textarea
-                    readOnly
-                    value={activeSshKey?.publicKey || "No public key available"}
-                    className="h-24 resize-none bg-background font-mono text-xs leading-relaxed"
-                  />
-                  <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-muted-foreground text-xs">
-                      Paste this key into your cloud provider's SSH keys
-                      settings.
-                    </p>
-                    <a
-                      href="https://docs.dokploy.com/docs/core/remote-servers/instructions#requirements"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex shrink-0 items-center gap-1 font-medium text-primary text-xs hover:underline"
-                    >
-                      View Tutorial Docs{" "}
-                      <ExternalLinkIcon className="size-3.5" />
-                    </a>
-                  </div>
-                </div>
+                        className="h-24 resize-none bg-background font-mono text-xs leading-relaxed"
+                      />
+                      <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-muted-foreground text-xs">
+                          Paste this key into your cloud provider&apos;s SSH
+                          keys settings.
+                        </p>
+                        <a
+                          href="https://docs.dokploy.com/docs/core/remote-servers/instructions#requirements"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex shrink-0 items-center gap-1 font-medium text-primary text-xs hover:underline"
+                        >
+                          View Tutorial Docs{" "}
+                          <ExternalLinkIcon className="size-3.5" />
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </motion.div>
           )}
@@ -968,9 +1044,11 @@ export function RemoteServerWizard({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                        {setupServerMutation.isPending ? (
+                        {setupProgressQuery.data?.status === "setting_up" ||
+                        setupServerMutation.isPending ? (
                           <Spinner className="text-primary" />
-                        ) : setupServerMutation.isSuccess ? (
+                        ) : setupProgressQuery.data?.status === "ready" ||
+                          setupServerMutation.isSuccess ? (
                           <CheckCircle2 className="size-5 text-primary" />
                         ) : (
                           <AlertTriangleIcon className="size-5 text-destructive" />
@@ -978,9 +1056,11 @@ export function RemoteServerWizard({
                       </div>
                       <div className="flex flex-col">
                         <CardTitle className="font-semibold text-sm">
-                          {setupServerMutation.isPending
+                          {setupProgressQuery.data?.status === "setting_up" ||
+                          setupServerMutation.isPending
                             ? "Provisioning Server Environment..."
-                            : setupServerMutation.isSuccess
+                            : setupProgressQuery.data?.status === "ready" ||
+                                setupServerMutation.isSuccess
                               ? "Server Provisioned Successfully!"
                               : "Setup Requires Attention"}
                         </CardTitle>
@@ -992,17 +1072,21 @@ export function RemoteServerWizard({
 
                     <Badge
                       variant={
+                        setupProgressQuery.data?.status === "ready" ||
                         setupServerMutation.isSuccess
                           ? "default"
-                          : setupServerMutation.isError
+                          : setupProgressQuery.data?.status === "failed" ||
+                              setupServerMutation.isError
                             ? "destructive"
                             : "outline"
                       }
                       className="w-fit"
                     >
-                      {setupServerMutation.isPending
-                        ? "In Progress"
-                        : setupServerMutation.isSuccess
+                      {setupProgressQuery.data?.status === "setting_up" ||
+                      setupServerMutation.isPending
+                        ? setupProgressQuery.data?.setupStage || "In Progress"
+                        : setupProgressQuery.data?.status === "ready" ||
+                            setupServerMutation.isSuccess
                           ? "Provisioned"
                           : "Failed"}
                     </Badge>
@@ -1010,6 +1094,26 @@ export function RemoteServerWizard({
                 </CardHeader>
 
                 <CardContent className="flex flex-col gap-3 p-4 text-xs">
+                  {setupProgressQuery.data?.setupStage && (
+                    <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-xs">
+                      <Spinner className="size-3.5 shrink-0 text-primary" />
+                      <span className="font-medium text-foreground">
+                        Active Stage: {setupProgressQuery.data.setupStage}
+                      </span>
+                    </div>
+                  )}
+
+                  {setupProgressQuery.data?.setupLogs && (
+                    <div className="space-y-1.5">
+                      <p className="font-semibold text-muted-foreground text-xs">
+                        Setup Terminal Log:
+                      </p>
+                      <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] text-zinc-100 leading-relaxed dark:bg-black/90">
+                        {setupProgressQuery.data.setupLogs}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between rounded-lg border bg-muted/40 p-3">
                     <span className="font-medium text-foreground">
                       1. Validate SSH Auth Key
@@ -1021,14 +1125,16 @@ export function RemoteServerWizard({
                     <span className="font-medium text-foreground">
                       2. Install Docker Engine Daemon
                     </span>
-                    {setupServerMutation.isPending ? (
-                      <Spinner />
-                    ) : setupServerMutation.isSuccess ? (
+                    {setupProgressQuery.data?.status === "ready" ||
+                    setupServerMutation.isSuccess ? (
                       <CheckCircle2 className="size-4 text-primary" />
-                    ) : (
+                    ) : setupProgressQuery.data?.status === "failed" ||
+                      setupServerMutation.isError ? (
                       <span className="font-semibold text-destructive">
                         Error
                       </span>
+                    ) : (
+                      <Spinner />
                     )}
                   </div>
 
@@ -1036,14 +1142,16 @@ export function RemoteServerWizard({
                     <span className="font-medium text-foreground">
                       3. Initialize Swarm & Overlay Network
                     </span>
-                    {setupServerMutation.isPending ? (
-                      <Spinner />
-                    ) : setupServerMutation.isSuccess ? (
+                    {setupProgressQuery.data?.status === "ready" ||
+                    setupServerMutation.isSuccess ? (
                       <CheckCircle2 className="size-4 text-primary" />
-                    ) : (
+                    ) : setupProgressQuery.data?.status === "failed" ||
+                      setupServerMutation.isError ? (
                       <span className="font-semibold text-destructive">
                         Error
                       </span>
+                    ) : (
+                      <Spinner />
                     )}
                   </div>
 
@@ -1051,28 +1159,33 @@ export function RemoteServerWizard({
                     <span className="font-medium text-foreground">
                       4. Deploy Routing & Agent Containers
                     </span>
-                    {setupServerMutation.isPending ? (
-                      <Spinner />
-                    ) : setupServerMutation.isSuccess ? (
+                    {setupProgressQuery.data?.status === "ready" ||
+                    setupServerMutation.isSuccess ? (
                       <CheckCircle2 className="size-4 text-primary" />
-                    ) : (
+                    ) : setupProgressQuery.data?.status === "failed" ||
+                      setupServerMutation.isError ? (
                       <span className="font-semibold text-destructive">
                         Error
                       </span>
+                    ) : (
+                      <Spinner />
                     )}
                   </div>
 
-                  {setupServerMutation.isError && (
+                  {(setupServerMutation.isError ||
+                    setupProgressQuery.data?.status === "failed") && (
                     <Alert variant="destructive" className="mt-2">
                       <AlertTriangleIcon />
                       <AlertTitle>Setup Error</AlertTitle>
                       <AlertDescription className="break-words">
-                        {setupServerMutation.error.message}
+                        {setupProgressQuery.data?.setupError ||
+                          setupServerMutation.error?.message}
                       </AlertDescription>
                     </Alert>
                   )}
 
-                  {setupServerMutation.isSuccess && (
+                  {(setupServerMutation.isSuccess ||
+                    setupProgressQuery.data?.status === "ready") && (
                     <Alert variant="default" className="mt-2">
                       <CheckCircle2 data-icon="inline-start" />
                       <AlertTitle>Provisioning Complete</AlertTitle>

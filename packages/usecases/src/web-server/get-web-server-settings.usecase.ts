@@ -208,7 +208,8 @@ export class GetWebServerSettingsUseCase {
       );
       await this.caddyService.initializeCaddy(settings);
       const [resources, certificates] = await Promise.all([
-        this.uow.resourceRepository.findMany(),
+        this.uow.resourceRepository.findForCaddy?.() ??
+          this.uow.resourceRepository.findMany(),
         this.uow.certificateRepository.findAll?.() ?? Promise.resolve([]),
       ]);
       await this.caddyService.syncResourceConfigs(

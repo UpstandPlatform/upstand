@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -8,6 +9,8 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+import { organization } from "./auth";
+
 export const outbox = pgTable(
   "outbox",
   {
@@ -16,7 +19,9 @@ export const outbox = pgTable(
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     aggregateType: text("aggregate_type"),
     aggregateId: text("aggregate_id"),
-    organizationId: text("organization_id"),
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "cascade",
+    }),
     idempotencyKey: text("idempotency_key").notNull(),
     status: text("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
@@ -39,6 +44,9 @@ export const outbox = pgTable(
       table.availableAt,
       table.createdAt,
     ),
+    index("outbox_pending_idx")
+      .on(table.availableAt, table.createdAt)
+      .where(sql`status = 'pending'`),
     index("outbox_aggregate_idx").on(table.aggregateType, table.aggregateId),
     index("outbox_organization_idx").on(table.organizationId, table.createdAt),
   ],

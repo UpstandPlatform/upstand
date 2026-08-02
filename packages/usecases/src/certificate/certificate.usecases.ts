@@ -40,6 +40,7 @@ export type ListCertificatesInput = z.infer<typeof ListCertificatesInputSchema>;
 
 export const UpdateCertificateInputSchema = z.object({
   id: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
   name: z.string().trim().min(1).max(120).optional(),
   certificatePem: certificatePem.optional(),
   privateKeyPem: privateKeyPem.optional(),
@@ -48,7 +49,10 @@ export type UpdateCertificateInput = z.infer<
   typeof UpdateCertificateInputSchema
 >;
 
-export const DeleteCertificateInputSchema = z.object({ id: z.string().min(1) });
+export const DeleteCertificateInputSchema = z.object({
+  id: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
+});
 export type DeleteCertificateInput = z.infer<
   typeof DeleteCertificateInputSchema
 >;
@@ -80,8 +84,12 @@ export class ListCertificatesUseCase {
 export class UpdateCertificateUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
   async execute(input: UpdateCertificateInput): Promise<Certificate | null> {
-    return this.uow.transaction((tx) =>
-      tx.certificateRepository.updateById(input.id, {
+    return this.uow.transaction(async (tx) => {
+      const existing = await tx.certificateRepository.findById(input.id);
+      if (!existing || existing.organizationId !== input.organizationId) {
+        return null;
+      }
+      return tx.certificateRepository.updateById(input.id, {
         ...(input.name === undefined ? {} : { name: input.name }),
         ...(input.certificatePem === undefined
           ? {}
@@ -89,16 +97,20 @@ export class UpdateCertificateUseCase {
         ...(input.privateKeyPem === undefined
           ? {}
           : { privateKeyPem: input.privateKeyPem }),
-      }),
-    );
+      });
+    });
   }
 }
 
 export class DeleteCertificateUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
   async execute(input: DeleteCertificateInput): Promise<boolean> {
-    return this.uow.transaction((tx) =>
-      tx.certificateRepository.deleteById(input.id),
-    );
+    return this.uow.transaction(async (tx) => {
+      const existing = await tx.certificateRepository.findById(input.id);
+      if (!existing || existing.organizationId !== input.organizationId) {
+        return false;
+      }
+      return tx.certificateRepository.deleteById(input.id);
+    });
   }
 }

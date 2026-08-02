@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { TRPCError } from "@trpc/server";
 import { AI_FEATURES, AI_PROVIDERS } from "@upstand/domain";
+import { env } from "@upstand/env/server";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
+import { redis } from "@upstand/redis";
 import { AIRepositoryToken } from "@upstand/repositories/tokens";
 import { z } from "zod";
 import {
@@ -12,6 +15,7 @@ import {
 } from "../ai/upgal";
 import { UpGalError } from "../ai/upgal-errors";
 import { UpGalPageContextSchema } from "../ai/upgal-page-context";
+import { incrementUpGalDailyBudget } from "../ai-budget";
 import {
   protectedProcedure,
   router,
@@ -31,14 +35,35 @@ const providerFormSchema = z.object({
   baseUrl: z.url().optional().or(z.literal("")),
   temperature: z.number().min(0).max(2).nullable().optional(),
   reasoningEnabled: z.boolean().default(false),
-  maxOutputTokens: z
-    .number()
-    .int()
-    .min(256)
-    .max(1_000_000)
-    .nullable()
-    .optional(),
+  maxOutputTokens: z.number().int().min(256).max(32_768).nullable().optional(),
 });
+
+async function enforceAiDailyBudget(
+  organizationId: string,
+  log: { error(error: unknown, context?: Record<string, unknown>): void },
+): Promise<void> {
+  if (env.NODE_ENV === "test") return;
+
+  let runCount: number;
+  try {
+    runCount = await incrementUpGalDailyBudget(redis, organizationId);
+  } catch (error) {
+    log.error(error instanceof Error ? error : String(error), {
+      message: "Unable to enforce UpGal daily budget",
+      organizationId,
+    });
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "UpGal is temporarily unavailable",
+    });
+  }
+  if (runCount > env.UPGAL_DAILY_RUN_LIMIT) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "UpGal daily organization run limit exceeded",
+    });
+  }
+}
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -57,10 +82,33 @@ export const aiRouter = router({
         input.organizationId,
         "ai:manage",
       );
+      const sanitizedRequest = input.request
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+        .trim();
+      const normalizedRequest = sanitizedRequest
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ");
+      const dangerousPatterns = [
+        /ignore\s+previous\s+instructions/i,
+        /override\s+system\s+prompt/i,
+        /bypass\s+safety\s+controls/i,
+        /disregard\s+prior\s+directives/i,
+        /system\s+prompt\s+override/i,
+      ];
+      for (const pattern of dangerousPatterns) {
+        if (pattern.test(sanitizedRequest) || pattern.test(normalizedRequest)) {
+          throw new UpGalError(
+            "validation",
+            "Prompt contains disallowed instruction patterns.",
+          );
+        }
+      }
+      await enforceAiDailyBudget(input.organizationId, ctx.log);
       return generateComposeTemplate(
         input.organizationId,
         ctx.scope,
-        input.request,
+        sanitizedRequest,
         ctx.log,
       );
     }),
@@ -193,6 +241,7 @@ export const aiRouter = router({
         input.organizationId,
         "ai:manage",
       );
+      await enforceAiDailyBudget(input.organizationId, ctx.log);
       return testUpGalProvider(
         input.organizationId,
         ctx.scope,
@@ -221,6 +270,7 @@ export const aiRouter = router({
         input.organizationId,
         "ai:manage",
       );
+      await enforceAiDailyBudget(input.organizationId, ctx.log);
       return listProviderModels(input.organizationId, ctx.scope, {
         provider: input.provider,
         search: input.search,

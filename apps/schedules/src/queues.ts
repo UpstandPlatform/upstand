@@ -1,4 +1,4 @@
-import { createRedis, type Redis } from "@upstand/redis";
+import { closeRedis, createRedis, type Redis } from "@upstand/redis";
 import { Queue } from "bullmq";
 
 export interface QueueHealthStatus {
@@ -18,9 +18,19 @@ export class QueueHealthChecker {
     if (!this.redisConnection) {
       this.redisConnection = createRedis({
         loggerName: "schedules-queue-checker",
+        redisOptions: {
+          commandTimeout: 1_000,
+          connectTimeout: 1_000,
+        },
       });
     }
     return this.redisConnection;
+  }
+
+  async close(): Promise<void> {
+    const connection = this.redisConnection;
+    this.redisConnection = null;
+    if (connection) await closeRedis(connection);
   }
 
   async inspectQueue(queueName: string): Promise<QueueHealthStatus> {

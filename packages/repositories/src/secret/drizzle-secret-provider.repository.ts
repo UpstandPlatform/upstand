@@ -5,7 +5,10 @@ import type {
   SecretProviderType,
 } from "@upstand/domain";
 import { and, eq } from "drizzle-orm";
-import { BaseRepository } from "../shared/base.repository";
+import {
+  BaseRepository,
+  MAX_REPOSITORY_READS,
+} from "../shared/base.repository";
 import type { Executor } from "../shared/types";
 
 export class DrizzleSecretProviderRepository
@@ -58,7 +61,13 @@ export class DrizzleSecretProviderRepository
     const rows = await this.executor
       .select()
       .from(secretProvider)
-      .where(eq(secretProvider.organizationId, organizationId));
+      .where(eq(secretProvider.organizationId, organizationId))
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "Secret provider discovery exceeded the maximum supported row count",
+      );
+    }
     return rows.map((row) => this.public(row));
   }
   async create(data: {

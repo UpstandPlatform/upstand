@@ -19,10 +19,24 @@ function trimSlashes(value: string): string {
   return str;
 }
 
-/** Build the immutable transfer image reference used between build and target servers. */
+/** Normalize a deployment-specific Docker tag without allowing tag syntax through. */
+export function normalizeBuildImageTag(
+  value: string | null | undefined,
+): string {
+  const normalized = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "")
+    .slice(0, 120);
+  return normalized || "latest";
+}
+
+/** Build the deployment-specific transfer image reference used between build and target servers. */
 export function buildRegistryImageTag(
   registry: BuildRegistryReference,
   serviceName: string,
+  deploymentId?: string | null,
 ): string {
   const host = trimProtocolAndSlashes(registry.registryUrl || "");
   const prefix = trimSlashes(registry.imagePrefix || registry.username || "");
@@ -33,5 +47,5 @@ export function buildRegistryImageTag(
   const repository = [host, prefix, normalizedServiceName]
     .filter(Boolean)
     .join("/");
-  return `${repository || "upstand"}:latest`;
+  return `${repository || "upstand"}:${normalizeBuildImageTag(deploymentId)}`;
 }

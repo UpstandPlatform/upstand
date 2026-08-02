@@ -16,11 +16,13 @@ export interface ISecretVersionRepository {
   findByScope(
     scopeType: SecretScopeType,
     scopeId: string,
+    organizationId: string,
   ): Promise<SecretVersion[]>;
   findByScopeVersion(
     scopeType: SecretScopeType,
     scopeId: string,
     version: number,
+    organizationId: string,
   ): Promise<SecretVersionPayload | null>;
   append(payload: SecretVersionPayload): Promise<SecretVersion>;
 }

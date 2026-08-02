@@ -1,0 +1,2 @@
+DROP INDEX "notification_delivery_organization_created_idx";--> statement-breakpoint
+CREATE INDEX "notification_delivery_organization_created_idx" ON "notification_delivery" USING btree ("organization_id","created_at" DESC NULLS LAST);

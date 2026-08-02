@@ -91,7 +91,10 @@ export const sshKeyRouter = router({
       );
       const deleteUseCase = ctx.scope.resolve(DeleteSshKeyUseCaseToken);
       try {
-        return await deleteUseCase.execute(input);
+        return await deleteUseCase.execute({
+          ...input,
+          organizationId: sshKey.organizationId,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

@@ -14,6 +14,9 @@ const MONITORING_CONTAINER_NAME = "upstand-monitoring-agent";
 const MONITORING_IMAGE = "upstand-monitoring-agent:local";
 const MONITORING_LABEL = "com.upstand.component";
 const MONITORING_LABEL_VALUE = "monitoring-agent";
+const IMMUTABLE_IMAGE_PATTERN = /@sha256:[0-9a-f]{64}$/i;
+const MONITORING_HEALTH_TIMEOUT_MS = 60_000;
+const MONITORING_HEALTH_POLL_MS = 500;
 
 type MonitoringContainerInfo = {
   Config?: {
@@ -24,6 +27,7 @@ type MonitoringContainerInfo = {
   HostConfig?: {
     Binds?: string[];
     CapDrop?: string[];
+    GroupAdd?: string[];
     ExtraHosts?: string[];
     LogConfig?: { Config?: Record<string, string>; Type?: string };
     Memory?: number;
@@ -38,7 +42,12 @@ type MonitoringContainerInfo = {
     SecurityOpt?: string[];
     Tmpfs?: Record<string, string>;
   };
-  State?: { Running?: boolean };
+  State?: {
+    Running?: boolean;
+    ExitCode?: number;
+    Error?: string;
+    Health?: { Status?: string };
+  };
 };
 
 type MonitoringContainerSpec = {
@@ -55,10 +64,7 @@ export async function initializeMonitoring(): Promise<void> {
     monitoringInitializationPromise = initializeMonitoringOnce().catch(
       (error: unknown) => {
         monitoringInitializationPromise = undefined;
-        log.error({
-          message: "Failed to initialize local monitoring agent",
-          err: error,
-        });
+        throw error;
       },
     );
   }
@@ -177,6 +183,7 @@ async function initializeMonitoringOnce(): Promise<void> {
         "upstand-monitoring-data:/data",
       ],
       CapDrop: ["ALL"],
+      GroupAdd: getDockerSocketGroups(),
       LogConfig: {
         Type: "json-file",
         Config: { "max-size": "10m", "max-file": "3" },
@@ -213,18 +220,15 @@ async function initializeMonitoringOnce(): Promise<void> {
     if (isMonitoringContainerCurrent(existing, containerOpts)) {
       if (!existing.State?.Running) {
         await container.start();
-        log.info({
-          message: "Local Monitoring Agent container restarted",
-          image: monitoringImage,
-          network: networkMode || "loopback",
-        });
-      } else {
-        log.info({
-          message: "Local Monitoring Agent container already running",
-          image: monitoringImage,
-          network: networkMode || "loopback",
-        });
       }
+      await waitForMonitoringHealth(container);
+      log.info({
+        message: existing.State?.Running
+          ? "Local Monitoring Agent container already running"
+          : "Local Monitoring Agent container restarted",
+        image: monitoringImage,
+        network: networkMode || "loopback",
+      });
       return;
     }
 
@@ -240,6 +244,7 @@ async function initializeMonitoringOnce(): Promise<void> {
     const concurrent = (await container.inspect()) as MonitoringContainerInfo;
     if (!isMonitoringContainerCurrent(concurrent, containerOpts)) throw error;
     if (!concurrent.State?.Running) await container.start();
+    await waitForMonitoringHealth(container);
     log.info({
       message: "Local Monitoring Agent container already reconciled",
       image: monitoringImage,
@@ -248,12 +253,41 @@ async function initializeMonitoringOnce(): Promise<void> {
     return;
   }
 
-  await docker.getContainer(MONITORING_CONTAINER_NAME).start();
+  const startedContainer = docker.getContainer(MONITORING_CONTAINER_NAME);
+  await startedContainer.start();
+  await waitForMonitoringHealth(startedContainer);
   log.info({
     message: "Local Monitoring Agent container started",
     image: monitoringImage,
     network: networkMode || "loopback",
   });
+}
+
+export async function waitForMonitoringHealth(
+  container: { inspect(): Promise<unknown> },
+  timeoutMs = MONITORING_HEALTH_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + Math.max(1, timeoutMs);
+  let lastStatus = "unknown";
+  while (Date.now() < deadline) {
+    const info = (await container.inspect()) as MonitoringContainerInfo;
+    lastStatus = info.State?.Health?.Status ?? "no-healthcheck";
+    if (lastStatus === "healthy") return;
+    if (lastStatus === "unhealthy" || info.State?.Running === false) {
+      throw new Error(
+        `Monitoring Agent container is not healthy: status=${lastStatus}, exitCode=${info.State?.ExitCode ?? "unknown"}, error=${info.State?.Error || "none"}`,
+      );
+    }
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        Math.min(MONITORING_HEALTH_POLL_MS, Math.max(1, deadline - Date.now())),
+      ),
+    );
+  }
+  throw new Error(
+    `Monitoring Agent container did not become healthy within ${timeoutMs}ms: status=${lastStatus}`,
+  );
 }
 
 function dockerStatusCode(error: unknown): number | undefined {
@@ -280,6 +314,7 @@ function isMonitoringContainerCurrent(
     actualHostConfig?.Memory !== desiredHostConfig.Memory ||
     actualHostConfig?.PidsLimit !== desiredHostConfig.PidsLimit ||
     !sameStringSet(actualHostConfig?.CapDrop, desiredHostConfig.CapDrop) ||
+    !sameStringSet(actualHostConfig?.GroupAdd, desiredHostConfig.GroupAdd) ||
     !sameStringSet(
       actualHostConfig?.SecurityOpt,
       desiredHostConfig.SecurityOpt,
@@ -303,6 +338,11 @@ function isMonitoringContainerCurrent(
   return true;
 }
 
+function getDockerSocketGroups(): string[] {
+  const groupId = env.UPSTAND_DOCKER_GID;
+  return groupId === undefined ? [] : [String(groupId)];
+}
+
 function sameStringSet(
   actual: string[] | undefined,
   desired: string[] | undefined,
@@ -317,7 +357,17 @@ async function resolveMonitoringImage(
   docker: ReturnType<typeof getDockerInstance>,
 ) {
   const configured = env.UPSTAND_MONITORING_IMAGE?.trim();
-  if (configured) return configured;
+  if (configured) {
+    if (
+      env.NODE_ENV === "production" &&
+      !isImmutableImageReference(configured)
+    ) {
+      throw new Error(
+        `${MONITORING_IMAGE_ENV} must use an immutable @sha256 image digest in production`,
+      );
+    }
+    return configured;
+  }
 
   if (env.NODE_ENV === "production") {
     throw new Error(`${MONITORING_IMAGE_ENV} is required in production`);
@@ -333,6 +383,10 @@ async function resolveMonitoringImage(
     await buildDevelopmentMonitoringImage(docker, monitoringPath);
   }
   return MONITORING_IMAGE;
+}
+
+export function isImmutableImageReference(value: string): boolean {
+  return IMMUTABLE_IMAGE_PATTERN.test(value.trim());
 }
 
 function resolveDevelopmentMonitoringPath(): string | null {

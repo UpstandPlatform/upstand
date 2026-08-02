@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGateway } from "@ai-sdk/gateway";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
@@ -9,7 +10,9 @@ import type {
   AIProviderConfigRecord,
   IAIRepository,
 } from "@upstand/domain";
+import { env } from "@upstand/env/server";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
+import { isBlockedAddress } from "@upstand/platform/network/outbound";
 import type { LanguageModel } from "ai";
 import { UpGalError } from "./upgal-errors";
 
@@ -32,6 +35,62 @@ export type UpGalResolvedProvider = {
   reasoningEnabled: boolean;
   maxOutputTokens?: number;
 };
+
+const OFFICIAL_PROVIDER_HOSTS: Record<AIProvider, ReadonlySet<string>> = {
+  openai: new Set(["api.openai.com"]),
+  anthropic: new Set(["api.anthropic.com"]),
+  google: new Set(["generativelanguage.googleapis.com"]),
+  openrouter: new Set(["openrouter.ai", "openrouter.ai"]),
+  gateway: new Set(["ai-gateway.vercel.sh"]),
+};
+
+export async function assertSafeProviderBaseUrl(
+  baseUrl: string | null | undefined,
+  provider: AIProvider,
+): Promise<void> {
+  if (!baseUrl?.trim()) return;
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new UpGalError("validation", "AI provider base URL is invalid.");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new UpGalError("validation", "AI provider base URL must use HTTPS.");
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const official = OFFICIAL_PROVIDER_HOSTS[provider]?.has(hostname) ?? false;
+  if (!official && (!env.UPGAL_ALLOW_CUSTOM_BASE_URL || env.IS_CLOUD)) {
+    throw new UpGalError(
+      "validation",
+      "Custom AI provider endpoints are disabled. Use an official provider endpoint or explicitly enable custom endpoints on a self-hosted instance.",
+    );
+  }
+  if (official) return;
+
+  if (isBlockedAddress(hostname)) {
+    throw new UpGalError(
+      "validation",
+      "AI provider endpoints cannot target private, loopback, or metadata addresses.",
+    );
+  }
+  let addresses: Array<{ address: string }>;
+  try {
+    addresses = await lookup(hostname, { all: true });
+  } catch {
+    throw new UpGalError(
+      "validation",
+      "AI provider hostname could not be resolved.",
+    );
+  }
+  if (addresses.some(({ address }) => isBlockedAddress(address))) {
+    throw new UpGalError(
+      "validation",
+      "AI provider endpoints cannot resolve to private, loopback, or metadata addresses.",
+    );
+  }
+}
 
 function decryptProviderApiKey(config: AIProviderConfigRecord | null) {
   if (
@@ -109,6 +168,8 @@ export async function getUpGalProvider(
     );
   }
 
+  await assertSafeProviderBaseUrl(config.baseUrl, config.provider);
+
   const apiKey = overrides.apiKey?.trim() || decryptProviderApiKey(stored);
   if (!apiKey) {
     throw new UpGalError(
@@ -120,7 +181,10 @@ export async function getUpGalProvider(
   const controls = {
     temperature: config.temperature ?? 0.5,
     reasoningEnabled: config.reasoningEnabled ?? false,
-    maxOutputTokens: config.maxOutputTokens ?? undefined,
+    maxOutputTokens:
+      config.maxOutputTokens == null
+        ? undefined
+        : Math.min(config.maxOutputTokens, 32_768),
   };
   const effectiveProvider =
     config.provider === "openai" && apiKey.startsWith("sk-or-v1-")

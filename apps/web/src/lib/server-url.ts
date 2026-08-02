@@ -33,6 +33,20 @@ function isDirectOrigin(url: URL): boolean {
   );
 }
 
+function getDesktopApiOrigin(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const desktop = (
+    window as Window & {
+      upstandDesktop?: { local?: { apiOrigin?: unknown } };
+    }
+  ).upstandDesktop;
+  // The preload API is asynchronous, so the current origin is injected by the
+  // desktop shell before navigation. This synchronous hook is reserved for a
+  // future cached value; normal browser requests continue through inference.
+  const value = desktop?.local?.apiOrigin;
+  return typeof value === "string" && value ? value : undefined;
+}
+
 function inferApiOrigin(protocol: string, hostname: string, port = ""): string {
   const apiHostname = hostname.startsWith("app.")
     ? `api.${hostname.slice("app.".length)}`
@@ -46,6 +60,8 @@ function inferApiOrigin(protocol: string, hostname: string, port = ""): string {
 
 /** Resolve the API origin at runtime for immutable self-hosted web images. */
 export function getServerUrl(configured = env.NEXT_PUBLIC_SERVER_URL): string {
+  const desktopApiOrigin = getDesktopApiOrigin();
+  if (desktopApiOrigin) return desktopApiOrigin;
   const configuredUrl = parseConfiguredUrl(configured);
 
   if (

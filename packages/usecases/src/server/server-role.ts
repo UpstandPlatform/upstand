@@ -6,7 +6,8 @@ type ResourceType = string;
  * The host capabilities that setup must establish for a server role.
  *
  * Deploy and database resources use Swarm services. Only deploy hosts expose
- * the shared Caddy edge; build hosts run Docker only and are never eligible to
+ * the shared application proxy (Caddy);
+ * build hosts run Docker only and are never eligible to
  * receive a deployment target assignment.
  */
 export type ServerProvisioningPlan = {

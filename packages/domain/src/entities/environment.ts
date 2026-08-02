@@ -22,6 +22,25 @@ export const EnvironmentSchema = z.object({
 
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
+/** Metadata needed to render environment lists without loading secret values. */
+export type EnvironmentSummaryProjection = Pick<
+  Environment,
+  | "id"
+  | "projectId"
+  | "parentEnvironmentId"
+  | "inheritsVariables"
+  | "name"
+  | "slug"
+  | "description"
+  | "isDefault"
+  | "isProtected"
+  | "resourceCount"
+  | "createdAt"
+  | "updatedAt"
+> & {
+  envVarsConfigured: boolean;
+};
+
 export interface CreateEnvironmentDTO {
   id?: string;
   projectId: string;

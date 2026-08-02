@@ -7,6 +7,8 @@ export type RateLimitPolicy = {
   limit: number;
   fallbackLimit: number;
   windowSeconds: number;
+  /** Critical traffic must not bypass a distributed limiter during Redis outage. */
+  failClosedOnRedisFailure: boolean;
 };
 
 export const RATE_LIMIT_PROFILES: Record<
@@ -17,11 +19,13 @@ export const RATE_LIMIT_PROFILES: Record<
     limit: 120,
     fallbackLimit: 30,
     windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+    failClosedOnRedisFailure: true,
   },
   scim: {
     limit: DISTRIBUTED_LIMIT,
     fallbackLimit: 30,
     windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+    failClosedOnRedisFailure: true,
   },
 };
 
@@ -40,6 +44,7 @@ export function rateLimitPolicy(
       limit: DISTRIBUTED_LIMIT,
       fallbackLimit: 10,
       windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+      failClosedOnRedisFailure: true,
     };
   }
 
@@ -52,6 +57,7 @@ export function rateLimitPolicy(
       limit: DISTRIBUTED_LIMIT,
       fallbackLimit: 15,
       windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+      failClosedOnRedisFailure: true,
     };
   }
 
@@ -59,6 +65,7 @@ export function rateLimitPolicy(
     limit: DISTRIBUTED_LIMIT,
     fallbackLimit: hasSession ? 30 : 20,
     windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+    failClosedOnRedisFailure: false,
   };
 }
 

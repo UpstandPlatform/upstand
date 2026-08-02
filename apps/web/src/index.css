@@ -1,5 +1,15 @@
 @import "@upstand/ui/globals.css";
 
+:root {
+  --font-sans:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-sans:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
 @keyframes upgal-spotlight {
   0%,
   100% {

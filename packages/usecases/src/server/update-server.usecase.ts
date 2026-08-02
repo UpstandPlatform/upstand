@@ -1,9 +1,11 @@
 import {
   type IUnitOfWork,
   type Server,
+  ServerAuthTypeSchema,
   ServerTypeSchema,
   ValidationError,
 } from "@upstand/domain";
+import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import {
   isSafeSshHost,
   isSafeSshUsername,
@@ -20,7 +22,9 @@ export const UpdateServerInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   description: z.string().trim().max(500).nullable().optional(),
   serverType: ServerTypeSchema.optional(),
+  authType: ServerAuthTypeSchema.optional(),
   sshKeyId: z.string().min(1).nullable().optional(),
+  password: z.string().min(1).nullable().optional(),
   sshHostKeyFingerprint: z
     .string()
     .trim()
@@ -79,15 +83,55 @@ export class UpdateServerUseCase {
       }
     }
 
-    const { organizationId: _organizationId, id: _id, ...patch } = input;
+    const {
+      organizationId: _organizationId,
+      id: _id,
+      password,
+      ...rawPatch
+    } = input;
+    const patch: Record<string, unknown> = { ...rawPatch };
+
+    const effectiveAuthType =
+      input.authType ??
+      (password ? "password" : input.sshKeyId ? "ssh_key" : current.authType);
+
+    if (
+      input.authType ||
+      password !== undefined ||
+      input.sshKeyId !== undefined
+    ) {
+      patch.authType = effectiveAuthType;
+      if (effectiveAuthType === "password") {
+        if (password) {
+          const encrypted = encryptSecret(password);
+          patch.passwordCiphertext = encrypted.ciphertext;
+          patch.passwordIv = encrypted.iv;
+          patch.passwordAuthTag = encrypted.authTag;
+          patch.passwordVersion = encrypted.keyVersion;
+        }
+        patch.sshKeyId = null;
+      } else if (effectiveAuthType === "ssh_key") {
+        patch.passwordCiphertext = null;
+        patch.passwordIv = null;
+        patch.passwordAuthTag = null;
+        patch.passwordVersion = null;
+        if (input.sshKeyId !== undefined) {
+          patch.sshKeyId = input.sshKeyId;
+        }
+      }
+    }
+
     const provisioningChanged = [
+      "authType",
       "sshKeyId",
+      "password",
       "sshHostKeyFingerprint",
       "ipAddress",
       "port",
       "username",
       "serverType",
     ].some((field) => field in input);
+
     const updated = await this.uow.serverRepository.updateById(
       input.id,
       provisioningChanged

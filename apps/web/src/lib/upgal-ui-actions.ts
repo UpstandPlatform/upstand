@@ -16,6 +16,8 @@ export type UpGalTargetRect = {
 };
 const inMemoryPlans = new Map<string, UpGalUIAction>();
 const consumedActionIds = new Set<string>();
+const consumedActionIdOrder: string[] = [];
+const MAX_CONSUMED_ACTION_IDS = 2048;
 
 export function upGalPlanUrl(path: string, planId: string) {
   const separator = path.includes("?") ? "&" : "?";
@@ -118,6 +120,11 @@ export function consumeUpGalAction(actionId: string): boolean {
   if (typeof window === "undefined") return false;
   if (consumedActionIds.has(actionId)) return false;
   consumedActionIds.add(actionId);
+  consumedActionIdOrder.push(actionId);
+  if (consumedActionIdOrder.length > MAX_CONSUMED_ACTION_IDS) {
+    const expiredActionId = consumedActionIdOrder.shift();
+    if (expiredActionId) consumedActionIds.delete(expiredActionId);
+  }
   const storageKey = `upgal:ui-action:${actionId}`;
   try {
     if (window.sessionStorage.getItem(storageKey)) return false;
@@ -142,9 +149,7 @@ export function storeUpGalPlan(planId: string, plan: UpGalUIAction): void {
 }
 
 export function replayUpGalPlan(plan: UpGalUIAction): string {
-  const randomId =
-    globalThis.crypto?.randomUUID?.() ??
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId = globalThis.crypto.randomUUID();
   const planId = `upgal-replay-${randomId}`;
   storeUpGalPlan(planId, plan);
   return planId;

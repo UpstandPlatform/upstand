@@ -1,0 +1,1 @@
+ALTER TABLE "edge_installation" ADD COLUMN "analytics_cursor" integer DEFAULT 0 NOT NULL;

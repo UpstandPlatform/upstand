@@ -108,9 +108,26 @@ class MockEnvironmentRepository implements IEnvironmentRepository {
 }
 
 describe("Environment Usecases", () => {
+  const projectRepository = {
+    findById: async (id: string) =>
+      id === "project-1"
+        ? {
+            id,
+            name: "Project",
+            organizationId: "org-1",
+            description: null,
+            icon: null,
+            archivedAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }
+        : null,
+  };
+
   test("creates a new environment with a slugified name", async () => {
     const uow = mockUnitOfWork({
       environmentRepository: new MockEnvironmentRepository(),
+      projectRepository,
     });
     const createUseCase = new CreateEnvironmentUseCase(uow);
 
@@ -129,6 +146,7 @@ describe("Environment Usecases", () => {
   test("updates an existing environment including project env vars", async () => {
     const uow = mockUnitOfWork({
       environmentRepository: new MockEnvironmentRepository(),
+      projectRepository,
     });
     const createUseCase = new CreateEnvironmentUseCase(uow);
     const updateUseCase = new UpdateEnvironmentUseCase(uow);
@@ -141,6 +159,7 @@ describe("Environment Usecases", () => {
 
     const updated = await updateUseCase.execute({
       id: env.id,
+      organizationId: "org-1",
       name: "Dev Env",
       description: "New description",
       envVars: {
@@ -223,6 +242,7 @@ describe("Environment Usecases", () => {
   test("prevents deletion of default production environment", async () => {
     const uow = mockUnitOfWork({
       environmentRepository: new MockEnvironmentRepository(),
+      projectRepository,
     });
     const createUseCase = new CreateEnvironmentUseCase(uow);
     const deleteUseCase = new DeleteEnvironmentUseCase(uow);
@@ -237,14 +257,15 @@ describe("Environment Usecases", () => {
     if (!environment) throw new Error("Expected created environment");
     environment.isDefault = true;
 
-    expect(deleteUseCase.execute({ id: env.id })).rejects.toThrow(
-      ValidationError,
-    );
+    expect(
+      deleteUseCase.execute({ id: env.id, organizationId: "org-1" }),
+    ).rejects.toThrow(ValidationError);
   });
 
   test("prevents deletion when environment contains resources", async () => {
     const uow = mockUnitOfWork({
       environmentRepository: new MockEnvironmentRepository(),
+      projectRepository,
     });
     const createUseCase = new CreateEnvironmentUseCase(uow);
     const deleteUseCase = new DeleteEnvironmentUseCase(uow);
@@ -259,14 +280,15 @@ describe("Environment Usecases", () => {
     if (!environment) throw new Error("Expected created environment");
     environment.resourceCount = 1;
 
-    expect(deleteUseCase.execute({ id: env.id })).rejects.toThrow(
-      ValidationError,
-    );
+    expect(
+      deleteUseCase.execute({ id: env.id, organizationId: "org-1" }),
+    ).rejects.toThrow(ValidationError);
   });
 
   test("deletes empty, non-default environment successfully", async () => {
     const uow = mockUnitOfWork({
       environmentRepository: new MockEnvironmentRepository(),
+      projectRepository,
     });
     const createUseCase = new CreateEnvironmentUseCase(uow);
     const deleteUseCase = new DeleteEnvironmentUseCase(uow);
@@ -276,8 +298,62 @@ describe("Environment Usecases", () => {
       name: "Staging",
     });
 
-    const success = await deleteUseCase.execute({ id: env.id });
+    const success = await deleteUseCase.execute({
+      id: env.id,
+      organizationId: "org-1",
+    });
     expect(success).toBe(true);
     expect(uow.environmentRepository.store).toHaveLength(0);
+  });
+
+  test("rejects environment mutations from another organization", async () => {
+    const uow = mockUnitOfWork({
+      environmentRepository: new MockEnvironmentRepository(),
+      projectRepository,
+    });
+    const environment = await new CreateEnvironmentUseCase(uow).execute({
+      projectId: "project-1",
+      name: "Tenant environment",
+    });
+
+    await expect(
+      new UpdateEnvironmentUseCase(uow).execute({
+        id: environment.id,
+        organizationId: "org-attacker",
+        name: "Should not update",
+      }),
+    ).rejects.toThrow("Environment not found");
+    await expect(
+      new DeleteEnvironmentUseCase(uow).execute({
+        id: environment.id,
+        organizationId: "org-attacker",
+      }),
+    ).rejects.toThrow("Environment not found");
+    expect(uow.environmentRepository.store).toHaveLength(1);
+  });
+
+  test("rejects a parent environment from another project", async () => {
+    const uow = mockUnitOfWork({
+      environmentRepository: new MockEnvironmentRepository(),
+      projectRepository,
+    });
+    const child = await new CreateEnvironmentUseCase(uow).execute({
+      projectId: "project-1",
+      name: "Child",
+    });
+    const foreignParent = await uow.environmentRepository.create({
+      id: "foreign-parent",
+      projectId: "project-2",
+      name: "Foreign",
+      slug: "foreign",
+    });
+
+    await expect(
+      new UpdateEnvironmentUseCase(uow).execute({
+        id: child.id,
+        organizationId: "org-1",
+        parentEnvironmentId: foreignParent.id,
+      }),
+    ).rejects.toThrow("same project");
   });
 });

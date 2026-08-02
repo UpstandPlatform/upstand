@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { getInheritedEnv } from "@upstand/env/server";
+import {
+  decryptSecret,
+  type EncryptedPayload,
+  encryptSecret,
+} from "@upstand/platform/crypto/secret-box";
 import { hostVerifierForFingerprint } from "@upstand/platform/ssh/host-key";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import { Client, type ClientChannel } from "ssh2";
 import { isValidContainerIdentifier } from "./container-ownership";
 
@@ -21,7 +28,8 @@ export type RemoteTerminalSessionInput = {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  privateKey?: string;
+  password?: string;
   hostKeyFingerprint: string;
   command?: string;
   initialCols?: number;
@@ -51,7 +59,8 @@ type RemoteTerminalSession = BaseTerminalSession & {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  privateKey?: string;
+  password?: string;
   hostKeyFingerprint: string;
   command?: string;
   initialCols?: number;
@@ -78,6 +87,7 @@ export function matchesTerminalSession(
 
 type LocalConnection = {
   kind: "local";
+  userId: string;
   subprocess: Bun.Subprocess;
   terminal: Bun.Terminal;
   alive: boolean;
@@ -87,21 +97,28 @@ type LocalConnection = {
   pendingWrites: string[];
   pendingWriteBytes: number;
   pendingResize?: { cols: number; rows: number };
+  lastActivityAt: number;
   onClose: (message: string) => void;
 };
 
 type SshConnection = {
   kind: "ssh";
+  userId: string;
   client: Client;
   channel: ClientChannel;
   closed: boolean;
+  lastActivityAt: number;
   onClose: (message: string) => void;
 };
 
 type TerminalConnection = LocalConnection | SshConnection;
 
 const SESSION_TTL_MS = 60_000;
+const REDIS_SESSION_PERSIST_TIMEOUT_MS = 2_000;
 const SESSION_SWEEP_INTERVAL_MS = 30_000;
+const CONNECTION_IDLE_TTL_MS = 15 * 60_000;
+const MAX_ACTIVE_CONNECTIONS = 256;
+const MAX_CONNECTIONS_PER_USER = 8;
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 30;
 const MIN_COLS = 10;
@@ -148,44 +165,77 @@ export class TerminalBroker {
       for (const [token, session] of this.sessions) {
         if (session.expiresAt < now) this.sessions.delete(token);
       }
+      for (const [token, connection] of this.connections) {
+        if (connection.lastActivityAt + CONNECTION_IDLE_TTL_MS < now) {
+          this.close(token, "Terminal session idle timeout.");
+        }
+      }
     }, SESSION_SWEEP_INTERVAL_MS);
     this.sweepTimer.unref?.();
   }
 
-  create(session: TerminalSessionInput): string {
+  stop(): void {
+    clearInterval(this.sweepTimer);
+    for (const token of this.connections.keys()) {
+      this.close(token, "Terminal service is shutting down.");
+    }
+    this.sessions.clear();
+  }
+
+  async create(session: TerminalSessionInput): Promise<string> {
     if (session.isLocal && !isValidContainerIdentifier(session.containerId)) {
       throw new Error("Invalid container identifier.");
     }
 
     const token = randomUUID();
     const expiresAt = Date.now() + SESSION_TTL_MS;
-    if (session.isLocal) {
-      this.sessions.set(token, {
-        userId: session.userId,
-        sessionId: session.sessionId,
-        twoFactorEnabled: session.twoFactorEnabled,
-        isLocal: true,
-        containerId: session.containerId,
-        initialCols: session.initialCols,
-        initialRows: session.initialRows,
-        expiresAt,
-      });
-    } else {
-      this.sessions.set(token, {
-        userId: session.userId,
-        sessionId: session.sessionId,
-        twoFactorEnabled: session.twoFactorEnabled,
-        isLocal: false,
-        host: session.host,
-        port: session.port,
-        username: session.username,
-        privateKey: session.privateKey,
-        hostKeyFingerprint: session.hostKeyFingerprint,
-        command: session.command,
-        initialCols: session.initialCols,
-        initialRows: session.initialRows,
-        expiresAt,
-      });
+    const payload: TerminalSession = session.isLocal
+      ? {
+          userId: session.userId,
+          sessionId: session.sessionId,
+          twoFactorEnabled: session.twoFactorEnabled,
+          isLocal: true,
+          containerId: session.containerId,
+          initialCols: session.initialCols,
+          initialRows: session.initialRows,
+          expiresAt,
+        }
+      : {
+          userId: session.userId,
+          sessionId: session.sessionId,
+          twoFactorEnabled: session.twoFactorEnabled,
+          isLocal: false,
+          host: session.host,
+          port: session.port,
+          username: session.username,
+          privateKey: session.privateKey,
+          password: session.password,
+          hostKeyFingerprint: session.hostKeyFingerprint,
+          command: session.command,
+          initialCols: session.initialCols,
+          initialRows: session.initialRows,
+          expiresAt,
+        };
+
+    this.sessions.set(token, payload);
+    const encrypted = encryptSecret(JSON.stringify(payload));
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const persisted = await Promise.race([
+      redis
+        .set(`term:session:${token}`, JSON.stringify(encrypted), "EX", 60)
+        .catch(() => null),
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(
+          () => resolve(null),
+          REDIS_SESSION_PERSIST_TIMEOUT_MS,
+        );
+        timeout.unref?.();
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    if (persisted !== "OK") {
+      this.sessions.delete(token);
+      throw new Error("Terminal service is temporarily unavailable");
     }
     return token;
   }
@@ -196,12 +246,35 @@ export class TerminalBroker {
     onClose: (message: string) => void,
     validateSession: (identity: TerminalSessionIdentity) => Promise<boolean>,
   ): Promise<void> {
-    const session = this.sessions.get(token);
+    let session: TerminalSession | undefined;
+    try {
+      const stored = await withRedisTimeout(
+        redis.getdel(`term:session:${token}`),
+      );
+      if (stored) {
+        session = JSON.parse(
+          decryptSecret(JSON.parse(stored) as EncryptedPayload),
+        ) as TerminalSession;
+      }
+    } catch {
+      // Fall back to the process-local payload when Redis is unavailable.
+    }
+    if (!session) session = this.sessions.get(token);
     this.sessions.delete(token);
     if (!session || session.expiresAt < Date.now()) {
       throw new Error(
         "Terminal session expired. Open a new terminal and try again.",
       );
+    }
+
+    const activeForUser = [...this.connections.values()].filter(
+      (connection) => connection.userId === session?.userId,
+    ).length;
+    if (
+      this.connections.size >= MAX_ACTIVE_CONNECTIONS ||
+      activeForUser >= MAX_CONNECTIONS_PER_USER
+    ) {
+      throw new Error("Too many active terminal sessions.");
     }
 
     if (
@@ -315,7 +388,7 @@ export class TerminalBroker {
           ["docker", "exec", "-it", containerId, shellPath],
           {
             cwd: process.cwd(),
-            env: { ...process.env, TERM: "xterm-256color" },
+            env: getInheritedEnv({ TERM: "xterm-256color" }),
             terminal,
             windowsHide: true,
             onExit: (_process, exitCode, signal) => {
@@ -363,6 +436,7 @@ export class TerminalBroker {
 
         connection = {
           kind: "local",
+          userId: session.userId,
           subprocess,
           terminal,
           alive: true,
@@ -372,6 +446,7 @@ export class TerminalBroker {
           pendingWrites: [],
           pendingWriteBytes: 0,
           onClose: notifyClose,
+          lastActivityAt: Date.now(),
         };
         this.connections.set(token, connection);
       };
@@ -414,6 +489,7 @@ export class TerminalBroker {
           port: session.port,
           username: session.username,
           privateKey: session.privateKey,
+          password: session.password,
           hostHash: "sha256",
           hostVerifier: hostVerifierForFingerprint(session.hostKeyFingerprint),
           readyTimeout: 20_000,
@@ -434,14 +510,17 @@ export class TerminalBroker {
 
       const connection: SshConnection = {
         kind: "ssh",
+        userId: session.userId,
         client,
         channel,
         closed: false,
         onClose: notifyClose,
+        lastActivityAt: Date.now(),
       };
       this.connections.set(token, connection);
       const emitData = (data: Buffer) => {
         if (connection.closed) return;
+        connection.lastActivityAt = Date.now();
         try {
           onData(new Uint8Array(data));
         } catch {
@@ -525,6 +604,7 @@ export class TerminalBroker {
 
     const connection = this.connections.get(token);
     if (!connection || connection.closed) return;
+    connection.lastActivityAt = Date.now();
 
     try {
       if (connection.kind === "local") {
@@ -558,6 +638,7 @@ export class TerminalBroker {
     const size = terminalSize(cols, rows);
     const connection = this.connections.get(token);
     if (!connection || connection.closed) return;
+    connection.lastActivityAt = Date.now();
 
     try {
       if (connection.kind === "local") {

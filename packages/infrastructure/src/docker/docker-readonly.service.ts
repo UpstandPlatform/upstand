@@ -31,7 +31,10 @@ import { getDockerInstance } from "./docker-client";
 
 const execFileAsync = promisify(execFile);
 
-const VOLUME_HELPER_IMAGE = "alpine:3.20";
+const VOLUME_HELPER_IMAGE =
+  "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
+const MAX_DOCKER_COMMAND_OUTPUT_BYTES = 50 * 1024 * 1024;
+const MAX_REMOTE_DOCKER_ERROR_BYTES = 512 * 1024;
 
 const identifierPattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
 
@@ -225,10 +228,14 @@ export class DockerReadOnlyService implements DockerExecPort {
       });
       const stream = await exec.start({ Detach: false });
       const chunks: Buffer[] = [];
+      let outputBytes = 0;
       const timeoutMs = (options?.timeoutSeconds ?? 300) * 1000;
 
       await new Promise<void>((resolve, reject) => {
+        let settled = false;
         const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
           try {
             if ("destroy" in stream && typeof stream.destroy === "function") {
               stream.destroy();
@@ -241,28 +248,45 @@ export class DockerReadOnlyService implements DockerExecPort {
           );
         }, timeoutMs);
 
-        stream.on("data", (chunk: Buffer) => {
-          chunks.push(Buffer.from(chunk));
+        stream.on("data", (chunk: Buffer | string) => {
+          if (settled) return;
+          const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+          outputBytes += buffer.byteLength;
+          if (outputBytes > MAX_DOCKER_COMMAND_OUTPUT_BYTES) {
+            settled = true;
+            clearTimeout(timer);
+            try {
+              stream.destroy();
+            } catch {}
+            reject(
+              new Error(
+                `Container command output exceeded the ${MAX_DOCKER_COMMAND_OUTPUT_BYTES}-byte limit`,
+              ),
+            );
+            return;
+          }
+          chunks.push(buffer);
           if (options?.onLog) {
-            const cleaned = this.cleanDockerLogs(Buffer.from(chunk));
+            const cleaned = this.cleanDockerLogs(buffer);
             if (cleaned) options.onLog(cleaned);
           }
         });
         stream.on("end", () => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
           resolve();
         });
         stream.on("error", (err) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
           reject(err);
         });
       });
       const cleanOutput = this.cleanDockerLogs(Buffer.concat(chunks));
-      let exitCode = 0;
-      try {
-        const inspect = await exec.inspect();
-        exitCode = inspect.ExitCode ?? 0;
-      } catch {}
+      const inspect = await exec.inspect();
+      const exitCode = inspect.ExitCode ?? 0;
       return { output: cleanOutput, exitCode };
     }
     const safeContainer = shellQuote(containerId);
@@ -887,14 +911,41 @@ export class DockerReadOnlyService implements DockerExecPort {
             }
             let stdout = "";
             let stderr = "";
+            let settled = false;
+            const fail = (error: unknown) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              connection.end();
+              reject(error instanceof Error ? error : new Error(String(error)));
+            };
             stream.on("data", (data: Buffer | string) => {
+              if (settled) return;
               stdout += data.toString();
-              if (stdout.length > 512_000) stream.destroy();
+              if (stdout.length > MAX_DOCKER_COMMAND_OUTPUT_BYTES) {
+                stream.destroy();
+                fail(
+                  new Error(
+                    `Remote Docker query output exceeded the ${MAX_DOCKER_COMMAND_OUTPUT_BYTES}-byte limit.`,
+                  ),
+                );
+              }
             });
             stream.stderr.on("data", (data: Buffer | string) => {
+              if (settled) return;
               stderr += data.toString();
+              if (stderr.length > MAX_REMOTE_DOCKER_ERROR_BYTES) {
+                stream.destroy();
+                fail(
+                  new Error(
+                    `Remote Docker query error output exceeded the ${MAX_REMOTE_DOCKER_ERROR_BYTES}-byte limit.`,
+                  ),
+                );
+              }
             });
             stream.on("close", (code: number | null) => {
+              if (settled) return;
+              settled = true;
               clearTimeout(timer);
               connection.end();
               if (code !== 0) {
@@ -919,6 +970,7 @@ export class DockerReadOnlyService implements DockerExecPort {
           port: target.port,
           username: target.username,
           privateKey: target.privateKey,
+          password: target.password,
           readyTimeout: 20_000,
         });
     });
@@ -976,6 +1028,7 @@ export class DockerReadOnlyService implements DockerExecPort {
           port: target.port,
           username: target.username,
           privateKey: target.privateKey,
+          password: target.password,
           readyTimeout: 20_000,
         });
     });

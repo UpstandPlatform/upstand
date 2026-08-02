@@ -55,8 +55,37 @@ export function normalizeDomainPath(value: string): string {
   return path.length > 1 ? path.replace(/\/+$/, "") : "/";
 }
 
+export function isLocalOrInternalHost(host: string): boolean {
+  const normalized = host.toLowerCase().trim().replace(/^\*\./, "");
+  if (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "[::1]" ||
+    normalized.endsWith(".local") ||
+    normalized.endsWith(".internal") ||
+    normalized.endsWith(".test") ||
+    normalized.endsWith(".localhost") ||
+    normalized.endsWith(".sslip.io") ||
+    normalized.endsWith(".nip.io")
+  ) {
+    return true;
+  }
+
+  if (
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized) ||
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(normalized) ||
+    /^172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(normalized)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 const DomainMappingInputSchema = z.object({
-  /** Disabled routes remain stored but are excluded from the active proxy config. */
+  /** Disabled routes remain stored but are excluded from the active Caddy config. */
   enabled: z.boolean().optional().default(true),
   host: z.string().min(1).max(253),
   /** Public request path. */
@@ -70,7 +99,7 @@ const DomainMappingInputSchema = z.object({
   serviceName: z.string().regex(SERVICE_NAME_PATTERN).optional(),
   /** true uses Caddy Automatic HTTPS; false serves HTTP only. */
   https: z.boolean().optional().default(true),
-  /** Certificate strategy used by the edge proxy for HTTPS routes. */
+  /** Certificate strategy used by Caddy for HTTPS routes. */
   certificateType: z
     .enum(["letsencrypt", "zerossl", "internal", "custom", "cloudflare"])
     .optional()

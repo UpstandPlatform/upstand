@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_TAG_COLOR } from "@upstand/domain";
-import { CreateTagInputSchema, UpdateTagInputSchema } from "./tag.usecases";
+import {
+  CreateTagInputSchema,
+  RemoveResourceTagUseCase,
+  UpdateTagInputSchema,
+} from "./tag.usecases";
 
 describe("tag color validation", () => {
   test("defaults new tags to the default hex color", () => {
@@ -33,4 +37,33 @@ describe("tag color validation", () => {
       ).toBe(false);
     }
   });
+});
+
+test("does not detach a tag from a resource across organizations", async () => {
+  let detached = false;
+  const uow = {
+    resourceRepository: {
+      findById: async () => ({ environmentId: "env-1" }),
+    },
+    tagRepository: {
+      findById: async () => ({ organizationId: "org-other" }),
+      detachFromResource: async () => {
+        detached = true;
+      },
+    },
+    environmentRepository: {
+      findById: async () => ({ projectId: "project-1" }),
+    },
+    projectRepository: {
+      findById: async () => ({ organizationId: "org-owner" }),
+    },
+  } as never;
+
+  await expect(
+    new RemoveResourceTagUseCase(uow).execute({
+      resourceId: "resource-1",
+      tagId: "tag-other",
+    }),
+  ).rejects.toThrow("same organization");
+  expect(detached).toBe(false);
 });

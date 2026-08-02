@@ -12,14 +12,20 @@ function run(args: string[], env = process.env): void {
   }
 }
 
+const typecheckEnv = {
+  ...process.env,
+  SKIP_ENV_VALIDATION: "1",
+  NEXT_PHASE: "phase-production-build",
+};
+
 // Generate the Fumadocs source files before any command imports them.
-run(["x", "fumadocs-mdx"]);
+run(["x", "fumadocs-mdx"], typecheckEnv);
 
 // next typegen loads next.config.mjs. Prevent its asynchronous Fumadocs
 // plugin initialization from racing with the generated source above.
 run(["x", "next", "typegen"], {
-  ...process.env,
+  ...typecheckEnv,
   _FUMADOCS_MDX: "1",
 });
 
-run(["x", "tsc", "--noEmit"]);
+run(["x", "tsc", "--noEmit"], typecheckEnv);

@@ -43,7 +43,7 @@ export class DrizzleNotificationDeliveryRepository
       .from(notificationDelivery)
       .where(eq(notificationDelivery.organizationId, organizationId))
       .orderBy(desc(notificationDelivery.createdAt))
-      .limit(limit)) as NotificationDelivery[];
+      .limit(Math.max(1, Math.min(limit, 1_000)))) as NotificationDelivery[];
   }
 
   async findByStatus(

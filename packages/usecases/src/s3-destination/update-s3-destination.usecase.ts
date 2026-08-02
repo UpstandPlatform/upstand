@@ -1,6 +1,9 @@
 import type { IUnitOfWork, S3Destination } from "@upstand/domain";
+import { env } from "@upstand/env/server";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
+import { assertConfiguredHttpUrl } from "@upstand/platform/network/outbound";
 import { z } from "zod";
+import { resolveCertificateForOrganization } from "../certificate/certificate-reference";
 import { publicS3Destination } from "./public-s3-destination";
 
 export const UpdateS3DestinationInputSchema = z.object({
@@ -29,7 +32,25 @@ export class UpdateS3DestinationUseCase {
   ): Promise<S3Destination | null> {
     return this.uow.transaction(async (tx) => {
       const existing = await tx.s3DestinationRepository.findById(input.id);
-      if (!existing) return null;
+      if (!existing || existing.organizationId !== input.organizationId) {
+        return null;
+      }
+      const certificateId =
+        input.certificateId !== undefined
+          ? input.certificateId || null
+          : existing.certificateId;
+      await resolveCertificateForOrganization(
+        tx,
+        certificateId,
+        input.organizationId,
+      );
+      await assertConfiguredHttpUrl(
+        input.endpoint,
+        (env.UPSTAND_OUTBOUND_ALLOWED_HOSTS ?? "")
+          .split(",")
+          .map((host) => host.trim())
+          .filter(Boolean),
+      );
       const accessKeyId = input.accessKeyId?.trim();
       const secretAccessKey = input.secretAccessKey?.trim();
 
@@ -48,10 +69,7 @@ export class UpdateS3DestinationUseCase {
         bucket: input.bucket,
         region: input.region,
         endpoint: input.endpoint,
-        certificateId:
-          input.certificateId !== undefined
-            ? input.certificateId || null
-            : existing.certificateId,
+        certificateId: certificateId,
         additionalFlags: JSON.stringify(input.additionalFlags || []),
       });
 

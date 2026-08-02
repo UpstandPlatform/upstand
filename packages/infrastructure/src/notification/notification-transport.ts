@@ -3,6 +3,7 @@ import {
   OperationalError,
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
+import { assertConfiguredHttpUrl } from "@upstand/platform/network/outbound";
 import { readResponseTextLimited } from "@upstand/platform/network/response-body";
 import type {
   NotificationAction,
@@ -84,7 +85,11 @@ async function fetchWithTimeout(
     NOTIFICATION_REQUEST_TIMEOUT_MS,
   );
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await fetch(input, {
+      ...init,
+      redirect: "error",
+      signal: controller.signal,
+    });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new OperationalError("Notification request timed out.", "TIMEOUT", {
@@ -97,6 +102,13 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function getOutboundAllowlistedHosts(): string[] {
+  return (env.UPSTAND_OUTBOUND_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((host) => host.trim())
+    .filter(Boolean);
 }
 
 function escapeHtml(value: string): string {
@@ -300,10 +312,29 @@ function formatNotificationText(message: NotificationMessage): string {
 }
 
 export class NotificationTransportRegistry implements NotificationTransport {
+  constructor(
+    private readonly outboundAllowlistedHosts: readonly string[] = getOutboundAllowlistedHosts(),
+  ) {}
+
   async send(
     configuration: NotificationConfiguration,
     message: NotificationMessage,
   ): Promise<void> {
+    const configuredEndpoint =
+      "webhookUrl" in configuration
+        ? configuration.webhookUrl
+        : "serverUrl" in configuration
+          ? configuration.serverUrl
+          : "endpoint" in configuration
+            ? configuration.endpoint
+            : undefined;
+    if (configuredEndpoint) {
+      await assertConfiguredHttpUrl(
+        configuredEndpoint,
+        this.outboundAllowlistedHosts,
+      );
+    }
+
     switch (configuration.type) {
       case "slack":
         return this.sendSlack(configuration, message);

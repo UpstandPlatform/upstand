@@ -79,7 +79,10 @@ export const dockerRegistryRouter = router({
 
       const useCase = ctx.scope.resolve(DeleteDockerRegistryUseCaseToken);
       try {
-        return await useCase.execute(input);
+        return await useCase.execute({
+          ...input,
+          organizationId: registry.organizationId,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

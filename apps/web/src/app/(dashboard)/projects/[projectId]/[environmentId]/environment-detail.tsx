@@ -497,9 +497,17 @@ function CreateAppDialog({
 const generatePassword = (length = 16) => {
   const chars =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const randomValues = new Uint32Array(length);
+  const maxUnbiasedValue =
+    Math.floor(0x1_0000_0000 / chars.length) * chars.length;
   let pwd = "";
-  for (let i = 0; i < length; i++) {
-    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+  while (pwd.length < length) {
+    globalThis.crypto.getRandomValues(randomValues);
+    for (const value of randomValues) {
+      if (value >= maxUnbiasedValue) continue;
+      pwd += chars.charAt(value % chars.length);
+      if (pwd.length === length) break;
+    }
   }
   return pwd;
 };
@@ -1385,6 +1393,10 @@ export default function EnvironmentDetail({
   const { data: env, isPending: loadingEnv } = useQuery({
     ...trpc.environment.get.queryOptions({ id: environmentId }),
   });
+  const { data: envSecrets } = useQuery({
+    ...trpc.environment.getSecrets.queryOptions({ id: environmentId }),
+    enabled: Boolean(env),
+  });
   const { data: environments = [] } = useQuery({
     ...trpc.environment.list.queryOptions({ projectId }),
   });
@@ -1444,12 +1456,12 @@ export default function EnvironmentDetail({
   });
 
   useEffect(() => {
-    if (env?.envVars) {
-      setEnvList(recordToKeyValuePairs(env.envVars));
+    if (envSecrets?.envVars) {
+      setEnvList(recordToKeyValuePairs(envSecrets.envVars));
     } else {
       setEnvList([]);
     }
-  }, [env?.envVars]);
+  }, [envSecrets?.envVars]);
 
   if (loadingEnv) {
     return (

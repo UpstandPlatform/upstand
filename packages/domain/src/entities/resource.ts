@@ -1,6 +1,36 @@
 import { z } from "zod";
 import { EntityIconSchema } from "./icon";
 
+/**
+ * Resource app names are also used as internal Docker DNS hostnames by
+ * scheduled HTTP callbacks. Keep them within one DNS label so they cannot
+ * introduce a port, path, credentials, or another hostname.
+ */
+const RESERVED_RESOURCE_APP_NAMES = new Set([
+  "localhost",
+  "localhost6",
+  "ip6-localhost",
+  "ip6-loopback",
+  "loopback",
+  "host",
+  "gateway",
+]);
+
+export const ResourceAppNameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1, "App Name is required")
+  .max(63, "App names must not exceed 63 characters")
+  .regex(
+    /^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/,
+    "App names may contain only lowercase letters, numbers, hyphens, and underscores",
+  )
+  .refine(
+    (value) => !RESERVED_RESOURCE_APP_NAMES.has(value),
+    "This app name is reserved and cannot be used as an internal callback host",
+  );
+
 const RelativeBuildPathSchema = z
   .string()
   .trim()
@@ -22,7 +52,7 @@ export const DATABASE_IMAGE_OPTIONS = {
   mariadb: ["mariadb:10.11", "mariadb:11"],
   mongodb: ["mongo:6.0", "mongo:7.0"],
   redis: ["redis:8.8-alpine"],
-  libsql: ["ghcr.io/tursodatabase/libsql-server:latest"],
+  libsql: ["ghcr.io/tursodatabase/libsql-server:0.24.32"],
 } as const;
 
 export type DatabaseType = keyof typeof DATABASE_IMAGE_OPTIONS;
@@ -380,6 +410,7 @@ export const parseResourceAdvancedConfig = (
 
 export const DockerfileBuildConfigSchema = z.object({
   type: z.literal("dockerfile"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   dockerfilePath: RelativeBuildPathSchema.default("Dockerfile"),
   dockerContextPath: RelativeBuildPathSchema.default("."),
@@ -391,6 +422,7 @@ export const DockerfileBuildConfigSchema = z.object({
 
 export const RailpackBuildConfigSchema = z.object({
   type: z.literal("railpack"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   railpackVersion: z
     .string()
@@ -404,23 +436,27 @@ export const RailpackBuildConfigSchema = z.object({
 
 export const NixpacksBuildConfigSchema = z.object({
   type: z.literal("nixpacks"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   publishDirectory: RelativeBuildPathSchema.optional(),
 });
 
 export const HerokuBuildpacksBuildConfigSchema = z.object({
   type: z.literal("heroku-buildpacks"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   herokuVersion: z.enum(["24", "26"]).default("24"),
 });
 
 export const PaketoBuildpacksBuildConfigSchema = z.object({
   type: z.literal("paketo-buildpacks"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
 });
 
 export const StaticBuildConfigSchema = z.object({
   type: z.literal("static"),
+  autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),
   publishDirectory: RelativeBuildPathSchema,
   spa: z.boolean().default(false),
@@ -440,6 +476,7 @@ export type ApplicationBuildConfig = z.infer<
 >;
 
 export const DEFAULT_APPLICATION_BUILD_CONFIG: ApplicationBuildConfig = {
+  autoDetect: true,
   type: "dockerfile",
   buildPath: ".",
   dockerfilePath: "Dockerfile",

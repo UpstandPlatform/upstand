@@ -1,5 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["scripts/**/*.ts!", "fixtures/deploy/node/server.js!"],
+  "ignoreBinaries": ["ssh-keyscan"],
   "ignore": [
     ".agents/**",
     "**/.next/**",
@@ -9,6 +11,26 @@
     "apps/web/src/components/ai-elements/**",
     "apps/web/src/components/huge-icons.tsx"
   ],
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/**/*.ts!", "fixtures/deploy/node/server.js!"]
+    },
+    "apps/desktop": {
+      "entry": [
+        "src/main/index.ts!",
+        "src/preload/index.ts!",
+        "build/build.ts!",
+        "forge.config.cjs!",
+        "test/**/*.ts!"
+      ],
+      "ignoreDependencies": [
+        "@electron-forge/maker-deb",
+        "@electron-forge/maker-dmg",
+        "@electron-forge/maker-squirrel",
+        "@electron-forge/maker-zip"
+      ]
+    }
+  },
   "ignoreDependencies": [
     "@upstand/config",
     "@radix-ui/react-use-controllable-state",

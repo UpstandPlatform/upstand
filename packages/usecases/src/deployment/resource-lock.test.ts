@@ -23,6 +23,12 @@ class FakeRedis {
   }
 }
 
+class HangingAcquireRedis {
+  set(): Promise<"OK"> {
+    return new Promise(() => undefined);
+  }
+}
+
 describe("ResourceLock", () => {
   test("serializes acquisition and only releases its own lease", async () => {
     const redis = new FakeRedis();
@@ -58,5 +64,15 @@ describe("ResourceLock", () => {
     expect(redis.renewals).toBeGreaterThan(0);
     await lock?.release();
     expect(redis.values.has("lock")).toBe(false);
+  });
+
+  test("bounds Redis operations that never complete", async () => {
+    await expect(
+      ResourceLock.acquire(
+        new HangingAcquireRedis() as unknown as Redis,
+        "lock",
+        { operationTimeoutMs: 10 },
+      ),
+    ).rejects.toThrow("timed out");
   });
 });

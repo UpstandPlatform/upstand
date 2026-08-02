@@ -40,8 +40,8 @@ flowchart TD
 
 ```mermaid
 graph LR
-    subgraph Ingress["Caddy Reverse Proxy Ingress"]
-        CaddyProxy["Caddy Ingress Container"]
+    subgraph Ingress["Caddy Application Proxy"]
+        CaddyProxy["Caddy Application Proxy Container"]
     end
 
     subgraph OverlayNet["upstand-overlay Network (Encrypted VXLAN)"]

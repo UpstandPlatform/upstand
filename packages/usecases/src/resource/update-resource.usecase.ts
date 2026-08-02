@@ -6,19 +6,20 @@ import {
   parseDomainMappings,
   parseResourceAdvancedConfig,
   type Resource,
+  ResourceAppNameSchema,
   ResourceComposeTypeSchema,
   serializeApplicationBuildConfig,
   serializeDomainMappings,
   serializeResourceAdvancedConfig,
   ValidationError,
 } from "@upstand/domain";
-import { env } from "@upstand/env/server";
 import {
   decryptSecret,
   encryptSecret,
 } from "@upstand/platform/crypto/secret-box";
 import { log } from "evlog";
 import { z } from "zod";
+import { requiresRemoteServerPlacement } from "../platform/platform.types";
 import {
   assertBuildServerSupportsResource,
   assertDeploymentServerSupportsResource,
@@ -30,13 +31,15 @@ import { validateLibsqlSettings } from "./libsql-settings";
 import { serializeResourceCredentials } from "./resource-credentials";
 import { serializeResourceEnvironmentVariables } from "./resource-environment";
 import { ResourcePreviewFieldsSchema } from "./resource-preview-fields.schema";
+import { validateResourceCredentialReferences } from "./validate-resource-credential-references";
 
 export const UpdateResourceInputSchema = z
   .object({
     id: z.string().min(1, "Resource ID is required"),
+    organizationId: z.string().min(1, "Organization ID is required").optional(),
     name: z.string().optional(),
     status: z.enum(["running", "stopped"]).optional(),
-    appName: z.string().optional(),
+    appName: ResourceAppNameSchema.optional(),
     description: z.string().optional(),
     provider: z.string().optional(),
     dbType: z.string().optional(),
@@ -95,6 +98,19 @@ export class UpdateResourceUseCase {
   async execute(input: UpdateResourceInput): Promise<Resource | null> {
     const resource = await this.uow.resourceRepository.findById(input.id);
     if (!resource) {
+      throw new ValidationError("Resource not found");
+    }
+    const resourceEnvironment = await this.uow.environmentRepository.findById(
+      resource.environmentId,
+    );
+    const resourceProject = resourceEnvironment
+      ? await this.uow.projectRepository.findById(resourceEnvironment.projectId)
+      : null;
+    if (
+      !resourceProject ||
+      !input.organizationId ||
+      resourceProject.organizationId !== input.organizationId
+    ) {
       throw new ValidationError("Resource not found");
     }
 
@@ -284,6 +300,18 @@ export class UpdateResourceUseCase {
       patch.composeType = input.composeType;
     }
     if (input.credentials !== undefined) {
+      const environment = await this.uow.environmentRepository.findById(
+        resource.environmentId,
+      );
+      const project = environment
+        ? await this.uow.projectRepository.findById(environment.projectId)
+        : null;
+      if (!project) throw new ValidationError("Project not found");
+      await validateResourceCredentialReferences(
+        this.uow,
+        project.organizationId,
+        input.credentials,
+      );
       try {
         patch.credentials = serializeResourceCredentials(input.credentials);
       } catch (error: unknown) {
@@ -430,7 +458,7 @@ export class UpdateResourceUseCase {
         );
       }
     }
-    if (env.IS_CLOUD) {
+    if (requiresRemoteServerPlacement()) {
       if (
         input.serverId === null ||
         (input.serverId && ["local", "manager"].includes(input.serverId))
@@ -483,10 +511,16 @@ export class UpdateResourceUseCase {
       input.advancedConfig !== undefined;
     const candidate = { ...resource, ...patch } as Resource;
 
-    const resources = routingChanged
-      ? await this.uow.resourceRepository.findMany()
-      : [];
     const serverId = resource.serverId;
+    const resources = routingChanged
+      ? this.uow.resourceRepository.findForCaddyByDeploymentServerId
+        ? await this.uow.resourceRepository.findForCaddyByDeploymentServerId(
+            serverId,
+          )
+        : this.uow.resourceRepository.findByDeploymentServerId
+          ? await this.uow.resourceRepository.findByDeploymentServerId(serverId)
+          : await this.uow.resourceRepository.findMany()
+      : [];
     const certificates =
       (await this.uow.certificateRepository.findAll?.()) ?? [];
     const sameServerResources =
@@ -515,26 +549,53 @@ export class UpdateResourceUseCase {
     ) {
       const server = await this.uow.serverRepository.findById(serverId);
       if (server) {
-        if (!server.sshKeyId) {
-          throw new Error("Target deployment server has no SSH key configured");
+        let privateKey: string | undefined;
+        let password: string | undefined;
+        const isPasswordAuth =
+          server.authType === "password" ||
+          (!server.sshKeyId && Boolean(server.passwordCiphertext));
+        if (isPasswordAuth) {
+          if (
+            !server.passwordCiphertext ||
+            !server.passwordIv ||
+            !server.passwordAuthTag ||
+            server.passwordVersion == null
+          ) {
+            throw new Error(
+              "Target deployment server password credentials missing",
+            );
+          }
+          password = decryptSecret({
+            ciphertext: server.passwordCiphertext,
+            iv: server.passwordIv,
+            authTag: server.passwordAuthTag,
+            keyVersion: server.passwordVersion,
+          });
+        } else {
+          if (!server.sshKeyId) {
+            throw new Error(
+              "Target deployment server has no SSH key configured",
+            );
+          }
+          const sshKey = await this.uow.sshKeyRepository.findById(
+            server.sshKeyId,
+          );
+          if (!sshKey) {
+            throw new Error("Target deployment server SSH key not found");
+          }
+          privateKey = decryptSecret({
+            ciphertext: sshKey.privateKeyCiphertext,
+            iv: sshKey.privateKeyIv,
+            authTag: sshKey.privateKeyAuthTag,
+            keyVersion: sshKey.privateKeyVersion,
+          });
         }
-        const sshKey = await this.uow.sshKeyRepository.findById(
-          server.sshKeyId,
-        );
-        if (!sshKey) {
-          throw new Error("Target deployment server SSH key not found");
-        }
-        const privateKey = decryptSecret({
-          ciphertext: sshKey.privateKeyCiphertext,
-          iv: sshKey.privateKeyIv,
-          authTag: sshKey.privateKeyAuthTag,
-          keyVersion: sshKey.privateKeyVersion,
-        });
         const connection = {
           host: server.ipAddress,
           port: server.port,
           username: server.username,
           privateKey,
+          password,
           hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
         };
         caddyService = createRemoteServices(connection).caddyService;

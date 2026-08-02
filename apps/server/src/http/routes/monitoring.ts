@@ -1,44 +1,60 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { redis } from "@upstand/redis";
+import { redis, withRedisTimeout } from "@upstand/redis";
 import {
   PublishNotificationUseCaseToken,
   UnitOfWorkToken,
 } from "@upstand/usecases/tokens";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { z } from "zod";
+import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 
+export const monitoringAlertSchema = z.object({
+  json: z.object({
+    serverId: z.string().trim().min(1).max(128),
+    serverType: z.string().trim().max(64).optional(),
+    type: z.enum(["CPU", "Memory"]),
+    value: z.number().finite().min(0).max(100),
+    threshold: z.number().finite().min(0).max(100),
+    message: z.string().max(1_024).optional(),
+    timestamp: z.string().datetime({ offset: true }),
+    nonce: z.string().min(1).max(128),
+    signature: z.string().regex(/^[a-f0-9]{64}$/i),
+  }),
+});
+
 export function registerMonitoringRoutes(app: Hono<AppEnv>): void {
+  app.use(
+    "/api/monitoring/alerts",
+    createHttpRateLimitMiddleware({
+      path: "monitoring-alerts",
+      profile: "webhooks",
+      onRejected: (c, message) => c.json({ error: message }, 429),
+    }),
+  );
+  app.use(
+    "/api/monitoring/alerts",
+    bodyLimit({
+      maxSize: 32 * 1024,
+      onError: (c) => c.json({ error: "Monitoring alert is too large" }, 413),
+    }),
+  );
+
   // Webhook for receiving threshold alerts from Go Monitoring Agent.
   app.post("/api/monitoring/alerts", async (c) => {
     const requestLog = c.get("log");
-    const body = (await c.req.json().catch(() => null)) as {
-      json?: {
-        serverId?: string;
-        serverType?: string;
-        type?: "CPU" | "Memory";
-        value?: number;
-        threshold?: number;
-        message?: string;
-        timestamp?: string;
-        nonce?: string;
-        signature?: string;
-      };
-    } | null;
-
-    const alert = body?.json;
-    if (
-      !alert?.serverId ||
-      !alert.nonce ||
-      !alert.signature ||
-      !alert.timestamp ||
-      !alert.type
-    ) {
+    const parsed = monitoringAlertSchema.safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
       return c.json(
         { error: "Invalid monitoring alert signature payload" },
         400,
       );
     }
 
+    const { json: alert } = parsed.data;
     const {
       serverId,
       serverType,
@@ -95,13 +111,22 @@ export function registerMonitoringRoutes(app: Hono<AppEnv>): void {
         401,
       );
     }
-    const acceptedNonce = await redis.set(
-      `monitoring-alert:${serverId}:${nonce}`,
-      "1",
-      "EX",
-      300,
-      "NX",
-    );
+    const nonceKey = `monitoring-alert:${serverId}:${nonce}`;
+    let acceptedNonce: string | null;
+    try {
+      acceptedNonce = await withRedisTimeout(
+        redis.set(nonceKey, "1", "EX", 300, "NX"),
+      );
+    } catch (error) {
+      requestLog.error(error instanceof Error ? error : String(error), {
+        message: "Unable to claim monitoring alert nonce",
+        serverId,
+      });
+      return c.json(
+        { error: "Monitoring alert intake is temporarily unavailable" },
+        503,
+      );
+    }
     if (acceptedNonce !== "OK") {
       return c.json(
         { error: "Monitoring alert has already been received" },
@@ -128,7 +153,23 @@ export function registerMonitoringRoutes(app: Hono<AppEnv>): void {
 
     // Cooldown protection: suppress duplicate notification dispatches for 15 minutes per (serverId, type)
     const cooldownKey = `monitoring-alert-cooldown:${serverId}:${type}`;
-    const acquireCooldown = await redis.set(cooldownKey, "1", "EX", 900, "NX");
+    let acquireCooldown: string | null;
+    try {
+      acquireCooldown = await withRedisTimeout(
+        redis.set(cooldownKey, "1", "EX", 900, "NX"),
+      );
+    } catch (error) {
+      await withRedisTimeout(redis.del(nonceKey)).catch(() => undefined);
+      requestLog.error(error instanceof Error ? error : String(error), {
+        message: "Unable to claim monitoring alert cooldown",
+        serverId,
+        type,
+      });
+      return c.json(
+        { error: "Monitoring alert intake is temporarily unavailable" },
+        503,
+      );
+    }
     if (acquireCooldown !== "OK") {
       requestLog.info(
         "Server threshold alert notification suppressed due to 15-minute cooldown",
@@ -142,8 +183,8 @@ export function registerMonitoringRoutes(app: Hono<AppEnv>): void {
 
     const publisher = scope.resolve(PublishNotificationUseCaseToken);
 
-    await publisher
-      .execute({
+    try {
+      await publisher.execute({
         event: "server_threshold_alert",
         ...(serverRecord?.organizationId
           ? { organizationId: serverRecord.organizationId }
@@ -161,12 +202,22 @@ export function registerMonitoringRoutes(app: Hono<AppEnv>): void {
           value,
           threshold,
         },
-      })
-      .catch((err) => {
-        requestLog.error(err instanceof Error ? err : String(err), {
-          message: "Failed to publish server threshold alert notification",
-        });
       });
+    } catch (error) {
+      await Promise.all([
+        redis.del(nonceKey).catch(() => undefined),
+        redis.del(cooldownKey).catch(() => undefined),
+      ]);
+      requestLog.error(error instanceof Error ? error : String(error), {
+        message: "Failed to publish server threshold alert notification",
+        serverId,
+        type,
+      });
+      return c.json(
+        { error: "Monitoring alert delivery is temporarily unavailable" },
+        503,
+      );
+    }
 
     return c.json({ status: "acknowledged" });
   });

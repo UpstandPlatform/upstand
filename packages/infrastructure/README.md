@@ -1,6 +1,6 @@
 # @upstand/infrastructure (`packages/infrastructure`)
 
-The `@upstand/infrastructure` package implements infrastructure adapters, Docker daemon integration, SSH transports, Caddy compiler, and external storage clients for Upstand.
+The `@upstand/infrastructure` package implements infrastructure adapters, Docker daemon integration, SSH transports, the Caddy application-proxy adapter, and external storage clients for Upstand.
 
 ## Modules
 

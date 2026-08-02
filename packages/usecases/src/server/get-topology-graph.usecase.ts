@@ -1,5 +1,9 @@
 import type { Server } from "@upstand/domain";
 import { z } from "zod";
+import {
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
+} from "../platform/platform.types";
 import type {
   DockerContainer,
   DockerNetwork,
@@ -16,6 +20,7 @@ export const GetTopologyGraphInputSchema = z.object({
 export type GetTopologyGraphInput = z.infer<typeof GetTopologyGraphInputSchema>;
 
 export type TopologyNodeScope = "managed" | "platform" | "external";
+export type TopologyNodePlacement = "local" | "remote-server";
 
 export interface TopologyNode {
   id: string;
@@ -39,6 +44,8 @@ export interface TopologyNode {
   ipAddress?: string;
   role?: string;
   scope?: TopologyNodeScope;
+  /** Distinguishes resources running on the local Docker socket from those on remote SSH servers. */
+  placement?: TopologyNodePlacement;
 }
 
 export interface TopologyEdge {
@@ -154,12 +161,23 @@ function cleanContainerName(container: DockerContainer): string {
   return (container.name || container.id).replace(/^\//, "");
 }
 
+function cleanVolumeName(raw: string): string {
+  const match = raw.match(/\/volumes\/([^/]+)\/_data$/);
+  if (match?.[1]) return match[1];
+  return raw;
+}
+
 function mountParts(mount: string): { name: string; path: string } {
   const separator = mount.indexOf(":");
-  if (separator === -1) return { name: mount, path: mount };
+  if (separator === -1) {
+    const cleaned = cleanVolumeName(mount);
+    return { name: cleaned, path: mount };
+  }
+  const rawName = mount.slice(0, separator);
+  const path = mount.slice(separator + 1) || rawName;
   return {
-    name: mount.slice(0, separator),
-    path: mount.slice(separator + 1) || mount.slice(0, separator),
+    name: cleanVolumeName(rawName),
+    path,
   };
 }
 
@@ -187,6 +205,9 @@ export class GetTopologyGraphUseCase {
   ) {}
 
   async execute(input: GetTopologyGraphInput): Promise<TopologyGraphResponse> {
+    const mode = getConfiguredControlPlaneMode();
+    const capabilities = getPlatformCapabilities(mode);
+
     const configuredServers = await this.getServers.execute({
       organizationId: input.organizationId,
     });
@@ -210,53 +231,85 @@ export class GetTopologyGraphUseCase {
       status: server.id === "local" ? "healthy" : server.status,
       ipAddress: server.ipAddress,
       serverId: server.id,
-      scope: "platform",
+      scope: "platform" as TopologyNodeScope,
+      placement: (server.id === "local"
+        ? "local"
+        : "remote-server") as TopologyNodePlacement,
     }));
     const edges: TopologyEdge[] = [];
     const nodeIds = new Set(nodes.map((node) => node.id));
 
     const inventories = new Map(
       await mapWithConcurrency(selectedServers, 4, async (server) => {
-        const results = await Promise.allSettled([
-          this.getDockerInventory.execute({
-            organizationId: input.organizationId,
-            serverId: server.id,
-            kind: "containers",
-            tail: 1000,
-          }),
-          this.getDockerInventory.execute({
-            organizationId: input.organizationId,
-            serverId: server.id,
-            kind: "networks",
-            tail: 1000,
-          }),
-          this.getDockerInventory.execute({
-            organizationId: input.organizationId,
-            serverId: server.id,
-            kind: "volumes",
-            tail: 1000,
-          }),
-          this.getDockerInventory.execute({
-            organizationId: input.organizationId,
-            serverId: server.id,
-            kind: "swarm_nodes",
-            tail: 1000,
-          }),
-        ]);
-        return [server.id, results] as const;
+        const placement = (
+          server.id === "local" ? "local" : "remote-server"
+        ) as TopologyNodePlacement;
+
+        const settleOne = async (
+          p: Promise<unknown>,
+        ): Promise<PromiseSettledResult<unknown>> => {
+          try {
+            return { status: "fulfilled", value: await p };
+          } catch (reason) {
+            return { status: "rejected", reason };
+          }
+        };
+
+        const fetches: Promise<PromiseSettledResult<unknown>>[] = [
+          settleOne(
+            this.getDockerInventory.execute({
+              organizationId: input.organizationId,
+              serverId: server.id,
+              kind: "containers",
+              tail: 1000,
+            }),
+          ),
+          settleOne(
+            this.getDockerInventory.execute({
+              organizationId: input.organizationId,
+              serverId: server.id,
+              kind: "networks",
+              tail: 1000,
+            }),
+          ),
+          settleOne(
+            this.getDockerInventory.execute({
+              organizationId: input.organizationId,
+              serverId: server.id,
+              kind: "volumes",
+              tail: 1000,
+            }),
+          ),
+        ];
+
+        // Swarm node inventory is only meaningful on self-hosted (manager) nodes
+        if (capabilities.swarmManagement) {
+          fetches.push(
+            settleOne(
+              this.getDockerInventory.execute({
+                organizationId: input.organizationId,
+                serverId: server.id,
+                kind: "swarm_nodes",
+                tail: 1000,
+              }),
+            ),
+          );
+        }
+
+        const results = await Promise.all(fetches);
+        return [server.id, { results, placement }] as const;
       }),
     );
 
     for (const server of selectedServers) {
       const serverNodeId = `server:${server.id}`;
-      const [containersResult, networksResult, volumesResult, swarmResult] =
-        inventories.get(server.id) ?? [];
-      if (
-        !containersResult ||
-        !networksResult ||
-        !volumesResult ||
-        !swarmResult
-      ) {
+      const entry = inventories.get(server.id);
+      if (!entry) continue;
+      const { results, placement } = entry;
+      const [containersResult, networksResult, volumesResult] = results;
+      // swarmResult only exists when capabilities.swarmManagement is true
+      const swarmResult = results[3] ?? null;
+      if (!containersResult || !networksResult || !volumesResult) {
         continue;
       }
 
@@ -287,6 +340,7 @@ export class GetTopologyGraphUseCase {
             driver: network.driver,
             serverId: server.id,
             scope: isPlatformDockerName(network.name) ? "platform" : "external",
+            placement,
           });
         }
       }
@@ -336,6 +390,13 @@ export class GetTopologyGraphUseCase {
               : isPlatformDockerName(volume.name)
                 ? "platform"
                 : "external",
+            placement,
+          });
+          edges.push({
+            id: `edge:server:volume:${server.id}:${volume.name}`,
+            type: "server_host",
+            source: serverNodeId,
+            target: volumeId,
           });
         }
       }
@@ -398,6 +459,7 @@ export class GetTopologyGraphUseCase {
             : isPlatformContainer(labels, name)
               ? "platform"
               : "external",
+          placement,
         });
         edges.push({
           id: `edge:server:${server.id}:${container.id}`,
@@ -448,7 +510,7 @@ export class GetTopologyGraphUseCase {
         }
       }
 
-      if (swarmResult.status === "fulfilled") {
+      if (swarmResult && swarmResult.status === "fulfilled") {
         for (const swarmNode of asArray<{
           id: string;
           hostname: string;
@@ -470,6 +532,7 @@ export class GetTopologyGraphUseCase {
             serverId: server.id,
             serverName: server.name,
             scope: "platform",
+            placement,
           });
           edges.push({
             id: `edge:swarm:${server.id}:${swarmNode.id}`,

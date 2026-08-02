@@ -5,6 +5,7 @@ import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission } from "../permissions";
+import { requireCapability } from "../trpc/capabilities";
 
 const inputSchema = z.object({ organizationId: z.string().min(1) });
 
@@ -57,6 +58,7 @@ export const ssoRouter = router({
   updateSettings: twoFactorVerifiedProcedure
     .input(inputSchema.extend({ enforced: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
+      requireCapability("enterpriseScimSso", "SSO management");
       await assertManager(ctx.session.user.id, input.organizationId);
       const current = await db
         .select({ metadata: organization.metadata })

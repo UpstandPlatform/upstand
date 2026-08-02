@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { env } from "@upstand/env/server";
 import dotenv from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
@@ -17,7 +18,7 @@ dotenv.config({
   override: false,
 });
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = env.DATABASE_URL;
 
 if (!databaseUrl) {
   throw new Error("DATABASE_URL must be set before running Drizzle Kit");

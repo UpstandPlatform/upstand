@@ -4,7 +4,7 @@ import type {
   SecretProviderType,
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
-import { assertPublicHttpUrl } from "@upstand/platform/network/outbound";
+import { assertConfiguredHttpUrl } from "@upstand/platform/network/outbound";
 import { readResponseJsonLimited } from "@upstand/platform/network/response-body";
 import type { ExternalSecretProviderPort } from "@upstand/usecases";
 
@@ -24,28 +24,11 @@ function errorMessage(error: unknown): string {
 }
 
 async function safeProviderOrigin(rawUrl: string): Promise<string> {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new Error("Secret provider URL is invalid");
-  }
-  if (
-    !["http:", "https:"].includes(url.protocol) ||
-    url.username ||
-    url.password
-  ) {
-    throw new Error("Secret provider URL is not allowed");
-  }
-
-  const host = url.hostname.toLowerCase();
   const allowlistedHosts = (env.UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS ?? "")
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-  if (allowlistedHosts.includes(host)) return url.origin;
-
-  return (await assertPublicHttpUrl(url.origin)).origin;
+  return (await assertConfiguredHttpUrl(rawUrl, allowlistedHosts)).origin;
 }
 
 function providerRequestInit(headers: Record<string, string>): RequestInit {

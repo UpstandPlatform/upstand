@@ -1,22 +1,9 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Inter } from "next/font/google";
 
 import "../index.css";
 import { TooltipProvider } from "@upstand/ui/components/tooltip";
 import { cn } from "@upstand/ui/lib/utils";
 import Providers from "@/components/providers";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: {
@@ -34,6 +21,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { DesktopChrome } from "@/components/workspace/desktop-chrome";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -43,12 +32,11 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("font-sans", inter.variable)}
+      className={cn("font-sans", "no-scrollbar")}
     >
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="antialiased">
         <Providers>
+          <DesktopChrome />
           <TooltipProvider>{children}</TooltipProvider>
         </Providers>
       </body>

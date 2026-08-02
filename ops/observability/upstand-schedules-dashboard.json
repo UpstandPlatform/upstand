@@ -1,0 +1,98 @@
+{
+  "id": null,
+  "uid": "upstand-schedules",
+  "title": "Upstand Schedules",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["upstand", "production"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Readiness",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "upstand_schedules_collection_success",
+          "legendFormat": "collection"
+        },
+        {
+          "expr": "upstand_schedules_workers_ready",
+          "legendFormat": "workers"
+        },
+        {
+          "expr": "upstand_schedules_database_ready",
+          "legendFormat": "database"
+        },
+        { "expr": "upstand_schedules_redis_ready", "legendFormat": "redis" }
+      ],
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Queue backlog and failures",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "upstand_schedules_queue_waiting",
+          "legendFormat": "waiting {{queue}}"
+        },
+        {
+          "expr": "upstand_schedules_queue_failed",
+          "legendFormat": "failed {{queue}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 0 }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Outbox",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "upstand_schedules_outbox_pending",
+          "legendFormat": "pending"
+        },
+        {
+          "expr": "upstand_schedules_outbox_publishing",
+          "legendFormat": "publishing"
+        },
+        {
+          "expr": "upstand_schedules_outbox_dead_letter",
+          "legendFormat": "dead letter"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Backup freshness",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "upstand_schedules_backup_age_seconds",
+          "legendFormat": "age seconds"
+        },
+        {
+          "expr": "upstand_schedules_backup_success_present",
+          "legendFormat": "success present"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ]
+}

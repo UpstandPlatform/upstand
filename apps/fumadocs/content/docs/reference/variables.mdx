@@ -34,11 +34,18 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Production | PostgreSQL connection string. |
+| `UPSTAND_DATABASE_POOL_MAX` | No | Maximum PostgreSQL connections per process; defaults to `20`, maximum `100`. Multiply by server and scheduler replicas when sizing PostgreSQL. |
+| `UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS` | No | How long an idle PostgreSQL pool connection remains open; defaults to `30000`. |
+| `UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS` | No | Maximum time to establish a PostgreSQL connection; defaults to `5000`. |
 | `BETTER_AUTH_SECRET` | Production | Better Auth signing/session secret; the server schema requires at least 32 characters. |
 | `BETTER_AUTH_URL` | Production | Canonical auth API URL. |
 | `CORS_ORIGIN` | Production | Allowed dashboard origin. |
+| `UPSTAND_ALLOW_INSECURE_BOOTSTRAP` | No | Explicit isolated-host exception for HTTP origins during first-boot troubleshooting; keep `false` for production. |
+| `UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS` | No | Explicitly permits installing a release whose manifest predates Compose/acceptance artifact hashes; keep `false` for production. |
 | `ENCRYPTION_KEY_V1` | Production | Master 256-bit encryption key for stored database secrets and provider credentials. |
 | `REDIS_URL` | No | Redis connection URL; defaults to `redis://localhost:6379`. |
+| `UPSTAND_DATABASE_URL` | No | Installer alias for an external PostgreSQL connection URL; stored as a Docker secret. |
+| `UPSTAND_REDIS_URL` | No | Installer alias for an external Redis connection URL; stored as a Docker secret. |
 | `PORT` | No | Server listen port; defaults to `3000`. |
 | `NODE_ENV` | No | `development`, `production`, or `test`; defaults to `development`. |
 | `DOCKER_NETWORK` | No | Docker network name; defaults to `upstand-network`. |
@@ -74,19 +81,33 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_DOCKER_VERSION` | Optional Docker version used by provisioning/update flows. |
 | `SERVER_ID` | Optional server identity for a runtime instance. |
 | `UPSTAND_INSTANCE_OWNER_USER_ID` | Optional explicit instance-owner identity for instance-scoped operations. |
+| `UPSTAND_SERVER_REPLICAS` | No | Swarm server replica count; use at least `2` with external HA data services. |
+| `UPSTAND_WEB_REPLICAS` | No | Swarm dashboard replica count; use at least `2` with a load balancer. |
+| `UPSTAND_SCHEDULES_REPLICAS` | No | Swarm schedules replica count; keep at `1` unless worker topology is explicitly validated. |
+| `UPSTAND_OPERATIONAL_MONITOR_INTERVAL_MS` | No | Interval for schedules queue/outbox/backup threshold checks; defaults to `60000` and is bounded to 10 seconds–1 hour. |
+| `UPSTAND_QUEUE_ALERT_WAITING_THRESHOLD` | No | Queue waiting-count threshold that emits a structured operational alert; defaults to `1000`. |
+| `UPSTAND_QUEUE_ALERT_FAILED_THRESHOLD` | No | Queue failed-count threshold that emits a structured operational alert; defaults to `1`. |
+| `UPSTAND_OUTBOX_ALERT_PENDING_THRESHOLD` | No | Transactional-outbox pending-count threshold; defaults to `1000`. |
+| `UPSTAND_OUTBOX_ALERT_DEAD_LETTER_THRESHOLD` | No | Transactional-outbox dead-letter threshold; defaults to `1`. |
+| `UPSTAND_BACKUP_ALERT_MAX_AGE_MS` | No | Maximum age of the last successful backup before a structured alert; defaults to 2 days, and `0` disables the freshness check. |
+| `UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS` | No | Emits an alert when no successful backup exists; set `true` when backup coverage is mandatory. |
+| `UPSTAND_AUDIT_LOG_RETENTION_DAYS` | No | Number of days to retain audit records before the schedules service prunes them in bounded batches; defaults to `365`. |
+| `UPSTAND_BUNDLED_POSTGRES_REPLICAS` | Installer-managed | Must be `1` for bundled PostgreSQL or `0` when external `DATABASE_URL` is configured. Bundled PostgreSQL is not replicated. |
+| `UPSTAND_BUNDLED_REDIS_REPLICAS` | Installer-managed | Must be `1` for bundled Redis or `0` when external `REDIS_URL` is configured. Bundled Redis is not clustered. |
+| `UPSTAND_DOCKER_GID` | Installer-managed | Numeric group ID of `/var/run/docker.sock`; lets the non-root control-plane containers access the explicitly acknowledged Docker API boundary. |
 
 ## Git and AI integrations
 
 | Variable | Purpose |
 | --- | --- |
-| `UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS` | Comma-separated allowlist for custom Git provider hosts. HTTPS and public-host validation still apply. |
+| `UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS` | Comma-separated allowlist for custom Git provider hosts. HTTPS, exact-host, and runtime DNS safety checks still apply. |
 | `GITHUB_REPOSITORY` | Repository used by release/update flows; defaults to `upstandplatform/upstand`. |
 | `GITHUB_TOKEN` | Optional GitHub token. |
 | `UPSTAND_GITHUB_TOKEN` | Optional Upstand GitHub token. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional Google auth credentials. |
 | `UPGAL_WEB_SEARCH_API_KEY` | Optional key for UpGal public-web search. |
-| `UPGAL_WEB_SEARCH_BASE_URL` | Search endpoint; defaults to the Brave-compatible endpoint. |
-| `UPGAL_MCP_SERVERS` | Optional MCP server configuration. |
+| `UPGAL_WEB_SEARCH_BASE_URL` | Search endpoint; defaults to the Brave-compatible endpoint. Must be a public HTTPS endpoint on port 443 and pass runtime DNS safety checks. |
+| `UPGAL_MCP_SERVERS` | Optional self-hosted MCP server configuration. External servers must use public HTTPS and pass runtime DNS safety checks; `localhost` is the explicit local-development exception. |
 | `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | Optional OpenRouter configuration used by runtime AI flows. |
 | `IS_CLOUD` | Boolean cloud-mode flag; defaults to `false`. |
 
@@ -106,7 +127,7 @@ access** to remove those host-port publications.
 
 ## Documentation app
 
-The Fumadocs app reads `OPENROUTER_API_KEY` and optional `OPENROUTER_MODEL` for its documentation chat route. `NEXT_PUBLIC_FUMADOCS_URL` controls the canonical URL used by the documentation layout, and `OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` can enable telemetry export. Documentation builds may set `SKIP_TYPECHECK` or the repository's standard build-time validation flags according to the deployment pipeline.
+The Fumadocs app reads `OPENROUTER_API_KEY` and optional `OPENROUTER_MODEL` for its documentation chat route. In production, the chat route also uses the stack's `redis_url` Docker Secret for atomic per-client rate limiting and fails closed if Redis is unavailable. `NEXT_PUBLIC_FUMADOCS_URL` controls the canonical URL used by the documentation layout, and `OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` can enable telemetry export. Development-only builds may set repository build-time validation flags, but production images run the full typecheck.
 
 ## Secret handling
 

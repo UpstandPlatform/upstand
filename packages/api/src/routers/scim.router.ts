@@ -5,6 +5,7 @@ import { z } from "zod";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission } from "../permissions";
+import { requireCapability } from "../trpc/capabilities";
 import { ScimProviderIdSchema } from "./scim.schemas";
 
 const baseInput = z.object({ organizationId: z.string().min(1) });
@@ -30,6 +31,7 @@ export const scimRouter = router({
   create: twoFactorVerifiedProcedure
     .input(baseInput.extend({ providerId: ScimProviderIdSchema }))
     .mutation(async ({ ctx, input }) => {
+      requireCapability("enterpriseScimSso", "SCIM provisioning");
       await assertManager(ctx.session.user.id, input.organizationId);
       try {
         return await ctx.scope
@@ -49,6 +51,7 @@ export const scimRouter = router({
   rotate: twoFactorVerifiedProcedure
     .input(baseInput.extend({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
+      requireCapability("enterpriseScimSso", "SCIM provisioning");
       await assertManager(ctx.session.user.id, input.organizationId);
       try {
         return await ctx.scope
@@ -65,6 +68,7 @@ export const scimRouter = router({
   remove: twoFactorVerifiedProcedure
     .input(baseInput.extend({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
+      requireCapability("enterpriseScimSso", "SCIM provisioning");
       await assertManager(ctx.session.user.id, input.organizationId);
       try {
         await ctx.scope

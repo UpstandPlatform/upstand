@@ -15,9 +15,27 @@ end
 return 0
 `;
 
+const DEFAULT_OPERATION_TIMEOUT_MS = 2_000;
+
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    operation,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Resource lock Redis operation timed out")),
+        timeoutMs,
+      );
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 export interface ResourceLockOptions {
   ttlMs?: number;
   renewIntervalMs?: number;
+  operationTimeoutMs?: number;
 }
 
 /**
@@ -36,6 +54,7 @@ export class ResourceLock {
     private readonly token: string,
     private readonly ttlMs: number,
     renewIntervalMs: number,
+    private readonly operationTimeoutMs: number,
   ) {
     this.renewalTimer = setInterval(() => void this.renew(), renewIntervalMs);
     this.renewalTimer.unref?.();
@@ -48,16 +67,33 @@ export class ResourceLock {
   ): Promise<ResourceLock | null> {
     const ttlMs = options.ttlMs ?? 120_000;
     const renewIntervalMs = options.renewIntervalMs ?? 30_000;
-    if (ttlMs <= 0 || renewIntervalMs <= 0 || renewIntervalMs >= ttlMs) {
+    const operationTimeoutMs =
+      options.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
+    if (
+      ttlMs <= 0 ||
+      renewIntervalMs <= 0 ||
+      renewIntervalMs >= ttlMs ||
+      operationTimeoutMs <= 0
+    ) {
       throw new Error(
-        "Resource lock renewal interval must be less than its TTL",
+        "Resource lock timing values must be positive and renewal must be less than TTL",
       );
     }
 
     const token = randomUUID();
-    const acquired = await redis.set(key, token, "PX", ttlMs, "NX");
+    const acquired = await withTimeout(
+      redis.set(key, token, "PX", ttlMs, "NX"),
+      operationTimeoutMs,
+    );
     return acquired === "OK"
-      ? new ResourceLock(redis, key, token, ttlMs, renewIntervalMs)
+      ? new ResourceLock(
+          redis,
+          key,
+          token,
+          ttlMs,
+          renewIntervalMs,
+          operationTimeoutMs,
+        )
       : null;
   }
 
@@ -74,19 +110,25 @@ export class ResourceLock {
       clearInterval(this.renewalTimer);
       this.renewalTimer = null;
     }
-    await this.redis.eval(RELEASE_SCRIPT, 1, this.key, this.token);
+    await withTimeout(
+      this.redis.eval(RELEASE_SCRIPT, 1, this.key, this.token),
+      this.operationTimeoutMs,
+    );
   }
 
   private async renew(): Promise<void> {
     if (this.renewalInFlight || this.renewalError) return;
     this.renewalInFlight = true;
     try {
-      const renewed = await this.redis.eval(
-        RENEW_SCRIPT,
-        1,
-        this.key,
-        this.token,
-        String(this.ttlMs),
+      const renewed = await withTimeout(
+        this.redis.eval(
+          RENEW_SCRIPT,
+          1,
+          this.key,
+          this.token,
+          String(this.ttlMs),
+        ),
+        this.operationTimeoutMs,
       );
       if (Number(renewed) !== 1) {
         throw new Error("lease is no longer owned by this worker");

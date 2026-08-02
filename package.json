@@ -63,7 +63,7 @@
     "dev": "bun scripts/dev.ts",
     "dev:self-hosted": "bun scripts/dev.ts --self-hosted",
     "dev:cloud": "bun scripts/dev.ts --cloud",
-    "build": "turbo run build",
+    "build": "bun scripts/build.ts",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",

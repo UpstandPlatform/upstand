@@ -3,6 +3,9 @@ module.exports = {
   packagerConfig: {
     asar: true,
     executableName: "upstand",
+    extraResource: [
+      require("node:path").resolve(__dirname, "dist/resources/local"),
+    ],
     // The main and preload bundles have no runtime npm dependencies. Excluding
     // Bun's workspace symlinks prevents Electron Packager from treating Forge's
     // own dev-only modules as application modules during its dependency walk.

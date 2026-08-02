@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   assertSafeProviderUrl,
+  assertSafeProviderUrlAsync,
   redactGitProviderConfig,
   restoreGitProviderConfig,
   validateGitProviderConfig,
@@ -70,5 +71,23 @@ describe("Git provider URL validation", () => {
     expect(() =>
       validateGitProviderConfig("gitea", JSON.stringify({})),
     ).toThrow();
+  });
+
+  test("re-resolves allowlisted custom hosts before outbound requests", async () => {
+    const previousAllowedHosts = process.env.UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS;
+    process.env.UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS = "git.internal.example";
+    try {
+      await expect(
+        assertSafeProviderUrlAsync("https://git.internal.example", async () => [
+          { address: "127.0.0.1" },
+        ]),
+      ).rejects.toThrow("blocked address");
+    } finally {
+      if (previousAllowedHosts === undefined) {
+        delete process.env.UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS;
+      } else {
+        process.env.UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS = previousAllowedHosts;
+      }
+    }
   });
 });

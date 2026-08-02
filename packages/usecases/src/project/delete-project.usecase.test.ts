@@ -17,6 +17,16 @@ class MockEnvironmentRepository {
 class MockProjectRepository {
   public deletedId: string | null = null;
 
+  async findById(id: string) {
+    return {
+      id,
+      name: "Project",
+      organizationId: "org-1",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
   async delete(id: string) {
     this.deletedId = id;
     return {
@@ -72,5 +82,21 @@ describe("DeleteProjectUseCase", () => {
     });
     expect(project?.id).toBe("project-1");
     expect(uow.projectRepository.deletedId).toBe("project-1");
+  });
+
+  test("does not delete a project from another organization", async () => {
+    const uow = mockUnitOfWork({
+      environmentRepository: new MockEnvironmentRepository(),
+      projectRepository: new MockProjectRepository(),
+    });
+    const usecase = new DeleteProjectUseCase(uow);
+
+    const project = await usecase.execute({
+      id: "project-1",
+      organizationId: "org-2",
+    });
+
+    expect(project).toBeNull();
+    expect(uow.projectRepository.deletedId).toBeNull();
   });
 });

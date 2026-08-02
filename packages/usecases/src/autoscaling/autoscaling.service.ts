@@ -1,4 +1,7 @@
-import type { IUnitOfWork, Resource } from "@upstand/domain";
+import type {
+  IUnitOfWork,
+  ResourceAutoscalingProjection,
+} from "@upstand/domain";
 import { parseResourceAdvancedConfig } from "@upstand/domain";
 import type { CaddyServicePort } from "../ports/caddy";
 import type { DockerServicePort } from "../ports/docker";
@@ -46,7 +49,7 @@ export class AutoscalingService {
   ) {}
 
   async reconcileResource(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
   ): Promise<AutoscalingDecision | null> {
     const config = parseResourceAdvancedConfig(
       resource.advancedConfig,
@@ -95,7 +98,7 @@ export class AutoscalingService {
   }
 
   private async reconcileWithMetrics(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
     config: ReturnType<typeof parseResourceAdvancedConfig>["autoscaling"],
     current: number,
     metrics: MetricRecord[],
@@ -160,21 +163,36 @@ export class AutoscalingService {
   }
 
   async reconcileAll(): Promise<AutoscalingDecision[]> {
+    const allResources = this.uow.resourceRepository.findForAutoscaling
+      ? await this.uow.resourceRepository.findForAutoscaling()
+      : await this.uow.resourceRepository.findMany();
+    const candidateResources = allResources.filter((resource) => {
+      if (resource.type === "compose" || resource.type === "database")
+        return false;
+      const config = parseResourceAdvancedConfig(
+        resource.advancedConfig,
+      ).autoscaling;
+      return config.enabled;
+    });
+
     const decisions: AutoscalingDecision[] = [];
-    for (const resource of await this.uow.resourceRepository.findMany()) {
-      try {
-        const decision = await this.reconcileResource(resource);
-        if (decision) decisions.push(decision);
-      } catch {
-        // A missing service or unavailable monitoring agent should not stop the
-        // reconciliation loop for other resources.
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < candidateResources.length; i += BATCH_SIZE) {
+      const batch = candidateResources.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((resource) => this.reconcileResource(resource)),
+      );
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value) {
+          decisions.push(result.value);
+        }
       }
     }
     return decisions;
   }
 
   private async currentReplicaCount(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
     docker: DockerServicePort,
   ): Promise<number> {
     const containers = await docker.getContainers(resource);
@@ -182,7 +200,7 @@ export class AutoscalingService {
   }
 
   private async metrics(
-    resource: Resource,
+    resource: ResourceAutoscalingProjection,
     caddy?: CaddyServicePort,
   ): Promise<MetricRecord[]> {
     const result = await requestMonitoringAgent<unknown>(
@@ -213,7 +231,7 @@ export class AutoscalingService {
 }
 
 function trafficMetricForResource(
-  resource: Resource,
+  resource: ResourceAutoscalingProjection,
   content: string,
 ): MetricRecord | null {
   let domains: unknown;

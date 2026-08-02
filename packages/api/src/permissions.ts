@@ -123,6 +123,20 @@ export class AuthorizationService {
       });
     }
 
+    if (
+      toolName === "get_web_server_logs" ||
+      (env.IS_CLOUD &&
+        (toolName === "get_swarm_info" ||
+          toolName === "get_swarm_nodes" ||
+          toolName === "get_swarm_containers"))
+    ) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message:
+          "The requested MCP tool is restricted to instance owner sessions.",
+      });
+    }
+
     await this.authorize({
       principal,
       organizationId: principal.organizationId,

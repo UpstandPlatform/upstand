@@ -33,7 +33,10 @@ import { z } from "zod";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission } from "../permissions";
-import { createResourceAuthorizer } from "./shared/resource-authorization";
+import {
+  createResourceAuthorizer,
+  resolveResourceTarget,
+} from "./shared/resource-authorization";
 import { parseWatchPaths } from "./shared/watch-paths";
 
 const CreateComposeInputSchema = z.object({
@@ -211,6 +214,7 @@ export const composeRouter = router({
     .input(UpdateComposeInputSchema)
     .mutation(async ({ ctx, input }) => {
       const resource = await authorizeCompose(ctx, input.id, "resource:update");
+      const { organizationId } = await resolveResourceTarget(ctx, input.id);
       const { composeFile, advancedConfig, envVars, domains, ...patch } = input;
       let credentials = input.credentials;
       let newEnvVars: Record<string, string> | undefined;
@@ -254,6 +258,7 @@ export const composeRouter = router({
           .resolve(UpdateResourceUseCaseToken)
           .execute({
             ...patch,
+            organizationId,
             ...(credentials ? { credentials } : {}),
             ...(advancedConfig
               ? { advancedConfig: JSON.stringify(advancedConfig) }
@@ -302,10 +307,11 @@ export const composeRouter = router({
     .input(DeleteResourceInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeCompose(ctx, input.id, "resource:delete");
+      const { organizationId } = await resolveResourceTarget(ctx, input.id);
       try {
         return await ctx.scope
           .resolve(DeleteResourceUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

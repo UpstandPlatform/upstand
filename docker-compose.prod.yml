@@ -1,8 +1,17 @@
 # Production Docker Swarm stack. Every image variable is pinned to an immutable
 # digest by the installer, including the default Postgres and Redis images.
+# Set DATABASE_URL and REDIS_URL through the installer to use external HA data
+# services; the bundled stateful services then scale to zero.
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
     environment:
       POSTGRES_DB: upstand
       POSTGRES_USER: upstand
@@ -24,7 +33,7 @@ services:
       retries: 10
       start_period: 20s
     deploy:
-      replicas: 1
+      replicas: ${UPSTAND_BUNDLED_POSTGRES_REPLICAS:-1}
       endpoint_mode: dnsrr
       placement:
         constraints:
@@ -49,10 +58,10 @@ services:
       resources:
         reservations:
           cpus: "0.25"
-          memory: 256M
+          memory: 512M
         limits:
-          cpus: "1.0"
-          memory: 1G
+          cpus: "2.0"
+          memory: 2G
     logging:
       driver: "json-file"
       options:
@@ -61,6 +70,13 @@ services:
 
   redis:
     image: ${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
     command:
       [
         "sh",
@@ -87,7 +103,7 @@ services:
       retries: 10
       start_period: 10s
     deploy:
-      replicas: 1
+      replicas: ${UPSTAND_BUNDLED_REDIS_REPLICAS:-1}
       endpoint_mode: dnsrr
       placement:
         constraints:
@@ -111,50 +127,138 @@ services:
         monitor: 30s
       resources:
         reservations:
-          cpus: "0.10"
-          memory: 128M
+          cpus: "0.25"
+          memory: 256M
         limits:
-          cpus: "0.75"
-          memory: 512M
+          cpus: "1.0"
+          memory: 1G
     logging:
       driver: "json-file"
       options:
         max-size: "50m"
         max-file: "5"
 
+  migrate:
+    image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /home/upstand/.docker:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700
+    cap_drop:
+      - ALL
+    user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: ${UPSTAND_DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${UPSTAND_DATABASE_PORT:-5432}
+      DATABASE_NAME: ${UPSTAND_DATABASE_NAME:-upstand}
+      DATABASE_USER: ${UPSTAND_DATABASE_USER:-upstand}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      UPSTAND_DATABASE_POOL_MAX: ${UPSTAND_DATABASE_POOL_MAX:-20}
+      UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS: ${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-30000}
+      UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS: ${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-5000}
+      REDIS_HOST: ${UPSTAND_REDIS_HOST:-redis}
+      REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
+      REDIS_URL_FILE: /run/secrets/redis_url
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+      UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
+      UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      UPSTAND_SKIP_MIGRATIONS: "false"
+      UPSTAND_MIGRATION_ID: ${UPSTAND_MIGRATION_ID:?UPSTAND_MIGRATION_ID is required}
+    secrets:
+      - postgres_password
+      - redis_password
+      - database_url
+      - redis_url
+      - better_auth_secret
+      - encryption_key
+    networks:
+      upstand-network:
+        aliases:
+          - migrate
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+    command: ["bun", "run", "apps/server/dist/migrate.mjs"]
+
   server:
     image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
     init: true
     stop_grace_period: 5m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=512m
+      - /app/.builds:rw,nosuid,nodev,size=4g,uid=10001,gid=0,mode=0700
+      - /home/upstand/.docker:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700
+    cap_drop:
+      - ALL
+    user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
     environment:
       NODE_ENV: production
-      DATABASE_HOST: postgres
-      DATABASE_NAME: upstand
-      DATABASE_USER: upstand
-      REDIS_HOST: redis
+      DATABASE_HOST: ${UPSTAND_DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${UPSTAND_DATABASE_PORT:-5432}
+      DATABASE_NAME: ${UPSTAND_DATABASE_NAME:-upstand}
+      DATABASE_USER: ${UPSTAND_DATABASE_USER:-upstand}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      UPSTAND_DATABASE_POOL_MAX: ${UPSTAND_DATABASE_POOL_MAX:-20}
+      UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS: ${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-30000}
+      UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS: ${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-5000}
+      REDIS_HOST: ${UPSTAND_REDIS_HOST:-redis}
+      REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
+      REDIS_URL_FILE: /run/secrets/redis_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+      AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
+      TRUSTED_PROXY_HEADERS: ${TRUSTED_PROXY_HEADERS:-false}
+      UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
+      UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
       SSH_KEY_ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
+      UPSTAND_INSTANCE_OWNER_USER_ID: ${UPSTAND_INSTANCE_OWNER_USER_ID:-}
+      UPSTAND_INSTANCE_OWNER_EMAIL: ${UPSTAND_INSTANCE_OWNER_EMAIL:-}
+      UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT: ${UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT:-}
+      UPSTAND_DOCKER_VERSION: ${UPSTAND_DOCKER_VERSION:-}
       UPSTAND_DASHBOARD_HOST: ${UPSTAND_DASHBOARD_HOST:-}
       UPSTAND_API_HOST: ${UPSTAND_API_HOST:-}
       UPSTAND_DOCS_HOST: ${UPSTAND_DOCS_HOST:-}
+      UPSTAND_FUMADOCS_UPSTREAM: http://fumadocs:4000
       UPSTAND_SERVER_IMAGE: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
       UPSTAND_MONITORING_IMAGE: ${UPSTAND_MONITORING_IMAGE:?UPSTAND_MONITORING_IMAGE is required}
+      UPSTAND_SCHEDULES_INTERNAL_URL: http://schedules:3002
       UPSTAND_VERSION: ${UPSTAND_VERSION:-}
       UPSTAND_AUTO_UPDATE: ${UPSTAND_AUTO_UPDATE:-false}
+      UPSTAND_OUTBOUND_ALLOWED_HOSTS: ${UPSTAND_OUTBOUND_ALLOWED_HOSTS:-}
+      UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}
+      UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}
+      UPSTAND_BACKUP_COMMAND_TIMEOUT_MS: ${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-1800000}
+      UPSTAND_AUDIT_LOG_RETENTION_DAYS: ${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-365}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      UPSTAND_SKIP_MIGRATIONS: "true"
+      UPSTAND_MIGRATION_ID: ${UPSTAND_MIGRATION_ID:?UPSTAND_MIGRATION_ID is required}
+      EVLOG_FS_DIR: /tmp/.evlog/logs
       IS_CLOUD: ${IS_CLOUD:-false}
       DOCKER_HOST: unix:///var/run/docker.sock
-      DOCKER_NETWORK: upstand-network
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
     secrets:
       - postgres_password
       - redis_password
+      - database_url
+      - redis_url
       - better_auth_secret
       - encryption_key
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       upstand-network:
         aliases:
@@ -171,11 +275,13 @@ services:
       retries: 10
       start_period: 30s
     deploy:
-      replicas: 1
+      replicas: ${UPSTAND_SERVER_REPLICAS:-1}
       endpoint_mode: dnsrr
       placement:
         constraints:
           - node.labels.upstand.control-plane == true
+        preferences:
+          - spread: node.id
       restart_policy:
         condition: any
         delay: 5s
@@ -184,30 +290,22 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
-        order: stop-first
+        order: start-first
         failure_action: rollback
         monitor: 45s
       rollback_config:
         parallelism: 1
         delay: 5s
-        order: stop-first
+        order: start-first
         failure_action: pause
         monitor: 45s
       resources:
         reservations:
-          # Keep the default compatible with a single-CPU Swarm manager. The
-          # remaining services reserve 0.70 CPUs in total, so 0.25 leaves
-          # scheduler headroom while still giving the API a useful minimum.
-          cpus: "0.25"
+          cpus: "0.50"
           memory: 512M
         limits:
-          cpus: "1.0"
+          cpus: "2.0"
           memory: 2G
-    ports:
-      - target: 3000
-        published: ${UPSTAND_SERVER_PORT:-3000}
-        protocol: tcp
-        mode: host
     logging:
       driver: "json-file"
       options:
@@ -218,28 +316,58 @@ services:
     image: ${UPSTAND_SCHEDULES_IMAGE:?UPSTAND_SCHEDULES_IMAGE is required}
     init: true
     stop_grace_period: 2m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=512m
+      - /app/.builds:rw,nosuid,nodev,size=4g,uid=10001,gid=0,mode=0700
+      - /home/upstand/.docker:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700
+    cap_drop:
+      - ALL
+    user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
     environment:
       NODE_ENV: production
-      DATABASE_HOST: postgres
-      DATABASE_NAME: upstand
-      DATABASE_USER: upstand
-      REDIS_HOST: redis
+      DATABASE_HOST: ${UPSTAND_DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${UPSTAND_DATABASE_PORT:-5432}
+      DATABASE_NAME: ${UPSTAND_DATABASE_NAME:-upstand}
+      DATABASE_USER: ${UPSTAND_DATABASE_USER:-upstand}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      UPSTAND_DATABASE_POOL_MAX: ${UPSTAND_DATABASE_POOL_MAX:-20}
+      UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS: ${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-30000}
+      UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS: ${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-5000}
+      REDIS_HOST: ${UPSTAND_REDIS_HOST:-redis}
+      REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
+      REDIS_URL_FILE: /run/secrets/redis_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+      UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
+      UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
       ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
       SSH_KEY_ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
       DOCKER_HOST: unix:///var/run/docker.sock
-      DOCKER_NETWORK: upstand-network
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000
+      UPSTAND_OUTBOUND_ALLOWED_HOSTS: ${UPSTAND_OUTBOUND_ALLOWED_HOSTS:-}
+      UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}
+      UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}
+      UPSTAND_BACKUP_COMMAND_TIMEOUT_MS: ${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-1800000}
+      UPSTAND_AUDIT_LOG_RETENTION_DAYS: ${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-365}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      UPSTAND_SKIP_MIGRATIONS: "true"
+      UPSTAND_MIGRATION_ID: ${UPSTAND_MIGRATION_ID:?UPSTAND_MIGRATION_ID is required}
       SCHEDULES_PORT: 3002
+      EVLOG_FS_DIR: /tmp/.evlog/logs
     secrets:
       - postgres_password
       - redis_password
+      - database_url
+      - redis_url
       - better_auth_secret
       - encryption_key
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       upstand-network:
         aliases:
@@ -256,11 +384,13 @@ services:
       retries: 10
       start_period: 30s
     deploy:
-      replicas: 1
+      replicas: ${UPSTAND_SCHEDULES_REPLICAS:-1}
       endpoint_mode: dnsrr
       placement:
         constraints:
           - node.labels.upstand.control-plane == true
+        preferences:
+          - spread: node.id
       restart_policy:
         condition: any
         delay: 5s
@@ -269,13 +399,13 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
-        order: stop-first
+        order: start-first
         failure_action: rollback
         monitor: 45s
       rollback_config:
         parallelism: 1
         delay: 5s
-        order: stop-first
+        order: start-first
         failure_action: pause
         monitor: 45s
       resources:
@@ -285,11 +415,6 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
-    ports:
-      - target: 3002
-        published: ${UPSTAND_SCHEDULES_PORT:-3002}
-        protocol: tcp
-        mode: host
     logging:
       driver: "json-file"
       options:
@@ -299,10 +424,19 @@ services:
 
   web:
     image: ${UPSTAND_WEB_IMAGE:?UPSTAND_WEB_IMAGE is required}
+    stop_grace_period: 1m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    cap_drop:
+      - ALL
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:?NEXT_PUBLIC_SERVER_URL is required}
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000
+      UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
+      EVLOG_FS_DIR: /tmp/.evlog/logs
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
     networks:
       upstand-network:
         aliases:
@@ -319,10 +453,12 @@ services:
       retries: 10
       start_period: 30s
     deploy:
-      replicas: 1
+      replicas: ${UPSTAND_WEB_REPLICAS:-1}
       placement:
         constraints:
           - node.labels.upstand.control-plane == true
+        preferences:
+          - spread: node.id
       restart_policy:
         condition: any
         delay: 5s
@@ -331,13 +467,13 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
-        order: stop-first
+        order: start-first
         failure_action: rollback
         monitor: 45s
       rollback_config:
         parallelism: 1
         delay: 5s
-        order: stop-first
+        order: start-first
         failure_action: pause
         monitor: 45s
       resources:
@@ -347,8 +483,76 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
-    ports:
-      - ${UPSTAND_WEB_PORT:-3001}:3001
+          pids: 512
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  fumadocs:
+    image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
+    stop_grace_period: 1m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    cap_drop:
+      - ALL
+    environment:
+      NODE_ENV: production
+      UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
+      EVLOG_FS_DIR: /tmp/.evlog/logs
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      REDIS_URL_FILE: /run/secrets/redis_url
+    secrets:
+      - redis_url
+    networks:
+      upstand-network:
+        aliases:
+          - fumadocs
+          - upstand_fumadocs
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:4000/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: ${UPSTAND_FUMADOCS_REPLICAS:-1}
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+        preferences:
+          - spread: node.id
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+        monitor: 45s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: start-first
+        failure_action: pause
+        monitor: 45s
+      resources:
+        reservations:
+          cpus: "0.15"
+          memory: 128M
+        limits:
+          cpus: "0.5"
+          memory: 512M
+          pids: 256
     logging:
       driver: "json-file"
       options:
@@ -363,13 +567,17 @@ volumes:
 
 secrets:
   postgres_password:
-    file: /etc/upstand/secrets/postgres_password
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/postgres_password
   redis_password:
-    file: /etc/upstand/secrets/redis_password
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/redis_password
   better_auth_secret:
-    file: /etc/upstand/secrets/better_auth_secret
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/better_auth_secret
   encryption_key:
-    file: /etc/upstand/secrets/encryption_key
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/encryption_key
+  database_url:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/database_url
+  redis_url:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/redis_url
 
 networks:
   upstand-network:

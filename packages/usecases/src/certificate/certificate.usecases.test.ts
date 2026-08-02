@@ -107,6 +107,7 @@ describe("certificate use cases", () => {
           calls.push(`update:${id}`);
           return certificate({ ...existing, ...patch });
         },
+        findById: async () => existing,
         deleteById: async (id: string) => {
           calls.push(`delete:${id}`);
           return true;
@@ -122,11 +123,15 @@ describe("certificate use cases", () => {
     await expect(
       new UpdateCertificateUseCase(uow).execute({
         id: existing.id,
+        organizationId: existing.organizationId,
         name: "Rotated certificate",
       }),
     ).resolves.toMatchObject({ name: "Rotated certificate" });
     await expect(
-      new DeleteCertificateUseCase(uow).execute({ id: existing.id }),
+      new DeleteCertificateUseCase(uow).execute({
+        id: existing.id,
+        organizationId: existing.organizationId,
+      }),
     ).resolves.toBe(true);
     expect(calls).toEqual([
       "list:organization-1",

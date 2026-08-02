@@ -110,6 +110,20 @@ export class AssignResourceTagUseCase {
 export class RemoveResourceTagUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
   async execute(input: z.infer<typeof AssignResourceTagInputSchema>) {
+    const resource = await this.uow.resourceRepository.findById(
+      input.resourceId,
+    );
+    const tag = await this.uow.tagRepository.findById(input.tagId);
+    if (!resource || !tag) throw new Error("Resource or tag not found");
+    const environment = await this.uow.environmentRepository.findById(
+      resource.environmentId,
+    );
+    const project = environment
+      ? await this.uow.projectRepository.findById(environment.projectId)
+      : null;
+    if (!project || project.organizationId !== tag.organizationId) {
+      throw new Error("Resource and tag must belong to the same organization");
+    }
     await this.uow.tagRepository.detachFromResource(
       input.resourceId,
       input.tagId,

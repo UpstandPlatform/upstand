@@ -20,7 +20,7 @@ bun setup
 bun dev
 ```
 
-`bun setup` is safe to re-run. It creates ignored local environment files for the API and web app from the checked-in examples, installs the frozen lockfile, starts local PostgreSQL 18 and Redis 8.8, waits for PostgreSQL, synchronizes only the local database password without deleting data, and applies the checked-in migrations. The PostgreSQL 18 upgrade intentionally uses the versioned `postgres_data_v18` volume; if you need old local data, follow the database upgrade runbook first. `bun dev` starts the API, web console, and Fumadocs together.
+`bun setup` is safe to re-run. It creates ignored local environment files for the API and web app from the checked-in examples, installs the frozen lockfile, starts local PostgreSQL 18 and Redis 8.8, waits for PostgreSQL, synchronizes only the local database password without deleting data, and applies the checked-in migrations. The local Swarm overlay is created with IPsec encryption and setup refuses to reuse an unencrypted network. The PostgreSQL 18 upgrade intentionally uses the versioned `postgres_data_v18` volume; if you need old local data, follow the database upgrade runbook first. `bun dev` starts the API, web console, and Fumadocs together.
 
 Next.js production builds use Turbopack by default. Local development uses the
 Webpack dev server because the current Next.js Turbopack dev server can return
@@ -40,7 +40,7 @@ Use throwaway local credentials. Do not commit `.env` files, private keys, produ
 - Keep API contracts in the tRPC routers and validate external input with Zod.
 - Keep shared UI primitives in `packages/ui`; avoid duplicating accessible components in individual apps.
 - Treat authentication, organization authorization, secret encryption, Docker commands, SSH, and notification delivery as security-sensitive paths.
-- Do not add mocks, fake success states, or unhandled TODOs for user-facing functionality.
+- Do not add mocks, fake success states, or untracked unfinished work items for user-facing functionality.
 - Preserve rollback behavior and existing database data. Add a migration for schema changes; never edit an applied migration.
 - Add or update tests for changed behavior, especially deployment, update, Caddy, notification, and authorization flows.
 

@@ -74,6 +74,7 @@ describe("UpdateProjectUseCase", () => {
 
     const result = await usecase.execute({
       id: "proj-1",
+      organizationId: "org-1",
       name: "New Name",
       description: "Updated description text",
       icon: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
@@ -99,6 +100,7 @@ describe("UpdateProjectUseCase", () => {
 
     const archived = await usecase.execute({
       id: "proj-archive",
+      organizationId: "org-1",
       archived: true,
     });
     expect(archived.archivedAt).toBeInstanceOf(Date);
@@ -106,9 +108,31 @@ describe("UpdateProjectUseCase", () => {
 
     const restored = await usecase.execute({
       id: "proj-archive",
+      organizationId: "org-1",
       archived: false,
     });
     expect(restored.archivedAt).toBeNull();
     expect(repo.projects.has("proj-archive")).toBe(true);
+  });
+
+  test("rejects updates from another organization", async () => {
+    const repo = new MockProjectRepository();
+    await repo.create({
+      id: "proj-isolated",
+      name: "Tenant project",
+      organizationId: "org-owner",
+    });
+    const usecase = new UpdateProjectUseCase(
+      mockUnitOfWork({ projectRepository: repo }),
+    );
+
+    await expect(
+      usecase.execute({
+        id: "proj-isolated",
+        organizationId: "org-attacker",
+        name: "Should not update",
+      }),
+    ).rejects.toThrow("Project not found");
+    expect(repo.projects.get("proj-isolated")?.name).toBe("Tenant project");
   });
 });

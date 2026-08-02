@@ -2,12 +2,16 @@ import type { ScimMembershipRecord } from "@upstand/domain";
 import { ScimConflictError, ScimNotFoundError } from "@upstand/usecases";
 import { ScimUseCaseToken } from "@upstand/usecases/tokens";
 import type { Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 
-const SCIM_STATUS_CODES = [400, 401, 404, 405, 409, 422, 429, 500] as const;
+const SCIM_STATUS_CODES = [
+  400, 401, 404, 405, 409, 413, 422, 429, 500,
+] as const;
 type ScimStatus = (typeof SCIM_STATUS_CODES)[number];
+const MAX_SCIM_OFFSET = 1_000_000;
 
 export function registerScimRoutes(app: Hono<AppEnv>): void {
   app.use(
@@ -16,6 +20,14 @@ export function registerScimRoutes(app: Hono<AppEnv>): void {
       path: "scim",
       profile: "scim",
       onRejected: (c, message) => scimError(c, 429, message),
+    }),
+  );
+
+  app.use(
+    "/api/scim/*",
+    bodyLimit({
+      maxSize: 128 * 1024,
+      onError: (c) => scimError(c, 413, "SCIM request is too large"),
     }),
   );
 
@@ -154,6 +166,13 @@ export function registerScimRoutes(app: Hono<AppEnv>): void {
       const operationName = String(item.op ?? "replace").toLowerCase();
       const path = String(item.path ?? "").toLowerCase();
       const value = item.value;
+      if (!["add", "replace", "remove"].includes(operationName)) {
+        return scimError(
+          c,
+          422,
+          `Unsupported SCIM operation '${operationName}'`,
+        );
+      }
       if (path === "active") {
         if (typeof value === "boolean") active = value;
         else {
@@ -171,6 +190,8 @@ export function registerScimRoutes(app: Hono<AppEnv>): void {
         displayName = value.trim().slice(0, 120);
       } else if (path === "externalid" && typeof value === "string") {
         externalId = value.slice(0, 255);
+      } else {
+        return scimError(c, 422, `Unsupported SCIM attribute '${path}'`);
       }
     }
     if (typeof body.active === "boolean") active = body.active;
@@ -312,6 +333,9 @@ export function registerScimRoutes(app: Hono<AppEnv>): void {
     const startIndex = Number.isFinite(requestedStart)
       ? Math.max(1, Math.trunc(requestedStart))
       : 1;
+    if (startIndex - 1 > MAX_SCIM_OFFSET) {
+      return scimError(c, 400, "SCIM startIndex is too large");
+    }
     const requestedCount = Number(c.req.query("count") || 100);
     const countLimit = Math.min(
       1000,

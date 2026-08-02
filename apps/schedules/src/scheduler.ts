@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { Server } from "@upstand/domain";
 import { DockerCleanupService } from "@upstand/infrastructure";
+import { redis } from "@upstand/redis";
 import {
   AccessLogCleanupScheduler,
   AutoscalingService,
@@ -20,6 +22,13 @@ import {
 import { log } from "evlog";
 import { getServiceProvider } from "./di";
 
+const RELEASE_LOCK_IF_OWNED = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+`;
+
 export class ScheduledDockerCleanup {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastRunDate: string | null = null;
@@ -32,9 +41,24 @@ export class ScheduledDockerCleanup {
   ) {}
 
   start(): void {
-    this.timer = setInterval(() => void this.run(), 60 * 60 * 1000);
+    this.timer = setInterval(
+      () => {
+        this.run().catch((error: unknown) => {
+          log.error({
+            message: "Unhandled error in ScheduledDockerCleanup timer",
+            err: error,
+          });
+        });
+      },
+      60 * 60 * 1000,
+    );
     this.timer.unref?.();
-    void this.run();
+    void this.run().catch((error: unknown) => {
+      log.error({
+        message: "Unhandled error in ScheduledDockerCleanup initial run",
+        err: error,
+      });
+    });
   }
 
   stop(): void {
@@ -49,6 +73,25 @@ export class ScheduledDockerCleanup {
     const now = new Date();
     const date = getLocalDateKey(now);
     if (now.getHours() < 3 || this.lastRunDate === date) return;
+
+    const lockKey = `scheduler:docker-cleanup:${date}`;
+    const lockToken = randomUUID();
+    try {
+      const acquired = await redis.set(
+        lockKey,
+        lockToken,
+        "PX",
+        20 * 60 * 1000,
+        "NX",
+      );
+      if (acquired !== "OK") return;
+    } catch (error) {
+      log.error({
+        message: "Unable to acquire distributed Docker cleanup lock",
+        err: error,
+      });
+      return;
+    }
 
     if (this.activeDate !== date) {
       this.activeDate = date;
@@ -94,68 +137,103 @@ export class ScheduledDockerCleanup {
         }
       }
 
-      const servers = await uow.serverRepository.findMany();
-      for (const server of servers.filter(
-        (candidate: Server) => candidate.enableDockerCleanup,
-      )) {
-        if (this.completedTargets.has(server.id)) continue;
+      const eligibleServers = uow.serverRepository.findCleanupCandidates
+        ? await uow.serverRepository.findCleanupCandidates()
+        : (await uow.serverRepository.findMany())
+            .filter((candidate: Server) => candidate.enableDockerCleanup)
+            .map((candidate) => ({ id: candidate.id, name: candidate.name }));
+      const pendingServers = eligibleServers.filter(
+        (candidate) => !this.completedTargets.has(candidate.id),
+      );
 
-        let remote: Awaited<
-          ReturnType<typeof resolveDockerCliEnvironmentForServer>
-        > | null = null;
-        try {
-          remote = await resolveDockerCliEnvironmentForServer(server.id, uow);
-          log.info({
-            message: `Running scheduled Docker cleanup on remote server '${server.name}'... 🧹`,
-            serverId: server.id,
-          });
-          await this.dockerCleanupService.run("all", remote.environment);
-          this.completedTargets.add(server.id);
-          await publishDockerCleanupNotification(publisher, {
-            success: true,
-            idempotencyKey: `docker-cleanup:${server.id}:${date}`,
-            title: `🧹 Docker cleanup completed on ${server.name}`,
-            message: `Upstand completed the scheduled cleanup of unused Docker resources on ${server.name}.`,
-            metadata: {
-              date,
-              scope: "remote",
+      await Promise.allSettled(
+        pendingServers.map(async (server) => {
+          let remote: Awaited<
+            ReturnType<typeof resolveDockerCliEnvironmentForServer>
+          > | null = null;
+          try {
+            remote = await resolveDockerCliEnvironmentForServer(server.id, uow);
+            log.info({
+              message: `Running scheduled Docker cleanup on remote server '${server.name}'... 🧹`,
               serverId: server.id,
-              serverName: server.name,
-            },
-          });
-        } catch (error: unknown) {
-          const message = getCleanupErrorMessage(error);
-          await publishDockerCleanupNotification(publisher, {
-            success: false,
-            idempotencyKey: `docker-cleanup-failed:${server.id}:${date}`,
-            title: `🧹 Docker cleanup failed on ${server.name}`,
-            message,
-            metadata: {
-              date,
-              scope: "remote",
+            });
+
+            // Enforce a 5-minute timeout for remote execution and abort the
+            // child process instead of merely stopping our wait for it.
+            const abortController = new AbortController();
+            let timedOut = false;
+            let timerHandle: ReturnType<typeof setTimeout> | undefined;
+
+            try {
+              timerHandle = setTimeout(() => {
+                timedOut = true;
+                abortController.abort();
+              }, 300_000);
+              await this.dockerCleanupService.run(
+                "all",
+                remote.environment,
+                {},
+                abortController.signal,
+              );
+              if (timedOut) {
+                throw new Error(
+                  "Remote Docker cleanup timed out after 5 minutes",
+                );
+              }
+            } catch (error) {
+              if (timedOut) {
+                throw new Error(
+                  "Remote Docker cleanup timed out after 5 minutes",
+                  { cause: error },
+                );
+              }
+              throw error;
+            } finally {
+              if (timerHandle) clearTimeout(timerHandle);
+            }
+            this.completedTargets.add(server.id);
+            await publishDockerCleanupNotification(publisher, {
+              success: true,
+              idempotencyKey: `docker-cleanup:${server.id}:${date}`,
+              title: `🧹 Docker cleanup completed on ${server.name}`,
+              message: `Upstand completed the scheduled cleanup of unused Docker resources on ${server.name}.`,
+              metadata: {
+                date,
+                scope: "remote",
+                serverId: server.id,
+                serverName: server.name,
+              },
+            });
+          } catch (error: unknown) {
+            const message = getCleanupErrorMessage(error);
+            await publishDockerCleanupNotification(publisher, {
+              success: false,
+              idempotencyKey: `docker-cleanup-failed:${server.id}:${date}`,
+              title: `🧹 Docker cleanup failed on ${server.name}`,
+              message,
+              metadata: {
+                date,
+                scope: "remote",
+                serverId: server.id,
+                serverName: server.name,
+                error: message,
+              },
+            });
+            log.error({
+              message: "Failed to run scheduled remote Docker cleanup",
               serverId: server.id,
-              serverName: server.name,
-              error: message,
-            },
-          });
-          log.error({
-            message: "Failed to run scheduled remote Docker cleanup",
-            serverId: server.id,
-            err: error,
-          });
-        } finally {
-          remote?.cleanup();
-        }
-      }
+              err: error,
+            });
+          } finally {
+            remote?.cleanup();
+          }
+        }),
+      );
 
       const hasPendingTargets =
         Boolean(
           settings?.dailyDockerCleanup && !this.completedTargets.has("local"),
-        ) ||
-        servers.some(
-          (server: Server) =>
-            server.enableDockerCleanup && !this.completedTargets.has(server.id),
-        );
+        ) || pendingServers.length > 0;
       if (!hasPendingTargets) this.lastRunDate = date;
     } catch (error: unknown) {
       log.error({
@@ -165,6 +243,14 @@ export class ScheduledDockerCleanup {
     } finally {
       this.running = false;
       await scope.dispose();
+      try {
+        await redis.eval(RELEASE_LOCK_IF_OWNED, 1, lockKey, lockToken);
+      } catch (error) {
+        log.warn({
+          message: "Unable to release distributed Docker cleanup lock",
+          err: error,
+        });
+      }
     }
   }
 }
@@ -220,9 +306,26 @@ export class UpstandUpdateNotificationScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
 
   start(): void {
-    this.timer = setInterval(() => void this.run(), 15 * 60 * 1000);
+    this.timer = setInterval(
+      () => {
+        this.run().catch((error: unknown) => {
+          log.error({
+            message:
+              "Unhandled error in UpstandUpdateNotificationScheduler timer",
+            err: error,
+          });
+        });
+      },
+      15 * 60 * 1000,
+    );
     this.timer.unref?.();
-    void this.run();
+    void this.run().catch((error: unknown) => {
+      log.error({
+        message:
+          "Unhandled error in UpstandUpdateNotificationScheduler initial run",
+        err: error,
+      });
+    });
   }
 
   stop(): void {
@@ -291,9 +394,21 @@ export class AutoscalingRuntime {
   }
 
   start(): void {
-    this.timer = setInterval(() => void this.runOnce(), 30_000);
+    this.timer = setInterval(() => {
+      this.runOnce().catch((error: unknown) => {
+        log.error({
+          message: "Unhandled error in AutoscalingRuntime timer",
+          err: error,
+        });
+      });
+    }, 30_000);
     this.timer.unref?.();
-    void this.runOnce();
+    void this.runOnce().catch((error: unknown) => {
+      log.error({
+        message: "Unhandled error in AutoscalingRuntime initial run",
+        err: error,
+      });
+    });
   }
 
   stop(): void {
@@ -308,9 +423,21 @@ export class StaleDeploymentScheduler {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.run(), 60_000);
+    this.timer = setInterval(() => {
+      this.run().catch((error: unknown) => {
+        log.error({
+          message: "Unhandled error in StaleDeploymentScheduler timer",
+          err: error,
+        });
+      });
+    }, 60_000);
     this.timer.unref?.();
-    void this.run();
+    void this.run().catch((error: unknown) => {
+      log.error({
+        message: "Unhandled error in StaleDeploymentScheduler initial run",
+        err: error,
+      });
+    });
   }
 
   stop(): void {

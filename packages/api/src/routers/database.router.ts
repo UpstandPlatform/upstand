@@ -25,7 +25,10 @@ import { z } from "zod";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { checkPermission } from "../permissions";
-import { createResourceAuthorizer } from "./shared/resource-authorization";
+import {
+  createResourceAuthorizer,
+  resolveResourceTarget,
+} from "./shared/resource-authorization";
 
 const DatabaseTypeSchema = z.enum([
   "postgres",
@@ -123,10 +126,11 @@ export const databaseRouter = router({
     .input(UpdateDatabaseInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeDatabase(ctx, input.id, "resource:update");
+      const { organizationId } = await resolveResourceTarget(ctx, input.id);
       try {
         const resource = await ctx.scope
           .resolve(UpdateResourceUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId });
         if (!resource)
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -167,7 +171,7 @@ export const databaseRouter = router({
   command: twoFactorVerifiedProcedure
     .input(DatabaseCommandInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await authorizeDatabase(ctx, input.id, "resource:update");
+      await authorizeDatabase(ctx, input.id, "resource:execute");
       try {
         return await ctx.scope
           .resolve(DatabaseCommandUseCaseToken)
@@ -181,10 +185,11 @@ export const databaseRouter = router({
     .input(DeleteResourceInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeDatabase(ctx, input.id, "resource:delete");
+      const { organizationId } = await resolveResourceTarget(ctx, input.id);
       try {
         return await ctx.scope
           .resolve(DeleteResourceUseCaseToken)
-          .execute(input);
+          .execute({ ...input, organizationId });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -193,7 +198,7 @@ export const databaseRouter = router({
   runMigration: twoFactorVerifiedProcedure
     .input(RunDatabaseMigrationInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await authorizeDatabase(ctx, input.resourceId, "resource:update");
+      await authorizeDatabase(ctx, input.resourceId, "resource:execute");
       try {
         return await ctx.scope
           .resolve(RunDatabaseMigrationUseCaseToken)

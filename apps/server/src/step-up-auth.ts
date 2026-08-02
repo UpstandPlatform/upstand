@@ -1,11 +1,6 @@
 import { stepUp } from "@upstand/api/auth";
-import {
-  isStepUpVerificationValid,
-  type StepUpSession,
-  stepUpKey,
-} from "@upstand/auth/step-up-auth";
+import { isStepUpVerificationValid } from "@upstand/auth/step-up-auth";
 
-export type { StepUpSession };
-export { isStepUpVerificationValid, stepUpKey };
+export { isStepUpVerificationValid };
 export const isStepUpAuthenticationSatisfied =
   stepUp.isStepUpAuthenticationSatisfied;

@@ -668,7 +668,8 @@ export default function WebServerDashboard(_props: {
     setPortsModalOpen(false);
   };
 
-  const { isCloud } = useSystemConfig();
+  const { isCloud, platformMode } = useSystemConfig();
+  const isDesktop = platformMode === "desktop";
   const isSaving = updateSettingsMutation.isPending;
 
   if (isCloud) {
@@ -732,24 +733,44 @@ export default function WebServerDashboard(_props: {
         <PageSkeleton />
       ) : (
         <div className="space-y-6">
-          <ServerDomainCard
-            serverDomain={serverDomain}
-            setServerDomain={setServerDomain}
-            email={email}
-            setEmail={setEmail}
-            httpsEnabled={httpsEnabled}
-            setHttpsEnabled={setHttpsEnabled}
-            certificateProvider={certificateProvider}
-            setCertificateProvider={setCertificateProvider}
-            certificateId={certificateId}
-            setCertificateId={setCertificateId}
-            certificatesList={certificatesData}
-            ipAccessEnabled={ipAccessEnabled}
-            setIpAccessEnabled={setIpAccessEnabled}
-            canDisableIpAccess={canDisableIpAccess}
-            onSave={handleSaveServerDomain}
-            isSaving={updateSettingsMutation.isPending}
-          />
+          {!isDesktop ? (
+            <ServerDomainCard
+              serverDomain={serverDomain}
+              setServerDomain={setServerDomain}
+              email={email}
+              setEmail={setEmail}
+              httpsEnabled={httpsEnabled}
+              setHttpsEnabled={setHttpsEnabled}
+              certificateProvider={certificateProvider}
+              setCertificateProvider={setCertificateProvider}
+              certificateId={certificateId}
+              setCertificateId={setCertificateId}
+              certificatesList={certificatesData}
+              ipAccessEnabled={ipAccessEnabled}
+              setIpAccessEnabled={setIpAccessEnabled}
+              canDisableIpAccess={canDisableIpAccess}
+              onSave={handleSaveServerDomain}
+              isSaving={updateSettingsMutation.isPending}
+            />
+          ) : (
+            <Card className="border border-border/40 bg-card/20 p-6 shadow-sm">
+              <CardHeader className="p-0 pb-3">
+                <CardTitle className="font-semibold text-base">
+                  Server Domain & SSL — Desktop Mode
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  In Desktop mode, Upstand runs locally on your machine. Linking
+                  custom domain names and ACME Let's Encrypt certificates to the
+                  control plane is not applicable for desktop runtime.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0 text-muted-foreground text-xs">
+                Your workloads and applications deployed on remote servers can
+                still use custom domains and SSL certificates managed on those
+                specific servers.
+              </CardContent>
+            </Card>
+          )}
           {/* <Card className="border border-border/40 bg-card/20 shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center justify-between font-semibold text-lg">

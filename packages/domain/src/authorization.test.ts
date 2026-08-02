@@ -27,6 +27,7 @@ describe("authorization catalog", () => {
     expect(capabilitiesForRole("owner")).toContain("project:delete");
     expect(capabilitiesForRole("admin")).not.toContain("project:delete");
     expect(capabilitiesForRole("member")).toContain("resource:update");
+    expect(capabilitiesForRole("member")).not.toContain("resource:execute");
     expect(capabilitiesForRole("member")).not.toContain("resource:delete");
     expect(CUSTOM_ROLE_CAPABILITY_ACTIONS).toContain("ai:manage");
     expect(CAPABILITY_CATALOG["instance:manage"].scope).toBe("instance");
@@ -40,6 +41,24 @@ describe("authorization catalog", () => {
     ]);
     expect(capabilityRequiresRecentTwoFactor("resource:delete")).toBe(true);
     expect(capabilityRequiresRecentTwoFactor("resource:view")).toBe(false);
+    expect(capabilityRequiresRecentTwoFactor("resource:secrets:view")).toBe(
+      true,
+    );
+    expect(capabilityRequiresRecentTwoFactor("resource:execute")).toBe(true);
+    expect(capabilitiesForRole("member")).not.toContain(
+      "resource:secrets:view",
+    );
+    expect(CAPABILITY_CATALOG["resource:secrets:view"]).toMatchObject({
+      apiKey: false,
+      customRole: false,
+      scope: "organization",
+    });
+    expect(CAPABILITY_CATALOG["resource:execute"]).toMatchObject({
+      apiKey: false,
+      customRole: false,
+      roles: ["owner", "admin"],
+      scope: "resource",
+    });
   });
 
   test("keeps exposed permission scopes derived from the catalog", () => {

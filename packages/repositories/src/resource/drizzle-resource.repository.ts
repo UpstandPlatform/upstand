@@ -1,18 +1,43 @@
-import { resource, resourceConfiguration, resourceSecret } from "@upstand/db";
+import {
+  environment,
+  project,
+  resource,
+  resourceConfiguration,
+  resourceSecret,
+} from "@upstand/db";
 import type {
   CreateResourceDTO,
   IResourceRepository,
   Resource,
+  ResourceAutoscalingProjection,
+  ResourceRoutingProjection,
+  ResourceSummaryProjection,
 } from "@upstand/domain";
 import {
   RESOURCE_STATE_VERSION,
   serializeResourceConfiguration,
   ValidationError,
 } from "@upstand/domain";
-import { and, count, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { DrizzleSecretVersionRepository } from "../secret/drizzle-secret-version.repository";
 import { isPostgresUniqueViolation } from "../shared/database-errors";
+import { normalizeStoredSecret } from "../shared/secret-normalization";
 import type { Executor } from "../shared/types";
+
+const MAX_CADDY_ROUTING_RESOURCES = 10_000;
+const MAX_AUTOSCALING_RESOURCES = 10_000;
+const MAX_HYDRATED_RESOURCE_READS = 10_000;
 
 const DEFAULT_CONFIGURATION = serializeResourceConfiguration({});
 const DEFAULT_BUILD_CONFIG = DEFAULT_CONFIGURATION.buildConfig;
@@ -20,6 +45,7 @@ const DEFAULT_ADVANCED_CONFIG = DEFAULT_CONFIGURATION.advancedConfig;
 const DEFAULT_WATCH_PATHS = DEFAULT_CONFIGURATION.watchPaths;
 const DEFAULT_DOMAINS = DEFAULT_CONFIGURATION.domains;
 const DEFAULT_ENV_VARS = "{}";
+const MAX_IN_CLAUSE_ITEMS = 1_000;
 
 type ResourceRow = typeof resource.$inferSelect;
 
@@ -57,7 +83,29 @@ export class DrizzleResourceRepository implements IResourceRepository {
     const rows = await this.executor
       .select()
       .from(resource)
-      .where(eq(resource.environmentId, environmentId));
+      .where(eq(resource.environmentId, environmentId))
+      .limit(MAX_HYDRATED_RESOURCE_READS + 1);
+    assertHydratedResourceReadLimit(rows.length);
+    return this.hydrate(rows);
+  }
+
+  async findIdsByEnvironmentId(environmentId: string): Promise<string[]> {
+    const rows = await this.executor
+      .select({ id: resource.id })
+      .from(resource)
+      .where(eq(resource.environmentId, environmentId))
+      .limit(MAX_HYDRATED_RESOURCE_READS + 1);
+    assertHydratedResourceReadLimit(rows.length);
+    return rows.map((row) => row.id);
+  }
+
+  async findByProvider(provider: string): Promise<Resource[]> {
+    const rows = await this.executor
+      .select()
+      .from(resource)
+      .where(eq(resource.provider, provider))
+      .limit(MAX_HYDRATED_RESOURCE_READS + 1);
+    assertHydratedResourceReadLimit(rows.length);
     return this.hydrate(rows);
   }
 
@@ -70,8 +118,142 @@ export class DrizzleResourceRepository implements IResourceRepository {
           eq(resource.buildRegistryId, registryId),
           eq(resource.rollbackRegistryId, registryId),
         ),
-      );
+      )
+      .limit(MAX_HYDRATED_RESOURCE_READS + 1);
+    assertHydratedResourceReadLimit(rows.length);
     return this.hydrate(rows);
+  }
+
+  async findByServerId(serverId: string): Promise<Resource[]> {
+    const rows = await this.executor
+      .select()
+      .from(resource)
+      .where(
+        or(
+          eq(resource.serverId, serverId),
+          eq(resource.buildServerId, serverId),
+        ),
+      )
+      .limit(MAX_HYDRATED_RESOURCE_READS + 1);
+    assertHydratedResourceReadLimit(rows.length);
+    return this.hydrate(rows);
+  }
+
+  async findByDeploymentServerId(
+    serverId: string | null | undefined,
+  ): Promise<Resource[]> {
+    const isLocal = !serverId || serverId === "local" || serverId === "manager";
+    const rows = await this.executor
+      .select()
+      .from(resource)
+      .where(
+        isLocal
+          ? or(
+              isNull(resource.serverId),
+              eq(resource.serverId, "local"),
+              eq(resource.serverId, "manager"),
+            )
+          : eq(resource.serverId, serverId),
+      )
+      .limit(MAX_HYDRATED_RESOURCE_READS + 1);
+    assertHydratedResourceReadLimit(rows.length);
+    return this.hydrate(rows);
+  }
+
+  async findForCaddy(): Promise<ResourceRoutingProjection[]> {
+    return this.findRoutingProjection();
+  }
+
+  async findForAutoscaling(): Promise<ResourceAutoscalingProjection[]> {
+    const rows = await this.executor
+      .select({
+        id: resource.id,
+        name: resource.name,
+        type: resource.type,
+        status: resource.status,
+        appName: resource.appName,
+        composeType: resource.composeType,
+        serverId: resource.serverId,
+        domains: resourceConfiguration.domains,
+        advancedConfig: resourceConfiguration.advancedConfig,
+      })
+      .from(resource)
+      .innerJoin(
+        resourceConfiguration,
+        eq(resourceConfiguration.resourceId, resource.id),
+      )
+      .where(eq(resource.type, "application"))
+      .limit(MAX_AUTOSCALING_RESOURCES + 1);
+
+    if (rows.length > MAX_AUTOSCALING_RESOURCES) {
+      throw new Error(
+        "Autoscaling resource discovery exceeded the maximum supported resource count",
+      );
+    }
+
+    return rows.map((row) => ({
+      ...row,
+      domains: row.domains ?? DEFAULT_DOMAINS,
+      advancedConfig: row.advancedConfig ?? DEFAULT_ADVANCED_CONFIG,
+    })) as ResourceAutoscalingProjection[];
+  }
+
+  async findForCaddyByDeploymentServerId(
+    serverId: string | null | undefined,
+  ): Promise<ResourceRoutingProjection[]> {
+    const isLocal = !serverId || serverId === "local" || serverId === "manager";
+    return this.findRoutingProjection(
+      isLocal
+        ? or(
+            isNull(resource.serverId),
+            eq(resource.serverId, "local"),
+            eq(resource.serverId, "manager"),
+          )
+        : eq(resource.serverId, serverId),
+    );
+  }
+
+  async findSummariesByIds(
+    ids: readonly string[],
+  ): Promise<ResourceSummaryProjection[]> {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length > MAX_HYDRATED_RESOURCE_READS) {
+      throw new Error(
+        "Resource summary discovery exceeded the maximum supported resource count",
+      );
+    }
+    const results: ResourceSummaryProjection[] = [];
+    for (const batch of chunk(uniqueIds, MAX_IN_CLAUSE_ITEMS)) {
+      const rows = await this.executor
+        .select({
+          id: resource.id,
+          environmentId: resource.environmentId,
+          name: resource.name,
+          type: resource.type,
+          serverId: resource.serverId,
+        })
+        .from(resource)
+        .where(inArray(resource.id, batch));
+      results.push(...rows);
+    }
+    return results;
+  }
+
+  async findIdsByOrganizationId(organizationId: string): Promise<string[]> {
+    const rows = await this.executor
+      .select({ id: resource.id })
+      .from(resource)
+      .innerJoin(environment, eq(resource.environmentId, environment.id))
+      .innerJoin(project, eq(environment.projectId, project.id))
+      .where(
+        and(
+          eq(project.organizationId, organizationId),
+          isNull(project.archivedAt),
+        ),
+      )
+      .limit(MAX_HYDRATED_RESOURCE_READS + 1);
+    assertHydratedResourceReadLimit(rows.length);
+    return rows.map((row) => row.id);
   }
 
   async checkDuplicateServiceKey(
@@ -95,7 +277,12 @@ export class DrizzleResourceRepository implements IResourceRepository {
   }
 
   async findMany(): Promise<Resource[]> {
-    return this.hydrate(await this.executor.select().from(resource));
+    const rows = await this.executor
+      .select()
+      .from(resource)
+      .limit(MAX_HYDRATED_RESOURCE_READS + 1);
+    assertHydratedResourceReadLimit(rows.length);
+    return this.hydrate(rows);
   }
 
   async create(data: CreateResourceDTO): Promise<Resource> {
@@ -205,6 +392,43 @@ export class DrizzleResourceRepository implements IResourceRepository {
     return row?.value ?? 0;
   }
 
+  private async findRoutingProjection(
+    condition?: ReturnType<typeof eq> | ReturnType<typeof or>,
+  ): Promise<ResourceRoutingProjection[]> {
+    const rows = await this.executor
+      .select({
+        id: resource.id,
+        name: resource.name,
+        type: resource.type,
+        appName: resource.appName,
+        domains: resourceConfiguration.domains,
+        composeType: resource.composeType,
+        serverId: resource.serverId,
+        previewPort: resource.previewPort,
+        previewHttps: resource.previewHttps,
+        advancedConfig: resourceConfiguration.advancedConfig,
+      })
+      .from(resource)
+      .leftJoin(
+        resourceConfiguration,
+        eq(resourceConfiguration.resourceId, resource.id),
+      )
+      .where(condition)
+      .limit(MAX_CADDY_ROUTING_RESOURCES + 1);
+
+    if (rows.length > MAX_CADDY_ROUTING_RESOURCES) {
+      throw new Error(
+        "Caddy routing discovery exceeded the maximum supported resource count",
+      );
+    }
+
+    return rows.map((row) => ({
+      ...row,
+      domains: row.domains ?? DEFAULT_DOMAINS,
+      advancedConfig: row.advancedConfig ?? DEFAULT_ADVANCED_CONFIG,
+    }));
+  }
+
   private async hydrate(rows: ResourceRow[]): Promise<Resource[]> {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
@@ -218,6 +442,70 @@ export class DrizzleResourceRepository implements IResourceRepository {
         .from(resourceSecret)
         .where(inArray(resourceSecret.resourceId, ids)),
     ]);
+    await Promise.all(
+      secretRows.map(async (secret) => {
+        const credentials = normalizeStoredSecret(secret.credentials);
+        const buildSecrets = normalizeStoredSecret(secret.buildSecrets);
+        const buildEnvVars = normalizeStoredSecret(secret.buildEnvVars);
+        const envVars = normalizeStoredSecret(secret.envVars);
+        if (
+          typeof credentials === "string" &&
+          credentials !== secret.credentials &&
+          typeof secret.credentials === "string"
+        ) {
+          await this.executor
+            .update(resourceSecret)
+            .set({ credentials })
+            .where(
+              and(
+                eq(resourceSecret.resourceId, secret.resourceId),
+                eq(resourceSecret.credentials, secret.credentials),
+              ),
+            );
+        }
+        if (
+          typeof buildSecrets === "string" &&
+          buildSecrets !== secret.buildSecrets &&
+          typeof secret.buildSecrets === "string"
+        ) {
+          await this.executor
+            .update(resourceSecret)
+            .set({ buildSecrets })
+            .where(
+              and(
+                eq(resourceSecret.resourceId, secret.resourceId),
+                eq(resourceSecret.buildSecrets, secret.buildSecrets),
+              ),
+            );
+        }
+        if (
+          typeof buildEnvVars === "string" &&
+          buildEnvVars !== secret.buildEnvVars &&
+          typeof secret.buildEnvVars === "string"
+        ) {
+          await this.executor
+            .update(resourceSecret)
+            .set({ buildEnvVars })
+            .where(
+              and(
+                eq(resourceSecret.resourceId, secret.resourceId),
+                eq(resourceSecret.buildEnvVars, secret.buildEnvVars),
+              ),
+            );
+        }
+        if (envVars !== secret.envVars) {
+          await this.executor
+            .update(resourceSecret)
+            .set({ envVars })
+            .where(
+              and(
+                eq(resourceSecret.resourceId, secret.resourceId),
+                eq(resourceSecret.envVars, secret.envVars),
+              ),
+            );
+        }
+      }),
+    );
     const configs = new Map(
       configRows.map((configuration) => [
         configuration.resourceId,
@@ -336,6 +624,22 @@ export class DrizzleResourceRepository implements IResourceRepository {
       });
     }
   }
+}
+
+function assertHydratedResourceReadLimit(rowCount: number): void {
+  if (rowCount > MAX_HYDRATED_RESOURCE_READS) {
+    throw new Error(
+      "Resource discovery exceeded the maximum supported resource count",
+    );
+  }
+}
+
+function chunk<T>(values: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push([...values.slice(index, index + size)]);
+  }
+  return chunks;
 }
 
 type ResourceConfigurationValues = {

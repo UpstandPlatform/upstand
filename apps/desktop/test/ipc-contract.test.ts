@@ -11,7 +11,7 @@ const channels = (source: string, expression: RegExp) =>
 describe("desktop IPC contract", () => {
   test("every preload invocation has a main-process handler", () => {
     const invoked = channels(preload, /ipcRenderer\.invoke\("([^"]+)"/g);
-    const handled = new Set(channels(main, /ipcMain\.handle\("([^"]+)"/g));
+    const handled = new Set(channels(main, /ipcMain\.handle\(\s*"([^"]+)"/g));
     expect(invoked.filter((channel) => !handled.has(channel))).toEqual([]);
   });
 });

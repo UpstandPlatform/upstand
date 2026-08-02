@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "preview_deployment_resource_pr_uidx" ON "preview_deployment" USING btree ("resource_id","pull_request_id");--> statement-breakpoint
+CREATE INDEX "resource_provider_idx" ON "resource" USING btree ("provider");

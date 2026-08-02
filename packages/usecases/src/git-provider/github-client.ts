@@ -137,3 +137,58 @@ export async function getBranches(
   );
   return data.map((b) => b.name);
 }
+
+export async function getRepositoriesWithToken(
+  token: string,
+): Promise<{ id: number; name: string; fullName: string; owner: string }[]> {
+  const data = await requestJson<
+    {
+      id: number;
+      name: string;
+      full_name: string;
+      owner: { login: string };
+    }[]
+  >(
+    "https://api.github.com/user/repos?per_page=100&sort=updated",
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "Upstand",
+      },
+    },
+    (response) =>
+      response
+        .text()
+        .then((errText) => `Failed to fetch GitHub repositories: ${errText}`),
+  );
+
+  return data.map((repo) => ({
+    id: repo.id,
+    name: repo.name,
+    fullName: repo.full_name,
+    owner: repo.owner.login,
+  }));
+}
+
+export async function getBranchesWithToken(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<string[]> {
+  const data = await requestJson<{ name: string }[]>(
+    `https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "Upstand",
+      },
+    },
+    (response) =>
+      response
+        .text()
+        .then((errText) => `Failed to fetch GitHub branches: ${errText}`),
+  );
+  return data.map((b) => b.name);
+}

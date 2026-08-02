@@ -146,4 +146,38 @@
   html {
     @apply font-sans;
   }
+  html.is-desktop {
+    --titlebar-h: 2.25rem;
+  }
+  html.is-desktop body {
+    padding-top: var(--titlebar-h);
+    -webkit-app-region: no-drag;
+  }
+  html.is-desktop,
+  html.is-desktop button,
+  html.is-desktop input,
+  html.is-desktop select,
+  html.is-desktop textarea,
+  html.is-desktop a,
+  html.is-desktop [role="button"],
+  html.is-desktop [data-sidebar],
+  html.is-desktop main {
+    -webkit-app-region: no-drag;
+  }
+  .is-desktop .min-h-dvh,
+  .is-desktop .min-h-screen {
+    min-height: calc(100dvh - var(--titlebar-h));
+  }
+  .is-desktop .h-dvh,
+  .is-desktop .h-screen,
+  .is-desktop .h-svh {
+    height: calc(100dvh - var(--titlebar-h));
+  }
+  html.is-desktop [data-slot="sidebar-container"] {
+    top: var(--titlebar-h);
+    height: calc(100svh - var(--titlebar-h));
+  }
+  html.is-desktop [data-slot="sidebar-wrapper"] {
+    min-height: calc(100svh - var(--titlebar-h));
+  }
 }

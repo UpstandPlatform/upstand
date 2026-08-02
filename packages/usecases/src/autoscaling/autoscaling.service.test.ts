@@ -40,6 +40,42 @@ function createService(metrics: unknown, containers = 2) {
 }
 
 describe("AutoscalingService", () => {
+  test("uses the non-secret autoscaling projection for reconciliation", async () => {
+    const candidate = resource({
+      autoscaling: {
+        enabled: true,
+        minReplicas: 1,
+        maxReplicas: 3,
+        targetCpuPercent: 80,
+        scaleUpStep: 1,
+        scaleDownStep: 1,
+        cooldownSeconds: 10,
+      },
+    });
+    configureMonitoringAgent({ request: async <T>() => [] as T });
+    let projectionReads = 0;
+    const service = new AutoscalingService(
+      {
+        resourceRepository: {
+          findForAutoscaling: async () => {
+            projectionReads += 1;
+            return [candidate];
+          },
+          findMany: async () => {
+            throw new Error("autoscaling must not load full resource rows");
+          },
+        },
+      } as never,
+      {
+        getContainers: async () => [],
+        scaleService: async () => {},
+      } as never,
+    );
+
+    await expect(service.reconcileAll()).resolves.toEqual([]);
+    expect(projectionReads).toBe(1);
+  });
+
   test("scales up when a target metric is exceeded and caps at max replicas", async () => {
     const { service, scaledTo } = createService([{ CPU: 95 }], 2);
     const decision = await service.reconcileResource(
