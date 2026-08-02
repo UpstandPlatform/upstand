@@ -33,6 +33,11 @@ jobs:
       # not connect to a live API. Production installers provide the real URL.
       NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
       RELEASE_REF: ${{ inputs.release_ref || github.ref }}
+      BETTER_AUTH_URL: http://localhost:3000
+      CORS_ORIGIN: http://localhost:3001
+      BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+      ENCRYPTION_KEY_V1: 0000000000000000000000000000000000000000000000000000000000000000
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
     steps:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
