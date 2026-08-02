@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.29 - 2026-08-02
+
+Release 0.1.29 fixing step-level env evaluation for BACKUP_REHEARSAL_LOG in release workflow.
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.28 - 2026-08-02
 
 Release 0.1.28 ensuring BACKUP_REHEARSAL_LOG and ACCEPTANCE_EVIDENCE_DIR are defined in release workflow job env.
