@@ -70,5 +70,10 @@ jobs:
           bun run --cwd apps/desktop check-types
           bun run --cwd apps/desktop test
 
+      - name: Build desktop payloads
+        run: |
+          bun run --filter=server build
+          bun run --filter=web build
+
       - name: Package desktop app
         run: bun run --cwd apps/desktop package

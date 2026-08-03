@@ -126,6 +126,7 @@
         "BETTER_AUTH_URL",
         "CORS_ORIGIN",
         "BETTER_AUTH_SECRET",
+        "ENCRYPTION_KEY_V1",
         "DATABASE_URL"
       ]
     },

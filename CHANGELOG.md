@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.32 - 2026-08-02
+
+Release 0.1.32 setting up Docker Buildx before logging in to GHCR in pre-release-acceptance job.
+
+Release 0.1.10 patch update with clean Bun lockfile and updated GitHub Actions workflows.
+
 ## 0.1.31 - 2026-08-02
 
 Release 0.1.31 adding desktop payload builds for server and web before running electron-forge make in release workflow.

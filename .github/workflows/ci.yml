@@ -21,6 +21,7 @@ env:
   # The web app validates this at build time. It is deliberately a reserved
   # CI-only origin; deployments inject their real HTTPS API origin.
   NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
+  ENCRYPTION_KEY_V1: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
 
 jobs:
   verify:
@@ -148,9 +149,16 @@ jobs:
         # Keep the merge gate production-shaped so a passing TypeScript check
         # cannot mask a framework or bundler failure.
         run: bun run build
+      - name: Stage standalone web assets for production smoke
+        run: |
+          rm -rf apps/web/.next/standalone/apps/web/.next/static
+          mkdir -p apps/web/.next/standalone/apps/web/.next
+          cp -R apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+          rm -rf apps/web/.next/standalone/apps/web/public
+          cp -R apps/web/public apps/web/.next/standalone/apps/web/public
       - name: Install browsers for web production smoke
         working-directory: apps/web
-        run: bunx playwright install chromium firefox webkit
+        run: bunx playwright install --with-deps chromium firefox webkit
       - name: Run web production browser smoke matrix
         working-directory: apps/web
         run: |
@@ -259,7 +267,7 @@ jobs:
             build_args: ""
           - name: monitoring
             context: apps/monitoring
-            file: Dockerfile
+            file: apps/monitoring/Dockerfile
             build_args: ""
     steps:
       - name: Checkout

@@ -36,7 +36,7 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3000
       CORS_ORIGIN: http://localhost:3001
       BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
-      ENCRYPTION_KEY_V1: 0000000000000000000000000000000000000000000000000000000000000000
+      ENCRYPTION_KEY_V1: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
     steps:
       - name: Checkout Code
@@ -70,7 +70,7 @@ jobs:
           BETTER_AUTH_URL: http://localhost:3000
           CORS_ORIGIN: http://localhost:3001
           BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
-          ENCRYPTION_KEY_V1: 0000000000000000000000000000000000000000000000000000000000000000
+          ENCRYPTION_KEY_V1: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
         run: bun run db:check
 
@@ -403,14 +403,19 @@ jobs:
           BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt
           ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence
         run: |
-          echo "UPSTAND_SECRETS_DIR=${RUNNER_TEMP}/upstand-release-secrets" >> $GITHUB_ENV
-          echo "BACKUP_REHEARSAL_LOG=${BACKUP_REHEARSAL_LOG}" >> $GITHUB_ENV
-          echo "ACCEPTANCE_EVIDENCE_DIR=${ACCEPTANCE_EVIDENCE_DIR}" >> $GITHUB_ENV
+          {
+            echo "UPSTAND_SECRETS_DIR=${RUNNER_TEMP}/upstand-release-secrets"
+            echo "BACKUP_REHEARSAL_LOG=${BACKUP_REHEARSAL_LOG}"
+            echo "ACCEPTANCE_EVIDENCE_DIR=${ACCEPTANCE_EVIDENCE_DIR}"
+          } >> "$GITHUB_ENV"
 
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.release_ref || github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
@@ -418,9 +423,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
       - name: Resolve immutable pushed image digests
         run: |
@@ -848,9 +850,7 @@ jobs:
           # capacity; retain the output so operators can compare it with their
           # target SLOs before selecting production replica and pool budgets.
           for profile in "100 10" "1000 25" "10000 50"; do
-            set -- $profile
-            requests="$1"
-            concurrency="$2"
+            read -r requests concurrency <<< "$profile"
             docker run --rm --network "$DOCKER_NETWORK" \
               --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
               --user 10001:10001 \

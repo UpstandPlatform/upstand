@@ -23,12 +23,30 @@ function trimSlashes(value: string): string {
 export function normalizeBuildImageTag(
   value: string | null | undefined,
 ): string {
-  const normalized = (value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_.-]+/g, "-")
-    .replace(/^[.-]+|[.-]+$/g, "")
-    .slice(0, 120);
+  const source = (value ?? "").trim().toLowerCase();
+  let normalized = "";
+  for (const character of source) {
+    const isAsciiLetter = character >= "a" && character <= "z";
+    const isDigit = character >= "0" && character <= "9";
+    if (
+      isAsciiLetter ||
+      isDigit ||
+      character === "_" ||
+      character === "." ||
+      character === "-"
+    ) {
+      normalized += character;
+    } else if (!normalized.endsWith("-")) {
+      normalized += "-";
+    }
+    if (normalized.length >= 120) break;
+  }
+  while (normalized.startsWith(".") || normalized.startsWith("-")) {
+    normalized = normalized.slice(1);
+  }
+  while (normalized.endsWith(".") || normalized.endsWith("-")) {
+    normalized = normalized.slice(0, -1);
+  }
   return normalized || "latest";
 }
 

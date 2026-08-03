@@ -54,6 +54,18 @@ lerna-debug.log*
 coverage
 .nyc_output
 
+# Deployment fixture build outputs
+fixtures/**/.gradle/
+fixtures/**/build/
+fixtures/**/target/
+fixtures/**/node_modules/
+fixtures/**/.venv/
+fixtures/**/__pycache__/
+fixtures/**/.pytest_cache/
+fixtures/**/bin/
+fixtures/**/obj/
+fixtures/**/Cargo.lock
+
 # Misc
 *.tgz
 .cache

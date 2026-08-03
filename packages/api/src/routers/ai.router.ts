@@ -82,9 +82,9 @@ export const aiRouter = router({
         input.organizationId,
         "ai:manage",
       );
-      const sanitizedRequest = input.request
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-        .trim();
+      // Keep the complete request for validation. Removing only selected HTML
+      // tags is not a safe sanitizer and could hide disallowed instructions.
+      const sanitizedRequest = input.request.trim();
       const normalizedRequest = sanitizedRequest
         .toLowerCase()
         .replace(/[^a-z0-9\s]/g, " ")
