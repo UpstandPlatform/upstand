@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.34 - 2026-08-03
+
+Harden the hosted production acceptance rehearsal for Docker Swarm capability differences.
+
 ## 0.1.33 - 2026-08-03
 
 Promote the OpenTUI CLI and browser device authentication in the next stable patch release.

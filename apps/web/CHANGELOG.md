@@ -1,5 +1,11 @@
 # web
 
+## 0.1.34
+
+### Patch Changes
+
+- [#151](https://github.com/UpstandPlatform/upstand/pull/151) [`85975d9`](https://github.com/UpstandPlatform/upstand/commit/85975d98db9cebc54a321ba72c8332ee1a086e55) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden the hosted production acceptance rehearsal for Docker Swarm capability differences.
+
 ## 0.1.33
 
 ### Patch Changes
