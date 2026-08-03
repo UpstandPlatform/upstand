@@ -632,11 +632,13 @@ jobs:
           }
           export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"
 
-          docker stack deploy --with-registry-auth --compose-file docker-compose.prod.yml "$STACK_NAME"
+          timeout --foreground 300 docker stack deploy --with-registry-auth \
+            --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           bundled_accepted=false
-          for attempt in {1..60}; do
-            if DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+          for attempt in {1..5}; do
+            if DOCKER_BIN=docker timeout --foreground 60 \
+              bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK"; then
               bundled_accepted=true
               break
@@ -654,7 +656,8 @@ jobs:
           # runner is single-node, so this validates local process, health,
           # identity, capability, and filesystem checks without overclaiming
           # remote-node coverage.
-          DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+          DOCKER_BIN=docker timeout --foreground 60 \
+            bash scripts/production-acceptance.sh \
             --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --node-local \
             2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/node-local-bundled.txt"
 
@@ -730,7 +733,8 @@ jobs:
           export UPSTAND_SCHEDULES_REPLICAS=2
           export UPSTAND_WEB_REPLICAS=2
           export UPSTAND_FUMADOCS_REPLICAS=2
-          docker stack deploy --with-registry-auth --compose-file docker-compose.prod.yml "$STACK_NAME"
+          timeout --foreground 300 docker stack deploy --with-registry-auth \
+            --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           otlp_probe_payload='{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"upstand-release-acceptance"},"logRecords":[{"timeUnixNano":"1700000000000000000","severityNumber":9,"severityText":"INFO","body":{"stringValue":"upstand acceptance OTLP probe"},"attributes":[]}]}]}]}'
           docker run --rm --network "$DOCKER_NETWORK" \
@@ -754,8 +758,9 @@ jobs:
           }
 
           external_accepted=false
-          for attempt in {1..60}; do
-            if DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+          for attempt in {1..5}; do
+            if DOCKER_BIN=docker timeout --foreground 60 \
+              bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --require-ha \
               --external-postgres-service "${STACK_NAME}_external_postgres" \
               --external-redis-service "${STACK_NAME}_external_redis"; then
