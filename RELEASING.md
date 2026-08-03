@@ -12,7 +12,9 @@ published only from the stable branch.
 5. Confirm the stable-tag workflow created a new `vMAJOR.MINOR.PATCH` tag.
 6. Confirm the reusable release workflow builds, verifies, and publishes all
    server, schedules, web, Fumadocs, and monitoring images.
-7. Confirm the GitHub Release contains the release manifest and immutable image
+7. Confirm the CLI publication workflow publishes `@upstand/cli` with npm
+   provenance.
+8. Confirm the GitHub Release contains the release manifest and immutable image
    digests.
 
 ## Retry and rollback
@@ -35,8 +37,12 @@ gh run list --repo UpstandPlatform/upstand --limit 20
 gh release list --repo UpstandPlatform/upstand --limit 10
 ```
 
-Do not announce a release until CI, image publication, manifest verification,
-and the GitHub Release have all passed.
+Do not announce a release until CI, image publication, CLI publication, manifest
+verification, and the GitHub Release have all passed.
+
+The CLI publication workflow uses npm trusted publishing. Configure the
+`UpstandPlatform/upstand` repository as a trusted publisher for `@upstand/cli`
+before promoting the first CLI release.
 
 ## Changesets token configuration
 
