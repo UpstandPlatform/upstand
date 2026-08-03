@@ -294,7 +294,7 @@ assert_service() {
   if [[ "$service_name" == *_postgres || "$service_name" == *_redis ]]; then
     capabilities_add="$(docker_cmd service inspect --format '{{json .Spec.TaskTemplate.ContainerSpec.CapabilityAdd}}' "$service_name")"
     for capability in CHOWN DAC_OVERRIDE SETGID SETUID; do
-      [[ "$capabilities_add" == *"\"$capability\""* ]] \
+      [[ "$capabilities_add" == *"\"CAP_$capability\""* || "$capabilities_add" == *"\"$capability\""* ]] \
         || fail "stateful service '$service_name' does not grant required $capability capability for its official entrypoint: $capabilities_add"
     done
   fi
