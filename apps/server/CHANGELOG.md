@@ -1,5 +1,11 @@
 # server
 
+## 0.1.40
+
+### Patch Changes
+
+- [#174](https://github.com/UpstandPlatform/upstand/pull/174) [`74c56b3`](https://github.com/UpstandPlatform/upstand/commit/74c56b3c46b99673c28084de5b06854895b73b85) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the Bun runtime for bundled API and schedules healthchecks instead of assuming curl is installed.
+
 ## 0.1.39
 
 ### Patch Changes
