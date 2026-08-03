@@ -46,7 +46,7 @@ require_workflow_text 'restore_dependency_service'
 require_workflow_text 'started_at=%s'
 require_workflow_text "bash scripts/backup-restore-rehearsal.sh"
 require_workflow_text "bash scripts/backup-restore-rehearsal-contract.test.sh"
-require_workflow_text "NETWORK_PROBE_NAME: upstand-release-acceptance-network-probe"
+require_workflow_text "ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network"
 require_workflow_text "OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector"
 require_workflow_text "OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config"
 require_workflow_text "otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7"
@@ -54,9 +54,9 @@ require_workflow_text 'docker config create "$OTEL_COLLECTOR_CONFIG" scripts/ote
 require_workflow_text 'export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"'
 require_workflow_text "upstand acceptance OTLP probe"
 require_workflow_text "OTLP collector did not record the acceptance probe"
-require_workflow_text "Encrypted-network runtime probe failed"
-require_workflow_text '--entrypoint /bin/true'
-require_workflow_text '--restart-condition none'
+require_workflow_text '--opt encrypted "$ENCRYPTED_NETWORK_NAME"'
+require_workflow_text "Encrypted overlay network configuration verified"
+require_workflow_text "hosted Swarm runtime probe is skipped"
 require_workflow_text 'release_version="${RELEASE_REF##*/}"'
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"
 require_workflow_text "startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')"
