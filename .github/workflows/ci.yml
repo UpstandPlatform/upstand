@@ -154,6 +154,8 @@ jobs:
           rm -rf apps/web/.next/standalone/apps/web/.next/static
           mkdir -p apps/web/.next/standalone/apps/web/.next
           cp -R apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+          rm -rf apps/web/.next/standalone/apps/web/public
+          cp -R apps/web/public apps/web/.next/standalone/apps/web/public
       - name: Install browsers for web production smoke
         working-directory: apps/web
         run: bunx playwright install chromium firefox webkit
