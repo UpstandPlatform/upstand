@@ -467,6 +467,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
+          ATTESTATION_SOURCE_REF: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -477,7 +478,7 @@ jobs:
             gh attestation verify "oci://${image}" \
               --repo "$GH_REPO" \
               --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
-              --source-ref "$RELEASE_REF"
+              --source-ref "$ATTESTATION_SOURCE_REF"
           done
 
       - name: Deploy and verify a disposable production Swarm
