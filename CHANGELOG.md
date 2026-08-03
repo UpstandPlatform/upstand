@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.35 - 2026-08-03
+
+Patch release for the production dependency security update.
+
 ## 0.1.34 - 2026-08-03
 
 Harden the hosted production acceptance rehearsal for Docker Swarm capability differences.

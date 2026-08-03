@@ -1,5 +1,11 @@
 # web
 
+## 0.1.35
+
+### Patch Changes
+
+- Patch release for the production dependency security update.
+
 ## 0.1.34
 
 ### Patch Changes
