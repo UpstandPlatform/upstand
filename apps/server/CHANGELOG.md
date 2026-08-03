@@ -1,5 +1,11 @@
 # server
 
+## 0.1.38
+
+### Patch Changes
+
+- [#170](https://github.com/UpstandPlatform/upstand/pull/170) [`66a764f`](https://github.com/UpstandPlatform/upstand/commit/66a764f2fb984e1eb1219a969afb7a24648715c5) Thanks [@mhbdev](https://github.com/mhbdev)! - Run the bundled Redis service as its explicit non-root runtime identity.
+
 ## 0.1.37
 
 ### Patch Changes
