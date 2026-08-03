@@ -57,6 +57,9 @@ require_workflow_text "OTLP collector did not record the acceptance probe"
 require_workflow_text "Production encrypted-network configuration is enforced by installer/contract tests"
 require_workflow_text "hosted Swarm runtime probe is skipped"
 require_workflow_text "UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false"
+require_workflow_text 'docker node update'
+require_workflow_text '--label-add upstand.control-plane=true'
+require_workflow_text 'docker service ps "${STACK_NAME}_${service}" --no-trunc'
 require_workflow_text 'release_version="${RELEASE_REF##*/}"'
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"
 require_workflow_text "startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')"
