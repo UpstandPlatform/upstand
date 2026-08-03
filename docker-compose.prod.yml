@@ -270,7 +270,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:3000/health/ready'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+          'bun -e "fetch(''http://127.0.0.1:3000/health/ready'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
         ]
       interval: 10s
       timeout: 5s
@@ -379,7 +379,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:3002/health/ready'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+          'bun -e "fetch(''http://127.0.0.1:3002/health/ready'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
         ]
       interval: 10s
       timeout: 5s
@@ -448,7 +448,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:3001/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+          'bun -e "fetch(''http://127.0.0.1:3001/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
         ]
       interval: 10s
       timeout: 5s
@@ -517,7 +517,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:4000/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+          'bun -e "fetch(''http://127.0.0.1:4000/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
         ]
       interval: 10s
       timeout: 5s

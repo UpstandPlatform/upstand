@@ -21,8 +21,10 @@ require_compose_text() {
   }
 }
 
-require_compose_text "node -e \"fetch(''http://127.0.0.1:3000/health/ready'')"
-require_compose_text "node -e \"fetch(''http://127.0.0.1:3002/health/ready'')"
+require_compose_text "bun -e \"fetch(''http://127.0.0.1:3000/health/ready'')"
+require_compose_text "bun -e \"fetch(''http://127.0.0.1:3002/health/ready'')"
+require_compose_text "bun -e \"fetch(''http://127.0.0.1:3001/'')"
+require_compose_text "bun -e \"fetch(''http://127.0.0.1:4000/'')"
 
 require_workflow_text "bundled_accepted=false"
 require_workflow_text "runs-on: ubuntu-24.04"
