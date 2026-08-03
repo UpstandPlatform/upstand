@@ -2982,10 +2982,15 @@ export class DockerService {
               .split(/\r?\n/)
               .filter(Boolean)
               .map((line) => {
-                const match = line.match(/^(\d{4}-\d{2}-\d{2}T[^\s]+)\s+(.*)$/);
-                if (match) {
-                  const timestamp = match[1];
-                  const message = match[2];
+                const separator = line.search(/\s/);
+                const timestamp = separator > 0 ? line.slice(0, separator) : "";
+                const hasIsoShape =
+                  timestamp.length >= 20 &&
+                  timestamp[4] === "-" &&
+                  timestamp[7] === "-" &&
+                  timestamp[10] === "T";
+                if (hasIsoShape) {
+                  const message = line.slice(separator).trimStart();
                   return {
                     timestamp,
                     line: `${timestamp} [${con.name}] ${message}`,

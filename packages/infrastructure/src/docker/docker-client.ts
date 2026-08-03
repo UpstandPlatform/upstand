@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -33,6 +33,7 @@ type RemoteProxyEntry =
   | { socketPath: string; close: () => void }
   | { host: string; port: number; close: () => void };
 const remoteDockerProxies = new Map<string, RemoteProxyEntry>();
+const proxyKeySecret = randomBytes(32);
 
 export function getDockerInstance(): Docker {
   const isWindows = process.platform === "win32";
@@ -95,7 +96,7 @@ function ensureRemoteDockerProxy(
     throw new Error("Remote Docker SSH host key is not trusted");
   }
   const credentialKey = connection.privateKey || connection.password || "";
-  const key = createHash("sha256")
+  const key = createHmac("sha256", proxyKeySecret)
     .update(
       `${connection.host}:${connection.port}:${connection.username}:${credentialKey}`,
     )
