@@ -149,6 +149,11 @@ jobs:
         # Keep the merge gate production-shaped so a passing TypeScript check
         # cannot mask a framework or bundler failure.
         run: bun run build
+      - name: Stage standalone web assets for production smoke
+        run: |
+          rm -rf apps/web/.next/standalone/apps/web/.next/static
+          mkdir -p apps/web/.next/standalone/apps/web/.next
+          cp -R apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
       - name: Install browsers for web production smoke
         working-directory: apps/web
         run: bunx playwright install chromium firefox webkit
