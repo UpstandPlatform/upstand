@@ -21,7 +21,7 @@ env:
   # The web app validates this at build time. It is deliberately a reserved
   # CI-only origin; deployments inject their real HTTPS API origin.
   NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
-  ENCRYPTION_KEY_V1: 0000000000000000000000000000000000000000000000000000000000000000
+  ENCRYPTION_KEY_V1: "0000000000000000000000000000000000000000000000000000000000000000"
 
 jobs:
   verify:
