@@ -7,7 +7,13 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 
-export function SsoSignInForm({ disabled = false }: { disabled?: boolean }) {
+export function SsoSignInForm({
+  disabled = false,
+  successPath = "/dashboard",
+}: {
+  disabled?: boolean;
+  successPath?: string;
+}) {
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -16,7 +22,7 @@ export function SsoSignInForm({ disabled = false }: { disabled?: boolean }) {
     try {
       await authClient.signIn.sso({
         email: email.trim() || undefined,
-        callbackURL: `${window.location.origin}/dashboard`,
+        callbackURL: `${window.location.origin}${successPath}`,
         errorCallbackURL: `${window.location.origin}/login?error=sso`,
       });
     } catch (error) {

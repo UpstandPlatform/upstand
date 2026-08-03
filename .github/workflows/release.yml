@@ -619,7 +619,7 @@ jobs:
                 --cap-drop ALL --user 10001:10001 \
                 --entrypoint /bin/sh \
                 alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
-                -c 'wget -qO- "http://$1:13133/" >/dev/null' sh "$OTEL_COLLECTOR_SERVICE"; then
+                -c "wget -qO- \"http://\$1:13133/\" >/dev/null" sh "$OTEL_COLLECTOR_SERVICE"; then
               collector_ready=true
               break
             fi
@@ -746,7 +746,7 @@ jobs:
             --cap-drop ALL --user 10001:10001 \
             --entrypoint /bin/sh \
             alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
-            -c 'wget -qO- --header="Content-Type: application/json" --post-data="$1" "http://$2:4318/v1/logs" >/dev/null' \
+            -c "wget -qO- --header=\"Content-Type: application/json\" --post-data=\"\$1\" \"http://\$2:4318/v1/logs\" >/dev/null" \
             sh "$otlp_probe_payload" "$OTEL_COLLECTOR_SERVICE"
           telemetry_delivered=false
           for attempt in {1..30}; do

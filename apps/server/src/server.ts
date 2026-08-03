@@ -21,6 +21,7 @@ import { getServiceProvider } from "./di";
 import { registerHttpMiddleware } from "./http/middleware";
 import { registerAiRoutes } from "./http/routes/ai";
 import { registerAuthRoutes } from "./http/routes/auth";
+import { registerCliDeviceAuthRoutes } from "./http/routes/cli-device-auth";
 import { registerDeploymentRoutes } from "./http/routes/deployments";
 import { registerMonitoringRoutes } from "./http/routes/monitoring";
 import { registerProviderRoutes } from "./http/routes/providers";
@@ -110,6 +111,8 @@ registerHttpMiddleware(app, {
 });
 
 registerAuthRoutes(app);
+
+registerCliDeviceAuthRoutes(app);
 
 registerTerminalRoutes(app);
 

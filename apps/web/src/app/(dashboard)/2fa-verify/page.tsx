@@ -15,7 +15,7 @@ import { Field, FieldLabel } from "@upstand/ui/components/field";
 import { Input } from "@upstand/ui/components/input";
 import { Separator } from "@upstand/ui/components/separator";
 import { Spinner } from "@upstand/ui/components/spinner";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PageBackdrop } from "@/components/marketing/page-backdrop";
@@ -24,6 +24,11 @@ import { trpc } from "@/utils/trpc";
 
 export default function TwoFactorVerifyPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedReturnTo = searchParams.get("return_to");
+  const returnTo = requestedReturnTo?.startsWith("/login?cli=upstand")
+    ? requestedReturnTo
+    : "/dashboard";
   const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
@@ -60,7 +65,7 @@ export default function TwoFactorVerifyPage() {
           queryKey: trpc.auth.isSession2faVerified.queryKey(),
         });
         toast.success("Authentication successful!");
-        router.push("/dashboard");
+        router.push(returnTo as "/dashboard");
       }
     } catch {
       toast.error("Failed to verify code. Please try again.");
