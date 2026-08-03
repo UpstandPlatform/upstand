@@ -5,7 +5,7 @@ const baseURL = env.WEB_E2E_BASE_URL;
 const webServerCommand =
   process.platform === "win32"
     ? "bun run start -- -p 3001"
-    : "node .next/standalone/apps/web/server.js";
+    : "mkdir -p .next/standalone/apps/web/.next/static .next/standalone/apps/web/public && cp -R .next/static/. .next/standalone/apps/web/.next/static/ && cp -R public/. .next/standalone/apps/web/public/ && node .next/standalone/apps/web/server.js";
 type SupportedBrowser = "chromium" | "firefox" | "webkit";
 
 const requestedBrowser = env.PLAYWRIGHT_BROWSER;

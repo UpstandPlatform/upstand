@@ -1,5 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { Button } from "@upstand/ui/components/button";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import z from "zod";
@@ -9,8 +10,10 @@ import { AuthFormField } from "./auth/auth-form-field";
 
 export default function SignInForm({
   onSwitchToSignUp,
+  successPath = "/dashboard",
 }: {
   onSwitchToSignUp?: () => void;
+  successPath?: string;
 }) {
   const router = useRouter();
   const { refetch: refetchSession } = authClient.useSession();
@@ -61,7 +64,7 @@ export default function SignInForm({
             } catch {
               // Non-fatal: dashboard layout will handle org selection as fallback
             }
-            router.push("/dashboard");
+            router.push(successPath as Route);
             toast.success("Sign in successful");
           },
           onError: (error) => {

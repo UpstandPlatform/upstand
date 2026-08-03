@@ -86,6 +86,7 @@ jobs:
           BETTER_AUTH_URL: http://localhost:3000
           CORS_ORIGIN: http://localhost:3001
           BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+          ENCRYPTION_KEY_V1: MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
         run: |
           bun run db:generate
@@ -150,7 +151,7 @@ jobs:
         run: bun run build
       - name: Install browsers for web production smoke
         working-directory: apps/web
-        run: bunx playwright install chromium firefox webkit
+        run: bunx playwright install --with-deps chromium firefox webkit
       - name: Run web production browser smoke matrix
         working-directory: apps/web
         run: |
@@ -259,7 +260,7 @@ jobs:
             build_args: ""
           - name: monitoring
             context: apps/monitoring
-            file: Dockerfile
+            file: apps/monitoring/Dockerfile
             build_args: ""
     steps:
       - name: Checkout

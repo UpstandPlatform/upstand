@@ -1,0 +1,44 @@
+name: Publish CLI Package
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Git tag or ref containing the CLI version to publish
+        required: true
+        type: string
+
+concurrency:
+  group: npm-cli-${{ inputs.release_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'UpstandPlatform/upstand'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_ref || github.ref }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build CLI
+        run: bun run --filter @upstand/cli build
+
+      - name: Publish @upstand/cli with provenance
+        run: npm publish packages/cli --access public --provenance

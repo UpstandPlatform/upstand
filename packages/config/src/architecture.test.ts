@@ -113,6 +113,7 @@ const roleRules: Record<
 const packageRoles: Record<string, ArchitectureRole> = {
   "@upstand/api": "composition",
   "@upstand/auth": "composition",
+  "@upstand/cli": "host",
   "@upstand/config": "tooling",
   "@upstand/db": "infrastructure",
   "@upstand/domain": "domain",

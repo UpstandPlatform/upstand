@@ -7,9 +7,10 @@ import { Button } from "@upstand/ui/components/button";
 import { Card, CardContent } from "@upstand/ui/components/card";
 import { Spinner } from "@upstand/ui/components/spinner";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { CliAuthorizePanel } from "@/components/auth/cli-authorize-panel";
 import SignInForm from "@/components/sign-in-form";
 import SignUpForm from "@/components/sign-up-form";
 import { SsoSignInForm } from "@/components/sso-sign-in-form";
@@ -37,8 +38,16 @@ const GoogleIcon = () => (
   </svg>
 );
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const cliUserCode =
+    searchParams.get("cli") === "upstand"
+      ? searchParams.get("user_code")
+      : null;
+  const cliPath = cliUserCode
+    ? `/login?cli=upstand&user_code=${encodeURIComponent(cliUserCode)}`
+    : "/login";
   const [loading, setLoading] = useState(false);
   const [needsOwnerSetup, setNeedsOwnerSetup] = useState<boolean | null>(null);
   const [setupError, setSetupError] = useState(false);
@@ -114,7 +123,7 @@ export default function LoginPage() {
     try {
       await authClient.signIn.social({
         provider: "google",
-        callbackURL: `${window.location.origin}/dashboard`,
+        callbackURL: `${window.location.origin}${cliPath}`,
       });
     } catch (err) {
       toast.error(
@@ -166,6 +175,8 @@ export default function LoginPage() {
                 Checking authentication state…
               </p>
             </div>
+          ) : session && cliUserCode ? (
+            <CliAuthorizePanel userCode={cliUserCode} />
           ) : session ? (
             <div className="space-y-6">
               <div className="space-y-2 text-center">
@@ -249,6 +260,7 @@ export default function LoginPage() {
               <div className="space-y-5">
                 {isSignUp ? (
                   <SignUpForm
+                    successPath={cliUserCode ? cliPath : "/dashboard"}
                     onSwitchToSignIn={
                       isCloud && !needsOwnerSetup
                         ? () => setAuthMode("signin")
@@ -257,6 +269,7 @@ export default function LoginPage() {
                   />
                 ) : (
                   <SignInForm
+                    successPath={cliUserCode ? cliPath : "/dashboard"}
                     onSwitchToSignUp={
                       isCloud ? () => setAuthMode("signup") : undefined
                     }
@@ -278,7 +291,7 @@ export default function LoginPage() {
                     </>
                   )}
                 </Button>
-                {!isSignUp && <SsoSignInForm />}
+                {!isSignUp && <SsoSignInForm successPath={cliPath} />}
               </div>
             </>
           )}
@@ -301,5 +314,19 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full items-center justify-center">
+          <Spinner />
+        </div>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
   );
 }

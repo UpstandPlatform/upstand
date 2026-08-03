@@ -1,7 +1,55 @@
 ---
-title: Administrative CLI Tools
-description: Emergency recovery commands and CLI utilities for system operators.
+title: Upstand CLI
+description: Developer and administrative command-line tools for Upstand.
 ---
+
+# Public Upstand CLI
+
+Upstand provides an OpenTUI-powered public CLI for developers and automation.
+Install the package with Bun:
+
+```bash
+bun add -g @upstand/cli
+```
+
+For a self-hosted control plane, set `UPSTAND_URL` to the API origin. For CI,
+set `UPSTAND_TOKEN` to an organization API key created with the least privilege
+needed by the workflow.
+
+```bash
+export UPSTAND_URL=https://api.example.com
+export UPSTAND_TOKEN=upk_...
+
+upstand project list --organization <organization-id>
+upstand environment list --project <project-id>
+upstand resource list --environment <environment-id>
+upstand deployment list --organization <organization-id>
+```
+
+In an interactive terminal, `upstand login` starts a browser-based device
+login. It opens the Upstand sign-in page, asks you to approve an organization
+and permission level, and saves the resulting API key locally. Use
+`upstand login --token upk_...` for an explicitly supplied key or CI.
+
+Link a repository directory to an Upstand environment and deploy a resource:
+
+```bash
+upstand link \
+  --organization <organization-id> \
+  --project <project-id> \
+  --environment <environment-id>
+upstand deploy <resource-id>
+upstand logs <deployment-id>
+```
+
+The link is stored in `.upstand/project.json`; credentials are stored in the
+user configuration directory and are never written to the repository. Use
+`--json` for automation, `--silent` to suppress human output, and `--yes` for
+destructive commands such as cancellation and rollback.
+
+The `upstand api <namespace.action> --input '{...}'` command exposes the
+canonical Upstand procedure surface for advanced workflows while dedicated
+commands are added for common operations.
 
 Upstand ships with an administrative command-line interface (`cli.mjs`) bundled inside the control-plane container. Operators can use the CLI for emergency account recovery and maintenance directly from host terminals.
 
