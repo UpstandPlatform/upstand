@@ -110,7 +110,7 @@ fi
       exit 0
     fi
     if [[ "$format" == *CapabilityAdd* ]]; then
-      printf '["CHOWN","DAC_OVERRIDE","SETGID","SETUID"]\n'
+      printf '["CAP_CHOWN","CAP_DAC_OVERRIDE","CAP_SETGID","CAP_SETUID"]\n'
       exit 0
     fi
   fi
@@ -123,7 +123,7 @@ fi
       exit 0
     fi
     if [[ "$format" == *CapabilityAdd* ]]; then
-      printf '["CHOWN","DAC_OVERRIDE","SETGID","SETUID"]\n'
+      printf '["CAP_CHOWN","CAP_DAC_OVERRIDE","CAP_SETGID","CAP_SETUID"]\n'
       exit 0
     fi
   fi
@@ -136,7 +136,7 @@ fi
       exit 0
     fi
     if [[ "$format" == *CapabilityAdd* ]]; then
-      printf '["CHOWN","DAC_OVERRIDE","SETGID","SETUID"]\n'
+      printf '["CAP_CHOWN","CAP_DAC_OVERRIDE","CAP_SETGID","CAP_SETUID"]\n'
       exit 0
     fi
   fi
@@ -149,7 +149,7 @@ fi
       exit 0
     fi
     if [[ "$format" == *CapabilityAdd* ]]; then
-      printf '["CHOWN","DAC_OVERRIDE","SETGID","SETUID"]\n'
+      printf '["CAP_CHOWN","CAP_DAC_OVERRIDE","CAP_SETGID","CAP_SETUID"]\n'
       exit 0
     fi
   fi
