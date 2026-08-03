@@ -26,6 +26,11 @@ upstand resource list --environment <environment-id>
 upstand deployment list --organization <organization-id>
 ```
 
+In an interactive terminal, `upstand login` starts a browser-based device
+login. It opens the Upstand sign-in page, asks you to approve an organization
+and permission level, and saves the resulting API key locally. Use
+`upstand login --token upk_...` for an explicitly supplied key or CI.
+
 Link a repository directory to an Upstand environment and deploy a resource:
 
 ```bash

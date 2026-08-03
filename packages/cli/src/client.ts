@@ -44,6 +44,29 @@ export class UpstandClient {
     return this.request<T>("POST", procedure, input);
   }
 
+  async deviceAuthorize() {
+    return this.deviceRequest<{
+      deviceCode: string;
+      userCode: string;
+      verificationUri: string;
+      expiresIn: number;
+      interval: number;
+    }>("authorize", { clientId: "upstand-cli" });
+  }
+
+  async deviceToken(deviceCode: string) {
+    return this.deviceRequest<{
+      status:
+        | "authorization_pending"
+        | "access_denied"
+        | "expired_token"
+        | "approved";
+      accessToken?: string;
+      organizationId?: string;
+      tokenType?: "Bearer";
+    }>("token", { clientId: "upstand-cli", deviceCode });
+  }
+
   private async request<T>(
     method: "GET" | "POST",
     procedure: string,
@@ -90,5 +113,35 @@ export class UpstandClient {
       throw new ApiError(message, response.status, body);
     }
     return { data: body as T, response };
+  }
+
+  private async deviceRequest<T>(
+    action: "authorize" | "token",
+    body: Record<string, unknown>,
+  ) {
+    const response = await this.fetcher(
+      new URL(`/api/cli/device/${action}`, this.options.apiUrl),
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": "@upstand/cli",
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const payload = await response.json().catch(() => undefined);
+    if (!response.ok && response.status !== 428) {
+      const message =
+        typeof payload === "object" &&
+        payload !== null &&
+        "error" in payload &&
+        typeof payload.error === "string"
+          ? payload.error
+          : `Upstand CLI authentication failed with status ${response.status}`;
+      throw new ApiError(message, response.status, payload);
+    }
+    return { data: payload as T, response };
   }
 }

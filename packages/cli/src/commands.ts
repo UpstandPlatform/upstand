@@ -70,33 +70,85 @@ export async function runCommand(context: CommandContext): Promise<number> {
 }
 
 async function login(context: CommandContext, output: Output): Promise<number> {
-  const token = (
-    flag(context, "token") ||
-    process.env.UPSTAND_TOKEN ||
-    (context.options.output === "human" && isInteractiveTerminal()
-      ? await promptText("Paste your Upstand API key")
-      : undefined)
-  )?.trim();
-  if (!token) {
-    const url = `${context.options.apiUrl}/login?cli=upstand`;
-    if (context.options.output === "json") {
-      await output.value({
-        error: "An API key is required for login.",
-        loginUrl: url,
-      });
-      return 2;
-    }
-    await output.message(
-      `Open ${url} in a browser, then rerun with the API key from Organization Settings:\n\n  upstand login --token upk_...`,
-    );
-    return 2;
-  }
+  const token = (flag(context, "token") || process.env.UPSTAND_TOKEN)?.trim();
+  if (!token) return await loginWithBrowser(context, output);
   await saveToken(token, context.options.apiUrl);
   await output.message(
     "Token saved securely in the Upstand user configuration.",
     "success",
   );
   return 0;
+}
+
+async function loginWithBrowser(
+  context: CommandContext,
+  output: Output,
+): Promise<number> {
+  const authorization = await new UpstandClient(
+    context.options,
+  ).deviceAuthorize();
+  if (context.options.output === "json") {
+    await output.value({
+      verificationUri: authorization.data.verificationUri,
+      userCode: authorization.data.userCode,
+      expiresIn: authorization.data.expiresIn,
+      interval: authorization.data.interval,
+    });
+    return 2;
+  }
+  if (!isInteractiveTerminal()) {
+    await output.message(
+      `Open ${authorization.data.verificationUri} and approve code ${authorization.data.userCode}, then rerun login with --token or from an interactive terminal.`,
+    );
+    return 2;
+  }
+  await output.message(
+    `Open ${authorization.data.verificationUri}\n\nYour one-time code is ${authorization.data.userCode}. Waiting for browser approval…`,
+  );
+  await openBrowser(authorization.data.verificationUri);
+
+  const deadline = Date.now() + authorization.data.expiresIn * 1_000;
+  while (Date.now() < deadline) {
+    const result = await new UpstandClient(context.options).deviceToken(
+      authorization.data.deviceCode,
+    );
+    if (result.response.status === 200 && result.data.status === "approved") {
+      if (!result.data.accessToken)
+        throw new Error("CLI authorization returned no access token.");
+      await saveToken(result.data.accessToken, context.options.apiUrl);
+      await output.message(
+        "Signed in successfully. Token saved securely.",
+        "success",
+      );
+      return 0;
+    }
+    if (result.data.status === "access_denied")
+      throw new Error("CLI authorization was denied.");
+    if (result.data.status === "expired_token")
+      throw new Error("CLI authorization expired. Run upstand login again.");
+    await Bun.sleep(Math.max(1, authorization.data.interval) * 1_000);
+  }
+  throw new Error("CLI authorization expired. Run upstand login again.");
+}
+
+async function openBrowser(url: string): Promise<void> {
+  const command =
+    process.platform === "win32"
+      ? ["cmd", "/c", "start", "", url]
+      : process.platform === "darwin"
+        ? ["open", url]
+        : ["xdg-open", url];
+  try {
+    const child = Bun.spawn(command, {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    void child.exited;
+  } catch {
+    // The URL and code are already displayed, so a missing desktop opener does
+    // not prevent users from completing the flow manually.
+  }
 }
 
 async function whoami(output: Output, client: UpstandClient): Promise<number> {
