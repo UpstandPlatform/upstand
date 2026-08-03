@@ -328,7 +328,15 @@ jobs:
 
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
-            inspect="$(docker buildx imagetools inspect "$image")"
+            inspect=""
+            for attempt in 1 2 3 4 5; do
+              if inspect="$(docker buildx imagetools inspect "$image" 2>&1)"; then
+                break
+              fi
+              echo "Unable to inspect $image on attempt $attempt; retrying..." >&2
+              printf '%s\n' "$inspect" >&2
+              sleep 10
+            done
             digest="$(awk '$1 == "Digest:" { print $2; exit }' <<< "$inspect")"
             if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
               echo "Could not verify immutable digest for $image" >&2
@@ -431,7 +439,16 @@ jobs:
           repo="${GH_REPO,,}"
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
-            digest="$(docker buildx imagetools inspect "$image" | awk '$1 == "Digest:" { print $2; exit }')"
+            inspect=""
+            for attempt in 1 2 3 4 5; do
+              if inspect="$(docker buildx imagetools inspect "$image" 2>&1)"; then
+                break
+              fi
+              echo "Unable to inspect $image on attempt $attempt; retrying..." >&2
+              printf '%s\n' "$inspect" >&2
+              sleep 10
+            done
+            digest="$(printf '%s\n' "$inspect" | awk '$1 == "Digest:" { print $2; exit }')"
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
               echo "Could not resolve an immutable digest for $image" >&2
               exit 1
