@@ -1,5 +1,11 @@
 # web
 
+## 0.1.33
+
+### Patch Changes
+
+- [#141](https://github.com/UpstandPlatform/upstand/pull/141) [`42a27fd`](https://github.com/UpstandPlatform/upstand/commit/42a27fd60c74462dca58cfca9e7f86754dbe8b9f) Thanks [@mhbdev](https://github.com/mhbdev)! - Promote the OpenTUI CLI and browser device authentication in the next stable patch release.
+
 ## 0.1.32
 
 ### Patch Changes

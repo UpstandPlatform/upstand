@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.33 - 2026-08-03
+
+Promote the OpenTUI CLI and browser device authentication in the next stable patch release.
+
 ## 0.1.32 - 2026-08-02
 
 Release 0.1.32 setting up Docker Buildx before logging in to GHCR in pre-release-acceptance job.
