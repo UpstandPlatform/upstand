@@ -41,4 +41,4 @@ jobs:
         run: bun run --filter @upstand/cli build
 
       - name: Publish @upstand/cli with provenance
-        run: npm publish packages/cli --access public --provenance
+        run: npm publish ./packages/cli --access public --provenance
