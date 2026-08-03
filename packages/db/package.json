@@ -20,7 +20,7 @@
     "lint": "biome check ."
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.3.14",
+    "@electric-sql/pglite": "^0.5.4",
     "@upstand/domain": "workspace:*",
     "@upstand/env": "workspace:*",
     "dotenv": "catalog:",
