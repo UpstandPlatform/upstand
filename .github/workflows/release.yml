@@ -270,7 +270,7 @@ jobs:
         run: bun run --cwd apps/desktop make
 
       - name: Upload desktop release assets
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: desktop-${{ matrix.name }}
           path: apps/desktop/out/make/**
@@ -287,7 +287,7 @@ jobs:
       packages: read
     steps:
       - name: Download desktop release assets
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: desktop-*
           path: ${{ runner.temp }}/desktop-assets
@@ -911,7 +911,7 @@ jobs:
 
       - name: Upload recovery rehearsal evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: production-recovery-evidence
           path: ${{ runner.temp }}/upstand-backup-rehearsal.txt
@@ -920,7 +920,7 @@ jobs:
 
       - name: Upload production acceptance evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: production-acceptance-evidence
           path: ${{ runner.temp }}/upstand-acceptance-evidence
