@@ -620,7 +620,9 @@ jobs:
             --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           bundled_accepted=false
-          for attempt in {1..5}; do
+          # Swarm services may need a full image/migration startup window
+          # after stack deploy on a fresh hosted runner.
+          for attempt in {1..12}; do
             if DOCKER_BIN=docker timeout --foreground 60 \
               bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK"; then
@@ -742,7 +744,7 @@ jobs:
           }
 
           external_accepted=false
-          for attempt in {1..5}; do
+          for attempt in {1..12}; do
             if DOCKER_BIN=docker timeout --foreground 60 \
               bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --require-ha \
