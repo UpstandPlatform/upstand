@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.41 - 2026-08-03
+
+Use Bun directly for production healthchecks in the bundled Compose stack.
+
 ## 0.1.40 - 2026-08-03
 
 Use the Bun runtime for bundled API and schedules healthchecks instead of assuming curl is installed.

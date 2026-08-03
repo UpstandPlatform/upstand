@@ -1,5 +1,11 @@
 # server
 
+## 0.1.41
+
+### Patch Changes
+
+- [#176](https://github.com/UpstandPlatform/upstand/pull/176) [`ca350e5`](https://github.com/UpstandPlatform/upstand/commit/ca350e567bf62ecce3ae776ec7dae4b8d0e53fa9) Thanks [@mhbdev](https://github.com/mhbdev)! - Use Bun directly for production healthchecks in the bundled Compose stack.
+
 ## 0.1.40
 
 ### Patch Changes
