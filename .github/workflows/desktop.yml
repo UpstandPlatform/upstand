@@ -70,5 +70,17 @@ jobs:
           bun run --cwd apps/desktop check-types
           bun run --cwd apps/desktop test
 
+      - name: Build desktop payload
+        env:
+          NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
+          BETTER_AUTH_URL: http://localhost:3000
+          CORS_ORIGIN: http://localhost:3001
+          BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+          ENCRYPTION_KEY_V1: MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
+        run: |
+          bun run --filter server build
+          bun run --filter web build
+
       - name: Package desktop app
         run: bun run --cwd apps/desktop package

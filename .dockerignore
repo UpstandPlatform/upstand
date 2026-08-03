@@ -21,6 +21,7 @@
 
 Dockerfile
 **/Dockerfile
+!**/Dockerfile
 docker-compose.yml
 
 # Secrets stay out of image layers; runtime env comes from compose env_file,
