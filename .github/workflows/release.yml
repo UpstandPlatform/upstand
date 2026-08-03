@@ -609,6 +609,7 @@ jobs:
           collector_ready=false
           for attempt in {1..30}; do
             collector_state="$(docker service ps "$OTEL_COLLECTOR_SERVICE" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
+            # shellcheck disable=SC2016
             if [[ "$collector_state" == Running\ * ]] \
               && timeout --foreground 10 docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --user 10001:10001 \
@@ -737,6 +738,7 @@ jobs:
             --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           otlp_probe_payload='{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"upstand-release-acceptance"},"logRecords":[{"timeUnixNano":"1700000000000000000","severityNumber":9,"severityText":"INFO","body":{"stringValue":"upstand acceptance OTLP probe"},"attributes":[]}]}]}]}'
+          # shellcheck disable=SC2016
           timeout --foreground 30 docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --user 10001:10001 \
             --entrypoint /bin/sh \
