@@ -1,5 +1,11 @@
 # server
 
+## 0.1.39
+
+### Patch Changes
+
+- [#172](https://github.com/UpstandPlatform/upstand/pull/172) [`869d43e`](https://github.com/UpstandPlatform/upstand/commit/869d43e45d1592c84b7b419352ce3f39f17d23d7) Thanks [@mhbdev](https://github.com/mhbdev)! - Run the bundled PostgreSQL service as its explicit non-root runtime identity.
+
 ## 0.1.38
 
 ### Patch Changes
