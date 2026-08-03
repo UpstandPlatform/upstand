@@ -565,10 +565,10 @@ jobs:
             echo "Could not determine a routable Swarm advertise address" >&2
             exit 1
           }
-          docker swarm init --advertise-addr "$advertise_addr"
-          docker network create --driver overlay --attachable --opt encrypted "$DOCKER_NETWORK"
+          timeout --foreground 60 docker swarm init --advertise-addr "$advertise_addr"
+          timeout --foreground 60 docker network create --driver overlay --attachable --opt encrypted "$DOCKER_NETWORK"
 
-          docker service create \
+          timeout --foreground 60 docker service create \
             --name "$NETWORK_PROBE_NAME" \
             --network "$DOCKER_NETWORK" \
             --cap-drop ALL \
@@ -598,8 +598,8 @@ jobs:
           }
           docker service rm "$NETWORK_PROBE_NAME" >/dev/null
 
-          docker config create "$OTEL_COLLECTOR_CONFIG" scripts/otel-collector-acceptance.yaml >/dev/null
-          docker service create \
+          timeout --foreground 60 docker config create "$OTEL_COLLECTOR_CONFIG" scripts/otel-collector-acceptance.yaml >/dev/null
+          timeout --foreground 60 docker service create \
             --name "$OTEL_COLLECTOR_SERVICE" \
             --network "$DOCKER_NETWORK" \
             --cap-drop ALL \
@@ -673,7 +673,7 @@ jobs:
           # integration fixtures. This phase proves external URL wiring,
           # migration compatibility, and stateless control-plane HA; it does
           # not claim PostgreSQL or Redis HA/failover evidence.
-          docker service create \
+          timeout --foreground 60 docker service create \
             --name "${STACK_NAME}_external_postgres" \
             --network "$DOCKER_NETWORK" \
             --cap-drop ALL \
@@ -690,7 +690,7 @@ jobs:
             --health-retries 10 \
             --health-start-period 20s \
             postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
-          docker service create \
+          timeout --foreground 60 docker service create \
             --name "${STACK_NAME}_external_redis" \
             --network "$DOCKER_NETWORK" \
             --cap-drop ALL \
