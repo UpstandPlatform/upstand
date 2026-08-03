@@ -14,6 +14,7 @@ run_gate() {
 run_gate valid --allow-unobserved
 run_gate observed
 run_gate bundled --allow-unobserved
+run_gate proc-fallback --allow-unobserved
 run_gate ha --require-ha --allow-unobserved --external-postgres-service upstand_external_postgres --external-redis-service upstand_external_redis
 run_gate remote-tasks --allow-remote-tasks --allow-unobserved
 run_gate node-local --node-local --allow-unobserved
@@ -78,6 +79,15 @@ if output="$(run_gate stateful-root 2>&1)"; then
 fi
 [[ "$output" == *"root runtime process"* ]] || {
   echo "acceptance gate rejected a stateful root process for an unexpected reason: $output" >&2
+  exit 1
+}
+
+if output="$(run_gate proc-fallback-root --allow-unobserved 2>&1)"; then
+  echo "expected the /proc fallback to reject a stateful service with a root process" >&2
+  exit 1
+fi
+[[ "$output" == *"root runtime process"* ]] || {
+  echo "/proc fallback rejected a root stateful process for an unexpected reason: $output" >&2
   exit 1
 }
 

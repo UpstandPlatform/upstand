@@ -32,6 +32,38 @@ fail() {
   exit 1
 }
 
+assert_no_root_runtime_process() {
+  local container_id="$1"
+  local subject="$2"
+  local process_users process_rows root_process
+
+  if process_users="$(docker_cmd top "$container_id" -eo user 2>/dev/null)"; then
+    process_rows="$(printf '%s\n' "$process_users" | tail -n +2 | sed '/^[[:space:]]*$/d')"
+  else
+    # Official stateful images may not include `ps`, which makes `docker top`
+    # unavailable. Read process UIDs through a non-root exec instead so the
+    # inspection shell itself cannot create a false root-process result.
+    process_rows="$(docker_cmd exec --user 65534:65534 "$container_id" /bin/sh -ec '
+      found=0
+      for status in /proc/[0-9]*/status; do
+        [ -r "$status" ] || continue
+        uid="$(awk '\''$1 == "Uid:" { print $2; exit }'\'' "$status")"
+        [ -n "$uid" ] || continue
+        printf "%s %s\\n" "$uid" "${status##*/}"
+        found=1
+      done
+      [ "$found" -eq 1 ]
+    ' 2>/dev/null)" \
+      || fail "$subject process users could not be inspected with docker top or the container /proc fallback"
+  fi
+
+  [[ -n "$process_rows" ]] \
+    || fail "$subject has no inspectable runtime process"
+  root_process="$(printf '%s\n' "$process_rows" | awk '$1 == "0" || $1 == "root" { print; exit }')"
+  [[ -z "$root_process" ]] \
+    || fail "$subject has a root runtime process: $root_process"
+}
+
 while (($# > 0)); do
   case "$1" in
     --stack)
@@ -84,7 +116,6 @@ done
 assert_node_local_container() {
   local container_id="$1"
   local service_name image health runtime_user capabilities readonly_rootfs
-  local process_users process_rows root_process
 
   service_name="$(docker_cmd inspect --format '{{index .Config.Labels "com.docker.swarm.service.name"}}' "$container_id")" \
     || fail "node-local container '$container_id' service label could not be inspected"
@@ -103,14 +134,9 @@ assert_node_local_container() {
   runtime_user="$(docker_cmd inspect --format '{{.Config.User}}' "$container_id")" \
     || fail "node-local container '$container_id' runtime user could not be inspected"
   if [[ -z "$runtime_user" || "$runtime_user" == "0" || "$runtime_user" == "root" ]]; then
-    process_users="$(docker_cmd top "$container_id" -eo user 2>/dev/null)" \
-      || fail "node-local service '$service_name' container '$container_id' process users could not be inspected"
-    process_rows="$(printf '%s\n' "$process_users" | tail -n +2 | sed '/^[[:space:]]*$/d')"
-    [[ -n "$process_rows" ]] \
-      || fail "node-local service '$service_name' container '$container_id' has no inspectable runtime process"
-    root_process="$(printf '%s\n' "$process_rows" | awk '$1 == "0" || $1 == "root" { print; exit }')"
-    [[ -z "$root_process" ]] \
-      || fail "node-local service '$service_name' container '$container_id' has a root runtime process: $root_process"
+    assert_no_root_runtime_process \
+      "$container_id" \
+      "node-local service '$service_name' container '$container_id'"
   fi
 
   capabilities="$(docker_cmd inspect --format '{{json .HostConfig.CapDrop}}' "$container_id")" \
@@ -314,14 +340,9 @@ assert_service() {
         # then drop to the service account. Inspect the effective process table
         # when the image does not declare a static user; checking Config.User
         # alone would reject a healthy bundled deployment.
-        process_users="$(docker_cmd top "$container_id" -eo user 2>/dev/null)" \
-          || fail "service '$service_name' container '$container_id' process users could not be inspected"
-        process_rows="$(printf '%s\n' "$process_users" | tail -n +2 | sed '/^[[:space:]]*$/d')"
-        [[ -n "$process_rows" ]] \
-          || fail "service '$service_name' container '$container_id' has no inspectable runtime process"
-        root_process="$(printf '%s\n' "$process_rows" | awk '$1 == "0" || $1 == "root" { print; exit }')"
-        [[ -z "$root_process" ]] \
-          || fail "service '$service_name' container '$container_id' has a root runtime process: $root_process"
+        assert_no_root_runtime_process \
+          "$container_id" \
+          "service '$service_name' container '$container_id'"
       }
     if [[ "$service_name" == *_migrate || "$service_name" == *_server || "$service_name" == *_schedules ]]; then
       container_readonly="$(docker_cmd inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")" \
