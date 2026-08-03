@@ -549,6 +549,10 @@ jobs:
           export UPSTAND_SCHEDULES_REPLICAS=1
           export UPSTAND_WEB_REPLICAS=1
           export UPSTAND_FUMADOCS_REPLICAS=1
+          # Hosted Docker Swarm runners can create encrypted overlay metadata
+          # but cannot execute encrypted IPSec service tasks. Production
+          # operators retain the strict default in production-acceptance.sh.
+          export UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false
 
           {
             printf 'release_ref=%s\n' "$RELEASE_REF"
