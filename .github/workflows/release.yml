@@ -636,8 +636,8 @@ jobs:
             --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           bundled_accepted=false
-          for attempt in {1..60}; do
-            if DOCKER_BIN=docker timeout --foreground 180 \
+          for attempt in {1..5}; do
+            if DOCKER_BIN=docker timeout --foreground 60 \
               bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK"; then
               bundled_accepted=true
@@ -656,7 +656,7 @@ jobs:
           # runner is single-node, so this validates local process, health,
           # identity, capability, and filesystem checks without overclaiming
           # remote-node coverage.
-          DOCKER_BIN=docker timeout --foreground 180 \
+          DOCKER_BIN=docker timeout --foreground 60 \
             bash scripts/production-acceptance.sh \
             --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --node-local \
             2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/node-local-bundled.txt"
@@ -758,8 +758,8 @@ jobs:
           }
 
           external_accepted=false
-          for attempt in {1..60}; do
-            if DOCKER_BIN=docker timeout --foreground 180 \
+          for attempt in {1..5}; do
+            if DOCKER_BIN=docker timeout --foreground 60 \
               bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --require-ha \
               --external-postgres-service "${STACK_NAME}_external_postgres" \
