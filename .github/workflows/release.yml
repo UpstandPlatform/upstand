@@ -565,6 +565,11 @@ jobs:
             echo "Could not determine a routable Swarm advertise address" >&2
             exit 1
           }
+          # Encrypted overlay services require the host IPSec/netfilter
+          # modules. Hosted Ubuntu images may not load them by default.
+          sudo modprobe xfrm_user || true
+          sudo modprobe xt_u32 || true
+          sudo modprobe xt_policy || true
           timeout --foreground 60 docker swarm init --advertise-addr "$advertise_addr"
           timeout --foreground 60 docker network create --driver overlay --attachable --opt encrypted "$DOCKER_NETWORK"
 
