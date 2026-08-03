@@ -184,24 +184,26 @@ async function initializeCaddyViaSsh(
   //    API path does (create → network connect → start).
   const runCmd = [
     "docker create",
-    `--name ${CADDY_CONTAINER_NAME}`,
+    `--name ${shellQuote(CADDY_CONTAINER_NAME)}`,
     "--label com.upstand.component=caddy",
     "--label com.upstand.platform=true",
     "--restart always",
-    `-p ${publishedHttpPort}:${caddyHttpPort}`,
-    `-p ${publishedHttpsPort}:${caddyHttpsPort}`,
+    `-p ${shellQuote(`${publishedHttpPort}:${caddyHttpPort}`)}`,
+    `-p ${shellQuote(`${publishedHttpsPort}:${caddyHttpsPort}`)}`,
     ...(settings.enableHttp3 === false
       ? []
-      : [`-p ${publishedHttpsPort}:${caddyHttpsPort}/udp`]),
+      : [`-p ${shellQuote(`${publishedHttpsPort}:${caddyHttpsPort}/udp`)}`]),
     "-v upstand-caddy-runtime:/etc/caddy",
     "-v upstand-caddy-data:/data",
     "-v upstand-caddy-config:/config",
     "-v upstand-caddy-logs:/var/log/caddy",
-    `-e UPSTAND_CADDYFILE_B64="${bootstrapConfig}"`,
+    `-e ${shellQuote(`UPSTAND_CADDYFILE_B64=${bootstrapConfig}`)}`,
     "--entrypoint /bin/sh",
-    CADDY_IMAGE,
+    shellQuote(CADDY_IMAGE),
     "-ec",
-    `"if [ ! -s /etc/caddy/Caddyfile ]; then printf '%s' \\"$UPSTAND_CADDYFILE_B64\\" | base64 -d > /etc/caddy/Caddyfile; fi; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"`,
+    shellQuote(
+      `if [ ! -s /etc/caddy/Caddyfile ]; then printf '%s' "$UPSTAND_CADDYFILE_B64" | base64 -d > /etc/caddy/Caddyfile; fi; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile`,
+    ),
   ].join(" ");
 
   const create = await execute(client, runCmd);
@@ -316,4 +318,8 @@ async function execute(
       });
     });
   });
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }

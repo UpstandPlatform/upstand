@@ -36,7 +36,7 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3000
       CORS_ORIGIN: http://localhost:3001
       BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
-      ENCRYPTION_KEY_V1: 0000000000000000000000000000000000000000000000000000000000000000
+      ENCRYPTION_KEY_V1: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
     steps:
       - name: Checkout Code
@@ -70,7 +70,7 @@ jobs:
           BETTER_AUTH_URL: http://localhost:3000
           CORS_ORIGIN: http://localhost:3001
           BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
-          ENCRYPTION_KEY_V1: 0000000000000000000000000000000000000000000000000000000000000000
+          ENCRYPTION_KEY_V1: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
         run: bun run db:check
 
@@ -328,7 +328,15 @@ jobs:
 
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
-            inspect="$(docker buildx imagetools inspect "$image")"
+            inspect=""
+            for attempt in 1 2 3 4 5; do
+              if inspect="$(docker buildx imagetools inspect "$image" 2>&1)"; then
+                break
+              fi
+              echo "Unable to inspect $image on attempt $attempt; retrying..." >&2
+              printf '%s\n' "$inspect" >&2
+              sleep 10
+            done
             digest="$(awk '$1 == "Digest:" { print $2; exit }' <<< "$inspect")"
             if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
               echo "Could not verify immutable digest for $image" >&2
@@ -414,15 +422,15 @@ jobs:
         with:
           ref: ${{ inputs.release_ref || github.ref }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
       - name: Resolve immutable pushed image digests
         run: |
@@ -431,7 +439,16 @@ jobs:
           repo="${GH_REPO,,}"
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
-            digest="$(docker buildx imagetools inspect "$image" | awk '$1 == "Digest:" { print $2; exit }')"
+            inspect=""
+            for attempt in 1 2 3 4 5; do
+              if inspect="$(docker buildx imagetools inspect "$image" 2>&1)"; then
+                break
+              fi
+              echo "Unable to inspect $image on attempt $attempt; retrying..." >&2
+              printf '%s\n' "$inspect" >&2
+              sleep 10
+            done
+            digest="$(printf '%s\n' "$inspect" | awk '$1 == "Digest:" { print $2; exit }')"
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
               echo "Could not resolve an immutable digest for $image" >&2
               exit 1
@@ -450,6 +467,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
+          ATTESTATION_SOURCE_REF: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -460,7 +478,7 @@ jobs:
             gh attestation verify "oci://${image}" \
               --repo "$GH_REPO" \
               --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
-              --source-ref "$RELEASE_REF"
+              --source-ref "$ATTESTATION_SOURCE_REF"
           done
 
       - name: Deploy and verify a disposable production Swarm
@@ -542,15 +560,15 @@ jobs:
               bash scripts/backup-restore-rehearsal.sh
           } 2>&1 | tee "$BACKUP_REHEARSAL_LOG"
 
-          advertise_addr="$(ip -4 route get 1.1.1.1 | awk '{for (index = 1; index <= NF; index++) if ($index == \"src\") { print $(index + 1); exit }}')"
+          advertise_addr="$(ip -4 route get 1.1.1.1 | awk '{for (field = 1; field <= NF; field++) if ($field == "src") { print $(field + 1); exit }}')"
           [[ "$advertise_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "Could not determine a routable Swarm advertise address" >&2
             exit 1
           }
-          docker swarm init --advertise-addr "$advertise_addr"
-          docker network create --driver overlay --attachable --opt encrypted "$DOCKER_NETWORK"
+          timeout --foreground 60 docker swarm init --advertise-addr "$advertise_addr"
+          timeout --foreground 60 docker network create --driver overlay --attachable --opt encrypted "$DOCKER_NETWORK"
 
-          docker service create \
+          timeout --foreground 60 docker service create \
             --name "$NETWORK_PROBE_NAME" \
             --network "$DOCKER_NETWORK" \
             --cap-drop ALL \
@@ -580,8 +598,8 @@ jobs:
           }
           docker service rm "$NETWORK_PROBE_NAME" >/dev/null
 
-          docker config create "$OTEL_COLLECTOR_CONFIG" scripts/otel-collector-acceptance.yaml >/dev/null
-          docker service create \
+          timeout --foreground 60 docker config create "$OTEL_COLLECTOR_CONFIG" scripts/otel-collector-acceptance.yaml >/dev/null
+          timeout --foreground 60 docker service create \
             --name "$OTEL_COLLECTOR_SERVICE" \
             --network "$DOCKER_NETWORK" \
             --cap-drop ALL \
@@ -592,7 +610,7 @@ jobs:
           for attempt in {1..30}; do
             collector_state="$(docker service ps "$OTEL_COLLECTOR_SERVICE" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
             if [[ "$collector_state" == Running\ * ]] \
-              && docker run --rm --network "$DOCKER_NETWORK" \
+              && timeout --foreground 10 docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --user 10001:10001 \
                 --entrypoint /bin/sh \
                 alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
@@ -614,11 +632,13 @@ jobs:
           }
           export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"
 
-          docker stack deploy --with-registry-auth --compose-file docker-compose.prod.yml "$STACK_NAME"
+          timeout --foreground 300 docker stack deploy --with-registry-auth \
+            --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           bundled_accepted=false
-          for attempt in {1..60}; do
-            if DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+          for attempt in {1..5}; do
+            if DOCKER_BIN=docker timeout --foreground 60 \
+              bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK"; then
               bundled_accepted=true
               break
@@ -636,7 +656,8 @@ jobs:
           # runner is single-node, so this validates local process, health,
           # identity, capability, and filesystem checks without overclaiming
           # remote-node coverage.
-          DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+          DOCKER_BIN=docker timeout --foreground 60 \
+            bash scripts/production-acceptance.sh \
             --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --node-local \
             2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/node-local-bundled.txt"
 
@@ -652,7 +673,7 @@ jobs:
           # integration fixtures. This phase proves external URL wiring,
           # migration compatibility, and stateless control-plane HA; it does
           # not claim PostgreSQL or Redis HA/failover evidence.
-          docker service create \
+          timeout --foreground 60 docker service create \
             --name "${STACK_NAME}_external_postgres" \
             --network "$DOCKER_NETWORK" \
             --cap-drop ALL \
@@ -669,7 +690,7 @@ jobs:
             --health-retries 10 \
             --health-start-period 20s \
             postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
-          docker service create \
+          timeout --foreground 60 docker service create \
             --name "${STACK_NAME}_external_redis" \
             --network "$DOCKER_NETWORK" \
             --cap-drop ALL \
@@ -686,11 +707,11 @@ jobs:
             redis-server --appendonly yes --appendfsync everysec --requirepass upstand-ci-password
 
           for attempt in {1..60}; do
-            if docker run --rm --network "$DOCKER_NETWORK" \
+            if timeout --foreground 10 docker run --rm --network "$DOCKER_NETWORK" \
               --entrypoint pg_isready \
               postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15 \
               -h "${STACK_NAME}_external_postgres" -U upstand -d upstand >/dev/null 2>&1 \
-              && docker run --rm --network "$DOCKER_NETWORK" \
+              && timeout --foreground 10 docker run --rm --network "$DOCKER_NETWORK" \
                 --entrypoint redis-cli \
                 redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb \
                 -h "${STACK_NAME}_external_redis" -a upstand-ci-password ping 2>/dev/null | grep -q PONG; then
@@ -712,10 +733,11 @@ jobs:
           export UPSTAND_SCHEDULES_REPLICAS=2
           export UPSTAND_WEB_REPLICAS=2
           export UPSTAND_FUMADOCS_REPLICAS=2
-          docker stack deploy --with-registry-auth --compose-file docker-compose.prod.yml "$STACK_NAME"
+          timeout --foreground 300 docker stack deploy --with-registry-auth \
+            --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           otlp_probe_payload='{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"upstand-release-acceptance"},"logRecords":[{"timeUnixNano":"1700000000000000000","severityNumber":9,"severityText":"INFO","body":{"stringValue":"upstand acceptance OTLP probe"},"attributes":[]}]}]}]}'
-          docker run --rm --network "$DOCKER_NETWORK" \
+          timeout --foreground 30 docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --user 10001:10001 \
             --entrypoint /bin/sh \
             alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
@@ -736,8 +758,9 @@ jobs:
           }
 
           external_accepted=false
-          for attempt in {1..60}; do
-            if DOCKER_BIN=docker bash scripts/production-acceptance.sh \
+          for attempt in {1..5}; do
+            if DOCKER_BIN=docker timeout --foreground 60 \
+              bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --require-ha \
               --external-postgres-service "${STACK_NAME}_external_postgres" \
               --external-redis-service "${STACK_NAME}_external_redis"; then

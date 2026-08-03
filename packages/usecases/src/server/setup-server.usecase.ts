@@ -444,13 +444,17 @@ export class SetupServerUseCase {
         const tarFileName = `monitoring-${server.id}-${Date.now()}.tar.gz`;
         localTarPath = path.join(process.cwd(), ".builds", tarFileName);
         fs.mkdirSync(path.dirname(localTarPath), { recursive: true });
-        const { exec } = await import("node:child_process");
+        const { execFile } = await import("node:child_process");
         const { promisify } = await import("node:util");
-        const execAsync = promisify(exec);
+        const execFileAsync = promisify(execFile);
         log.info({
           message: `[Monitoring Setup] Creating tarball at ${localTarPath}`,
         });
-        await execAsync(`tar -czf "${localTarPath}" -C "${monitoringPath}" .`);
+        await execFileAsync(
+          "tar",
+          ["-czf", tarFileName, "-C", monitoringPath, "."],
+          { cwd: path.dirname(localTarPath) },
+        );
 
         remoteTarPath = `/tmp/${tarFileName}`;
         remoteSrcPath = `/tmp/monitoring-src-${server.id}`;
