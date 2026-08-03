@@ -1,5 +1,13 @@
 # server
 
+## 0.1.36
+
+### Patch Changes
+
+- [#160](https://github.com/UpstandPlatform/upstand/pull/160) [`3d87e29`](https://github.com/UpstandPlatform/upstand/commit/3d87e296330ce8b5e2d89d38be6d66d17348aa28) Thanks [@mhbdev](https://github.com/mhbdev)! - Prepare the next stable patch release with the hosted production acceptance and dependency security fixes.
+
+- [#164](https://github.com/UpstandPlatform/upstand/pull/164) [`4dacd2e`](https://github.com/UpstandPlatform/upstand/commit/4dacd2ead09fd1c50093da3362ec0710e130647d) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix production acceptance validation for Docker's normalized capability names.
+
 ## 0.1.35
 
 ### Patch Changes

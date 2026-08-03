@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.36 - 2026-08-03
+
+Fix production acceptance validation for Docker's normalized capability names.
+
+Prepare the next stable patch release with the hosted production acceptance and dependency security fixes.
+
 ## 0.1.35 - 2026-08-03
 
 Patch release for the production dependency security update.
