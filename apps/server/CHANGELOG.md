@@ -1,5 +1,11 @@
 # server
 
+## 0.1.37
+
+### Patch Changes
+
+- [#168](https://github.com/UpstandPlatform/upstand/pull/168) [`db0646d`](https://github.com/UpstandPlatform/upstand/commit/db0646d55e3f3498c16ef9a2a58aac929b95e6f7) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix production acceptance when stateful images do not provide `ps` for `docker top`.
+
 ## 0.1.36
 
 ### Patch Changes

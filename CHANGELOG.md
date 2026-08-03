@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.37 - 2026-08-03
+
+Fix production acceptance when stateful images do not provide `ps` for `docker top`.
+
 ## 0.1.36 - 2026-08-03
 
 Fix production acceptance validation for Docker's normalized capability names.
