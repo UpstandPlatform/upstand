@@ -610,7 +610,7 @@ jobs:
           for attempt in {1..30}; do
             collector_state="$(docker service ps "$OTEL_COLLECTOR_SERVICE" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
             if [[ "$collector_state" == Running\ * ]] \
-              && docker run --rm --network "$DOCKER_NETWORK" \
+              && timeout --foreground 10 docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --user 10001:10001 \
                 --entrypoint /bin/sh \
                 alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
@@ -707,11 +707,11 @@ jobs:
             redis-server --appendonly yes --appendfsync everysec --requirepass upstand-ci-password
 
           for attempt in {1..60}; do
-            if docker run --rm --network "$DOCKER_NETWORK" \
+            if timeout --foreground 10 docker run --rm --network "$DOCKER_NETWORK" \
               --entrypoint pg_isready \
               postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15 \
               -h "${STACK_NAME}_external_postgres" -U upstand -d upstand >/dev/null 2>&1 \
-              && docker run --rm --network "$DOCKER_NETWORK" \
+              && timeout --foreground 10 docker run --rm --network "$DOCKER_NETWORK" \
                 --entrypoint redis-cli \
                 redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb \
                 -h "${STACK_NAME}_external_redis" -a upstand-ci-password ping 2>/dev/null | grep -q PONG; then
@@ -737,7 +737,7 @@ jobs:
             --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           otlp_probe_payload='{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"upstand-release-acceptance"},"logRecords":[{"timeUnixNano":"1700000000000000000","severityNumber":9,"severityText":"INFO","body":{"stringValue":"upstand acceptance OTLP probe"},"attributes":[]}]}]}]}'
-          docker run --rm --network "$DOCKER_NETWORK" \
+          timeout --foreground 30 docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --user 10001:10001 \
             --entrypoint /bin/sh \
             alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
