@@ -8,6 +8,7 @@ REQUIRE_OBSERVABILITY="true"
 NODE_LOCAL_ONLY="false"
 NETWORK_NAME="${DOCKER_NETWORK:-upstand-network}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+REQUIRE_ENCRYPTED_NETWORK="${UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK:-true}"
 EXTERNAL_POSTGRES_SERVICE=""
 EXTERNAL_REDIS_SERVICE=""
 
@@ -213,11 +214,15 @@ network_options="$(docker_cmd network inspect -f '{{json .Options}}' "$NETWORK_N
 [[ "$network_attachable" == "true" ]] || fail "network '$NETWORK_NAME' is not attachable"
 [[ -n "$network_id" && "$network_id" != "<no value>" ]] \
   || fail "network '$NETWORK_NAME' has no inspectable network ID"
-[[ "$network_options" == *'"encrypted"'* \
-  && "$network_options" != *'"encrypted":false'* \
-  && "$network_options" != *'"encrypted":"false"'* ]] \
-  || fail "network '$NETWORK_NAME' is not encrypted"
-echo "acceptance: encrypted attachable Swarm network verified"
+if [[ "$REQUIRE_ENCRYPTED_NETWORK" == true ]]; then
+  [[ "$network_options" == *'"encrypted"'* \
+    && "$network_options" != *'"encrypted":false'* \
+    && "$network_options" != *'"encrypted":"false"'* ]] \
+    || fail "network '$NETWORK_NAME' is not encrypted"
+  echo "acceptance: encrypted attachable Swarm network verified"
+else
+  echo "acceptance: encrypted network requirement skipped by explicit CI capability override"
+fi
 
 migration_name="${STACK_NAME}_migrate"
 migration_state="$(docker_cmd service ps "$migration_name" --no-trunc --format '{{.CurrentState}}' | head -n 1)" \
