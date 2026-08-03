@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
+COMPOSE="$ROOT_DIR/docker-compose.prod.yml"
 
 require_workflow_text() {
   local text="$1"
@@ -11,6 +12,17 @@ require_workflow_text() {
     exit 1
   }
 }
+
+require_compose_text() {
+  local text="$1"
+  grep -Fq -- "$text" "$COMPOSE" || {
+    echo "production Compose is missing required contract: $text" >&2
+    exit 1
+  }
+}
+
+require_compose_text "node -e \"fetch(''http://127.0.0.1:3000/health/ready'')"
+require_compose_text "node -e \"fetch(''http://127.0.0.1:3002/health/ready'')"
 
 require_workflow_text "bundled_accepted=false"
 require_workflow_text "runs-on: ubuntu-24.04"
