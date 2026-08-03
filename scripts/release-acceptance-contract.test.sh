@@ -61,6 +61,7 @@ require_workflow_text 'docker node update'
 require_workflow_text '--label-add upstand.control-plane=true'
 require_workflow_text 'docker service ps "${STACK_NAME}_${service}" --no-trunc'
 require_workflow_text 'release_version="${RELEASE_REF##*/}"'
+require_workflow_text "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > \"\$UPSTAND_SECRETS_DIR/encryption_key\""
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"
 require_workflow_text "startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')"
 require_workflow_text "platforms: linux/amd64,linux/arm64"

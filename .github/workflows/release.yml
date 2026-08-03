@@ -532,7 +532,7 @@ jobs:
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/postgres_password"
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/redis_password"
           printf '%s' 'upstand-ci-auth-secret-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/better_auth_secret"
-          printf '%s' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' > "$UPSTAND_SECRETS_DIR/encryption_key"
+          printf '%s' 'MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > "$UPSTAND_SECRETS_DIR/encryption_key"
           printf '%s' 'postgresql://upstand:upstand-ci-password@postgres:5432/upstand' > "$UPSTAND_SECRETS_DIR/database_url"
           printf '%s' 'redis://:upstand-ci-password@redis:6379' > "$UPSTAND_SECRETS_DIR/redis_url"
 
