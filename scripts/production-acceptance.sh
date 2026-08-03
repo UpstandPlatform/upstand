@@ -330,6 +330,11 @@ assert_service() {
       || fail "bundled Redis service '$service_name' runtime user could not be inspected"
     [[ "$runtime_user" == "999:1000" ]] \
       || fail "bundled Redis service '$service_name' is not pinned to Redis's non-root identity: $runtime_user"
+  elif [[ "$service_name" == "${STACK_NAME}_postgres" ]]; then
+    runtime_user="$(docker_cmd service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.User}}' "$service_name")" \
+      || fail "bundled PostgreSQL service '$service_name' runtime user could not be inspected"
+    [[ "$runtime_user" == "70:70" ]] \
+      || fail "bundled PostgreSQL service '$service_name' is not pinned to PostgreSQL's non-root identity: $runtime_user"
   fi
 
   container_count=0

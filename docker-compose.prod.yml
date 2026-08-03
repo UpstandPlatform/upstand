@@ -12,6 +12,7 @@ services:
       - DAC_OVERRIDE
       - SETGID
       - SETUID
+    user: "70:70"
     environment:
       POSTGRES_DB: upstand
       POSTGRES_USER: upstand

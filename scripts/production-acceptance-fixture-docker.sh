@@ -105,6 +105,7 @@ fi
     [[ "$format" == *Replicated.Replicas* ]] && printf '1\n' && exit 0
     [[ "$format" == *ContainerSpec.Image* ]] && printf '%s\n' "$postgres_image" && exit 0
     [[ "$format" == *ContainerSpec.Healthcheck* ]] && printf '{"Test":["CMD","true"]}\n' && exit 0
+    [[ "$format" == *ContainerSpec.User* ]] && printf '70:70\n' && exit 0
     if [[ "$format" == *CapabilityDrop* ]]; then
       printf '["ALL"]\n'
       exit 0
@@ -248,6 +249,8 @@ if [[ "${1:-}" == "inspect" ]]; then
   elif [[ "$*" == *Config.User* && "$4" == container-upstand_* ]]; then
     if [[ "$mode" == node-local-root ]]; then
       printf '0\n'
+    elif [[ "$4" == container-upstand_postgres && "$mode" == bundled ]]; then
+      printf '70:70\n'
     elif [[ "$4" == container-upstand_redis ]]; then
       printf '999:1000\n'
     elif [[ ("$mode" == stateful-root || "$mode" == proc-fallback || "$mode" == proc-fallback-root) && ("$4" == container-upstand_postgres || "$4" == container-upstand_redis || "$4" == container-upstand_external_postgres || "$4" == container-upstand_external_redis) ]]; then
@@ -266,6 +269,8 @@ if [[ "${1:-}" == "inspect" ]]; then
   elif [[ "$*" == *Config.User* ]]; then
     if [[ "$mode" == root ]]; then
       printf '0\n'
+    elif [[ "$*" == *container-upstand_postgres* && "$mode" == bundled ]]; then
+      printf '70:70\n'
     elif [[ "$*" == *container-upstand_redis* ]]; then
       printf '999:1000\n'
     elif [[ ("$mode" == stateful-root || "$mode" == proc-fallback || "$mode" == proc-fallback-root) && ("$*" == *container-upstand_postgres* || "$*" == *container-upstand_redis* || "$*" == *container-upstand_external_postgres* || "$*" == *container-upstand_external_redis*) ]]; then
