@@ -22,6 +22,12 @@ redis_fixture_user="$(ACCEPTANCE_FIXTURE_MODE=bundled "$DOCKER_FIXTURE" inspect 
   exit 1
 }
 
+postgres_fixture_user="$(ACCEPTANCE_FIXTURE_MODE=bundled "$DOCKER_FIXTURE" inspect --format '{{.Config.User}}' container-upstand_postgres)"
+[[ "$postgres_fixture_user" == "70:70" ]] || {
+  echo "fixture does not model the bundled PostgreSQL non-root identity: $postgres_fixture_user" >&2
+  exit 1
+}
+
 run_gate ha --require-ha --allow-unobserved --external-postgres-service upstand_external_postgres --external-redis-service upstand_external_redis
 run_gate remote-tasks --allow-remote-tasks --allow-unobserved
 run_gate node-local --node-local --allow-unobserved
