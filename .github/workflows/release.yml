@@ -565,6 +565,11 @@ jobs:
             echo "Could not determine a routable Swarm advertise address" >&2
             exit 1
           }
+          # Encrypted overlay services require the host IPSec/netfilter
+          # modules. Hosted Ubuntu images may not load them by default.
+          sudo modprobe xfrm_user || true
+          sudo modprobe xt_u32 || true
+          sudo modprobe xt_policy || true
           timeout --foreground 60 docker swarm init --advertise-addr "$advertise_addr"
           timeout --foreground 60 docker network create --driver overlay --attachable --opt encrypted "$DOCKER_NETWORK"
 
@@ -609,13 +614,12 @@ jobs:
           collector_ready=false
           for attempt in {1..30}; do
             collector_state="$(docker service ps "$OTEL_COLLECTOR_SERVICE" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
-            # shellcheck disable=SC2016
             if [[ "$collector_state" == Running\ * ]] \
               && timeout --foreground 10 docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --user 10001:10001 \
                 --entrypoint /bin/sh \
                 alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
-                -c 'wget -qO- "http://$1:13133/" >/dev/null' sh "$OTEL_COLLECTOR_SERVICE"; then
+                -c "wget -qO- \"http://\$1:13133/\" >/dev/null" sh "$OTEL_COLLECTOR_SERVICE"; then
               collector_ready=true
               break
             fi
@@ -738,12 +742,11 @@ jobs:
             --compose-file docker-compose.prod.yml "$STACK_NAME"
 
           otlp_probe_payload='{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"upstand-release-acceptance"},"logRecords":[{"timeUnixNano":"1700000000000000000","severityNumber":9,"severityText":"INFO","body":{"stringValue":"upstand acceptance OTLP probe"},"attributes":[]}]}]}]}'
-          # shellcheck disable=SC2016
           timeout --foreground 30 docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --user 10001:10001 \
             --entrypoint /bin/sh \
             alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
-            -c 'wget -qO- --header="Content-Type: application/json" --post-data="$1" "http://$2:4318/v1/logs" >/dev/null' \
+            -c "wget -qO- --header=\"Content-Type: application/json\" --post-data=\"\$1\" \"http://\$2:4318/v1/logs\" >/dev/null" \
             sh "$otlp_probe_payload" "$OTEL_COLLECTOR_SERVICE"
           telemetry_delivered=false
           for attempt in {1..30}; do
