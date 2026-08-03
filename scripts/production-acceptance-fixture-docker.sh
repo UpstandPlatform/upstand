@@ -45,7 +45,7 @@ fi
   if [[ "${1:-}" == "service" && "${2:-}" == "inspect" ]]; then
   if [[ "${3:-}" != "--format" ]]; then
     # The fixture models external PostgreSQL and Redis services.
-    if [[ ("$mode" == bundled || "$mode" == stateful-root) && ("${3:-}" == upstand_postgres || "${3:-}" == upstand_redis) ]]; then
+    if [[ ("$mode" == bundled || "$mode" == stateful-root || "$mode" == proc-fallback || "$mode" == proc-fallback-root) && ("${3:-}" == upstand_postgres || "${3:-}" == upstand_redis) ]]; then
       exit 0
     fi
     if [[ "$mode" == ha && ("${3:-}" == upstand_external_postgres || "${3:-}" == upstand_external_redis) ]]; then
@@ -101,7 +101,7 @@ fi
       exit 0
     fi
   fi
-  if [[ ("$mode" == bundled || "$mode" == stateful-root) && "$service" == "upstand_postgres" ]]; then
+  if [[ ("$mode" == bundled || "$mode" == stateful-root || "$mode" == proc-fallback || "$mode" == proc-fallback-root) && "$service" == "upstand_postgres" ]]; then
     [[ "$format" == *Replicated.Replicas* ]] && printf '1\n' && exit 0
     [[ "$format" == *ContainerSpec.Image* ]] && printf '%s\n' "$postgres_image" && exit 0
     [[ "$format" == *ContainerSpec.Healthcheck* ]] && printf '{"Test":["CMD","true"]}\n' && exit 0
@@ -114,7 +114,7 @@ fi
       exit 0
     fi
   fi
-  if [[ ("$mode" == bundled || "$mode" == stateful-root) && "$service" == "upstand_redis" ]]; then
+  if [[ ("$mode" == bundled || "$mode" == stateful-root || "$mode" == proc-fallback || "$mode" == proc-fallback-root) && "$service" == "upstand_redis" ]]; then
     [[ "$format" == *Replicated.Replicas* ]] && printf '1\n' && exit 0
     [[ "$format" == *ContainerSpec.Image* ]] && printf '%s\n' "$redis_image" && exit 0
     [[ "$format" == *ContainerSpec.Healthcheck* ]] && printf '{"Test":["CMD","true"]}\n' && exit 0
@@ -247,7 +247,7 @@ if [[ "${1:-}" == "inspect" ]]; then
   elif [[ "$*" == *Config.User* && "$4" == container-upstand_* ]]; then
     if [[ "$mode" == node-local-root ]]; then
       printf '0\n'
-    elif [[ "$mode" == stateful-root && ("$4" == container-upstand_postgres || "$4" == container-upstand_redis || "$4" == container-upstand_external_postgres || "$4" == container-upstand_external_redis) ]]; then
+    elif [[ ("$mode" == stateful-root || "$mode" == proc-fallback || "$mode" == proc-fallback-root) && ("$4" == container-upstand_postgres || "$4" == container-upstand_redis || "$4" == container-upstand_external_postgres || "$4" == container-upstand_external_redis) ]]; then
       printf '\n'
     else
       printf '10001:123\n'
@@ -263,7 +263,7 @@ if [[ "${1:-}" == "inspect" ]]; then
   elif [[ "$*" == *Config.User* ]]; then
     if [[ "$mode" == root ]]; then
       printf '0\n'
-    elif [[ "$mode" == stateful-root && ("$*" == *container-upstand_postgres* || "$*" == *container-upstand_redis* || "$*" == *container-upstand_external_postgres* || "$*" == *container-upstand_external_redis*) ]]; then
+    elif [[ ("$mode" == stateful-root || "$mode" == proc-fallback || "$mode" == proc-fallback-root) && ("$*" == *container-upstand_postgres* || "$*" == *container-upstand_redis* || "$*" == *container-upstand_external_postgres* || "$*" == *container-upstand_external_redis*) ]]; then
       printf '\n'
     else
       printf '10001:123\n'
@@ -275,9 +275,19 @@ if [[ "${1:-}" == "inspect" ]]; then
 fi
 
 if [[ "${1:-}" == "top" ]]; then
+  if [[ "$mode" == proc-fallback || "$mode" == proc-fallback-root ]]; then
+    exit 1
+  fi
   printf 'USER PID COMMAND\n'
   [[ "$mode" == root || "$mode" == stateful-root || "$mode" == node-local-root ]] && printf 'root 1 service\n' || printf '70 1 service\n'
   exit 0
+fi
+
+if [[ "${1:-}" == "exec" ]]; then
+  if [[ "$mode" == proc-fallback || "$mode" == proc-fallback-root ]]; then
+    [[ "$mode" == proc-fallback-root ]] && printf '0 1\n' || printf '70 1\n'
+    exit 0
+  fi
 fi
 
 echo "unsupported fixture Docker command: $*" >&2

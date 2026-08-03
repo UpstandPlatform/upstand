@@ -1,5 +1,11 @@
 # server
 
+## 0.1.37
+
+### Patch Changes
+
+- Use a non-root `/proc` fallback when Docker's container process inspection is unavailable in official stateful images.
+
 ## 0.1.36
 
 ### Patch Changes
