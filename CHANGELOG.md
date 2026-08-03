@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.38 - 2026-08-03
+
+Run the bundled Redis service as its explicit non-root runtime identity.
+
 ## 0.1.37 - 2026-08-03
 
 Fix production acceptance when stateful images do not provide `ps` for `docker top`.
