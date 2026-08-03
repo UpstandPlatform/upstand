@@ -389,7 +389,9 @@ jobs:
   pre-release-acceptance:
     if: startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')
     needs: build-and-publish
-    runs-on: ubuntu-24.04
+    # Docker's encrypted-overlay/IPSec probe requires the legacy iptables
+    # kernel path, which is unavailable on the ubuntu-24.04 hosted image.
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
       contents: read
