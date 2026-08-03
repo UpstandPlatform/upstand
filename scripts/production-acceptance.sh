@@ -284,7 +284,7 @@ echo "acceptance: current database migration completed, image=$migration_image"
 assert_service() {
   local service_name="$1"
   local desired running image healthcheck container_id health service_networks container_count
-  local readonly_rootfs container_readonly
+  local readonly_rootfs container_readonly runtime_user
 
   desired="$(docker_cmd service inspect --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}0{{end}}' "$service_name")" \
     || fail "service '$service_name' does not exist"
@@ -325,6 +325,13 @@ assert_service() {
     done
   fi
 
+  if [[ "$service_name" == "${STACK_NAME}_redis" ]]; then
+    runtime_user="$(docker_cmd service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.User}}' "$service_name")" \
+      || fail "bundled Redis service '$service_name' runtime user could not be inspected"
+    [[ "$runtime_user" == "999:1000" ]] \
+      || fail "bundled Redis service '$service_name' is not pinned to Redis's non-root identity: $runtime_user"
+  fi
+
   container_count=0
   while IFS= read -r container_id; do
     [[ -n "$container_id" ]] || continue
@@ -333,17 +340,18 @@ assert_service() {
     [[ "$health" == "healthy" ]] \
       || fail "service '$service_name' container '$container_id' is $health"
     runtime_user="$(docker_cmd inspect --format '{{.Config.User}}' "$container_id")"
-    [[ -n "$runtime_user" && "$runtime_user" != "0" && "$runtime_user" != "root" ]] \
-      || {
-        # Official stateful images such as PostgreSQL and Redis intentionally
-        # leave Config.User empty because their entrypoints start as root and
-        # then drop to the service account. Inspect the effective process table
-        # when the image does not declare a static user; checking Config.User
-        # alone would reject a healthy bundled deployment.
-        assert_no_root_runtime_process \
-          "$container_id" \
-          "service '$service_name' container '$container_id'"
-      }
+    if [[ "$service_name" == "${STACK_NAME}_redis" ]]; then
+      assert_no_root_runtime_process \
+        "$container_id" \
+        "service '$service_name' container '$container_id'"
+    elif [[ -z "$runtime_user" || "$runtime_user" == "0" || "$runtime_user" == "root" ]]; then
+      # PostgreSQL's official entrypoint may leave Config.User empty while
+      # dropping its effective server process to the postgres account. Inspect
+      # the process table when the image does not declare a static user.
+      assert_no_root_runtime_process \
+        "$container_id" \
+        "service '$service_name' container '$container_id'"
+    fi
     if [[ "$service_name" == *_migrate || "$service_name" == *_server || "$service_name" == *_schedules ]]; then
       container_readonly="$(docker_cmd inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")" \
         || fail "service '$service_name' container '$container_id' filesystem mode could not be inspected"

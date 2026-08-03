@@ -77,6 +77,7 @@ services:
       - DAC_OVERRIDE
       - SETGID
       - SETUID
+    user: "999:1000"
     command:
       [
         "sh",
