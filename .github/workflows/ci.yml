@@ -259,7 +259,7 @@ jobs:
             build_args: ""
           - name: monitoring
             context: apps/monitoring
-            file: Dockerfile
+            file: apps/monitoring/Dockerfile
             build_args: ""
     steps:
       - name: Checkout
