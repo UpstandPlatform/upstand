@@ -560,7 +560,7 @@ jobs:
               bash scripts/backup-restore-rehearsal.sh
           } 2>&1 | tee "$BACKUP_REHEARSAL_LOG"
 
-          advertise_addr="$(ip -4 route get 1.1.1.1 | awk '{for (field = 1; field <= NF; field++) if ($field == \"src\") { print $(field + 1); exit }}')"
+          advertise_addr="$(ip -4 route get 1.1.1.1 | awk '{for (field = 1; field <= NF; field++) if ($field == "src") { print $(field + 1); exit }}')"
           [[ "$advertise_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "Could not determine a routable Swarm advertise address" >&2
             exit 1
