@@ -575,6 +575,14 @@ jobs:
           sudo modprobe xt_u32 || true
           sudo modprobe xt_policy || true
           timeout --foreground 60 docker swarm init --advertise-addr "$advertise_addr"
+          swarm_node_id="$(docker info --format '{{.Swarm.NodeID}}')"
+          [[ "$swarm_node_id" =~ ^[a-z0-9]+$ ]] || {
+            echo "Could not determine the initialized Swarm manager node ID" >&2
+            exit 1
+          }
+          timeout --foreground 60 docker node update \
+            --label-add upstand.control-plane=true \
+            "$swarm_node_id" >/dev/null
           timeout --foreground 60 docker network create --driver overlay --attachable "$DOCKER_NETWORK"
           # Production retains encrypted overlays; hosted Docker cannot create
           # them because its kernel lacks the required IPSec/netfilter path.
@@ -633,6 +641,9 @@ jobs:
             echo "Bundled single-node production acceptance did not converge before timeout" >&2
             docker stack services "$STACK_NAME" || true
             docker service ls || true
+            for service in postgres redis migrate server schedules web fumadocs; do
+              docker service ps "${STACK_NAME}_${service}" --no-trunc || true
+            done
             exit 1
           fi
           # Exercise the same node-local inspection path operators must run on
@@ -757,6 +768,9 @@ jobs:
             echo "External-data integration and stateless-HA acceptance did not converge before timeout" >&2
             docker stack services "$STACK_NAME" || true
             docker service ls || true
+            for service in server schedules web fumadocs; do
+              docker service ps "${STACK_NAME}_${service}" --no-trunc || true
+            done
             exit 1
           fi
           DOCKER_BIN=docker bash scripts/production-acceptance.sh \
