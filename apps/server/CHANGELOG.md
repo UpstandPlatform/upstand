@@ -1,5 +1,11 @@
 # server
 
+## 0.1.35
+
+### Patch Changes
+
+- [#160](https://github.com/UpstandPlatform/upstand/pull/160) [`3d87e29`](https://github.com/UpstandPlatform/upstand/commit/3d87e296330ce8b5e2d89d38be6d66d17348aa28) Thanks [@mhbdev](https://github.com/mhbdev)! - Prepare the next stable patch release with the hosted production acceptance and dependency security fixes.
+
 ## 0.1.34
 
 ## 0.1.33
