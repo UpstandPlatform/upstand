@@ -54,8 +54,7 @@ require_workflow_text 'docker config create "$OTEL_COLLECTOR_CONFIG" scripts/ote
 require_workflow_text 'export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"'
 require_workflow_text "upstand acceptance OTLP probe"
 require_workflow_text "OTLP collector did not record the acceptance probe"
-require_workflow_text '--opt encrypted "$ENCRYPTED_NETWORK_NAME"'
-require_workflow_text "Encrypted overlay network configuration verified"
+require_workflow_text "Production encrypted-network configuration is enforced by installer/contract tests"
 require_workflow_text "hosted Swarm runtime probe is skipped"
 require_workflow_text "UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false"
 require_workflow_text 'release_version="${RELEASE_REF##*/}"'
