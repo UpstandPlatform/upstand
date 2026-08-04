@@ -35,15 +35,19 @@ fail() {
 assert_no_root_runtime_process() {
   local container_id="$1"
   local subject="$2"
+  local process_inspection_user="${3:-65534:65534}"
   local process_users process_rows root_process
 
   if process_users="$(docker_cmd top "$container_id" -eo user 2>/dev/null)"; then
     process_rows="$(printf '%s\n' "$process_users" | tail -n +2 | sed '/^[[:space:]]*$/d')"
   else
-    # Official stateful images may not include `ps`, which makes `docker top`
-    # unavailable. Read process UIDs through a non-root exec instead so the
-    # inspection shell itself cannot create a false root-process result.
-    process_rows="$(docker_cmd exec --user 65534:65534 "$container_id" /bin/sh -ec '
+    # Official stateful images may not include a portable `ps` format, which
+    # makes `docker top -eo user` unavailable. Read process UIDs through a
+    # non-root exec instead so the inspection shell itself cannot create a
+    # false root-process result. Stateful callers pass their already-validated
+    # numeric runtime identity because minimal images can reject arbitrary
+    # supplemental users during docker exec.
+    process_rows="$(docker_cmd exec --user "$process_inspection_user" "$container_id" /bin/sh -ec '
       found=0
       for status in /proc/[0-9]*/status; do
         [ -r "$status" ] || continue
@@ -348,7 +352,8 @@ assert_service() {
     if [[ "$service_name" == "${STACK_NAME}_redis" ]]; then
       assert_no_root_runtime_process \
         "$container_id" \
-        "service '$service_name' container '$container_id'"
+        "service '$service_name' container '$container_id'" \
+        "$runtime_user"
     elif [[ -z "$runtime_user" || "$runtime_user" == "0" || "$runtime_user" == "root" ]]; then
       # PostgreSQL's official entrypoint may leave Config.User empty while
       # dropping its effective server process to the postgres account. Inspect

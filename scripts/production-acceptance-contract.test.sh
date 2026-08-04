@@ -15,6 +15,7 @@ run_gate valid --allow-unobserved
 run_gate observed
 run_gate bundled --allow-unobserved
 run_gate proc-fallback --allow-unobserved
+run_gate proc-fallback-runtime-user --allow-unobserved
 
 redis_fixture_user="$(ACCEPTANCE_FIXTURE_MODE=bundled "$DOCKER_FIXTURE" inspect --format '{{.Config.User}}' container-upstand_redis)"
 [[ "$redis_fixture_user" == "999:1000" ]] || {
