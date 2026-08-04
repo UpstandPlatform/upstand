@@ -1,5 +1,11 @@
 # server
 
+## 0.1.48
+
+### Patch Changes
+
+- [#196](https://github.com/UpstandPlatform/upstand/pull/196) [`d681c4d`](https://github.com/UpstandPlatform/upstand/commit/d681c4db3e3f3ac7aa8fa2a96cbeaa90051d40c1) Thanks [@mhbdev](https://github.com/mhbdev)! - Make hosted production acceptance pass the disposable network override to the server and keep the monitoring image healthcheck self-contained.
+
 ## 0.1.47
 
 ### Patch Changes

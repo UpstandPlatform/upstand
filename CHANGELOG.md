@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.48 - 2026-08-04
+
+Make hosted production acceptance pass the disposable network override to the server and keep the monitoring image healthcheck self-contained.
+
 ## 0.1.47 - 2026-08-04
 
 Reuse an already-present immutable monitoring image during provisioning and pre-pull it in the release acceptance harness, so private GHCR images do not require credentials inside the production container.
