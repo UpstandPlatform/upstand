@@ -67,6 +67,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          write_output() {
+            printf '%s\n' "$1" >> "$GITHUB_OUTPUT"
+          }
+
           [[ "$RELEASE_REF" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{40})$ ]] || {
             echo "RELEASE_REF must be a stable tag or full commit SHA" >&2
             exit 1
@@ -91,13 +95,13 @@ jobs:
 
             if [[ "$cli_version" == "$parent_cli_version" ]]; then
               echo "CLI package version did not change; nothing to publish."
-              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              write_output "should_publish=false"
               exit 0
             fi
 
             if [[ "$root_version_changed" == true ]]; then
               echo "Product release also changed the root version; the stable tag owns this publication."
-              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              write_output "should_publish=false"
               exit 0
             fi
           fi
@@ -155,13 +159,13 @@ jobs:
               exit 1
             }
             echo "Verified $package_name@$package_version is already published with identical contents."
-            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            write_output "should_publish=false"
           else
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            write_output "should_publish=true"
           fi
-          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
-          echo "package_version=$package_version" >> "$GITHUB_OUTPUT"
-          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          write_output "package_name=$package_name"
+          write_output "package_version=$package_version"
+          write_output "tarball=$tarball"
 
       - name: Check npm client supports trusted publishing
         if: steps.package.outputs.should_publish == 'true'
