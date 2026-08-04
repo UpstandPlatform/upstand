@@ -267,11 +267,7 @@ services:
           - server
           - upstand_server
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'bun -e "fetch(''http://127.0.0.1:3000/health/ready'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
-        ]
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -376,11 +372,7 @@ services:
           - schedules
           - upstand_schedules
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'bun -e "fetch(''http://127.0.0.1:3002/health/ready'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
-        ]
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3002/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -445,11 +437,7 @@ services:
           - web
           - upstand_web
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'bun -e "fetch(''http://127.0.0.1:3001/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
-        ]
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -514,11 +502,7 @@ services:
           - fumadocs
           - upstand_fumadocs
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'bun -e "fetch(''http://127.0.0.1:4000/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
-        ]
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:4000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
