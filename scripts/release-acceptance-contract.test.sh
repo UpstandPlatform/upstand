@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
 COMPOSE="$ROOT_DIR/docker-compose.prod.yml"
+WEB_DOCKERFILE="$ROOT_DIR/apps/web/Dockerfile"
+FUMADOCS_DOCKERFILE="$ROOT_DIR/apps/fumadocs/Dockerfile"
 
 require_workflow_text() {
   local text="$1"
@@ -21,10 +23,23 @@ require_compose_text() {
   }
 }
 
+require_dockerfile_text() {
+  local dockerfile="$1"
+  local text="$2"
+  grep -Fq -- "$text" "$dockerfile" || {
+    echo "production Dockerfile is missing required runtime contract: $text" >&2
+    exit 1
+  }
+}
+
 require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3000/health/ready')"
 require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3002/health/ready')"
-require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3001/')"
-require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:4000/')"
+require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:3001/')"
+require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:4000/')"
+require_dockerfile_text "$WEB_DOCKERFILE" "FROM node:24-slim@"
+require_dockerfile_text "$WEB_DOCKERFILE" 'CMD ["node", "apps/web/server.js"]'
+require_dockerfile_text "$FUMADOCS_DOCKERFILE" "FROM node:24-slim@"
+require_dockerfile_text "$FUMADOCS_DOCKERFILE" 'CMD ["node", "apps/fumadocs/server.js"]'
 
 require_workflow_text "bundled_accepted=false"
 require_workflow_text "runs-on: ubuntu-24.04"
