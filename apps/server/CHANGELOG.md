@@ -1,5 +1,11 @@
 # server
 
+## 0.1.43
+
+### Patch Changes
+
+- [#180](https://github.com/UpstandPlatform/upstand/pull/180) [`c885569`](https://github.com/UpstandPlatform/upstand/commit/c885569264e39bc86b24f5e7b104f4f923053f5c) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the runtime available in each production image for web and documentation healthchecks.
+
 ## 0.1.42
 
 ### Patch Changes
