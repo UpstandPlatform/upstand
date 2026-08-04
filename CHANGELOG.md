@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.45 - 2026-08-04
+
+Make production acceptance process-identity checks portable across minimal stateful images.
+
 ## 0.1.44 - 2026-08-04
 
 Prevent the schedules startup gate from deadlocking against server readiness.
