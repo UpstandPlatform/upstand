@@ -56,8 +56,8 @@ $env:UPSTAND_EXTERNAL_SMOKE_IMAGE="ghcr.io/your-org/upstand-server:release@sha25
    barrier, starts the non-root server with external URLs, and probes liveness.
    The migration, server, and schedules services also use read-only root
    filesystems. Their bounded temporary workspaces are explicitly mounted as
-   tmpfs (`/tmp`, `/app/.builds`, and the Docker CLI config directory), with
-   private mounts owned by UID 10001; do not
+   Swarm-compatible `type: tmpfs` mounts (`/tmp`, `/app/.builds`, and the
+   Docker CLI config directory); do not
    add a persistent writable bind mount to those services without a security
    review.
 7. The installer also requires explicit acknowledgements for the Docker socket

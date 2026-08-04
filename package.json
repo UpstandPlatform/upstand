@@ -1,6 +1,6 @@
 {
   "name": "upstand",
-  "version": "0.1.33",
+  "version": "0.1.46",
   "private": true,
   "workspaces": {
     "packages": [
@@ -43,10 +43,10 @@
   },
   "overrides": {
     "better-auth": "1.6.23",
-    "brace-expansion": "5.0.8",
+    "brace-expansion": "5.0.9",
     "drizzle-orm": "0.45.2",
     "esbuild": "0.28.1",
-    "fast-uri": "3.1.4",
+    "fast-uri": "3.1.5",
     "fast-xml-parser": "5.10.1",
     "@hono/node-server": "2.0.11",
     "linkify-it": "6.0.0",

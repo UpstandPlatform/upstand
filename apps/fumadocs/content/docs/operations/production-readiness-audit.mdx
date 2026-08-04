@@ -271,8 +271,8 @@ control-plane HA. It is not evidence of PostgreSQL/Redis HA or failover.
 - **Problem:** A compromised control-plane process previously had a writable
   container root filesystem, increasing persistence and tampering options.
 - **Evidence:** The production stack now sets `read_only: true` for migration,
-  server, and schedules services and provides bounded tmpfs mounts for their
-  required temporary workspaces, explicitly owned by UID 10001. Acceptance
+  server, and schedules services and provides bounded Swarm-compatible
+  `type: tmpfs` mounts for their required temporary workspaces. Acceptance
   checks both the Swarm service template and every locally inspectable task
   container, while the native release workflow also runs the non-root image
   probe against each writable path and the immutable application layer.

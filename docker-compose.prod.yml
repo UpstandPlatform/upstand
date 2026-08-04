@@ -12,6 +12,7 @@ services:
       - DAC_OVERRIDE
       - SETGID
       - SETUID
+    user: "70:70"
     environment:
       POSTGRES_DB: upstand
       POSTGRES_USER: upstand
@@ -77,6 +78,7 @@ services:
       - DAC_OVERRIDE
       - SETGID
       - SETUID
+    user: "999:1000"
     command:
       [
         "sh",
@@ -142,9 +144,17 @@ services:
     image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
     init: true
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=64m
-      - /home/upstand/.docker:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700
+    volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 67108864
+          mode: 1777
+      - type: tmpfs
+        target: /home/upstand/.docker
+        tmpfs:
+          size: 16777216
+          mode: 1777
     cap_drop:
       - ALL
     user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
@@ -193,10 +203,6 @@ services:
     init: true
     stop_grace_period: 5m
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=512m
-      - /app/.builds:rw,nosuid,nodev,size=4g,uid=10001,gid=0,mode=0700
-      - /home/upstand/.docker:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700
     cap_drop:
       - ALL
     user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
@@ -256,6 +262,21 @@ services:
       - better_auth_secret
       - encryption_key
     volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 536870912
+          mode: 1777
+      - type: tmpfs
+        target: /app/.builds
+        tmpfs:
+          size: 4294967296
+          mode: 1777
+      - type: tmpfs
+        target: /home/upstand/.docker
+        tmpfs:
+          size: 16777216
+          mode: 1777
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -265,11 +286,7 @@ services:
           - server
           - upstand_server
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "curl --fail --silent http://127.0.0.1:3000/health/ready >/dev/null",
-        ]
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -317,10 +334,6 @@ services:
     init: true
     stop_grace_period: 2m
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=512m
-      - /app/.builds:rw,nosuid,nodev,size=4g,uid=10001,gid=0,mode=0700
-      - /home/upstand/.docker:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700
     cap_drop:
       - ALL
     user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
@@ -365,6 +378,21 @@ services:
       - better_auth_secret
       - encryption_key
     volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 536870912
+          mode: 1777
+      - type: tmpfs
+        target: /app/.builds
+        tmpfs:
+          size: 4294967296
+          mode: 1777
+      - type: tmpfs
+        target: /home/upstand/.docker
+        tmpfs:
+          size: 16777216
+          mode: 1777
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -374,11 +402,7 @@ services:
           - schedules
           - upstand_schedules
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "curl --fail --silent http://127.0.0.1:3002/health/ready >/dev/null",
-        ]
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3002/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -426,8 +450,12 @@ services:
     image: ${UPSTAND_WEB_IMAGE:?UPSTAND_WEB_IMAGE is required}
     stop_grace_period: 1m
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 268435456
+          mode: 1777
     cap_drop:
       - ALL
     environment:
@@ -443,11 +471,7 @@ services:
           - web
           - upstand_web
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:3001/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
-        ]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -494,8 +518,12 @@ services:
     image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
     stop_grace_period: 1m
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 134217728
+          mode: 1777
     cap_drop:
       - ALL
     environment:
@@ -512,11 +540,7 @@ services:
           - fumadocs
           - upstand_fumadocs
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:4000/'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
-        ]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
