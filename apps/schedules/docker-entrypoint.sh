@@ -107,11 +107,12 @@ wait_for_tcp "$database_wait_host" "$database_wait_port"
 wait_for_tcp "$redis_wait_host" "$redis_wait_port"
 
 # The server owns the migration lifecycle. In Swarm there is no dependable
-# depends_on ordering, so do not start workers until the migration-backed
-# readiness endpoint is healthy. This prevents schedulers from querying a
-# partially upgraded database during rolling installs.
+# depends_on ordering, so do not start workers until the server has bound its
+# HTTP listener. The server binds only after migrations complete; waiting for
+# /health/ready here would deadlock because server readiness also checks the
+# schedules readiness endpoint.
 if [ -n "${UPSTAND_SERVER_INTERNAL_URL:-}" ]; then
-  wait_for_http_ready "${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready"
+  wait_for_http_ready "${UPSTAND_SERVER_INTERNAL_URL%/}/health/live"
 fi
 
 exec "$@"

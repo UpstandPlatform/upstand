@@ -2,37 +2,61 @@ name: Publish CLI Package
 
 on:
   push:
+    branches:
+      - master
     tags:
       - "v*"
+    paths:
+      - "packages/cli/package.json"
+      - "packages/cli/src/**"
+      - "packages/cli/README.md"
+      - "packages/cli/CHANGELOG.md"
   workflow_dispatch:
     inputs:
       release_ref:
-        description: Git tag or ref containing the CLI version to publish
+        description: Immutable vX.Y.Z tag or 40-character commit SHA on master
         required: true
         type: string
 
 concurrency:
-  group: npm-cli-${{ inputs.release_ref || github.ref }}
+  group: npm-cli-${{ inputs.release_ref || github.ref_name || github.sha }}
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   publish:
-    if: github.repository == 'UpstandPlatform/upstand'
+    if: >-
+      github.repository == 'UpstandPlatform/upstand' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        github.ref == 'refs/heads/master' ||
+        startsWith(github.ref, 'refs/tags/v')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
+    env:
+      RELEASE_REF: ${{ inputs.release_ref || (github.ref_type == 'tag' && github.ref_name) || github.sha }}
+      PACKAGE_DIR: packages/cli
+      NPM_REGISTRY: https://registry.npmjs.org
     steps:
-      - name: Checkout
+      - name: Checkout immutable release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.release_ref || github.ref }}
+          fetch-depth: 0
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.3.14
+
+      - name: Set up npm trusted publishing client
+        run: npm install --global npm@11.5.2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -40,5 +64,124 @@ jobs:
       - name: Build CLI
         run: bun run --filter @upstand/cli build
 
-      - name: Publish @upstand/cli with provenance
-        run: npm publish packages/cli --access public --provenance
+      - name: Validate release source and package contents
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          write_output() {
+            printf '%s\n' "$1" >> "$GITHUB_OUTPUT"
+          }
+
+          [[ "$RELEASE_REF" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{40})$ ]] || {
+            echo "RELEASE_REF must be a stable tag or full commit SHA" >&2
+            exit 1
+          }
+
+          git fetch origin master --no-tags
+          release_commit="$(git rev-parse "${RELEASE_REF}^{commit}")"
+          git merge-base --is-ancestor "$release_commit" origin/master || {
+            echo "Release source is not an ancestor of origin/master" >&2
+            exit 1
+          }
+
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/master" ]]; then
+            parent_commit="$(git rev-parse "${GITHUB_SHA}^")"
+            cli_version="$(node -p "require('./$PACKAGE_DIR/package.json').version")"
+            parent_cli_version="$(git show "$parent_commit:$PACKAGE_DIR/package.json" | node -e 'let data=""; process.stdin.on("data", chunk => data += chunk).on("end", () => process.stdout.write(JSON.parse(data).version))')"
+            if git diff --quiet "$parent_commit" "$GITHUB_SHA" -- package.json; then
+              root_version_changed=false
+            else
+              root_version_changed=true
+            fi
+
+            if [[ "$cli_version" == "$parent_cli_version" ]]; then
+              echo "CLI package version did not change; nothing to publish."
+              write_output "should_publish=false"
+              exit 0
+            fi
+
+            if [[ "$root_version_changed" == true ]]; then
+              echo "Product release also changed the root version; the stable tag owns this publication."
+              write_output "should_publish=false"
+              exit 0
+            fi
+          fi
+
+          package_name="$(node -p "require('./$PACKAGE_DIR/package.json').name")"
+          package_version="$(node -p "require('./$PACKAGE_DIR/package.json').version")"
+          [[ "$package_name" == "@upstand/cli" ]] || {
+            echo "Unexpected package name: $package_name" >&2
+            exit 1
+          }
+          [[ "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "CLI version must be stable semver: $package_version" >&2
+            exit 1
+          }
+          [[ -f "$PACKAGE_DIR/dist/index.js" && -f "$PACKAGE_DIR/README.md" ]] || {
+            echo "Built CLI package is missing its entrypoint or README" >&2
+            exit 1
+          }
+
+          pack_json="$(npm pack "./$PACKAGE_DIR" --ignore-scripts --json --pack-destination "$RUNNER_TEMP")"
+          tarball="$(node -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(value[0].filename)' "$pack_json")"
+          tarball="$RUNNER_TEMP/$tarball"
+          [[ -f "$tarball" ]] || {
+            echo "npm pack did not produce the expected tarball" >&2
+            exit 1
+          }
+          local_integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w 0)"
+
+          package_files="$(node -e 'const value = JSON.parse(process.argv[1]); for (const file of value[0].files ?? []) console.log(file.path)' "$pack_json")"
+          grep -Fxq "dist/index.js" <<< "$package_files" || {
+            echo "Packed CLI does not contain dist/index.js" >&2
+            exit 1
+          }
+          if grep -Eq '(^|/)(src|node_modules|\.env)(/|$)' <<< "$package_files"; then
+            echo "Packed CLI contains a development-only or secret-bearing path" >&2
+            exit 1
+          fi
+
+          existing_version=""
+          existing_error="$RUNNER_TEMP/npm-view-error.txt"
+          set +e
+          existing_version="$(npm view "$package_name@$package_version" version --registry "$NPM_REGISTRY" 2>"$existing_error")"
+          view_status=$?
+          set -e
+          if [[ "$view_status" -ne 0 && ! "$(<"$existing_error")" =~ (E404|404[[:space:]]Not[[:space:]]Found) ]]; then
+            cat "$existing_error" >&2
+            echo "Could not safely determine whether the CLI version is already published" >&2
+            exit 1
+          fi
+
+          if [[ -n "$existing_version" ]]; then
+            remote_integrity="$(npm view "$package_name@$package_version" dist.integrity --registry "$NPM_REGISTRY")"
+            [[ "$remote_integrity" == "$local_integrity" ]] || {
+              echo "Published $package_name@$package_version has different contents; refusing to overwrite it" >&2
+              exit 1
+            }
+            echo "Verified $package_name@$package_version is already published with identical contents."
+            write_output "should_publish=false"
+          else
+            write_output "should_publish=true"
+          fi
+          write_output "package_name=$package_name"
+          write_output "package_version=$package_version"
+          write_output "tarball=$tarball"
+
+      - name: Check npm client supports trusted publishing
+        if: steps.package.outputs.should_publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          npm_version="$(npm --version)"
+          node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 5)) process.exit(1)' "$npm_version" || {
+            echo "npm >= 11.5 is required for trusted publishing; found $npm_version" >&2
+            exit 1
+          }
+
+      - name: Publish @upstand/cli with npm trusted publishing
+        if: steps.package.outputs.should_publish == 'true'
+        run: npm publish "${{ steps.package.outputs.tarball }}" --access public --provenance --tag latest --registry "$NPM_REGISTRY"
