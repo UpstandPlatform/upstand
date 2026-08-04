@@ -22,9 +22,14 @@ function isProductionManifestChange(path: string) {
     const before = readJsonAt(baseRef, path);
     const after = readJsonAt("HEAD", path);
 
-    // Development tooling, scripts, and the package-manager declaration do
-    // not change a shipped artifact. Everything else in a manifest can.
-    for (const key of ["devDependencies", "scripts", "packageManager"]) {
+    // Generated release metadata and development tooling do not change a
+    // shipped artifact. Everything else in a manifest can.
+    for (const key of [
+      "version",
+      "devDependencies",
+      "scripts",
+      "packageManager",
+    ]) {
       delete before[key];
       delete after[key];
     }

@@ -1,5 +1,83 @@
 # server
 
+## 0.1.46
+
+### Patch Changes
+
+- [#186](https://github.com/UpstandPlatform/upstand/pull/186) [`56ffbb3`](https://github.com/UpstandPlatform/upstand/commit/56ffbb3f52778f2b7c932805a17a371aae6c5dd7) Thanks [@mhbdev](https://github.com/mhbdev)! - Capture bounded server and schedules service logs, health responses, and container state when bundled production acceptance does not converge.
+
+- [#189](https://github.com/UpstandPlatform/upstand/pull/189) [`1567ce5`](https://github.com/UpstandPlatform/upstand/commit/1567ce5ffd2bcd93bef1a961e2a30fdc685ca934) Thanks [@mhbdev](https://github.com/mhbdev)! - Use explicit Swarm-compatible tmpfs mounts so read-only production services retain their required writable temporary paths.
+
+## 0.1.45
+
+### Patch Changes
+
+- [#184](https://github.com/UpstandPlatform/upstand/pull/184) [`d634ddf`](https://github.com/UpstandPlatform/upstand/commit/d634ddf4a6acaa58f9e7a96acd8a09c37a726b52) Thanks [@mhbdev](https://github.com/mhbdev)! - Make production acceptance process-identity checks portable across minimal stateful images.
+
+## 0.1.44
+
+### Patch Changes
+
+- [#182](https://github.com/UpstandPlatform/upstand/pull/182) [`2e50190`](https://github.com/UpstandPlatform/upstand/commit/2e5019068c90055efda1bccb8aff76a260e751ec) Thanks [@mhbdev](https://github.com/mhbdev)! - Prevent the schedules startup gate from deadlocking against server readiness.
+
+## 0.1.43
+
+### Patch Changes
+
+- [#180](https://github.com/UpstandPlatform/upstand/pull/180) [`c885569`](https://github.com/UpstandPlatform/upstand/commit/c885569264e39bc86b24f5e7b104f4f923053f5c) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the runtime available in each production image for web and documentation healthchecks.
+
+## 0.1.42
+
+### Patch Changes
+
+- [#178](https://github.com/UpstandPlatform/upstand/pull/178) [`ed4bc43`](https://github.com/UpstandPlatform/upstand/commit/ed4bc43b0b49472c32084b61be06cb06f8cd3f8e) Thanks [@mhbdev](https://github.com/mhbdev)! - Run bundled service healthchecks as direct Bun commands without shell-dependent quoting.
+
+## 0.1.41
+
+### Patch Changes
+
+- [#176](https://github.com/UpstandPlatform/upstand/pull/176) [`ca350e5`](https://github.com/UpstandPlatform/upstand/commit/ca350e567bf62ecce3ae776ec7dae4b8d0e53fa9) Thanks [@mhbdev](https://github.com/mhbdev)! - Use Bun directly for production healthchecks in the bundled Compose stack.
+
+## 0.1.40
+
+### Patch Changes
+
+- [#174](https://github.com/UpstandPlatform/upstand/pull/174) [`74c56b3`](https://github.com/UpstandPlatform/upstand/commit/74c56b3c46b99673c28084de5b06854895b73b85) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the Bun runtime for bundled API and schedules healthchecks instead of assuming curl is installed.
+
+## 0.1.39
+
+### Patch Changes
+
+- [#172](https://github.com/UpstandPlatform/upstand/pull/172) [`869d43e`](https://github.com/UpstandPlatform/upstand/commit/869d43e45d1592c84b7b419352ce3f39f17d23d7) Thanks [@mhbdev](https://github.com/mhbdev)! - Run the bundled PostgreSQL service as its explicit non-root runtime identity.
+
+## 0.1.38
+
+### Patch Changes
+
+- [#170](https://github.com/UpstandPlatform/upstand/pull/170) [`66a764f`](https://github.com/UpstandPlatform/upstand/commit/66a764f2fb984e1eb1219a969afb7a24648715c5) Thanks [@mhbdev](https://github.com/mhbdev)! - Run the bundled Redis service as its explicit non-root runtime identity.
+
+## 0.1.37
+
+### Patch Changes
+
+- [#168](https://github.com/UpstandPlatform/upstand/pull/168) [`db0646d`](https://github.com/UpstandPlatform/upstand/commit/db0646d55e3f3498c16ef9a2a58aac929b95e6f7) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix production acceptance when stateful images do not provide `ps` for `docker top`.
+
+## 0.1.36
+
+### Patch Changes
+
+- [#160](https://github.com/UpstandPlatform/upstand/pull/160) [`3d87e29`](https://github.com/UpstandPlatform/upstand/commit/3d87e296330ce8b5e2d89d38be6d66d17348aa28) Thanks [@mhbdev](https://github.com/mhbdev)! - Prepare the next stable patch release with the hosted production acceptance and dependency security fixes.
+
+- [#164](https://github.com/UpstandPlatform/upstand/pull/164) [`4dacd2e`](https://github.com/UpstandPlatform/upstand/commit/4dacd2ead09fd1c50093da3362ec0710e130647d) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix production acceptance validation for Docker's normalized capability names.
+
+## 0.1.35
+
+### Patch Changes
+
+- Patch release for the production dependency security update.
+
+## 0.1.34
+
 ## 0.1.33
 
 ## 0.1.32

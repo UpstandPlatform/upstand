@@ -1,5 +1,39 @@
 # web
 
+## 0.1.46
+
+## 0.1.45
+
+## 0.1.44
+
+## 0.1.43
+
+## 0.1.42
+
+## 0.1.41
+
+## 0.1.40
+
+## 0.1.39
+
+## 0.1.38
+
+## 0.1.37
+
+## 0.1.36
+
+## 0.1.35
+
+### Patch Changes
+
+- Patch release for the production dependency security update.
+
+## 0.1.34
+
+### Patch Changes
+
+- [#151](https://github.com/UpstandPlatform/upstand/pull/151) [`85975d9`](https://github.com/UpstandPlatform/upstand/commit/85975d98db9cebc54a321ba72c8332ee1a086e55) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden the hosted production acceptance rehearsal for Docker Swarm capability differences.
+
 ## 0.1.33
 
 ### Patch Changes

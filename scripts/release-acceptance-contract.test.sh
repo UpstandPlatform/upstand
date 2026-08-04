@@ -3,6 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
+COMPOSE="$ROOT_DIR/docker-compose.prod.yml"
+WEB_DOCKERFILE="$ROOT_DIR/apps/web/Dockerfile"
+FUMADOCS_DOCKERFILE="$ROOT_DIR/apps/fumadocs/Dockerfile"
+SCHEDULES_ENTRYPOINT="$ROOT_DIR/apps/schedules/docker-entrypoint.sh"
 
 require_workflow_text() {
   local text="$1"
@@ -12,9 +16,53 @@ require_workflow_text() {
   }
 }
 
+require_compose_text() {
+  local text="$1"
+  grep -Fq -- "$text" "$COMPOSE" || {
+    echo "production Compose is missing required contract: $text" >&2
+    exit 1
+  }
+}
+
+require_file_text() {
+  local file="$1"
+  local text="$2"
+  grep -Fq -- "$text" "$file" || {
+    echo "production release artifact is missing required contract: $text" >&2
+    exit 1
+  }
+}
+
+require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3000/health/ready')"
+require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3002/health/ready')"
+require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:3001/')"
+require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:4000/')"
+require_compose_text "type: tmpfs"
+require_compose_text "target: /tmp"
+require_compose_text "target: /app/.builds"
+require_compose_text "target: /home/upstand/.docker"
+if grep -Eq '^    tmpfs:' "$COMPOSE"; then
+  echo "production Compose must use explicit type: tmpfs mounts for Swarm deployments" >&2
+  exit 1
+fi
+require_file_text "$WEB_DOCKERFILE" "FROM node:24-slim@"
+require_file_text "$WEB_DOCKERFILE" 'CMD ["node", "apps/web/server.js"]'
+require_file_text "$FUMADOCS_DOCKERFILE" "FROM node:24-slim@"
+require_file_text "$FUMADOCS_DOCKERFILE" 'CMD ["node", "apps/fumadocs/server.js"]'
+require_file_text "$SCHEDULES_ENTRYPOINT" '${UPSTAND_SERVER_INTERNAL_URL%/}/health/live'
+if grep -Fq -- '${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready' "$SCHEDULES_ENTRYPOINT"; then
+  echo "schedules entrypoint must not wait for server readiness (circular dependency)" >&2
+  exit 1
+fi
+
 require_workflow_text "bundled_accepted=false"
 require_workflow_text "runs-on: ubuntu-24.04"
 require_workflow_text "Bundled single-node production acceptance did not converge"
+require_workflow_text "capture_bundled_readiness_diagnostics"
+require_workflow_text 'service-logs-${service}.txt'
+require_workflow_text 'container-state-${service}.txt'
+require_workflow_text 'health-ready-${service}.txt'
+require_workflow_text 'curl --silent --show-error --max-time 5'
 require_workflow_text '--node-local'
 node_local_count="$(grep -Fc -- '--node-local' "$WORKFLOW")"
 [[ "$node_local_count" -ge 2 ]] || {
@@ -46,7 +94,7 @@ require_workflow_text 'restore_dependency_service'
 require_workflow_text 'started_at=%s'
 require_workflow_text "bash scripts/backup-restore-rehearsal.sh"
 require_workflow_text "bash scripts/backup-restore-rehearsal-contract.test.sh"
-require_workflow_text "NETWORK_PROBE_NAME: upstand-release-acceptance-network-probe"
+require_workflow_text "ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network"
 require_workflow_text "OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector"
 require_workflow_text "OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config"
 require_workflow_text "otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7"
@@ -54,10 +102,14 @@ require_workflow_text 'docker config create "$OTEL_COLLECTOR_CONFIG" scripts/ote
 require_workflow_text 'export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"'
 require_workflow_text "upstand acceptance OTLP probe"
 require_workflow_text "OTLP collector did not record the acceptance probe"
-require_workflow_text "Encrypted-network runtime probe failed"
-require_workflow_text '--entrypoint /bin/true'
-require_workflow_text '--restart-condition none'
+require_workflow_text "Production encrypted-network configuration is enforced by installer/contract tests"
+require_workflow_text "hosted Swarm runtime probe is skipped"
+require_workflow_text "UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false"
+require_workflow_text 'docker node update'
+require_workflow_text '--label-add upstand.control-plane=true'
+require_workflow_text 'docker service ps "${STACK_NAME}_${service}" --no-trunc'
 require_workflow_text 'release_version="${RELEASE_REF##*/}"'
+require_workflow_text "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > \"\$UPSTAND_SECRETS_DIR/encryption_key\""
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"
 require_workflow_text "startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')"
 require_workflow_text "platforms: linux/amd64,linux/arm64"

@@ -8,6 +8,7 @@ REQUIRE_OBSERVABILITY="true"
 NODE_LOCAL_ONLY="false"
 NETWORK_NAME="${DOCKER_NETWORK:-upstand-network}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+REQUIRE_ENCRYPTED_NETWORK="${UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK:-true}"
 EXTERNAL_POSTGRES_SERVICE=""
 EXTERNAL_REDIS_SERVICE=""
 
@@ -29,6 +30,42 @@ EOF
 fail() {
   echo "production-acceptance: $*" >&2
   exit 1
+}
+
+assert_no_root_runtime_process() {
+  local container_id="$1"
+  local subject="$2"
+  local process_inspection_user="${3:-65534:65534}"
+  local process_users process_rows root_process
+
+  if process_users="$(docker_cmd top "$container_id" -eo user 2>/dev/null)"; then
+    process_rows="$(printf '%s\n' "$process_users" | tail -n +2 | sed '/^[[:space:]]*$/d')"
+  else
+    # Official stateful images may not include a portable `ps` format, which
+    # makes `docker top -eo user` unavailable. Read process UIDs through a
+    # non-root exec instead so the inspection shell itself cannot create a
+    # false root-process result. Stateful callers pass their already-validated
+    # numeric runtime identity because minimal images can reject arbitrary
+    # supplemental users during docker exec.
+    process_rows="$(docker_cmd exec --user "$process_inspection_user" "$container_id" /bin/sh -ec '
+      found=0
+      for status in /proc/[0-9]*/status; do
+        [ -r "$status" ] || continue
+        uid="$(awk '\''$1 == "Uid:" { print $2; exit }'\'' "$status")"
+        [ -n "$uid" ] || continue
+        printf "%s %s\\n" "$uid" "${status##*/}"
+        found=1
+      done
+      [ "$found" -eq 1 ]
+    ' 2>/dev/null)" \
+      || fail "$subject process users could not be inspected with docker top or the container /proc fallback"
+  fi
+
+  [[ -n "$process_rows" ]] \
+    || fail "$subject has no inspectable runtime process"
+  root_process="$(printf '%s\n' "$process_rows" | awk '$1 == "0" || $1 == "root" { print; exit }')"
+  [[ -z "$root_process" ]] \
+    || fail "$subject has a root runtime process: $root_process"
 }
 
 while (($# > 0)); do
@@ -83,7 +120,6 @@ done
 assert_node_local_container() {
   local container_id="$1"
   local service_name image health runtime_user capabilities readonly_rootfs
-  local process_users process_rows root_process
 
   service_name="$(docker_cmd inspect --format '{{index .Config.Labels "com.docker.swarm.service.name"}}' "$container_id")" \
     || fail "node-local container '$container_id' service label could not be inspected"
@@ -102,14 +138,9 @@ assert_node_local_container() {
   runtime_user="$(docker_cmd inspect --format '{{.Config.User}}' "$container_id")" \
     || fail "node-local container '$container_id' runtime user could not be inspected"
   if [[ -z "$runtime_user" || "$runtime_user" == "0" || "$runtime_user" == "root" ]]; then
-    process_users="$(docker_cmd top "$container_id" -eo user 2>/dev/null)" \
-      || fail "node-local service '$service_name' container '$container_id' process users could not be inspected"
-    process_rows="$(printf '%s\n' "$process_users" | tail -n +2 | sed '/^[[:space:]]*$/d')"
-    [[ -n "$process_rows" ]] \
-      || fail "node-local service '$service_name' container '$container_id' has no inspectable runtime process"
-    root_process="$(printf '%s\n' "$process_rows" | awk '$1 == "0" || $1 == "root" { print; exit }')"
-    [[ -z "$root_process" ]] \
-      || fail "node-local service '$service_name' container '$container_id' has a root runtime process: $root_process"
+    assert_no_root_runtime_process \
+      "$container_id" \
+      "node-local service '$service_name' container '$container_id'"
   fi
 
   capabilities="$(docker_cmd inspect --format '{{json .HostConfig.CapDrop}}' "$container_id")" \
@@ -213,11 +244,15 @@ network_options="$(docker_cmd network inspect -f '{{json .Options}}' "$NETWORK_N
 [[ "$network_attachable" == "true" ]] || fail "network '$NETWORK_NAME' is not attachable"
 [[ -n "$network_id" && "$network_id" != "<no value>" ]] \
   || fail "network '$NETWORK_NAME' has no inspectable network ID"
-[[ "$network_options" == *'"encrypted"'* \
-  && "$network_options" != *'"encrypted":false'* \
-  && "$network_options" != *'"encrypted":"false"'* ]] \
-  || fail "network '$NETWORK_NAME' is not encrypted"
-echo "acceptance: encrypted attachable Swarm network verified"
+if [[ "$REQUIRE_ENCRYPTED_NETWORK" == true ]]; then
+  [[ "$network_options" == *'"encrypted"'* \
+    && "$network_options" != *'"encrypted":false'* \
+    && "$network_options" != *'"encrypted":"false"'* ]] \
+    || fail "network '$NETWORK_NAME' is not encrypted"
+  echo "acceptance: encrypted attachable Swarm network verified"
+else
+  echo "acceptance: encrypted network requirement skipped by explicit CI capability override"
+fi
 
 migration_name="${STACK_NAME}_migrate"
 migration_state="$(docker_cmd service ps "$migration_name" --no-trunc --format '{{.CurrentState}}' | head -n 1)" \
@@ -253,7 +288,7 @@ echo "acceptance: current database migration completed, image=$migration_image"
 assert_service() {
   local service_name="$1"
   local desired running image healthcheck container_id health service_networks container_count
-  local readonly_rootfs container_readonly
+  local readonly_rootfs container_readonly runtime_user
 
   desired="$(docker_cmd service inspect --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}0{{end}}' "$service_name")" \
     || fail "service '$service_name' does not exist"
@@ -289,9 +324,21 @@ assert_service() {
   if [[ "$service_name" == *_postgres || "$service_name" == *_redis ]]; then
     capabilities_add="$(docker_cmd service inspect --format '{{json .Spec.TaskTemplate.ContainerSpec.CapabilityAdd}}' "$service_name")"
     for capability in CHOWN DAC_OVERRIDE SETGID SETUID; do
-      [[ "$capabilities_add" == *"\"$capability\""* ]] \
+      [[ "$capabilities_add" == *"\"CAP_$capability\""* || "$capabilities_add" == *"\"$capability\""* ]] \
         || fail "stateful service '$service_name' does not grant required $capability capability for its official entrypoint: $capabilities_add"
     done
+  fi
+
+  if [[ "$service_name" == "${STACK_NAME}_redis" ]]; then
+    runtime_user="$(docker_cmd service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.User}}' "$service_name")" \
+      || fail "bundled Redis service '$service_name' runtime user could not be inspected"
+    [[ "$runtime_user" == "999:1000" ]] \
+      || fail "bundled Redis service '$service_name' is not pinned to Redis's non-root identity: $runtime_user"
+  elif [[ "$service_name" == "${STACK_NAME}_postgres" ]]; then
+    runtime_user="$(docker_cmd service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.User}}' "$service_name")" \
+      || fail "bundled PostgreSQL service '$service_name' runtime user could not be inspected"
+    [[ "$runtime_user" == "70:70" ]] \
+      || fail "bundled PostgreSQL service '$service_name' is not pinned to PostgreSQL's non-root identity: $runtime_user"
   fi
 
   container_count=0
@@ -302,22 +349,19 @@ assert_service() {
     [[ "$health" == "healthy" ]] \
       || fail "service '$service_name' container '$container_id' is $health"
     runtime_user="$(docker_cmd inspect --format '{{.Config.User}}' "$container_id")"
-    [[ -n "$runtime_user" && "$runtime_user" != "0" && "$runtime_user" != "root" ]] \
-      || {
-        # Official stateful images such as PostgreSQL and Redis intentionally
-        # leave Config.User empty because their entrypoints start as root and
-        # then drop to the service account. Inspect the effective process table
-        # when the image does not declare a static user; checking Config.User
-        # alone would reject a healthy bundled deployment.
-        process_users="$(docker_cmd top "$container_id" -eo user 2>/dev/null)" \
-          || fail "service '$service_name' container '$container_id' process users could not be inspected"
-        process_rows="$(printf '%s\n' "$process_users" | tail -n +2 | sed '/^[[:space:]]*$/d')"
-        [[ -n "$process_rows" ]] \
-          || fail "service '$service_name' container '$container_id' has no inspectable runtime process"
-        root_process="$(printf '%s\n' "$process_rows" | awk '$1 == "0" || $1 == "root" { print; exit }')"
-        [[ -z "$root_process" ]] \
-          || fail "service '$service_name' container '$container_id' has a root runtime process: $root_process"
-      }
+    if [[ "$service_name" == "${STACK_NAME}_redis" ]]; then
+      assert_no_root_runtime_process \
+        "$container_id" \
+        "service '$service_name' container '$container_id'" \
+        "$runtime_user"
+    elif [[ -z "$runtime_user" || "$runtime_user" == "0" || "$runtime_user" == "root" ]]; then
+      # PostgreSQL's official entrypoint may leave Config.User empty while
+      # dropping its effective server process to the postgres account. Inspect
+      # the process table when the image does not declare a static user.
+      assert_no_root_runtime_process \
+        "$container_id" \
+        "service '$service_name' container '$container_id'"
+    fi
     if [[ "$service_name" == *_migrate || "$service_name" == *_server || "$service_name" == *_schedules ]]; then
       container_readonly="$(docker_cmd inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")" \
         || fail "service '$service_name' container '$container_id' filesystem mode could not be inspected"

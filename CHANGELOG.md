@@ -4,6 +4,64 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.46 - 2026-08-04
+
+Publish CLI releases automatically from trusted GitHub Actions OIDC credentials with npm provenance and immutable-content retry checks.
+
+Use explicit Swarm-compatible tmpfs mounts so read-only production services retain their required writable temporary paths.
+
+Capture bounded server and schedules service logs, health responses, and container state when bundled production acceptance does not converge.
+
+## 0.1.45 - 2026-08-04
+
+Make production acceptance process-identity checks portable across minimal stateful images.
+
+## 0.1.44 - 2026-08-04
+
+Prevent the schedules startup gate from deadlocking against server readiness.
+
+## 0.1.43 - 2026-08-04
+
+Use the runtime available in each production image for web and documentation healthchecks.
+
+## 0.1.42 - 2026-08-04
+
+Run bundled service healthchecks as direct Bun commands without shell-dependent quoting.
+
+## 0.1.41 - 2026-08-03
+
+Use Bun directly for production healthchecks in the bundled Compose stack.
+
+## 0.1.40 - 2026-08-03
+
+Use the Bun runtime for bundled API and schedules healthchecks instead of assuming curl is installed.
+
+## 0.1.39 - 2026-08-03
+
+Run the bundled PostgreSQL service as its explicit non-root runtime identity.
+
+## 0.1.38 - 2026-08-03
+
+Run the bundled Redis service as its explicit non-root runtime identity.
+
+## 0.1.37 - 2026-08-03
+
+Fix production acceptance when stateful images do not provide `ps` for `docker top`.
+
+## 0.1.36 - 2026-08-03
+
+Fix production acceptance validation for Docker's normalized capability names.
+
+Prepare the next stable patch release with the hosted production acceptance and dependency security fixes.
+
+## 0.1.35 - 2026-08-03
+
+Patch release for the production dependency security update.
+
+## 0.1.34 - 2026-08-03
+
+Harden the hosted production acceptance rehearsal for Docker Swarm capability differences.
+
 ## 0.1.33 - 2026-08-03
 
 Promote the OpenTUI CLI and browser device authentication in the next stable patch release.
