@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.42 - 2026-08-04
+
+Run bundled service healthchecks as direct Bun commands without shell-dependent quoting.
+
 ## 0.1.41 - 2026-08-03
 
 Use Bun directly for production healthchecks in the bundled Compose stack.
