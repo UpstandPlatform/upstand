@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.43 - 2026-08-04
+
+Use the runtime available in each production image for web and documentation healthchecks.
+
 ## 0.1.42 - 2026-08-04
 
 Run bundled service healthchecks as direct Bun commands without shell-dependent quoting.
