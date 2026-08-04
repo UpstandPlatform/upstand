@@ -1,5 +1,11 @@
 # server
 
+## 0.1.49
+
+### Patch Changes
+
+- [#198](https://github.com/UpstandPlatform/upstand/pull/198) [`21ab4c8`](https://github.com/UpstandPlatform/upstand/commit/21ab4c82b2c9cbe031f87dcbec7b0b85035ce557) Thanks [@mhbdev](https://github.com/mhbdev)! - Initialize the monitoring agent data directory with non-root ownership so its persistent SQLite volume can start successfully under the hardened runtime identity.
+
 ## 0.1.48
 
 ### Patch Changes
