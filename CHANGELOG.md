@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.47 - 2026-08-04
+
+Reuse an already-present immutable monitoring image during provisioning and pre-pull it in the release acceptance harness, so private GHCR images do not require credentials inside the production container.
+
 ## 0.1.46 - 2026-08-04
 
 Publish CLI releases automatically from trusted GitHub Actions OIDC credentials with npm provenance and immutable-content retry checks.

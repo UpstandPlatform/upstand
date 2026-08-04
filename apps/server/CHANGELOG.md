@@ -1,5 +1,11 @@
 # server
 
+## 0.1.47
+
+### Patch Changes
+
+- [#194](https://github.com/UpstandPlatform/upstand/pull/194) [`3b1971d`](https://github.com/UpstandPlatform/upstand/commit/3b1971d3658f8571aa7ff3939ccf0be784d67437) Thanks [@mhbdev](https://github.com/mhbdev)! - Reuse an already-present immutable monitoring image during provisioning and pre-pull it in the release acceptance harness, so private GHCR images do not require credentials inside the production container.
+
 ## 0.1.46
 
 ### Patch Changes
