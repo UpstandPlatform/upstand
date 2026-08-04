@@ -68,8 +68,10 @@ jobs:
           !startsWith(github.head_ref, 'changeset-release/') &&
           github.head_ref != 'canary' &&
           !(
-            github.base_ref == 'master' &&
-            startsWith(github.head_ref, 'release/promote-')
+            (github.base_ref == 'master' &&
+              startsWith(github.head_ref, 'release/promote-')) ||
+            (github.base_ref == 'canary' &&
+              startsWith(github.head_ref, 'sync/canary-'))
           )
         run: |
           set -euo pipefail
