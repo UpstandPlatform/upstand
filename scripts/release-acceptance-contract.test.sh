@@ -41,6 +41,7 @@ require_compose_text "type: tmpfs"
 require_compose_text "target: /tmp"
 require_compose_text "target: /app/.builds"
 require_compose_text "target: /home/upstand/.docker"
+require_compose_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: \${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}"
 if grep -Eq '^    tmpfs:' "$COMPOSE"; then
   echo "production Compose must use explicit type: tmpfs mounts for Swarm deployments" >&2
   exit 1
