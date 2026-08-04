@@ -1,5 +1,11 @@
 # server
 
+## 0.1.44
+
+### Patch Changes
+
+- [#182](https://github.com/UpstandPlatform/upstand/pull/182) [`2e50190`](https://github.com/UpstandPlatform/upstand/commit/2e5019068c90055efda1bccb8aff76a260e751ec) Thanks [@mhbdev](https://github.com/mhbdev)! - Prevent the schedules startup gate from deadlocking against server readiness.
+
 ## 0.1.43
 
 ### Patch Changes
