@@ -1,5 +1,11 @@
 # server
 
+## 0.1.52
+
+### Patch Changes
+
+- [#204](https://github.com/UpstandPlatform/upstand/pull/204) [`64c2509`](https://github.com/UpstandPlatform/upstand/commit/64c2509a7fc0e7d16c843a4ad1eeffda7ebfcc74) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the read-only operational rehearsal to use Bun's executable temporary workspace while keeping the production services hardened.
+
 ## 0.1.51
 
 ### Patch Changes
