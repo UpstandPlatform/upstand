@@ -4,6 +4,14 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.46 - 2026-08-04
+
+Publish CLI releases automatically from trusted GitHub Actions OIDC credentials with npm provenance and immutable-content retry checks.
+
+Use explicit Swarm-compatible tmpfs mounts so read-only production services retain their required writable temporary paths.
+
+Capture bounded server and schedules service logs, health responses, and container state when bundled production acceptance does not converge.
+
 ## 0.1.45 - 2026-08-04
 
 Make production acceptance process-identity checks portable across minimal stateful images.

@@ -1,5 +1,13 @@
 # server
 
+## 0.1.46
+
+### Patch Changes
+
+- [#186](https://github.com/UpstandPlatform/upstand/pull/186) [`56ffbb3`](https://github.com/UpstandPlatform/upstand/commit/56ffbb3f52778f2b7c932805a17a371aae6c5dd7) Thanks [@mhbdev](https://github.com/mhbdev)! - Capture bounded server and schedules service logs, health responses, and container state when bundled production acceptance does not converge.
+
+- [#189](https://github.com/UpstandPlatform/upstand/pull/189) [`1567ce5`](https://github.com/UpstandPlatform/upstand/commit/1567ce5ffd2bcd93bef1a961e2a30fdc685ca934) Thanks [@mhbdev](https://github.com/mhbdev)! - Use explicit Swarm-compatible tmpfs mounts so read-only production services retain their required writable temporary paths.
+
 ## 0.1.45
 
 ### Patch Changes
