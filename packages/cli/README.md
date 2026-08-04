@@ -4,6 +4,8 @@ The official Upstand command-line interface. It uses OpenTUI for interactive
 terminal rendering and supports Bun as its runtime.
 
 ```bash
+bun add -g @upstand/cli
+npm install -g @upstand/cli
 bunx @upstand/cli --help
 upstand login
 upstand project list --organization org_...

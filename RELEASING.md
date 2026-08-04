@@ -13,7 +13,9 @@ published only from the stable branch.
 6. Confirm the reusable release workflow builds, verifies, and publishes all
    server, schedules, web, Fumadocs, and monitoring images.
 7. Confirm the CLI publication workflow publishes `@upstand/cli` with npm
-   provenance.
+   provenance, or verifies that the immutable version is already published
+   with identical contents. Product releases publish from the stable tag;
+   CLI-only Changesets publish from the version-bump commit on `master`.
 8. Confirm the GitHub Release contains the release manifest and immutable image
    digests.
 
@@ -40,9 +42,13 @@ gh release list --repo UpstandPlatform/upstand --limit 10
 Do not announce a release until CI, image publication, CLI publication, manifest
 verification, and the GitHub Release have all passed.
 
-The CLI publication workflow uses npm trusted publishing. Configure the
-`UpstandPlatform/upstand` repository as a trusted publisher for `@upstand/cli`
-before promoting the first CLI release.
+The CLI publication workflow uses npm trusted publishing and never stores an
+npm token in GitHub. Configure the `UpstandPlatform/upstand` repository as the
+trusted publisher for `@upstand/cli` with workflow `npm-cli.yml` and no npm
+environment before promoting the first CLI release. The package must be
+public, and the workflow must retain `id-token: write`; do not add
+`NPM_TOKEN` or `NODE_AUTH_TOKEN` secrets. Retries verify the published npm
+integrity before skipping an immutable version.
 
 ## Changesets token configuration
 
