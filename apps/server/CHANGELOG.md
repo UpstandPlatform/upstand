@@ -1,5 +1,11 @@
 # server
 
+## 0.1.50
+
+### Patch Changes
+
+- [#200](https://github.com/UpstandPlatform/upstand/pull/200) [`cd4cd61`](https://github.com/UpstandPlatform/upstand/commit/cd4cd61735f713fa34377f5759ca271e44705a51) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the server liveness endpoint for the container healthcheck so Swarm startup cannot deadlock while schedules waits for the server to bind.
+
 ## 0.1.49
 
 ### Patch Changes
