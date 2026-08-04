@@ -213,7 +213,10 @@ async function ensureManagedOverlayNetwork(
   requireEncryption: boolean,
 ): Promise<{ id: string; created: boolean }> {
   const network = docker.getNetwork(name);
-  const isDev = env.NODE_ENV === "development";
+  const encryptionRequired =
+    requireEncryption &&
+    env.NODE_ENV !== "development" &&
+    !env.UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK;
 
   try {
     const existing = (await network.inspect()) as DockerOverlayNetwork;
@@ -221,10 +224,10 @@ async function ensureManagedOverlayNetwork(
       existing.Driver !== "overlay" ||
       existing.Scope !== "swarm" ||
       existing.Attachable !== true ||
-      (requireEncryption && !isDev && !hasEncryptedOverlayOption(existing))
+      (encryptionRequired && !hasEncryptedOverlayOption(existing))
     ) {
       throw new ConflictError(
-        `Network '${name}' exists but is not a compatible${requireEncryption ? ", encrypted" : ""} attachable Swarm overlay network. Rename or remove it before continuing.`,
+        `Network '${name}' exists but is not a compatible${encryptionRequired ? ", encrypted" : ""} attachable Swarm overlay network. Rename or remove it before continuing.`,
       );
     }
 
@@ -245,7 +248,7 @@ async function ensureManagedOverlayNetwork(
       Name: name,
       Driver: "overlay",
       Attachable: true,
-      ...(requireEncryption ? { Options: { encrypted: "" } } : {}),
+      ...(encryptionRequired ? { Options: { encrypted: "" } } : {}),
       CheckDuplicate: true,
       Labels: {
         "com.upstand.managed": "true",
@@ -267,10 +270,10 @@ async function ensureManagedOverlayNetwork(
       racedNetwork.Driver !== "overlay" ||
       racedNetwork.Scope !== "swarm" ||
       racedNetwork.Attachable !== true ||
-      (requireEncryption && !isDev && !hasEncryptedOverlayOption(racedNetwork))
+      (encryptionRequired && !hasEncryptedOverlayOption(racedNetwork))
     ) {
       throw new ConflictError(
-        `Network '${name}' exists but is not a compatible${requireEncryption ? ", encrypted" : ""} attachable Swarm overlay network.`,
+        `Network '${name}' exists but is not a compatible${encryptionRequired ? ", encrypted" : ""} attachable Swarm overlay network.`,
       );
     }
     return { id: racedNetwork.Id, created: false };

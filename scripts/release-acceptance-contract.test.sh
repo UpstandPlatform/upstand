@@ -105,6 +105,8 @@ require_workflow_text "OTLP collector did not record the acceptance probe"
 require_workflow_text "Production encrypted-network configuration is enforced by installer/contract tests"
 require_workflow_text "hosted Swarm runtime probe is skipped"
 require_workflow_text "UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false"
+require_workflow_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true"
+require_workflow_text 'docker pull "$UPSTAND_MONITORING_IMAGE"'
 require_workflow_text 'docker node update'
 require_workflow_text '--label-add upstand.control-plane=true'
 require_workflow_text 'docker service ps "${STACK_NAME}_${service}" --no-trunc'

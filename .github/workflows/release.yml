@@ -554,6 +554,10 @@ jobs:
           # but cannot execute encrypted IPSec service tasks. Production
           # operators retain the strict default in production-acceptance.sh.
           export UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false
+          # The hosted acceptance runner cannot execute encrypted IPSec
+          # overlays. This explicit application-level override is passed only
+          # to this disposable stack; normal production defaults remain strict.
+          export UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true
 
           {
             printf 'release_ref=%s\n' "$RELEASE_REF"
@@ -624,6 +628,12 @@ jobs:
             exit 1
           }
           export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"
+
+          # The server provisions the monitoring agent through the Docker
+          # socket. Pre-pull the already-authenticated immutable image on the
+          # runner so that provisioning can use the local digest without
+          # requiring registry credentials inside the production container.
+          timeout --foreground 300 docker pull "$UPSTAND_MONITORING_IMAGE"
 
           timeout --foreground 300 docker stack deploy --with-registry-auth \
             --compose-file docker-compose.prod.yml "$STACK_NAME"
