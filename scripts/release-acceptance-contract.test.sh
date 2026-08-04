@@ -51,6 +51,7 @@ require_file_text "$WEB_DOCKERFILE" 'CMD ["node", "apps/web/server.js"]'
 require_file_text "$FUMADOCS_DOCKERFILE" "FROM node:24-slim@"
 require_file_text "$FUMADOCS_DOCKERFILE" 'CMD ["node", "apps/fumadocs/server.js"]'
 require_file_text "$SCHEDULES_ENTRYPOINT" '${UPSTAND_SERVER_INTERNAL_URL%/}/health/live'
+require_file_text "$ROOT_DIR/apps/monitoring/Dockerfile" "mkdir -p /data && chown appuser:appgroup /data"
 if grep -Fq -- '${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready' "$SCHEDULES_ENTRYPOINT"; then
   echo "schedules entrypoint must not wait for server readiness (circular dependency)" >&2
   exit 1
