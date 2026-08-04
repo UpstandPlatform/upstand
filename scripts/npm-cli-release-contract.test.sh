@@ -28,7 +28,7 @@ require_text "$WORKFLOW" '--provenance'
 require_text "$WORKFLOW" 'dist.integrity'
 require_text "$WORKFLOW" 'refusing to overwrite it'
 require_text "$WORKFLOW" 'npm >= 11.5'
-require_text "$WORKFLOW" 'npm@11.5.2'
+require_text "$WORKFLOW" 'npx --yes npm@11.5.2'
 
 if grep -Eq 'NPM_TOKEN|NODE_AUTH_TOKEN|//registry\.npmjs\.org/.*_authToken' "$WORKFLOW"; then
   echo "npm publication must not use a long-lived npm token" >&2
