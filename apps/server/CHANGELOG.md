@@ -1,5 +1,11 @@
 # server
 
+## 0.1.51
+
+### Patch Changes
+
+- [#202](https://github.com/UpstandPlatform/upstand/pull/202) [`798029d`](https://github.com/UpstandPlatform/upstand/commit/798029deabadae4acfe5222eab713b2397282c7a) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep the read-only production operational-status rehearsal compatible with Bun's runtime cache behavior.
+
 ## 0.1.50
 
 ### Patch Changes
