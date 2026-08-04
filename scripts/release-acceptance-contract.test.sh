@@ -37,6 +37,14 @@ require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1
 require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3002/health/ready')"
 require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:3001/')"
 require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:4000/')"
+require_compose_text "type: tmpfs"
+require_compose_text "target: /tmp"
+require_compose_text "target: /app/.builds"
+require_compose_text "target: /home/upstand/.docker"
+if grep -Eq '^    tmpfs:' "$COMPOSE"; then
+  echo "production Compose must use explicit type: tmpfs mounts for Swarm deployments" >&2
+  exit 1
+fi
 require_file_text "$WEB_DOCKERFILE" "FROM node:24-slim@"
 require_file_text "$WEB_DOCKERFILE" 'CMD ["node", "apps/web/server.js"]'
 require_file_text "$FUMADOCS_DOCKERFILE" "FROM node:24-slim@"

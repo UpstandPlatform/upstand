@@ -212,6 +212,18 @@ jobs:
                   raise SystemExit(
                       f"{name} must drop all Linux capabilities: {services[name].get('cap_drop')!r}"
                   )
+          def tmpfs_mount(service_name, target):
+              return next(
+                  (
+                      entry
+                      for entry in services[service_name].get("volumes", [])
+                      if isinstance(entry, dict)
+                      and entry.get("type") == "tmpfs"
+                      and entry.get("target") == target
+                  ),
+                  None,
+              )
+
           for name in ("server", "schedules", "web", "fumadocs"):
               if services[name].get("read_only") is not True:
                   raise SystemExit(f"{name} must keep its production filesystem read-only")
@@ -220,19 +232,17 @@ jobs:
                       f"{name} must route Evlog fallback logs to writable tmpfs: "
                       f"{services[name]['environment'].get('EVLOG_FS_DIR')!r}"
                   )
-              if not any(str(entry).startswith("/tmp:") for entry in services[name].get("tmpfs", [])):
+              if tmpfs_mount(name, "/tmp") is None:
                   raise SystemExit(f"{name} must provide writable tmpfs for Evlog fallback logs")
           for name in ("migrate",):
               if services[name].get("read_only") is not True:
                   raise SystemExit(f"{name} must keep its production filesystem read-only")
-              tmpfs = [str(entry) for entry in services[name].get("tmpfs", [])]
-              if not any(entry.startswith("/tmp:") for entry in tmpfs):
+              if tmpfs_mount(name, "/tmp") is None:
                   raise SystemExit(f"{name} must provide a bounded writable /tmp tmpfs")
-              if not any("/home/upstand/.docker:" in entry and "uid=10001" in entry and "mode=0700" in entry for entry in tmpfs):
+              if tmpfs_mount(name, "/home/upstand/.docker") is None:
                   raise SystemExit(f"{name} must provide a private non-root Docker CLI tmpfs")
           for name in ("server", "schedules"):
-              tmpfs = [str(entry) for entry in services[name].get("tmpfs", [])]
-              if not any(entry.startswith("/app/.builds:") and "uid=10001" in entry and "mode=0700" in entry for entry in tmpfs):
+              if tmpfs_mount(name, "/app/.builds") is None:
                   raise SystemExit(f"{name} must isolate build workspaces on tmpfs")
           print("compose-topology-contract: passed")
           PY
