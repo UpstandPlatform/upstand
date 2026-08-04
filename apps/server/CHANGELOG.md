@@ -1,5 +1,11 @@
 # server
 
+## 0.1.45
+
+### Patch Changes
+
+- [#184](https://github.com/UpstandPlatform/upstand/pull/184) [`d634ddf`](https://github.com/UpstandPlatform/upstand/commit/d634ddf4a6acaa58f9e7a96acd8a09c37a726b52) Thanks [@mhbdev](https://github.com/mhbdev)! - Make production acceptance process-identity checks portable across minimal stateful images.
+
 ## 0.1.44
 
 ### Patch Changes
