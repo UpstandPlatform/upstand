@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.44 - 2026-08-04
+
+Prevent the schedules startup gate from deadlocking against server readiness.
+
 ## 0.1.43 - 2026-08-04
 
 Use the runtime available in each production image for web and documentation healthchecks.
