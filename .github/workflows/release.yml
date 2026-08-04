@@ -856,7 +856,7 @@ jobs:
           restore_dependency_service "${STACK_NAME}_external_postgres"
 
           docker run --rm --network "$DOCKER_NETWORK" \
-            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
             --user 10001:10001 \
             --entrypoint /bin/sh \
             "$HEALTH_LOAD_IMAGE" \
