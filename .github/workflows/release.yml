@@ -639,6 +639,28 @@ jobs:
           done
           if [[ "$bundled_accepted" != true ]]; then
             echo "Bundled single-node production acceptance did not converge before timeout" >&2
+            capture_bundled_readiness_diagnostics() {
+              local service port service_name container_id runtime_user
+              for service in server schedules; do
+                service_name="${STACK_NAME}_${service}"
+                docker service logs --raw --timestamps --tail 200 "$service_name" \
+                  > "$ACCEPTANCE_EVIDENCE_DIR/service-logs-${service}.txt" 2>&1 || true
+                port=3000
+                [[ "$service" == schedules ]] && port=3002
+                container_id="$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" | head -n 1 || true)"
+                [[ -n "$container_id" ]] || continue
+                docker inspect --format \
+                  'image={{.Config.Image}} user={{.Config.User}} restart_count={{.RestartCount}} health={{if .State.Health}}{{json .State.Health}}{{else}}none{{end}}' \
+                  "$container_id" \
+                  > "$ACCEPTANCE_EVIDENCE_DIR/container-state-${service}.txt" 2>&1 || true
+                runtime_user="$(docker inspect --format '{{.Config.User}}' "$container_id" 2>/dev/null || true)"
+                docker exec --user "$runtime_user" "$container_id" \
+                  curl --silent --show-error --max-time 5 \
+                  "http://127.0.0.1:${port}/health/ready" \
+                  > "$ACCEPTANCE_EVIDENCE_DIR/health-ready-${service}.txt" 2>&1 || true
+              done
+            }
+            capture_bundled_readiness_diagnostics
             docker stack services "$STACK_NAME" || true
             docker service ls || true
             for service in postgres redis migrate server schedules web fumadocs; do
