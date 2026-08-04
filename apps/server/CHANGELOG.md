@@ -1,5 +1,11 @@
 # server
 
+## 0.1.42
+
+### Patch Changes
+
+- [#178](https://github.com/UpstandPlatform/upstand/pull/178) [`ed4bc43`](https://github.com/UpstandPlatform/upstand/commit/ed4bc43b0b49472c32084b61be06cb06f8cd3f8e) Thanks [@mhbdev](https://github.com/mhbdev)! - Run bundled service healthchecks as direct Bun commands without shell-dependent quoting.
+
 ## 0.1.41
 
 ### Patch Changes
