@@ -414,9 +414,21 @@ export class SetupServerUseCase {
         log.info({
           message: `[Monitoring Setup] Pulling immutable monitoring image ${configuredMonitoringImage} on ${server.ipAddress}...`,
         });
-        await privileged(
-          `docker pull ${shellQuote(configuredMonitoringImage)}`,
+        const localImageDigests = await privileged(
+          `docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' ${shellQuote(configuredMonitoringImage)} 2>/dev/null || true`,
         );
+        const imageAlreadyAvailable = localImageDigests
+          .split(/\r?\n/)
+          .some((digest) => digest.trim() === configuredMonitoringImage);
+        if (imageAlreadyAvailable) {
+          log.info({
+            message: `[Monitoring Setup] Immutable monitoring image is already available on ${server.ipAddress}; skipping registry pull.`,
+          });
+        } else {
+          await privileged(
+            `docker pull ${shellQuote(configuredMonitoringImage)}`,
+          );
+        }
       } else {
         if (env.NODE_ENV === "production") {
           throw new Error(

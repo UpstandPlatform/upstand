@@ -62,6 +62,12 @@ const validatedEnv = createEnv({
         z.boolean(),
       )
       .default(false),
+    UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: z
+      .preprocess(
+        (value) => value === "true" || value === "1" || value === true,
+        z.boolean(),
+      )
+      .default(false),
     AUTH_COOKIE_DOMAIN: z.string().trim().min(1).optional(),
     GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
