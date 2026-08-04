@@ -881,6 +881,7 @@ jobs:
             --env OPERATIONAL_STATUS_MAX_DEAD_LETTER_COUNT=0 \
             --env OPERATIONAL_STATUS_MAX_OUTBOX_PENDING_COUNT=1000 \
             --env OPERATIONAL_STATUS_MAX_OUTBOX_PUBLISHING_COUNT=100 \
+            --env BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
             --entrypoint /usr/local/bin/bun \
             "$UPSTAND_SERVER_IMAGE" \
             /tmp/operational-status-rehearsal.ts \
