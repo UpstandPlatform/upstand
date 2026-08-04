@@ -50,6 +50,11 @@ fi
 require_workflow_text "bundled_accepted=false"
 require_workflow_text "runs-on: ubuntu-24.04"
 require_workflow_text "Bundled single-node production acceptance did not converge"
+require_workflow_text "capture_bundled_readiness_diagnostics"
+require_workflow_text 'service-logs-${service}.txt'
+require_workflow_text 'container-state-${service}.txt'
+require_workflow_text 'health-ready-${service}.txt'
+require_workflow_text 'curl --silent --show-error --max-time 5'
 require_workflow_text '--node-local'
 node_local_count="$(grep -Fc -- '--node-local' "$WORKFLOW")"
 [[ "$node_local_count" -ge 2 ]] || {
