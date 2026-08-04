@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.49 - 2026-08-04
+
+Initialize the monitoring agent data directory with non-root ownership so its persistent SQLite volume can start successfully under the hardened runtime identity.
+
 ## 0.1.48 - 2026-08-04
 
 Make hosted production acceptance pass the disposable network override to the server and keep the monitoring image healthcheck self-contained.
