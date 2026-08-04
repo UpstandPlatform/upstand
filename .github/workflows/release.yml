@@ -109,6 +109,7 @@ jobs:
           bash scripts/production-acceptance-cluster-contract.test.sh
           bash scripts/health-soak-rehearsal-contract.test.sh
           bash scripts/release-acceptance-contract.test.sh
+          bash scripts/npm-cli-release-contract.test.sh
 
       - name: Restore Turbo cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
