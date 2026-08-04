@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.52 - 2026-08-04
+
+Allow the read-only operational rehearsal to use Bun's executable temporary workspace while keeping the production services hardened.
+
 ## 0.1.51 - 2026-08-04
 
 Keep the read-only production operational-status rehearsal compatible with Bun's runtime cache behavior.
