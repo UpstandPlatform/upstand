@@ -1,5 +1,3 @@
-import { env } from "@upstand/env/testing";
-
 type JsonRecord = Record<string, unknown>;
 
 export type OperationalThresholds = {
@@ -325,7 +323,7 @@ export async function runOperationalStatusRehearsal(
   controlPlaneUrl: string,
   schedulesUrl: string,
   thresholds = parseOperationalThresholds(),
-  authHeader = env.OPERATIONAL_STATUS_AUTH_HEADER,
+  authHeader = process.env.OPERATIONAL_STATUS_AUTH_HEADER,
 ): Promise<OperationalCheckResult> {
   const headers = parseAuthHeader(authHeader);
   const controlBase = controlPlaneUrl.replace(/\/$/, "");
