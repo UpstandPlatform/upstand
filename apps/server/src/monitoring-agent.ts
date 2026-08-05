@@ -232,29 +232,53 @@ async function initializeMonitoringOnce(): Promise<void> {
       return;
     }
 
-    await container.remove({ force: true });
+    try {
+      await container.remove({ force: true });
+    } catch (error: unknown) {
+      const statusCode = dockerStatusCode(error);
+      if (statusCode !== 409 && statusCode !== 404) throw error;
+    }
   }
 
-  try {
-    await docker.createContainer(containerOpts);
-  } catch (error: unknown) {
-    // A separate process may have reconciled the same named container between
-    // inspect and create. Reuse it only after validating its ownership/config.
-    if (dockerStatusCode(error) !== 409) throw error;
-    const concurrent = (await container.inspect()) as MonitoringContainerInfo;
-    if (!isMonitoringContainerCurrent(concurrent, containerOpts)) throw error;
-    if (!concurrent.State?.Running) await container.start();
-    await waitForMonitoringHealth(container);
-    log.info({
-      message: "Local Monitoring Agent container already reconciled",
-      image: monitoringImage,
-      network: networkMode || "loopback",
-    });
-    return;
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      await docker.createContainer(containerOpts);
+      break;
+    } catch (error: unknown) {
+      if (dockerStatusCode(error) !== 409) throw error;
+      try {
+        const concurrent =
+          (await container.inspect()) as MonitoringContainerInfo;
+        if (isMonitoringContainerCurrent(concurrent, containerOpts)) {
+          if (!concurrent.State?.Running) await container.start();
+          await waitForMonitoringHealth(container);
+          log.info({
+            message: "Local Monitoring Agent container already reconciled",
+            image: monitoringImage,
+            network: networkMode || "loopback",
+          });
+          return;
+        }
+      } catch (inspectErr: unknown) {
+        if (
+          dockerStatusCode(inspectErr) !== 404 &&
+          dockerStatusCode(inspectErr) !== 409
+        ) {
+          throw inspectErr;
+        }
+      }
+      if (attempt === 10) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
   }
 
   const startedContainer = docker.getContainer(MONITORING_CONTAINER_NAME);
-  await startedContainer.start();
+  try {
+    await startedContainer.start();
+  } catch (error: unknown) {
+    const info = (await startedContainer.inspect()) as MonitoringContainerInfo;
+    if (!info.State?.Running) throw error;
+  }
   await waitForMonitoringHealth(startedContainer);
   log.info({
     message: "Local Monitoring Agent container started",

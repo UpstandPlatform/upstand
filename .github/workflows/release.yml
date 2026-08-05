@@ -773,7 +773,8 @@ jobs:
             sh "$otlp_probe_payload" "$OTEL_COLLECTOR_SERVICE"
           telemetry_delivered=false
           for attempt in {1..30}; do
-            if docker service logs --raw "$OTEL_COLLECTOR_SERVICE" 2>&1 | grep -Fq "upstand acceptance OTLP probe"; then
+            logs="$(docker service logs --raw "$OTEL_COLLECTOR_SERVICE" 2>&1 || true)"
+            if grep -Fq "upstand acceptance OTLP probe" <<< "$logs"; then
               telemetry_delivered=true
               break
             fi
