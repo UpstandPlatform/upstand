@@ -468,7 +468,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
-          ATTESTATION_SOURCE_REF: ${{ github.ref }}
+          ATTESTATION_SOURCE_REF: ${{ inputs.release_ref || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
