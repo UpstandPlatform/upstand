@@ -1,5 +1,11 @@
 # server
 
+## 0.1.53
+
+### Patch Changes
+
+- [#206](https://github.com/UpstandPlatform/upstand/pull/206) [`64fe51e`](https://github.com/UpstandPlatform/upstand/commit/64fe51e2203980f68a7ef7a8b4482cd4a882d216) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the operational status rehearsal to use its writable executable temporary workspace while retaining production read-only hardening.
+
 ## 0.1.52
 
 ### Patch Changes
