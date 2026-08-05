@@ -704,6 +704,7 @@ jobs:
           timeout --foreground 60 docker service create \
             --name "${STACK_NAME}_external_postgres" \
             --network "$DOCKER_NETWORK" \
+            --user 70:70 \
             --cap-drop ALL \
             --cap-add CHOWN \
             --cap-add DAC_OVERRIDE \
@@ -721,6 +722,7 @@ jobs:
           timeout --foreground 60 docker service create \
             --name "${STACK_NAME}_external_redis" \
             --network "$DOCKER_NETWORK" \
+            --user 999:1000 \
             --cap-drop ALL \
             --cap-add CHOWN \
             --cap-add DAC_OVERRIDE \
