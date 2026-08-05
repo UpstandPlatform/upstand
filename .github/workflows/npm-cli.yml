@@ -186,4 +186,4 @@ jobs:
       - name: Publish @upstand/cli with npm trusted publishing
         if: steps.package.outputs.should_publish == 'true'
         working-directory: ${{ env.PACKAGE_DIR }}
-        run: npx --yes npm@11.5.2 publish "${{ steps.package.outputs.tarball }}" --access public --provenance --tag latest --registry "$NPM_REGISTRY"
+        run: npx --yes npm@11.5.2 publish --access public --provenance --tag latest --registry "$NPM_REGISTRY"
