@@ -9,7 +9,8 @@
     "LOCAL_VERIFY_TIMEOUT_MS",
     "LOCAL_EXPECTED_MODE",
     "LOCAL_RUNTIME",
-    "IS_CLOUD"
+    "IS_CLOUD",
+    "OPERATIONAL_STATUS_AUTH_HEADER"
   ],
   "boundaries": {
     "tags": {
