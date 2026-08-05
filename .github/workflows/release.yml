@@ -877,6 +877,7 @@ jobs:
 
           docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
+            --tmpfs /home/upstand:rw,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700 \
             --user 10001:10001 \
             --volume "${GITHUB_WORKSPACE}/scripts/operational-status-rehearsal.ts:/tmp/operational-status-rehearsal.ts:ro" \
             --env OPERATIONAL_STATUS_MAX_WAITING_COUNT=1000 \
@@ -885,6 +886,7 @@ jobs:
             --env OPERATIONAL_STATUS_MAX_OUTBOX_PENDING_COUNT=1000 \
             --env OPERATIONAL_STATUS_MAX_OUTBOX_PUBLISHING_COUNT=100 \
             --env BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
+            --env HOME=/tmp \
             --entrypoint /usr/local/bin/bun \
             "$UPSTAND_SERVER_IMAGE" \
             /tmp/operational-status-rehearsal.ts \
