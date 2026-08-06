@@ -869,7 +869,7 @@ jobs:
               --user 10001:10001 \
               --entrypoint /bin/sh \
               "$HEALTH_LOAD_IMAGE" \
-              -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -Fq "\"backup\""' \
+              -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -vq "\"outbox\":null"; printf "%s" "$status" | grep -Fq "\"backup\""; printf "%s" "$status" | grep -vq "\"backup\":null"' \
               sh "${STACK_NAME}_schedules" >/dev/null 2>&1; then
               schedules_status_recovered=true
               break
