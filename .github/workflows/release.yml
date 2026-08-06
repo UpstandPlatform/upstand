@@ -822,7 +822,7 @@ jobs:
           probe_server_readiness() {
             expected="$1"
             label="$2"
-            for attempt in {1..30}; do
+            for attempt in {1..60}; do
               set +e
               status_code="$(docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
