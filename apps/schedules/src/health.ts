@@ -4,6 +4,7 @@ import {
   BACKUP_RUN_QUEUE,
   NOTIFICATION_DELIVERY_QUEUE,
 } from "@upstand/usecases";
+import { log } from "evlog";
 import { type Context, Hono } from "hono";
 import { QueueHealthChecker, type QueueHealthStatus } from "./queues";
 import type { WorkerManager } from "./workers";
@@ -411,8 +412,11 @@ export function createHealthServer(
     if (dependencies.getOutboxSummary) {
       try {
         outbox = await dependencies.getOutboxSummary();
-      } catch {
-        // Keep operational signals useful when the database is unavailable.
+      } catch (error) {
+        log.error({
+          message: "Failed to collect schedules outbox summary",
+          err: error instanceof Error ? error : new Error(String(error)),
+        });
         databaseReady = false;
       }
     }
@@ -421,8 +425,11 @@ export function createHealthServer(
     if (dependencies.getBackupSummary) {
       try {
         backup = await dependencies.getBackupSummary();
-      } catch {
-        // Keep operational signals useful when the database is unavailable.
+      } catch (error) {
+        log.error({
+          message: "Failed to collect schedules backup summary",
+          err: error instanceof Error ? error : new Error(String(error)),
+        });
         databaseReady = false;
       }
     }

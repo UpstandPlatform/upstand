@@ -30,6 +30,10 @@ export const pool = new Pool({
   connectionTimeoutMillis: env.UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS,
 });
 
+pool.on("error", (_err) => {
+  // Catch idle connection errors during database outages so dead clients are evicted cleanly.
+});
+
 export type Database = NodePgDatabase<typeof schema>;
 
 let activePglite: { close(): Promise<void> } | null = null;
