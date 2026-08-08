@@ -399,6 +399,7 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
+      ATTESTATION_SOURCE_REF: ${{ github.ref }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
       ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network
