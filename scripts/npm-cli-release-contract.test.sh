@@ -24,6 +24,11 @@ require_text "$WORKFLOW" 'fetch-depth: 0'
 require_text "$WORKFLOW" 'git merge-base --is-ancestor'
 require_text "$WORKFLOW" 'npm pack'
 require_text "$WORKFLOW" 'npm@11.5.2 publish'
+require_text "$WORKFLOW" 'working-directory: ${{ env.PACKAGE_DIR }}'
+if grep -Fq -- 'publish "${{ steps.package.outputs.tarball }}"' "$WORKFLOW"; then
+  echo "npm trusted publishing must publish the package from its working directory" >&2
+  exit 1
+fi
 require_text "$WORKFLOW" '--provenance'
 require_text "$WORKFLOW" 'dist.integrity'
 require_text "$WORKFLOW" 'refusing to overwrite it'

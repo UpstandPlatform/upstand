@@ -86,20 +86,22 @@ jobs:
             exit 1
           }
 
+          release_commit="$(git rev-parse "${RELEASE_REF}^{commit}")"
+          parent_commit="$(git rev-parse "${release_commit}^")"
+          cli_version="$(node -p "require('./$PACKAGE_DIR/package.json').version")"
+          parent_cli_version="$(git show "$parent_commit:$PACKAGE_DIR/package.json" | node -e 'let data=""; process.stdin.on("data", chunk => data += chunk).on("end", () => process.stdout.write(JSON.parse(data).version))')"
+
+          if [[ "$cli_version" == "$parent_cli_version" ]]; then
+            echo "CLI package version did not change; nothing to publish."
+            write_output "should_publish=false"
+            exit 0
+          fi
+
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/master" ]]; then
-            parent_commit="$(git rev-parse "${GITHUB_SHA}^")"
-            cli_version="$(node -p "require('./$PACKAGE_DIR/package.json').version")"
-            parent_cli_version="$(git show "$parent_commit:$PACKAGE_DIR/package.json" | node -e 'let data=""; process.stdin.on("data", chunk => data += chunk).on("end", () => process.stdout.write(JSON.parse(data).version))')"
             if git diff --quiet "$parent_commit" "$GITHUB_SHA" -- package.json; then
               root_version_changed=false
             else
               root_version_changed=true
-            fi
-
-            if [[ "$cli_version" == "$parent_cli_version" ]]; then
-              echo "CLI package version did not change; nothing to publish."
-              write_output "should_publish=false"
-              exit 0
             fi
 
             if [[ "$root_version_changed" == true ]]; then

@@ -59,8 +59,9 @@ export function buildRedisOptions(
         : 1,
     enableReadyCheck: true,
     retryStrategy(times) {
-      // Exponential backoff with a cap of 5000ms
-      return Math.min(times * 100, 5000);
+      // Exponential backoff with a cap of 2000ms so short outages recover
+      // promptly without creating a tight reconnect loop.
+      return Math.min(times * 100, 2000);
     },
     ...options?.redisOptions,
   };
