@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.54 - 2026-08-08
+
+Harden stable release acceptance and dependency recovery so production images can be verified and published reliably.
+
 ## 0.1.53 - 2026-08-04
 
 Allow the operational status rehearsal to use its writable executable temporary workspace while retaining production read-only hardening.

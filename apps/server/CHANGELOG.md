@@ -1,5 +1,11 @@
 # server
 
+## 0.1.54
+
+### Patch Changes
+
+- [#215](https://github.com/UpstandPlatform/upstand/pull/215) [`af0f958`](https://github.com/UpstandPlatform/upstand/commit/af0f9587ef2f7866720dc7faf056ff5baacc2b1c) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden stable release acceptance and dependency recovery so production images can be verified and published reliably.
+
 ## 0.1.53
 
 ### Patch Changes
