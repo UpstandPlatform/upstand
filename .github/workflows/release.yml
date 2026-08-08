@@ -478,6 +478,10 @@ jobs:
           set -euo pipefail
           release_version="${RELEASE_REF##*/}"
           repo="${GH_REPO,,}"
+          source_ref="${ATTESTATION_SOURCE_REF}"
+          if [[ "$source_ref" =~ ^refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            source_ref="${BASH_REMATCH[1]}"
+          fi
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
             gh attestation verify "oci://${image}" \
