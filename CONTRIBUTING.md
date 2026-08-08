@@ -100,7 +100,8 @@ Changesets owns release intent, version updates, and changelog generation. The
 automated release PR is created after Changesets land on `canary`. Review and
 merge it into `canary`, then promote the resulting commit to `master` through a
 pull request. The stable-tag workflow creates the immutable
-`vMAJOR.MINOR.PATCH` tag and dispatches the reusable image publishing workflow.
+`vMAJOR.MINOR.PATCH` tag. The tag push triggers the reusable image publishing
+workflow exactly once; the separate dispatch workflow is reserved for retries.
 
 Production dependency updates need a patch release just like product changes.
 Dependabot adds that Changeset automatically; development-only dependency and

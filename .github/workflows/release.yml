@@ -77,7 +77,7 @@ jobs:
       - name: Verify lint, security, and production shell syntax
         run: |
           bun run lint
-          bun audit --audit-level=high
+          bash scripts/security-audit.sh
           bash -n install.sh
           bash -n apps/server/docker-entrypoint.sh
           bash -n scripts/production-acceptance.sh
@@ -438,6 +438,10 @@ jobs:
           set -euo pipefail
           release_version="${RELEASE_REF##*/}"
           repo="${GH_REPO,,}"
+          source_ref="${ATTESTATION_SOURCE_REF}"
+          if [[ "$source_ref" =~ ^refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            source_ref="${BASH_REMATCH[1]}"
+          fi
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
             inspect=""
@@ -479,7 +483,7 @@ jobs:
             gh attestation verify "oci://${image}" \
               --repo "$GH_REPO" \
               --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
-              --source-ref "$ATTESTATION_SOURCE_REF"
+              --source-ref "$source_ref"
           done
 
       - name: Deploy and verify a disposable production Swarm
@@ -818,7 +822,7 @@ jobs:
           probe_server_readiness() {
             expected="$1"
             label="$2"
-            for attempt in {1..30}; do
+            for attempt in {1..60}; do
               set +e
               status_code="$(docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
@@ -858,16 +862,28 @@ jobs:
           probe_server_readiness 503 postgres-unavailable
           restore_dependency_service "${STACK_NAME}_external_postgres"
 
-          docker run --rm --network "$DOCKER_NETWORK" \
-            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
-            --user 10001:10001 \
-            --entrypoint /bin/sh \
-            "$HEALTH_LOAD_IMAGE" \
-            -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -Fq "\"backup\""' \
-            sh "${STACK_NAME}_schedules"
+          schedules_status_recovered=false
+          for attempt in {1..60}; do
+            if docker run --rm --network "$DOCKER_NETWORK" \
+              --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
+              --user 10001:10001 \
+              --entrypoint /bin/sh \
+              "$HEALTH_LOAD_IMAGE" \
+              -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -vq "\"outbox\":null"; printf "%s" "$status" | grep -Fq "\"backup\""; printf "%s" "$status" | grep -vq "\"backup\":null"' \
+              sh "${STACK_NAME}_schedules" >/dev/null 2>&1; then
+              schedules_status_recovered=true
+              break
+            fi
+            sleep 2
+          done
+          [[ "$schedules_status_recovered" == true ]] || {
+            echo "schedules status endpoint did not recover outbox and backup after postgres restoration" >&2
+            exit 1
+          }
 
           docker run --rm --network "$DOCKER_NETWORK" \
-            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
+            --tmpfs /home/upstand:rw,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700 \
             --user 10001:10001 \
             --entrypoint /bin/sh \
             "$HEALTH_LOAD_IMAGE" \
