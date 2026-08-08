@@ -868,7 +868,7 @@ jobs:
           restore_dependency_service "${STACK_NAME}_external_postgres"
 
           schedules_status_recovered=false
-          for attempt in {1..60}; do
+          for attempt in {1..180}; do
             if docker run --rm --network "$DOCKER_NETWORK" \
               --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
               --user 10001:10001 \
