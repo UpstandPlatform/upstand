@@ -57,6 +57,18 @@ export const RuntimeCapabilitySchema = z.object({
 
 export type RuntimeCapability = z.infer<typeof RuntimeCapabilitySchema>;
 
+export interface RuntimeAdapterAvailability {
+  readonly docker: boolean;
+  readonly bareProcess: boolean;
+  readonly cloudGateway: boolean;
+}
+
+const DEFAULT_RUNTIME_ADAPTER_AVAILABILITY: RuntimeAdapterAvailability = {
+  docker: true,
+  bareProcess: false,
+  cloudGateway: false,
+};
+
 export const PlatformCapabilitiesSchema = z.object({
   mode: ControlPlaneModeSchema,
   localRuntime: z.boolean(),
@@ -80,70 +92,96 @@ export const PlatformCapabilitiesSchema = z.object({
 
 export type PlatformCapabilities = z.infer<typeof PlatformCapabilitiesSchema>;
 
-const SELF_HOSTED_RUNTIME_MATRIX: RuntimeCapability[] = [
-  {
-    target: "local",
-    runtime: "docker",
-    supported: true,
-    buildLocations: ["control-plane", "target", "remote-builder"],
-    zeroDowntimeReplacement: true,
-    reason: null,
-  },
-  {
-    target: "local",
-    runtime: "bare-process",
-    supported: true,
-    buildLocations: ["control-plane", "target"],
-    zeroDowntimeReplacement: false,
-    reason: null,
-  },
-  {
-    target: "remote-server",
-    runtime: "docker",
-    supported: true,
-    buildLocations: ["control-plane", "target", "remote-builder"],
-    zeroDowntimeReplacement: true,
-    reason: null,
-  },
-  {
-    target: "remote-server",
-    runtime: "bare-process",
-    supported: true,
-    buildLocations: ["control-plane", "target", "remote-builder"],
-    zeroDowntimeReplacement: false,
-    reason: null,
-  },
-  {
-    target: "cloud",
-    runtime: "cloud",
-    supported: true,
-    buildLocations: ["cloud"],
-    zeroDowntimeReplacement: true,
-    reason: null,
-  },
-];
+function createSelfHostedRuntimeMatrix(
+  availability: RuntimeAdapterAvailability,
+): RuntimeCapability[] {
+  return [
+    {
+      target: "local",
+      runtime: "docker",
+      supported: availability.docker,
+      buildLocations: availability.docker
+        ? ["control-plane", "target", "remote-builder"]
+        : [],
+      zeroDowntimeReplacement: true,
+      reason: availability.docker
+        ? null
+        : "Docker execution is unavailable because no Docker runtime adapter is configured",
+    },
+    {
+      target: "local",
+      runtime: "bare-process",
+      supported: availability.bareProcess,
+      buildLocations: availability.bareProcess
+        ? ["control-plane", "target"]
+        : [],
+      zeroDowntimeReplacement: false,
+      reason: availability.bareProcess
+        ? null
+        : "Bare-process execution is unavailable because no process supervisor and artifact materializer are configured",
+    },
+    {
+      target: "remote-server",
+      runtime: "docker",
+      supported: availability.docker,
+      buildLocations: availability.docker
+        ? ["control-plane", "target", "remote-builder"]
+        : [],
+      zeroDowntimeReplacement: true,
+      reason: availability.docker
+        ? null
+        : "Docker execution is unavailable because no Docker runtime adapter is configured",
+    },
+    {
+      target: "remote-server",
+      runtime: "bare-process",
+      supported: availability.bareProcess,
+      buildLocations: availability.bareProcess
+        ? ["control-plane", "target", "remote-builder"]
+        : [],
+      zeroDowntimeReplacement: false,
+      reason: availability.bareProcess
+        ? null
+        : "Bare-process execution is unavailable because no process supervisor and artifact materializer are configured",
+    },
+    {
+      target: "cloud",
+      runtime: "cloud",
+      supported: availability.cloudGateway,
+      buildLocations: availability.cloudGateway ? ["cloud"] : [],
+      zeroDowntimeReplacement: true,
+      reason: availability.cloudGateway
+        ? null
+        : "Cloud execution is unavailable because no cloud gateway is configured",
+    },
+  ];
+}
 
-const CLOUD_RUNTIME_MATRIX: RuntimeCapability[] = [
-  {
-    target: "local",
-    runtime: "docker",
-    supported: false,
-    buildLocations: [],
-    zeroDowntimeReplacement: false,
-    reason: "Cloud control planes cannot execute workloads locally",
-  },
-  {
-    target: "local",
-    runtime: "bare-process",
-    supported: false,
-    buildLocations: [],
-    zeroDowntimeReplacement: false,
-    reason: "Cloud control planes cannot execute workloads locally",
-  },
-  ...SELF_HOSTED_RUNTIME_MATRIX.filter(
-    (capability) => capability.target !== "local",
-  ),
-];
+function createCloudRuntimeMatrix(
+  availability: RuntimeAdapterAvailability,
+): RuntimeCapability[] {
+  return [
+    {
+      target: "local",
+      runtime: "docker",
+      supported: false,
+      buildLocations: [],
+      zeroDowntimeReplacement: false,
+      reason: "Cloud control planes cannot execute workloads locally",
+    },
+    {
+      target: "local",
+      runtime: "bare-process",
+      supported: false,
+      buildLocations: [],
+      zeroDowntimeReplacement: false,
+      reason: "Cloud control planes cannot execute workloads locally",
+    },
+    ...createSelfHostedRuntimeMatrix(availability).filter(
+      (capability) => capability.target !== "local",
+    ),
+  ];
+}
 
 export class PlatformCapabilityError extends Error {
   readonly code = "PLATFORM_CAPABILITY_UNSUPPORTED";
@@ -183,7 +221,10 @@ export function requiresRemoteServerPlacement(): boolean {
 
 export function getPlatformCapabilities(
   mode: ControlPlaneMode,
+  runtimeAvailability: RuntimeAdapterAvailability = DEFAULT_RUNTIME_ADAPTER_AVAILABILITY,
 ): PlatformCapabilities {
+  const selfHostedRuntimeMatrix =
+    createSelfHostedRuntimeMatrix(runtimeAvailability);
   switch (mode) {
     case "desktop":
       return {
@@ -204,7 +245,7 @@ export function getPlatformCapabilities(
         enterpriseScimSso: false,
         serverMigration: true,
         dataOwnership: "local-control-plane",
-        runtimeMatrix: SELF_HOSTED_RUNTIME_MATRIX,
+        runtimeMatrix: selfHostedRuntimeMatrix,
       };
     case "cloud":
       return {
@@ -225,7 +266,7 @@ export function getPlatformCapabilities(
         enterpriseScimSso: true,
         serverMigration: true,
         dataOwnership: "cloud-control-plane",
-        runtimeMatrix: CLOUD_RUNTIME_MATRIX,
+        runtimeMatrix: createCloudRuntimeMatrix(runtimeAvailability),
       };
     case "self-hosted":
       return {
@@ -246,7 +287,7 @@ export function getPlatformCapabilities(
         enterpriseScimSso: true,
         serverMigration: true,
         dataOwnership: "local-control-plane",
-        runtimeMatrix: SELF_HOSTED_RUNTIME_MATRIX,
+        runtimeMatrix: selfHostedRuntimeMatrix,
       };
   }
 }
@@ -255,9 +296,10 @@ export function getRuntimeCapability(
   mode: ControlPlaneMode,
   target: DeployTarget,
   runtime: ExecutionRuntime,
+  runtimeAvailability?: RuntimeAdapterAvailability,
 ): RuntimeCapability | null {
   return (
-    getPlatformCapabilities(mode).runtimeMatrix.find(
+    getPlatformCapabilities(mode, runtimeAvailability).runtimeMatrix.find(
       (entry) => entry.target === target && entry.runtime === runtime,
     ) ?? null
   );
@@ -268,11 +310,13 @@ export function assertRuntimeCapability(input: {
   target: DeployTarget;
   runtime: ExecutionRuntime;
   buildLocation: BuildLocation;
+  runtimeAvailability?: RuntimeAdapterAvailability;
 }): RuntimeCapability {
   const capability = getRuntimeCapability(
     input.mode,
     input.target,
     input.runtime,
+    input.runtimeAvailability,
   );
   if (
     !capability?.supported ||

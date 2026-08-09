@@ -52,13 +52,27 @@ export class BareProcessRuntimeAdapter implements WorkloadRuntimePort {
   }
 
   async rollback(request: RuntimeDeploymentRequest): Promise<void> {
-    await this.materializer.materialize({
+    if (request.plan.runtime !== this.runtime) {
+      throw new Error("Bare-process adapter received a different runtime plan");
+    }
+    const materialized = await this.materializer.materialize({
       deploymentId: request.deploymentId,
       artifact: request.plan.artifact,
       resource: request.resource,
       environment: request.environment,
     });
-    await this.supervisor.restart(this.name(request.resource.id));
+    const name = this.name(request.resource.id);
+    await this.supervisor.install({
+      name,
+      ...materialized,
+      restartPolicy: "on-failure",
+    });
+    const health = await this.supervisor.status(name);
+    if (!health.healthy) {
+      throw new Error(
+        health.message ?? "Bare process rollback failed its health check",
+      );
+    }
   }
 
   remove(resource: RuntimeDeploymentRequest["resource"]): Promise<void> {

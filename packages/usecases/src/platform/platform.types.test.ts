@@ -110,8 +110,43 @@ describe("platform types", () => {
         mode: "desktop",
         target: "remote-server",
         runtime: "bare-process",
-        buildLocation: "cloud",
+        buildLocation: "target",
       }),
-    ).toThrow("not supported");
+    ).toThrow("no process supervisor and artifact materializer");
+  });
+
+  test("only advertises optional runtimes when their adapters are configured", () => {
+    const unavailable = getPlatformCapabilities("self-hosted").runtimeMatrix;
+    expect(
+      unavailable.find(
+        (entry) =>
+          entry.target === "remote-server" && entry.runtime === "bare-process",
+      ),
+    ).toMatchObject({ supported: false, buildLocations: [] });
+    expect(
+      unavailable.find(
+        (entry) => entry.target === "cloud" && entry.runtime === "cloud",
+      ),
+    ).toMatchObject({ supported: false, buildLocations: [] });
+
+    const configured = getPlatformCapabilities("self-hosted", {
+      docker: true,
+      bareProcess: true,
+      cloudGateway: true,
+    }).runtimeMatrix;
+    expect(
+      configured.find(
+        (entry) =>
+          entry.target === "remote-server" && entry.runtime === "bare-process",
+      ),
+    ).toMatchObject({
+      supported: true,
+      buildLocations: ["control-plane", "target", "remote-builder"],
+    });
+    expect(
+      configured.find(
+        (entry) => entry.target === "cloud" && entry.runtime === "cloud",
+      ),
+    ).toMatchObject({ supported: true, buildLocations: ["cloud"] });
   });
 });

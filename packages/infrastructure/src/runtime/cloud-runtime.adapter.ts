@@ -3,6 +3,7 @@ import type {
   RuntimeDeploymentRequest,
   WorkloadRuntimePort,
 } from "@upstand/usecases";
+import { CLOUD_GATEWAY_CONTRACT_VERSION } from "@upstand/usecases";
 
 function cloudProjectId(request: RuntimeDeploymentRequest): string {
   if (request.plan.target.kind !== "cloud") {
@@ -14,9 +15,16 @@ function cloudProjectId(request: RuntimeDeploymentRequest): string {
 export class CloudRuntimeAdapter implements WorkloadRuntimePort {
   readonly runtime = "cloud" as const;
 
-  constructor(private readonly gateway: CloudGatewayPort) {}
+  constructor(private readonly gateway: CloudGatewayPort) {
+    if (gateway.contractVersion !== CLOUD_GATEWAY_CONTRACT_VERSION) {
+      throw new Error(
+        `Cloud gateway contract mismatch: expected '${CLOUD_GATEWAY_CONTRACT_VERSION}', received '${String(gateway.contractVersion)}'`,
+      );
+    }
+  }
 
   deploy(request: RuntimeDeploymentRequest) {
+    this.assertCloudPlan(request);
     return this.gateway.deploy({
       idempotencyKey: `deployment:${request.deploymentId}`,
       cloudProjectId: cloudProjectId(request),
@@ -40,6 +48,7 @@ export class CloudRuntimeAdapter implements WorkloadRuntimePort {
   }
 
   async rollback(request: RuntimeDeploymentRequest): Promise<void> {
+    this.assertCloudPlan(request);
     await this.gateway.rollback({
       idempotencyKey: `rollback:${request.deploymentId}`,
       cloudProjectId: cloudProjectId(request),
@@ -71,5 +80,11 @@ export class CloudRuntimeAdapter implements WorkloadRuntimePort {
       throw new Error("Cloud-owned resource has no canonical cloud project ID");
     }
     return value;
+  }
+
+  private assertCloudPlan(request: RuntimeDeploymentRequest): void {
+    if (request.plan.runtime !== this.runtime) {
+      throw new Error("Cloud adapter received a non-cloud deployment plan");
+    }
   }
 }

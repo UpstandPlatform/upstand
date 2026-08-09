@@ -47,7 +47,7 @@ describe("runtime adapters", () => {
     await adapter.deploy(request);
     await adapter.rollback(request);
     await adapter.remove(resource);
-    expect(calls).toEqual(["install", "restart", "remove"]);
+    expect(calls).toEqual(["install", "install", "remove"]);
   });
 
   test("cloud runtime delegates without making a local data copy", async () => {
@@ -72,8 +72,20 @@ describe("runtime adapters", () => {
     const adapter = new CloudRuntimeAdapter(gateway);
     await adapter.deploy({
       deploymentId: "deployment-1",
-      plan: { target: { kind: "cloud", cloudProjectId: "cloud-1" } },
+      plan: {
+        runtime: "cloud",
+        target: { kind: "cloud", cloudProjectId: "cloud-1" },
+      },
     } as never);
     expect(calls).toEqual(["cloud-1"]);
+  });
+
+  test("cloud runtime rejects an incompatible gateway contract", () => {
+    expect(
+      () =>
+        new CloudRuntimeAdapter({
+          contractVersion: "2025-01-01",
+        } as never),
+    ).toThrow("Cloud gateway contract mismatch");
   });
 });
