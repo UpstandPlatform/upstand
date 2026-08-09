@@ -7,7 +7,11 @@ export const OUTBOX_COMMAND_TYPES = {
 
 export const WORKLOAD_MIGRATION_QUEUE = "upstand-workload-migrations";
 
-export type DeployOutboxPayload = {
+export type CorrelatedOutboxPayload = {
+  correlationId?: string;
+};
+
+export type DeployOutboxPayload = CorrelatedOutboxPayload & {
   resourceId: string;
   deploymentId: string;
   serverId: string;
@@ -18,15 +22,15 @@ export type DeployOutboxPayload = {
   retryMaxSeconds?: number;
 };
 
-export type BackupRunOutboxPayload = {
+export type BackupRunOutboxPayload = CorrelatedOutboxPayload & {
   runId: string;
 };
 
-export type NotificationDeliveryOutboxPayload = {
+export type NotificationDeliveryOutboxPayload = CorrelatedOutboxPayload & {
   deliveryId: string;
 };
 
-export type MigrateOutboxPayload = {
+export type MigrateOutboxPayload = CorrelatedOutboxPayload & {
   migrationId: string;
   deploymentId: string;
   resourceId: string;

@@ -19,6 +19,7 @@ import { resolveEnvironmentVariables } from "../environment/update-environment.u
 import { isSshGitUrl } from "../git-provider/git-url-sanitizer";
 import { getInstallationToken } from "../git-provider/github-client";
 import type { NotificationPublisher } from "../notification/publish-notification.usecase";
+import { withJobTelemetry } from "../observability/job-telemetry";
 import {
   assertRuntimeCapability,
   getConfiguredControlPlaneMode,
@@ -265,7 +266,29 @@ export class DeploymentWorker {
       this.worker = new Worker(
         queueName,
         async (job: Job) => {
-          await this.processJob(job);
+          await withJobTelemetry(
+            {
+              operation: "deployment.execute",
+              queue: queueName,
+              jobId: job.id,
+              correlationId: isRecord(job.data)
+                ? job.data.correlationId
+                : undefined,
+              attempt: job.attemptsMade + 1,
+              fields: {
+                deployment: {
+                  deploymentId: isRecord(job.data)
+                    ? job.data.deploymentId
+                    : undefined,
+                  resourceId: isRecord(job.data)
+                    ? job.data.resourceId
+                    : undefined,
+                  serverId: this.serverId,
+                },
+              },
+            },
+            () => this.processJob(job),
+          );
         },
         {
           connection: redisConn,

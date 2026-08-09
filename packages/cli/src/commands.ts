@@ -63,6 +63,8 @@ export async function runCommand(context: CommandContext): Promise<number> {
       return await serverCommand(context, output, client, action);
     if (group === "control-plane")
       return await controlPlaneCommand(context, output, client, action);
+    if (group === "diagnostics")
+      return await diagnosticsCommand(context, output, client, action);
     throw new Error(
       `Unknown command '${context.positionals.join(" ")}'. Run 'upstand help'.`,
     );
@@ -698,6 +700,37 @@ async function controlPlaneCommand(
   throw new Error("Supported control-plane commands: export, import.");
 }
 
+async function diagnosticsCommand(
+  context: CommandContext,
+  output: Output,
+  client: UpstandClient,
+  action: string,
+): Promise<number> {
+  if (action !== "github") {
+    throw new Error("Supported diagnostics commands: github.");
+  }
+  const organizationId = context.options.organizationId;
+  const gitProviderId = flag(context, "provider");
+  const repository = context.positionals[2] || flag(context, "repository");
+  if (!organizationId || !gitProviderId || !repository) {
+    throw new Error(
+      "diagnostics github requires owner/repository, --organization, and --provider.",
+    );
+  }
+  const result = await client.mutate<{
+    ready: boolean;
+    checks: Array<{ code: string; status: string; summary: string }>;
+  }>("gitProvider.diagnostics", {
+    organizationId,
+    gitProviderId,
+    repository,
+    ref: flag(context, "ref"),
+    resourceId: flag(context, "resource"),
+  });
+  await output.value(result.data, "GitHub diagnostics");
+  return result.data.ready ? 0 : 4;
+}
+
 function helpText(): string {
   return `Upstand CLI
 
@@ -728,6 +761,7 @@ Commands:
   server migration-confirm      Confirm source cleanup with --yes
   control-plane export          Stream an installation export to --file
   control-plane import          Import --file in merge or replace mode
+  diagnostics github <repo>     Run redacted GitHub readiness checks
   api <procedure>                Call any supported API procedure
 
 Global options:

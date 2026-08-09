@@ -195,6 +195,7 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     try {
       const queued = await new QueueDeploymentUseCase(uow).execute({
         resourceId,
+        correlationId: c.get("correlationId"),
         title,
         deploymentId,
       });
@@ -313,6 +314,7 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     try {
       const queued = await new QueueDeploymentUseCase(uow).execute({
         resourceId,
+        correlationId: c.get("correlationId"),
         title: "Archive upload deployment",
         deploymentId,
       });

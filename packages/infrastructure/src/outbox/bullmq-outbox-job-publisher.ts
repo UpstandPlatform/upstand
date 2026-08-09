@@ -12,6 +12,7 @@ import { Queue } from "bullmq";
 import { z } from "zod";
 
 const deploymentPayloadSchema = z.object({
+  correlationId: z.string().min(1).max(128).optional(),
   resourceId: z.string().min(1),
   deploymentId: z.string().min(1),
   serverId: z.string().min(1),
@@ -23,14 +24,17 @@ const deploymentPayloadSchema = z.object({
 });
 
 const backupPayloadSchema = z.object({
+  correlationId: z.string().min(1).max(128).optional(),
   runId: z.string().min(1),
 });
 
 const notificationPayloadSchema = z.object({
+  correlationId: z.string().min(1).max(128).optional(),
   deliveryId: z.string().min(1),
 });
 
 const migrationPayloadSchema = z.object({
+  correlationId: z.string().min(1).max(128).optional(),
   migrationId: z.string().min(1),
   deploymentId: z.string().min(1),
   resourceId: z.string().min(1),

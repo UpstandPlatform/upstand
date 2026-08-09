@@ -654,6 +654,7 @@ export const API_KEY_ROUTE_CAPABILITIES = {
   "gitProvider.delete": "git_provider:delete",
   "gitProvider.listRepositories": "git_provider:view",
   "gitProvider.listBranches": "git_provider:view",
+  "gitProvider.diagnostics": "git_provider:view",
   "database.get": "resource:view",
   "database.create": "resource:create",
   "database.update": "resource:update",

@@ -1,4 +1,5 @@
 import { env } from "@upstand/env/server";
+import { resolveCorrelationId } from "@upstand/platform";
 import type { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -29,6 +30,14 @@ export function registerHttpMiddleware(
   app: Hono<AppEnv>,
   dependencies: HttpMiddlewareDependencies,
 ): void {
+  app.use("*", async (c, next) => {
+    const correlationId = resolveCorrelationId(c.req.header("x-request-id"));
+    c.set("correlationId", correlationId);
+    c.get("log").set({ requestId: correlationId, correlationId });
+    await next();
+    c.header("X-Request-ID", correlationId);
+  });
+
   app.use(
     "*",
     secureHeaders({
@@ -164,6 +173,7 @@ export function registerHttpMiddleware(
         "Mcp-Session-Id",
         "mcp-session-id",
         "Last-Event-ID",
+        "X-Request-ID",
       ],
       exposeHeaders: [
         "X-RateLimit-Limit",
@@ -171,6 +181,7 @@ export function registerHttpMiddleware(
         "X-RateLimit-Reset",
         "Mcp-Session-Id",
         "Location",
+        "X-Request-ID",
       ],
       credentials: true,
     }),

@@ -7,6 +7,7 @@ export {
   getDockerInstance,
 } from "./docker/docker-client";
 export { DockerReadOnlyService } from "./docker/docker-readonly.service";
+export { GitHubDiagnosticsHttpClient } from "./git-provider/github-diagnostics.http-client";
 export { DockerWorkloadMigrationPort } from "./migration/docker-workload-migration.port";
 export {
   createMonitoringAgentPort,

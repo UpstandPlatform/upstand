@@ -461,7 +461,7 @@ export const serverRouter = router({
       try {
         return await ctx.scope
           .resolve(MigrateResourceUseCaseToken)
-          .execute(input);
+          .execute({ ...input, correlationId: ctx.correlationId });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

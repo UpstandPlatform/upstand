@@ -61,6 +61,7 @@ async function auditTransfer(input: {
   action: "read" | "import";
   success: boolean;
   mode?: string;
+  correlationId: string;
 }): Promise<void> {
   const organizations = await db
     .select({ id: organization.id })
@@ -81,6 +82,7 @@ async function auditTransfer(input: {
       route: `/api/control-plane-transfer/${input.action === "read" ? "export" : "import"}`,
       metadata: {
         success: input.success,
+        correlationId: input.correlationId,
         ...(input.mode ? { mode: input.mode } : {}),
       },
       ipAddress: null,
@@ -120,6 +122,7 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: authorization.error }, authorization.status);
     }
     const actor = authorization.actor;
+    const correlationId = c.get("correlationId");
     let input: { includeSecrets?: boolean; passphrase?: string };
     try {
       input = (await c.req.json()) as typeof input;
@@ -152,11 +155,19 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
       return stream(c, async (output) => {
         try {
           for await (const chunk of content) await output.write(chunk);
-          await auditTransfer({ actor, action: "read", success: true });
+          await auditTransfer({
+            actor,
+            action: "read",
+            success: true,
+            correlationId,
+          });
         } catch (error) {
-          await auditTransfer({ actor, action: "read", success: false }).catch(
-            () => undefined,
-          );
+          await auditTransfer({
+            actor,
+            action: "read",
+            success: false,
+            correlationId,
+          }).catch(() => undefined);
           log.error({
             message: "Control-plane export stream failed",
             actorId: actor.id,
@@ -166,9 +177,12 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
         }
       });
     } catch (error) {
-      await auditTransfer({ actor, action: "read", success: false }).catch(
-        () => undefined,
-      );
+      await auditTransfer({
+        actor,
+        action: "read",
+        success: false,
+        correlationId,
+      }).catch(() => undefined);
       log.error({
         message: "Control-plane export failed",
         actorId: actor.id,
@@ -193,6 +207,7 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: authorization.error }, authorization.status);
     }
     const actor = authorization.actor;
+    const correlationId = c.get("correlationId");
     const mode = c.req.header("x-upstand-transfer-mode") ?? "merge";
     if (mode !== "merge" && mode !== "replace") {
       return c.json({ error: "Transfer mode must be merge or replace" }, 400);
@@ -215,7 +230,13 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
         mode,
         passphrase,
       });
-      await auditTransfer({ actor, action: "import", success: true, mode });
+      await auditTransfer({
+        actor,
+        action: "import",
+        success: true,
+        mode,
+        correlationId,
+      });
       return c.json(result);
     } catch (error) {
       await auditTransfer({
@@ -223,6 +244,7 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
         action: "import",
         success: false,
         mode,
+        correlationId,
       }).catch(() => undefined);
       log.error({
         message: "Control-plane import failed",

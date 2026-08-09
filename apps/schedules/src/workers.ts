@@ -15,6 +15,7 @@ import {
   OUTBOX_COMMAND_TYPES,
   OutboxPublisher,
   WORKLOAD_MIGRATION_QUEUE,
+  withJobTelemetry,
 } from "@upstand/usecases";
 import {
   ensureBackupRunLock,
@@ -420,26 +421,41 @@ export class WorkloadMigrationRuntime {
   private readonly queue = new Queue(WORKLOAD_MIGRATION_QUEUE, {
     connection: this.connection as never,
   });
-  private readonly worker = new BullMqWorker<{ migrationId?: string }>(
+  private readonly worker = new BullMqWorker<{
+    migrationId?: string;
+    correlationId?: string;
+  }>(
     WORKLOAD_MIGRATION_QUEUE,
     async (job) => {
       const migrationId = job.data.migrationId;
       if (!migrationId) throw new Error("Migration job is missing migrationId");
-      const scope = getServiceProvider().createScope();
-      try {
-        const uow = scope.resolve(UnitOfWorkToken);
-        const port = new DockerWorkloadMigrationPort(
-          uow,
-          scope.resolve(DockerServiceToken),
-          scope.resolve(CaddyServiceToken),
-        );
-        await new ExecuteWorkloadMigrationUseCase(uow, port).execute(
-          migrationId,
-          String(job.id ?? randomUUID()),
-        );
-      } finally {
-        await scope.dispose();
-      }
+      await withJobTelemetry(
+        {
+          operation: "workload-migration.execute",
+          queue: WORKLOAD_MIGRATION_QUEUE,
+          jobId: job.id,
+          correlationId: job.data.correlationId,
+          attempt: job.attemptsMade + 1,
+          fields: { migration: { id: migrationId } },
+        },
+        async () => {
+          const scope = getServiceProvider().createScope();
+          try {
+            const uow = scope.resolve(UnitOfWorkToken);
+            const port = new DockerWorkloadMigrationPort(
+              uow,
+              scope.resolve(DockerServiceToken),
+              scope.resolve(CaddyServiceToken),
+            );
+            await new ExecuteWorkloadMigrationUseCase(uow, port).execute(
+              migrationId,
+              String(job.id ?? randomUUID()),
+            );
+          } finally {
+            await scope.dispose();
+          }
+        },
+      );
     },
     {
       connection: this.connection as never,

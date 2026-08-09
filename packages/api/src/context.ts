@@ -30,6 +30,7 @@ export type RequestContext = {
   env: ApiBindings;
   get(name: "scope"): ServiceScope;
   get(name: "log"): RequestLog;
+  get(name: "correlationId"): string;
   header(name: string, value: string): void;
 };
 
@@ -90,6 +91,7 @@ export async function createContext({ context }: CreateContextOptions) {
   // Retrieve request-scoped container from Hono context
   const scope = context.get("scope");
   const log = context.get("log");
+  const correlationId = context.get("correlationId");
 
   return {
     auth: null,
@@ -97,6 +99,7 @@ export async function createContext({ context }: CreateContextOptions) {
     actor,
     scope,
     log,
+    correlationId,
     honoContext: context,
   };
 }

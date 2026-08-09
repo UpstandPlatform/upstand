@@ -16,6 +16,7 @@ export const MigrateResourceInputSchema = z.object({
   organizationId: z.string().min(1, "Organization ID is required"),
   resourceId: z.string().min(1, "Resource ID is required"),
   targetServerId: z.string().min(1, "Target Server ID is required"),
+  correlationId: z.string().min(1).max(128).optional(),
 });
 
 export type MigrateResourceInput = z.infer<typeof MigrateResourceInputSchema>;
@@ -127,6 +128,7 @@ export class MigrateResourceUseCase {
         aggregateType: "resource",
         aggregateId: resource.id,
         payload: {
+          correlationId: input.correlationId,
           migrationId: migration.id,
           deploymentId: deployment.id,
           resourceId: resource.id,
