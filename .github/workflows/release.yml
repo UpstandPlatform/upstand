@@ -867,6 +867,31 @@ jobs:
           probe_server_readiness 503 postgres-unavailable
           restore_dependency_service "${STACK_NAME}_external_postgres"
 
+          # The disposable external Postgres fixture has no persistent volume.
+          # Restoring its task therefore restores an empty database, so rerun
+          # the real migration service before asserting database-backed status.
+          docker service update --replicas 0 "${STACK_NAME}_migrate" >/dev/null
+          docker service update --replicas 1 "${STACK_NAME}_migrate" >/dev/null
+          migration_completed=false
+          for attempt in {1..60}; do
+            migration_state="$(docker service ps "${STACK_NAME}_migrate" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
+            if [[ "$migration_state" == Complete\ * ]]; then
+              migration_completed=true
+              break
+            fi
+            if [[ "$migration_state" == Failed\ * || "$migration_state" == Rejected\ * ]]; then
+              echo "Migration task failed after external Postgres restoration: $migration_state" >&2
+              docker service ps "${STACK_NAME}_migrate" --no-trunc >&2 || true
+              exit 1
+            fi
+            sleep 2
+          done
+          [[ "$migration_completed" == true ]] || {
+            echo "Migration task did not complete after external Postgres restoration" >&2
+            docker service ps "${STACK_NAME}_migrate" --no-trunc >&2 || true
+            exit 1
+          }
+
           schedules_status_recovered=false
           for attempt in {1..180}; do
             if docker run --rm --network "$DOCKER_NETWORK" \
