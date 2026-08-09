@@ -122,25 +122,31 @@ export class DrizzleWebServerSettingsRepository
     ipAccessEnabled?: boolean;
     accessLogCleanupCron?: string;
   }): Promise<WebServerSettings> {
-    const row = await this.create({
-      id: "global",
-      letsEncryptEmail: data.letsEncryptEmail ?? null,
-      cloudflareApiToken: encodeSecret(data.cloudflareApiToken) ?? null,
-      httpPort: data.httpPort ?? 80,
-      httpsPort: data.httpsPort ?? 443,
-      enableHttp3: data.enableHttp3 ?? true,
-      globalCaddyfile: data.globalCaddyfile ?? null,
-      caddySnippets: data.caddySnippets ?? "",
-      caddyMiddlewares: data.caddyMiddlewares ?? "[]",
-      serverIp: data.serverIp ?? null,
-      dailyDockerCleanup: data.dailyDockerCleanup ?? false,
-      caddyEnvironment: data.caddyEnvironment ?? "{}",
-      caddyPorts: data.caddyPorts ?? "[]",
-      caddyDashboardEnabled: data.caddyDashboardEnabled ?? false,
-      accessLogsEnabled: data.accessLogsEnabled ?? false,
-      ipAccessEnabled: data.ipAccessEnabled ?? true,
-      accessLogCleanupCron: data.accessLogCleanupCron ?? "0 3 * * *",
-    });
-    return this.publicRow(row);
+    try {
+      const row = await this.create({
+        id: "global",
+        letsEncryptEmail: data.letsEncryptEmail ?? null,
+        cloudflareApiToken: encodeSecret(data.cloudflareApiToken) ?? null,
+        httpPort: data.httpPort ?? 80,
+        httpsPort: data.httpsPort ?? 443,
+        enableHttp3: data.enableHttp3 ?? true,
+        globalCaddyfile: data.globalCaddyfile ?? null,
+        caddySnippets: data.caddySnippets ?? "",
+        caddyMiddlewares: data.caddyMiddlewares ?? "[]",
+        serverIp: data.serverIp ?? null,
+        dailyDockerCleanup: data.dailyDockerCleanup ?? false,
+        caddyEnvironment: data.caddyEnvironment ?? "{}",
+        caddyPorts: data.caddyPorts ?? "[]",
+        caddyDashboardEnabled: data.caddyDashboardEnabled ?? false,
+        accessLogsEnabled: data.accessLogsEnabled ?? false,
+        ipAccessEnabled: data.ipAccessEnabled ?? true,
+        accessLogCleanupCron: data.accessLogCleanupCron ?? "0 3 * * *",
+      });
+      return this.publicRow(row);
+    } catch (error: unknown) {
+      const existing = await this.findGlobal();
+      if (existing) return existing;
+      throw error;
+    }
   }
 }

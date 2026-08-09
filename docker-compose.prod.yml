@@ -174,6 +174,7 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
+      UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: ${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}
       UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
       OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
       UPSTAND_SKIP_MIGRATIONS: "false"
@@ -225,6 +226,7 @@ services:
       AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
       TRUSTED_PROXY_HEADERS: ${TRUSTED_PROXY_HEADERS:-false}
       UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
+      UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: ${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}
       UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
@@ -286,7 +288,7 @@ services:
           - server
           - upstand_server
     healthcheck:
-      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/health/live').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10

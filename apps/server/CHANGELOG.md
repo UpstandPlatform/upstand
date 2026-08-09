@@ -1,5 +1,59 @@
 # server
 
+## 0.1.55
+
+### Patch Changes
+
+- [#217](https://github.com/UpstandPlatform/upstand/pull/217) [`109fbc4`](https://github.com/UpstandPlatform/upstand/commit/109fbc4da703433f3d9d89a2f4901eb485637f74) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden stable release acceptance and dependency recovery so production images can be verified and published reliably.
+
+## 0.1.54
+
+### Patch Changes
+
+- [#215](https://github.com/UpstandPlatform/upstand/pull/215) [`af0f958`](https://github.com/UpstandPlatform/upstand/commit/af0f9587ef2f7866720dc7faf056ff5baacc2b1c) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden stable release acceptance and dependency recovery so production images can be verified and published reliably.
+
+## 0.1.53
+
+### Patch Changes
+
+- [#206](https://github.com/UpstandPlatform/upstand/pull/206) [`64fe51e`](https://github.com/UpstandPlatform/upstand/commit/64fe51e2203980f68a7ef7a8b4482cd4a882d216) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the operational status rehearsal to use its writable executable temporary workspace while retaining production read-only hardening.
+
+## 0.1.52
+
+### Patch Changes
+
+- [#204](https://github.com/UpstandPlatform/upstand/pull/204) [`64c2509`](https://github.com/UpstandPlatform/upstand/commit/64c2509a7fc0e7d16c843a4ad1eeffda7ebfcc74) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the read-only operational rehearsal to use Bun's executable temporary workspace while keeping the production services hardened.
+
+## 0.1.51
+
+### Patch Changes
+
+- [#202](https://github.com/UpstandPlatform/upstand/pull/202) [`798029d`](https://github.com/UpstandPlatform/upstand/commit/798029deabadae4acfe5222eab713b2397282c7a) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep the read-only production operational-status rehearsal compatible with Bun's runtime cache behavior.
+
+## 0.1.50
+
+### Patch Changes
+
+- [#200](https://github.com/UpstandPlatform/upstand/pull/200) [`cd4cd61`](https://github.com/UpstandPlatform/upstand/commit/cd4cd61735f713fa34377f5759ca271e44705a51) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the server liveness endpoint for the container healthcheck so Swarm startup cannot deadlock while schedules waits for the server to bind.
+
+## 0.1.49
+
+### Patch Changes
+
+- [#198](https://github.com/UpstandPlatform/upstand/pull/198) [`21ab4c8`](https://github.com/UpstandPlatform/upstand/commit/21ab4c82b2c9cbe031f87dcbec7b0b85035ce557) Thanks [@mhbdev](https://github.com/mhbdev)! - Initialize the monitoring agent data directory with non-root ownership so its persistent SQLite volume can start successfully under the hardened runtime identity.
+
+## 0.1.48
+
+### Patch Changes
+
+- [#196](https://github.com/UpstandPlatform/upstand/pull/196) [`d681c4d`](https://github.com/UpstandPlatform/upstand/commit/d681c4db3e3f3ac7aa8fa2a96cbeaa90051d40c1) Thanks [@mhbdev](https://github.com/mhbdev)! - Make hosted production acceptance pass the disposable network override to the server and keep the monitoring image healthcheck self-contained.
+
+## 0.1.47
+
+### Patch Changes
+
+- [#194](https://github.com/UpstandPlatform/upstand/pull/194) [`3b1971d`](https://github.com/UpstandPlatform/upstand/commit/3b1971d3658f8571aa7ff3939ccf0be784d67437) Thanks [@mhbdev](https://github.com/mhbdev)! - Reuse an already-present immutable monitoring image during provisioning and pre-pull it in the release acceptance harness, so private GHCR images do not require credentials inside the production container.
+
 ## 0.1.46
 
 ### Patch Changes

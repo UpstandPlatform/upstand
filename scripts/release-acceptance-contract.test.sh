@@ -33,7 +33,7 @@ require_file_text() {
   }
 }
 
-require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3000/health/ready')"
+require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3000/health/live')"
 require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3002/health/ready')"
 require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:3001/')"
 require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:4000/')"
@@ -41,6 +41,7 @@ require_compose_text "type: tmpfs"
 require_compose_text "target: /tmp"
 require_compose_text "target: /app/.builds"
 require_compose_text "target: /home/upstand/.docker"
+require_compose_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: \${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}"
 if grep -Eq '^    tmpfs:' "$COMPOSE"; then
   echo "production Compose must use explicit type: tmpfs mounts for Swarm deployments" >&2
   exit 1
@@ -50,6 +51,7 @@ require_file_text "$WEB_DOCKERFILE" 'CMD ["node", "apps/web/server.js"]'
 require_file_text "$FUMADOCS_DOCKERFILE" "FROM node:24-slim@"
 require_file_text "$FUMADOCS_DOCKERFILE" 'CMD ["node", "apps/fumadocs/server.js"]'
 require_file_text "$SCHEDULES_ENTRYPOINT" '${UPSTAND_SERVER_INTERNAL_URL%/}/health/live'
+require_file_text "$ROOT_DIR/apps/monitoring/Dockerfile" "mkdir -p /data && chown appuser:appgroup /data"
 if grep -Fq -- '${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready' "$SCHEDULES_ENTRYPOINT"; then
   echo "schedules entrypoint must not wait for server readiness (circular dependency)" >&2
   exit 1
@@ -105,6 +107,14 @@ require_workflow_text "OTLP collector did not record the acceptance probe"
 require_workflow_text "Production encrypted-network configuration is enforced by installer/contract tests"
 require_workflow_text "hosted Swarm runtime probe is skipped"
 require_workflow_text "UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false"
+require_workflow_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true"
+require_workflow_text 'docker pull "$UPSTAND_MONITORING_IMAGE"'
+require_workflow_text '--user 70:70'
+require_workflow_text '--user 999:1000'
+require_workflow_text 'logs="$(docker service logs --raw "$OTEL_COLLECTOR_SERVICE" 2>&1 || true)"'
+require_workflow_text '--tmpfs /home/upstand:rw,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700'
+require_workflow_text 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0'
+require_workflow_text 'HOME=/tmp'
 require_workflow_text 'docker node update'
 require_workflow_text '--label-add upstand.control-plane=true'
 require_workflow_text 'docker service ps "${STACK_NAME}_${service}" --no-trunc'
@@ -169,11 +179,22 @@ require_workflow_text 'printf "%s" "$status" | grep -Fq'
 require_workflow_text 'grep -Fq "\"queues\""'
 require_workflow_text 'grep -Fq "\"outbox\""'
 require_workflow_text 'grep -Fq "\"backup\""'
+require_workflow_text 'grep -vq "\"outbox\":null"'
+require_workflow_text 'grep -vq "\"backup\":null"'
+require_workflow_text 'schedules_status_recovered=false'
+require_workflow_text 'for attempt in {1..180}; do'
+require_workflow_text 'docker service update --replicas 0 "${STACK_NAME}_migrate"'
+require_workflow_text 'docker service update --replicas 1 "${STACK_NAME}_migrate"'
+require_workflow_text 'Migration task did not complete after external Postgres restoration'
 require_workflow_text 'scripts/operational-status-rehearsal.ts'
+require_workflow_text 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0'
+require_workflow_text '--cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev'
 require_workflow_text 'OPERATIONAL_STATUS_MAX_FAILED_COUNT=0'
 require_workflow_text '--entrypoint /usr/local/bin/bun'
 require_workflow_text '--health-cmd "pg_isready -U upstand -d upstand"'
 require_workflow_text '--health-cmd "redis-cli --no-auth-warning -a upstand-ci-password ping"'
+require_workflow_text '--user 70:70'
+require_workflow_text '--user 999:1000'
 require_workflow_text '--cap-drop ALL'
 require_workflow_text '--cap-add CHOWN'
 require_workflow_text '--cap-add DAC_OVERRIDE'

@@ -1,6 +1,6 @@
 {
   "name": "upstand",
-  "version": "0.1.46",
+  "version": "0.1.55",
   "private": true,
   "workspaces": {
     "packages": [
@@ -51,7 +51,7 @@
     "@hono/node-server": "2.0.11",
     "linkify-it": "6.0.0",
     "lodash": "4.18.1",
-    "postcss": "8.5.19",
+    "postcss": "8.5.26",
     "sharp": "0.35.3",
     "shiki": "4.4.1",
     "tar": "7.5.22",
@@ -96,7 +96,7 @@
     "check": "biome check --write .",
     "check:staged": "biome check --staged --error-on-warnings --no-errors-on-unmatched",
     "knip": "knip --reporter compact",
-    "security:scan": "bun audit",
+    "security:scan": "bash scripts/security-audit.sh",
     "changeset": "changeset",
     "changeset:status": "changeset status",
     "changeset:version": "bun scripts/version-release.ts",

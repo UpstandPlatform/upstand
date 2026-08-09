@@ -9,9 +9,12 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   packages: write
   actions: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   release:
@@ -19,7 +22,3 @@ jobs:
     with:
       release_ref: ${{ inputs.release_ref }}
     secrets: inherit
-    permissions:
-      contents: write
-      packages: write
-      actions: write

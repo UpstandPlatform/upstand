@@ -77,7 +77,7 @@ jobs:
       - name: Verify lint, security, and production shell syntax
         run: |
           bun run lint
-          bun audit --audit-level=high
+          bash scripts/security-audit.sh
           bash -n install.sh
           bash -n apps/server/docker-entrypoint.sh
           bash -n scripts/production-acceptance.sh
@@ -399,6 +399,7 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
+      ATTESTATION_SOURCE_REF: ${{ github.ref }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
       ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network
@@ -438,6 +439,10 @@ jobs:
           set -euo pipefail
           release_version="${RELEASE_REF##*/}"
           repo="${GH_REPO,,}"
+          source_ref="${ATTESTATION_SOURCE_REF}"
+          if [[ "$source_ref" =~ ^refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            source_ref="${BASH_REMATCH[1]}"
+          fi
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
             inspect=""
@@ -474,12 +479,16 @@ jobs:
           set -euo pipefail
           release_version="${RELEASE_REF##*/}"
           repo="${GH_REPO,,}"
+          source_ref="${ATTESTATION_SOURCE_REF}"
+          if [[ "$source_ref" =~ ^refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            source_ref="${BASH_REMATCH[1]}"
+          fi
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
             gh attestation verify "oci://${image}" \
               --repo "$GH_REPO" \
               --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
-              --source-ref "$ATTESTATION_SOURCE_REF"
+              --source-ref "$source_ref"
           done
 
       - name: Deploy and verify a disposable production Swarm
@@ -554,6 +563,10 @@ jobs:
           # but cannot execute encrypted IPSec service tasks. Production
           # operators retain the strict default in production-acceptance.sh.
           export UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false
+          # The hosted acceptance runner cannot execute encrypted IPSec
+          # overlays. This explicit application-level override is passed only
+          # to this disposable stack; normal production defaults remain strict.
+          export UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true
 
           {
             printf 'release_ref=%s\n' "$RELEASE_REF"
@@ -625,6 +638,12 @@ jobs:
           }
           export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"
 
+          # The server provisions the monitoring agent through the Docker
+          # socket. Pre-pull the already-authenticated immutable image on the
+          # runner so that provisioning can use the local digest without
+          # requiring registry credentials inside the production container.
+          timeout --foreground 300 docker pull "$UPSTAND_MONITORING_IMAGE"
+
           timeout --foreground 300 docker stack deploy --with-registry-auth \
             --compose-file docker-compose.prod.yml "$STACK_NAME"
 
@@ -694,6 +713,7 @@ jobs:
           timeout --foreground 60 docker service create \
             --name "${STACK_NAME}_external_postgres" \
             --network "$DOCKER_NETWORK" \
+            --user 70:70 \
             --cap-drop ALL \
             --cap-add CHOWN \
             --cap-add DAC_OVERRIDE \
@@ -711,6 +731,7 @@ jobs:
           timeout --foreground 60 docker service create \
             --name "${STACK_NAME}_external_redis" \
             --network "$DOCKER_NETWORK" \
+            --user 999:1000 \
             --cap-drop ALL \
             --cap-add CHOWN \
             --cap-add DAC_OVERRIDE \
@@ -763,7 +784,8 @@ jobs:
             sh "$otlp_probe_payload" "$OTEL_COLLECTOR_SERVICE"
           telemetry_delivered=false
           for attempt in {1..30}; do
-            if docker service logs --raw "$OTEL_COLLECTOR_SERVICE" 2>&1 | grep -Fq "upstand acceptance OTLP probe"; then
+            logs="$(docker service logs --raw "$OTEL_COLLECTOR_SERVICE" 2>&1 || true)"
+            if grep -Fq "upstand acceptance OTLP probe" <<< "$logs"; then
               telemetry_delivered=true
               break
             fi
@@ -805,7 +827,7 @@ jobs:
           probe_server_readiness() {
             expected="$1"
             label="$2"
-            for attempt in {1..30}; do
+            for attempt in {1..60}; do
               set +e
               status_code="$(docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
@@ -845,16 +867,53 @@ jobs:
           probe_server_readiness 503 postgres-unavailable
           restore_dependency_service "${STACK_NAME}_external_postgres"
 
-          docker run --rm --network "$DOCKER_NETWORK" \
-            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
-            --user 10001:10001 \
-            --entrypoint /bin/sh \
-            "$HEALTH_LOAD_IMAGE" \
-            -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -Fq "\"backup\""' \
-            sh "${STACK_NAME}_schedules"
+          # The disposable external Postgres fixture has no persistent volume.
+          # Restoring its task therefore restores an empty database, so rerun
+          # the real migration service before asserting database-backed status.
+          docker service update --replicas 0 "${STACK_NAME}_migrate" >/dev/null
+          docker service update --replicas 1 "${STACK_NAME}_migrate" >/dev/null
+          migration_completed=false
+          for attempt in {1..60}; do
+            migration_state="$(docker service ps "${STACK_NAME}_migrate" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
+            if [[ "$migration_state" == Complete\ * ]]; then
+              migration_completed=true
+              break
+            fi
+            if [[ "$migration_state" == Failed\ * || "$migration_state" == Rejected\ * ]]; then
+              echo "Migration task failed after external Postgres restoration: $migration_state" >&2
+              docker service ps "${STACK_NAME}_migrate" --no-trunc >&2 || true
+              exit 1
+            fi
+            sleep 2
+          done
+          [[ "$migration_completed" == true ]] || {
+            echo "Migration task did not complete after external Postgres restoration" >&2
+            docker service ps "${STACK_NAME}_migrate" --no-trunc >&2 || true
+            exit 1
+          }
+
+          schedules_status_recovered=false
+          for attempt in {1..180}; do
+            if docker run --rm --network "$DOCKER_NETWORK" \
+              --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
+              --user 10001:10001 \
+              --entrypoint /bin/sh \
+              "$HEALTH_LOAD_IMAGE" \
+              -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -vq "\"outbox\":null"; printf "%s" "$status" | grep -Fq "\"backup\""; printf "%s" "$status" | grep -vq "\"backup\":null"' \
+              sh "${STACK_NAME}_schedules" >/dev/null 2>&1; then
+              schedules_status_recovered=true
+              break
+            fi
+            sleep 2
+          done
+          [[ "$schedules_status_recovered" == true ]] || {
+            echo "schedules status endpoint did not recover outbox and backup after postgres restoration" >&2
+            exit 1
+          }
 
           docker run --rm --network "$DOCKER_NETWORK" \
-            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
+            --tmpfs /home/upstand:rw,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700 \
             --user 10001:10001 \
             --entrypoint /bin/sh \
             "$HEALTH_LOAD_IMAGE" \
@@ -863,7 +922,8 @@ jobs:
             | tee "$ACCEPTANCE_EVIDENCE_DIR/schedules-metrics.txt"
 
           docker run --rm --network "$DOCKER_NETWORK" \
-            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
+            --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
+            --tmpfs /home/upstand:rw,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700 \
             --user 10001:10001 \
             --volume "${GITHUB_WORKSPACE}/scripts/operational-status-rehearsal.ts:/tmp/operational-status-rehearsal.ts:ro" \
             --env OPERATIONAL_STATUS_MAX_WAITING_COUNT=1000 \
@@ -871,6 +931,8 @@ jobs:
             --env OPERATIONAL_STATUS_MAX_DEAD_LETTER_COUNT=0 \
             --env OPERATIONAL_STATUS_MAX_OUTBOX_PENDING_COUNT=1000 \
             --env OPERATIONAL_STATUS_MAX_OUTBOX_PUBLISHING_COUNT=100 \
+            --env BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
+            --env HOME=/tmp \
             --entrypoint /usr/local/bin/bun \
             "$UPSTAND_SERVER_IMAGE" \
             /tmp/operational-status-rehearsal.ts \

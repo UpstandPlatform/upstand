@@ -4,6 +4,42 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.1.55 - 2026-08-08
+
+Harden stable release acceptance and dependency recovery so production images can be verified and published reliably.
+
+## 0.1.54 - 2026-08-08
+
+Harden stable release acceptance and dependency recovery so production images can be verified and published reliably.
+
+## 0.1.53 - 2026-08-04
+
+Allow the operational status rehearsal to use its writable executable temporary workspace while retaining production read-only hardening.
+
+## 0.1.52 - 2026-08-04
+
+Allow the read-only operational rehearsal to use Bun's executable temporary workspace while keeping the production services hardened.
+
+## 0.1.51 - 2026-08-04
+
+Keep the read-only production operational-status rehearsal compatible with Bun's runtime cache behavior.
+
+## 0.1.50 - 2026-08-04
+
+Use the server liveness endpoint for the container healthcheck so Swarm startup cannot deadlock while schedules waits for the server to bind.
+
+## 0.1.49 - 2026-08-04
+
+Initialize the monitoring agent data directory with non-root ownership so its persistent SQLite volume can start successfully under the hardened runtime identity.
+
+## 0.1.48 - 2026-08-04
+
+Make hosted production acceptance pass the disposable network override to the server and keep the monitoring image healthcheck self-contained.
+
+## 0.1.47 - 2026-08-04
+
+Reuse an already-present immutable monitoring image during provisioning and pre-pull it in the release acceptance harness, so private GHCR images do not require credentials inside the production container.
+
 ## 0.1.46 - 2026-08-04
 
 Publish CLI releases automatically from trusted GitHub Actions OIDC credentials with npm provenance and immutable-content retry checks.
