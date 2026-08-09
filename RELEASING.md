@@ -10,7 +10,7 @@ published only from the stable branch.
 3. Merge the release pull request into `canary`.
 4. Open and merge the promotion pull request from `canary` to `master`.
 5. Confirm the stable-tag workflow created a new `vMAJOR.MINOR.PATCH` tag and
-   that the tag-triggered release workflow started once.
+   dispatched the Docker and CLI workflows once with that exact immutable tag.
 6. Confirm the release workflow builds, verifies, and publishes all
    server, schedules, web, Fumadocs, and monitoring images.
 7. Confirm the CLI publication workflow publishes `@upstand/cli` with npm
