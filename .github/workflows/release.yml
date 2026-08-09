@@ -892,6 +892,16 @@ jobs:
             exit 1
           }
 
+          # Migration repairs the disposable database schema, but long-lived
+          # application processes can still hold connections to the stopped
+          # Postgres task. Roll the database-backed services so they establish
+          # fresh pools before the recovery assertions run.
+          for service in server schedules; do
+            timeout --foreground 300 docker service update \
+              --force --update-parallelism 2 --detach=false \
+              "${STACK_NAME}_${service}" >/dev/null
+          done
+
           schedules_status_recovered=false
           for attempt in {1..180}; do
             if docker run --rm --network "$DOCKER_NETWORK" \
@@ -899,7 +909,7 @@ jobs:
               --user 10001:10001 \
               --entrypoint /bin/sh \
               "$HEALTH_LOAD_IMAGE" \
-              -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 10 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -vq "\"outbox\":null"; printf "%s" "$status" | grep -Fq "\"backup\""; printf "%s" "$status" | grep -vq "\"backup\":null"' \
+              -c 'set -eu; status="$(curl --fail --silent --show-error --max-time 2 "http://$1:3002/status")"; printf "%s" "$status" | grep -Fq "\"service\":\"upstand-schedules\""; printf "%s" "$status" | grep -Fq "\"queues\""; printf "%s" "$status" | grep -Fq "\"outbox\""; printf "%s" "$status" | grep -vq "\"outbox\":null"; printf "%s" "$status" | grep -Fq "\"backup\""; printf "%s" "$status" | grep -vq "\"backup\":null"' \
               sh "${STACK_NAME}_schedules" >/dev/null 2>&1; then
               schedules_status_recovered=true
               break
