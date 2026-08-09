@@ -1,0 +1,25 @@
+name: Release Recovery Rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Immutable Git tag to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+  attestations: read
+
+jobs:
+  recovery-rehearsal:
+    uses: ./.github/workflows/release.yml
+    with:
+      release_ref: ${{ inputs.release_ref }}
+      acceptance_profile: full
+      publish_release: false
+      build_images: false
+      attestation_source_ref: ${{ inputs.release_ref }}
+    secrets: inherit
