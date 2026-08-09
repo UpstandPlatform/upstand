@@ -24,6 +24,7 @@ import { CaddyService } from "../caddy/caddy.service";
 import { DockerService } from "./docker.service";
 
 let proxyStarted = false;
+let proxyProcess: ReturnType<typeof spawn> | null = null;
 const PROXY_PORT = 23775;
 // Port range for remote Docker SSH proxies on Windows (Unix sockets unsupported).
 let nextRemoteProxyPort = 23776;
@@ -504,6 +505,11 @@ export function createDockerInfrastructureResolver(): DockerInfrastructureResolv
 
 function ensureDockerProxy() {
   if (proxyStarted) return;
+  const configuredNodeRuntime = process.env.UPSTAND_NODE_RUNTIME_PATH?.trim();
+  const nodeRuntime = configuredNodeRuntime || "node";
+  const nodeEnvironment = configuredNodeRuntime
+    ? { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
+    : process.env;
   const checkCode = `
     const net = require("net");
     const PORT = ${PROXY_PORT};
@@ -523,8 +529,10 @@ function ensureDockerProxy() {
     check();
   `;
   if (
-    spawnSync(process.execPath, ["-e", checkCode], { timeout: 2_000 })
-      .status === 0
+    spawnSync(nodeRuntime, ["-e", checkCode], {
+      timeout: 2_000,
+      env: nodeEnvironment,
+    }).status === 0
   ) {
     proxyStarted = true;
     return;
@@ -534,6 +542,20 @@ function ensureDockerProxy() {
     const net = require("net");
     const PIPE_PATH = "//./pipe/docker_engine";
     const PORT = ${PROXY_PORT};
+    const parentPid = process.ppid;
+    const connections = new Set();
+    let closing = false;
+
+    function closeProxy() {
+      if (closing) return;
+      closing = true;
+      clearInterval(parentWatchdog);
+      for (const connection of connections) connection.destroy();
+      const forceExit = setTimeout(() => process.exit(0), 1_000);
+      forceExit.unref();
+      server.close(() => process.exit(0));
+    }
+
     const server = net.createServer((socket) => {
       const pipe = net.connect(PIPE_PATH);
       const buffered = [];
@@ -564,21 +586,42 @@ function ensureDockerProxy() {
       pipe.on("close", () => socket.end());
       pipe.on("error", () => socket.destroy());
     });
-    server.on("error", () => process.exit(1));
+    server.on("connection", (connection) => {
+      connections.add(connection);
+      connection.once("close", () => connections.delete(connection));
+    });
+    server.on("error", () => closeProxy());
     server.listen(PORT, "127.0.0.1");
+    const parentWatchdog = setInterval(() => {
+      try {
+        process.kill(parentPid, 0);
+      } catch {
+        closeProxy();
+      }
+    }, 250);
+    parentWatchdog.unref();
+    process.once("SIGTERM", closeProxy);
+    process.once("SIGINT", closeProxy);
   `;
   // Bun's TCP implementation can connect to the named pipe but cannot
-  // reliably proxy Docker's long-lived HTTP stream on Windows. Use the
-  // installed Node runtime for this tiny bridge while keeping the caller Bun.
-  const child = spawn("node", ["-e", code], {
+  // reliably proxy Docker's long-lived HTTP stream on Windows. Use Electron's
+  // bundled Node runtime for this tiny bridge while keeping the caller Bun.
+  const child = spawn(nodeRuntime, ["-e", code], {
     detached: true,
+    env: nodeEnvironment,
     stdio: "ignore",
   });
+  proxyProcess = child;
+  process.once("exit", () => proxyProcess?.kill());
   child.unref();
   if (
-    spawnSync(process.execPath, ["-e", checkCode], { timeout: 2_000 })
-      .status !== 0
+    spawnSync(nodeRuntime, ["-e", checkCode], {
+      timeout: 2_000,
+      env: nodeEnvironment,
+    }).status !== 0
   ) {
+    child.kill();
+    proxyProcess = null;
     throw new Error("Unable to start the local Docker named-pipe proxy");
   }
   proxyStarted = true;

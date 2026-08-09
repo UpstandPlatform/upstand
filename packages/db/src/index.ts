@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,7 +56,20 @@ export async function createDb(): Promise<Database> {
     mkdirSync(dataDir, { recursive: true });
     await acquirePgliteLock(dataDir);
     removeStalePgliteControlFile(dataDir);
-    const client = new PGlite(dataDir);
+    const assetsDir = env.PGLITE_ASSETS_DIR?.trim();
+    const options = assetsDir
+      ? await (async () => {
+          const [wasmBytes, dataBytes] = await Promise.all([
+            readFile(resolve(assetsDir, "pglite.wasm")),
+            readFile(resolve(assetsDir, "pglite.data")),
+          ]);
+          return {
+            fsBundle: new Blob([new Uint8Array(dataBytes)]),
+            wasmModule: await WebAssembly.compile(wasmBytes),
+          };
+        })()
+      : undefined;
+    const client = new PGlite(dataDir, options);
     activePglite = client;
     const database = drizzle(client, { schema }) as unknown as Database;
     await migratePglite(database, {

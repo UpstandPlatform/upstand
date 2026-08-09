@@ -1,4 +1,5 @@
 import { Worker } from "bullmq";
+import { withJobTelemetry } from "../observability/job-telemetry";
 import { ManagedQueueWorker } from "../shared/managed-queue-worker";
 import { NOTIFICATION_DELIVERY_QUEUE } from "./publish-notification.usecase";
 
@@ -21,7 +22,17 @@ export class NotificationDeliveryWorker {
               throw new Error("Notification job is missing deliveryId");
             }
 
-            await deliverNotification(deliveryId);
+            await withJobTelemetry(
+              {
+                operation: "notification.deliver",
+                queue: NOTIFICATION_DELIVERY_QUEUE,
+                jobId: job.id,
+                correlationId: job.data?.correlationId,
+                attempt: job.attemptsMade + 1,
+                fields: { notification: { deliveryId } },
+              },
+              () => deliverNotification(deliveryId),
+            );
           },
           {
             connection: connection as never,

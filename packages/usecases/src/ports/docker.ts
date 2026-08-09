@@ -1,4 +1,8 @@
-import type { Resource, ResourceAutoscalingProjection } from "@upstand/domain";
+import type {
+  ApplicationBuildConfig,
+  Resource,
+  ResourceAutoscalingProjection,
+} from "@upstand/domain";
 import type { DockerLogLevel } from "../resource/docker-log-filter";
 import type { CaddyServicePort } from "./caddy";
 
@@ -68,6 +72,15 @@ export interface DeploymentRevisionOptions {
   imageTagSuffix?: string;
 }
 
+export interface ResolvedBuildArtifact {
+  buildConfig: ApplicationBuildConfig;
+  detectorVersion: string | null;
+  sourceRevision: string;
+  configurationVersion: string;
+  digest: string;
+  reference: string;
+}
+
 export interface ConvergenceResult {
   healthy: boolean;
   state?: string;
@@ -111,6 +124,7 @@ export interface DockerServicePort {
     buildEnvVars?: Record<string, string>,
     gitEnvironment?: Record<string, string>,
     sshHostKeyFingerprint?: string,
+    onBuildResolved?: (artifact: ResolvedBuildArtifact) => Promise<void>,
   ): Promise<void>;
   readComposeFileFromGit(
     resource: Resource,

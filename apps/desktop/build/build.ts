@@ -108,13 +108,17 @@ async function copyGeneratedTree(
     const info = await lstat(absoluteSource);
     if (info.isSymbolicLink()) {
       const target = await readlink(absoluteSource);
+      const targetSource = resolve(dirname(absoluteSource), target);
+      const targetKey = targetSource.toLocaleLowerCase();
+      if (ancestors.has(targetKey)) {
+        // Package managers may legitimately form a cyclic dependency graph.
+        // Node will resolve this dependency from an ancestor node_modules
+        // directory, so do not recurse forever while staging it.
+        return;
+      }
       const nextAncestors = new Set(ancestors).add(cycleKey);
       try {
-        await copyResolved(
-          resolve(dirname(absoluteSource), target),
-          currentDestination,
-          nextAncestors,
-        );
+        await copyResolved(targetSource, currentDestination, nextAncestors);
       } catch (error) {
         if (
           !(error instanceof Error) ||
@@ -198,13 +202,18 @@ if (isPackageBuild) {
   // supervisor can launch them with loopback-only, per-install configuration.
   const localRoot = resolve(output, "resources", "local");
   await mkdir(localRoot, { recursive: true });
-  const serverDist = resolve(workspaceRoot, "apps", "server", "dist");
   const dashboardStandalone = resolve(
     workspaceRoot,
     "apps",
     "web",
     ".next",
     "standalone",
+  );
+  const dashboardNodeModules = resolve(
+    dashboardStandalone,
+    "node_modules",
+    ".bun",
+    "node_modules",
   );
   const migrations = resolve(
     workspaceRoot,
@@ -214,7 +223,6 @@ if (isPackageBuild) {
     "migrations",
   );
   for (const [source, destination] of [
-    [serverDist, resolve(localRoot, "server")],
     [dashboardStandalone, resolve(localRoot, "dashboard")],
     [migrations, resolve(localRoot, "migrations")],
   ] as const) {
@@ -227,15 +235,82 @@ if (isPackageBuild) {
     }
   }
 
-  // The API bundle intentionally keeps SSH and a few runtime modules external.
-  // Copy the resolved server runtime tree with links dereferenced so the staged
-  // installer never depends on a developer workspace layout.
-  await copyGeneratedTree(
-    resolve(workspaceRoot, "apps", "server", "node_modules"),
-    resolve(localRoot, "node_modules"),
+  const localServerDirectory = resolve(localRoot, "server");
+  await mkdir(localServerDirectory, { recursive: true });
+  const localServerBinary = resolve(
+    localServerDirectory,
+    process.platform === "win32"
+      ? "upstand-local-server.exe"
+      : "upstand-local-server",
   );
-  await copyGeneratedTree(
-    resolve(workspaceRoot, "packages", "db", "node_modules", "@electric-sql"),
-    resolve(localRoot, "node_modules", "@electric-sql"),
+  const serverCompile = Bun.spawn({
+    cmd: [
+      process.execPath,
+      "build",
+      resolve(workspaceRoot, "apps", "server", "src", "index.ts"),
+      "--compile",
+      "--packages=bundle",
+      "--outfile",
+      localServerBinary,
+    ],
+    cwd: workspaceRoot,
+    stderr: "inherit",
+    stdout: "inherit",
+  });
+  if ((await serverCompile.exited) !== 0) {
+    throw new Error("Failed to compile the Desktop local server executable");
+  }
+
+  // Next's traced standalone output uses Bun's internal link store. Electron's
+  // Node resolver does not traverse that link map, so materialize its traced
+  // entries at the dashboard root. The nested entrypoint already has Next.
+  const stagedDashboardModules = resolve(
+    localRoot,
+    "dashboard",
+    "node_modules",
   );
+  for (const entry of await readdir(dashboardNodeModules)) {
+    if (entry === "next" || entry === ".bin") continue;
+    await copyGeneratedTree(
+      resolve(dashboardNodeModules, entry),
+      resolve(stagedDashboardModules, entry),
+    );
+  }
+
+  const pgliteAssetsDirectory = resolve(localRoot, "pglite");
+  await mkdir(pgliteAssetsDirectory, { recursive: true });
+  const pglitePackageDirectory = resolve(
+    dirname(
+      Bun.resolveSync(
+        "@electric-sql/pglite",
+        resolve(workspaceRoot, "packages", "db", "src", "index.ts"),
+      ),
+    ),
+    "..",
+  );
+  for (const asset of ["pglite.data", "pglite.wasm"]) {
+    await safeCopyFile(
+      resolve(pglitePackageDirectory, "dist", asset),
+      resolve(pgliteAssetsDirectory, asset),
+    );
+  }
+
+  const swaggerPackageDirectory = dirname(
+    Bun.resolveSync(
+      "swagger-ui-dist",
+      resolve(workspaceRoot, "apps", "server", "src", "openapi.ts"),
+    ),
+  );
+  const swaggerAssetsDirectory = resolve(localRoot, "swagger");
+  await mkdir(swaggerAssetsDirectory, { recursive: true });
+  for (const asset of [
+    "swagger-ui.css",
+    "swagger-ui-bundle.js",
+    "swagger-ui-standalone-preset.js",
+  ]) {
+    await safeCopyFile(
+      resolve(swaggerPackageDirectory, asset),
+      resolve(swaggerAssetsDirectory, asset),
+    );
+  }
 }

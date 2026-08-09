@@ -141,6 +141,7 @@ async function validateDeploymentSource(
 
 export interface QueueDeploymentInput {
   resourceId: string;
+  correlationId?: string;
   title?: string;
   previewDeploymentId?: string;
   sourceRevision?: string;
@@ -294,6 +295,7 @@ export class QueueDeploymentUseCase {
       }
 
       const payload: DeployOutboxPayload = {
+        correlationId: input.correlationId,
         resourceId: updatedResource.id,
         deploymentId,
         serverId,

@@ -48,6 +48,7 @@ export async function recordAuditEvent(
     const inputMetadata = sanitizeAuditInput(input);
     const metadata = {
       ...inputMetadata,
+      correlationId: ctx.correlationId,
       audit: {
         outcome: outcome.success ? "success" : "failure",
         attemptedAction,

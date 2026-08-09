@@ -1,4 +1,5 @@
 import { env } from "@upstand/env/server";
+import { resolveCorrelationId } from "@upstand/platform";
 import type { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -29,6 +30,14 @@ export function registerHttpMiddleware(
   app: Hono<AppEnv>,
   dependencies: HttpMiddlewareDependencies,
 ): void {
+  app.use("*", async (c, next) => {
+    const correlationId = resolveCorrelationId(c.req.header("x-request-id"));
+    c.set("correlationId", correlationId);
+    c.get("log").set({ requestId: correlationId, correlationId });
+    await next();
+    c.header("X-Request-ID", correlationId);
+  });
+
   app.use(
     "*",
     secureHeaders({
@@ -41,12 +50,14 @@ export function registerHttpMiddleware(
   // Keep JSON, auth, terminal, and compatibility transports from buffering an
   // unbounded request before their route-specific validation runs. Smaller
   // endpoints (webhooks and AI/MCP) install stricter limits in their routers.
-  app.use(
-    "*",
-    bodyLimit({
-      maxSize: MAX_HTTP_REQUEST_BYTES,
-      onError: (c) => c.json({ error: "Request body is too large" }, 413),
-    }),
+  const defaultBodyLimit = bodyLimit({
+    maxSize: MAX_HTTP_REQUEST_BYTES,
+    onError: (c) => c.json({ error: "Request body is too large" }, 413),
+  });
+  app.use("*", (c, next) =>
+    c.req.path === "/api/control-plane-transfer/import"
+      ? next()
+      : defaultBodyLimit(c, next),
   );
 
   app.use("*", async (c, next) => {
@@ -162,6 +173,7 @@ export function registerHttpMiddleware(
         "Mcp-Session-Id",
         "mcp-session-id",
         "Last-Event-ID",
+        "X-Request-ID",
       ],
       exposeHeaders: [
         "X-RateLimit-Limit",
@@ -169,6 +181,7 @@ export function registerHttpMiddleware(
         "X-RateLimit-Reset",
         "Mcp-Session-Id",
         "Location",
+        "X-Request-ID",
       ],
       credentials: true,
     }),

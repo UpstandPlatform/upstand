@@ -19,6 +19,15 @@ published only from the stable branch.
    CLI-only Changesets publish from the version-bump commit on `master`.
 8. Confirm the GitHub Release contains the release manifest and immutable image
    digests.
+9. For a Desktop release, install the Windows Squirrel artifact in a disposable
+   user profile, confirm it appears as **Upstand** in Start and Installed apps,
+   launch it through the loopback readiness check, then uninstall it and
+   confirm its registration, shortcuts, app payload, processes, and local
+   service listeners are gone. Squirrel may leave its inert `.dead` marker and
+   updater self-removal stubs; those are not an installed app and must not
+   include Upstand's application payload. The Desktop app intentionally
+   preserves its per-user data at `%APPDATA%\\desktop` across updates and
+   uninstall so local control-plane data and connection settings are retained.
 
 The stable release workflow uses the `smoke` acceptance profile by default. It
 verifies the immutable images and attestations, deploys the bundled and

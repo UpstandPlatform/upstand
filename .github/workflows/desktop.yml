@@ -5,7 +5,9 @@ on:
     branches: [master, canary]
     paths:
       - "apps/desktop/**"
-      - "apps/web/src/app/(marketing)/page.tsx"
+      - "apps/server/**"
+      - "apps/web/**"
+      - "packages/**"
       - "bun.lock"
       - "package.json"
       - "turbo.json"
@@ -15,6 +17,9 @@ on:
     branches: [canary]
     paths:
       - "apps/desktop/**"
+      - "apps/server/**"
+      - "apps/web/**"
+      - "packages/**"
       - "bun.lock"
       - "package.json"
       - "turbo.json"
@@ -77,3 +82,7 @@ jobs:
 
       - name: Package desktop app
         run: bun run --cwd apps/desktop package
+
+      - name: Verify packaged local control plane
+        if: matrix.name == 'Windows'
+        run: bun run --cwd apps/desktop verify:packaged-server

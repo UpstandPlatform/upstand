@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import {
+  ConfirmWorkloadMigrationInputSchema,
   ControlDockerContainerInputSchema,
   ControlDockerResourceInputSchema,
   CreateServerInputSchema,
@@ -12,22 +13,29 @@ import {
   GetServerRuntimeStatsInputSchema,
   GetServersInputSchema,
   MigrateResourceInputSchema,
+  ResourceWorkloadMigrationInputSchema,
   ScanServerHostKeyInputSchema,
   SetupServerInputSchema,
   UpdateMonitoringSettingsInputSchema,
   UpdateServerInputSchema,
+  WorkloadMigrationIdInputSchema,
 } from "@upstand/usecases";
 import {
+  CancelWorkloadMigrationUseCaseToken,
+  ConfirmWorkloadMigrationUseCaseToken,
   CreateServerUseCaseToken,
   DeleteServerUseCaseToken,
   GetDockerInventoryUseCaseToken,
+  GetResourceWorkloadMigrationUseCaseToken,
   GetServerCountUseCaseToken,
   GetServerHistoricalMetricsUseCaseToken,
   GetServerMonitoringStatusUseCaseToken,
   GetServerRuntimeStatsUseCaseToken,
   GetServersUseCaseToken,
   GetServerUseCaseToken,
+  GetWorkloadMigrationUseCaseToken,
   MigrateResourceUseCaseToken,
+  RollbackWorkloadMigrationUseCaseToken,
   ScanServerHostKeyUseCaseToken,
   SetupServerUseCaseToken,
   UnitOfWorkToken,
@@ -36,7 +44,11 @@ import {
 } from "@upstand/usecases/tokens";
 import { z } from "zod";
 import { handleUseCaseError } from "../errors";
-import { router, twoFactorVerifiedProcedure } from "../index";
+import {
+  protectedProcedure,
+  router,
+  twoFactorVerifiedProcedure,
+} from "../index";
 import { requireInstanceOwnerContext } from "../instance-access";
 import { checkPermission } from "../permissions";
 import { authorizeServerAccess } from "../trpc/server-authorization.helper";
@@ -438,7 +450,7 @@ export const serverRouter = router({
       }
     }),
 
-  migrateResource: twoFactorVerifiedProcedure
+  migrateResource: protectedProcedure
     .input(MigrateResourceInputSchema)
     .mutation(async ({ ctx, input }) => {
       await checkPermission(
@@ -449,6 +461,91 @@ export const serverRouter = router({
       try {
         return await ctx.scope
           .resolve(MigrateResourceUseCaseToken)
+          .execute({ ...input, correlationId: ctx.correlationId });
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  getWorkloadMigration: protectedProcedure
+    .input(WorkloadMigrationIdInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      try {
+        return await ctx.scope
+          .resolve(GetWorkloadMigrationUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  getResourceWorkloadMigration: protectedProcedure
+    .input(ResourceWorkloadMigrationInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      try {
+        return await ctx.scope
+          .resolve(GetResourceWorkloadMigrationUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  cancelWorkloadMigration: protectedProcedure
+    .input(WorkloadMigrationIdInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(CancelWorkloadMigrationUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  rollbackWorkloadMigration: protectedProcedure
+    .input(WorkloadMigrationIdInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(RollbackWorkloadMigrationUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  confirmWorkloadMigration: protectedProcedure
+    .input(ConfirmWorkloadMigrationInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(ConfirmWorkloadMigrationUseCaseToken)
           .execute(input);
       } catch (error) {
         handleUseCaseError(error, ctx.log);

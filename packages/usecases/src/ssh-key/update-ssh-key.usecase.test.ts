@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { IUnitOfWork } from "@upstand/domain";
 import { generateEd25519KeyPair } from "@upstand/platform/ssh/keygen";
 import { GetSshKeysUseCase } from "./get-ssh-keys.usecase";
 import { UpdateSshKeyUseCase } from "./update-ssh-key.usecase";
 
 const TEST_KEY = Buffer.alloc(32, 17).toString("base64");
+process.env.ENCRYPTION_KEY_V1 ??= TEST_KEY;
 
 function makeKey() {
   const pair = generateEd25519KeyPair("test-key");
@@ -26,10 +27,6 @@ function makeKey() {
 }
 
 describe("SSH key lifecycle", () => {
-  beforeEach(() => {
-    process.env.ENCRYPTION_KEY_V1 = TEST_KEY;
-  });
-
   test("rotates a key pair and encrypts the replacement private key", async () => {
     const current = makeKey();
     const { privateKey, publicKey, fingerprint } =

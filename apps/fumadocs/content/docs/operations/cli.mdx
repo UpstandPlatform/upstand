@@ -51,6 +51,19 @@ The `upstand api <namespace.action> --input '{...}'` command exposes the
 canonical Upstand procedure surface for advanced workflows while dedicated
 commands are added for common operations.
 
+Production operator workflows also include resumable workload migration,
+portable control-plane transfer, and redacted GitHub diagnostics:
+
+```bash
+upstand server migration-status --resource <resource-id> --organization <org-id>
+upstand control-plane export --file upstand.ndjson
+upstand diagnostics github owner/repository --organization <org-id> --provider <provider-id>
+```
+
+Control-plane export/import requires `UPSTAND_SESSION_COOKIE` for an
+instance-owner session with recent 2FA. Put an optional transfer passphrase in
+`UPSTAND_TRANSFER_PASSPHRASE`, never in a command argument.
+
 Upstand ships with an administrative command-line interface (`cli.mjs`) bundled inside the control-plane container. Operators can use the CLI for emergency account recovery and maintenance directly from host terminals.
 
 ---

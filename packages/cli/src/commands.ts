@@ -47,6 +47,7 @@ export async function runCommand(context: CommandContext): Promise<number> {
       return await procedure(context, output, client, action);
     if (group === "whoami") return await whoami(output, client);
     if (group === "deploy") return await deploy(context, output, client);
+    if (group === "status") return await status(context, output, client);
     if (group === "logs") return await logs(context, output, client);
     if (group === "inspect") return await inspect(context, output, client);
     if (group === "rollback") return await rollback(context, output, client);
@@ -58,6 +59,12 @@ export async function runCommand(context: CommandContext): Promise<number> {
       return await resourceCommand(context, output, client, action);
     if (group === "deployment" || group === "deployments")
       return await deploymentCommand(context, output, client, action);
+    if (group === "server" || group === "servers")
+      return await serverCommand(context, output, client, action);
+    if (group === "control-plane")
+      return await controlPlaneCommand(context, output, client, action);
+    if (group === "diagnostics")
+      return await diagnosticsCommand(context, output, client, action);
     throw new Error(
       `Unknown command '${context.positionals.join(" ")}'. Run 'upstand help'.`,
     );
@@ -286,6 +293,23 @@ async function inspect(
   return 0;
 }
 
+async function status(
+  context: CommandContext,
+  output: Output,
+  client: UpstandClient,
+): Promise<number> {
+  const resourceId =
+    context.positionals[1] ||
+    flag(context, "resource") ||
+    (context.options.output === "human"
+      ? await promptText("Resource ID")
+      : undefined);
+  if (!resourceId) throw new Error("status requires a resource ID.");
+  const result = await client.query("resource.get", { id: resourceId });
+  await output.value(result.data, "Resource status");
+  return 0;
+}
+
 async function rollback(
   context: CommandContext,
   output: Output,
@@ -494,6 +518,94 @@ async function procedure(
   return 0;
 }
 
+async function serverCommand(
+  context: CommandContext,
+  output: Output,
+  client: UpstandClient,
+  action: string,
+): Promise<number> {
+  const organizationId = context.options.organizationId;
+  if (!organizationId) {
+    throw new Error("server migration commands require --organization.");
+  }
+
+  if (action === "migrate") {
+    const resourceId = context.positionals[2] || flag(context, "resource");
+    const targetServerId = flag(context, "target");
+    if (!resourceId || !targetServerId) {
+      throw new Error(
+        "server migrate requires a resource ID and --target <server-id>.",
+      );
+    }
+    const result = await client.mutate("server.migrateResource", {
+      organizationId,
+      resourceId,
+      targetServerId,
+    });
+    await output.value(result.data, "Workload migration queued");
+    return 0;
+  }
+
+  if (action === "migration-status") {
+    const migrationId = context.positionals[2] || flag(context, "id");
+    const resourceId = flag(context, "resource");
+    if (!migrationId && !resourceId) {
+      throw new Error(
+        "server migration-status requires a migration ID or --resource <resource-id>.",
+      );
+    }
+    const result = migrationId
+      ? await client.query("server.getWorkloadMigration", {
+          organizationId,
+          migrationId,
+        })
+      : await client.query("server.getResourceWorkloadMigration", {
+          organizationId,
+          resourceId,
+        });
+    await output.value(result.data, "Workload migration status");
+    return 0;
+  }
+
+  if (
+    action === "migration-cancel" ||
+    action === "migration-rollback" ||
+    action === "migration-confirm"
+  ) {
+    const migrationId = context.positionals[2] || flag(context, "id");
+    if (!migrationId) throw new Error(`${action} requires a migration ID.`);
+    if (
+      action === "migration-confirm" &&
+      !context.options.yes &&
+      (context.options.output !== "human" ||
+        !(await promptConfirm(
+          "Permanently clean up the retained source workload?",
+        )))
+    ) {
+      throw new Error(
+        "source cleanup cancelled; rerun with --yes in automation.",
+      );
+    }
+    const procedure =
+      action === "migration-cancel"
+        ? "server.cancelWorkloadMigration"
+        : action === "migration-rollback"
+          ? "server.rollbackWorkloadMigration"
+          : "server.confirmWorkloadMigration";
+    const result = await client.mutate(procedure, {
+      organizationId,
+      migrationId,
+      ...(action === "migration-confirm" ? { confirmCleanup: true } : {}),
+    });
+    await output.value(result.data, "Workload migration updated");
+    return 0;
+  }
+
+  throw new Error(
+    "Supported server commands: migrate, migration-status, migration-cancel, migration-rollback, migration-confirm.",
+  );
+}
+
 async function selectOrPrompt(
   context: CommandContext,
   title: string,
@@ -505,6 +617,160 @@ async function selectOrPrompt(
   return promptText(`${title} ID`);
 }
 
+async function controlPlaneCommand(
+  context: CommandContext,
+  output: Output,
+  client: UpstandClient,
+  action: string,
+): Promise<number> {
+  const filePath = flag(context, "file");
+  if (!filePath) throw new Error(`control-plane ${action} requires --file.`);
+  const passphrase = process.env.UPSTAND_TRANSFER_PASSPHRASE?.trim();
+
+  if (action === "export") {
+    const target = Bun.file(filePath);
+    if ((await target.exists()) && !context.flags.has("force")) {
+      throw new Error(
+        "Export target already exists; use --force to replace it.",
+      );
+    }
+    const includeSecrets = context.flags.has("include-secrets");
+    if (includeSecrets && !passphrase) {
+      throw new Error(
+        "Secret export requires UPSTAND_TRANSFER_PASSPHRASE in the process environment.",
+      );
+    }
+    const response = await client.exportControlPlane({
+      includeSecrets,
+      passphrase,
+    });
+    if (!response.body) throw new Error("Transfer export returned no body.");
+    const sink = target.writer();
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        sink.write(chunk.value);
+      }
+      await sink.end();
+    } catch (error) {
+      try {
+        await sink.end();
+      } catch {
+        // Preserve the transfer failure.
+      }
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+    await output.value({ file: filePath, includeSecrets }, "Export completed");
+    return 0;
+  }
+
+  if (action === "import") {
+    const source = Bun.file(filePath);
+    if (!(await source.exists())) throw new Error("Import file was not found.");
+    const rawMode = flag(context, "mode") ?? "merge";
+    if (rawMode !== "merge" && rawMode !== "replace") {
+      throw new Error("Import mode must be merge or replace.");
+    }
+    if (
+      rawMode === "replace" &&
+      !context.options.yes &&
+      (context.options.output !== "human" ||
+        !(await promptConfirm(
+          "Replace the destination control-plane data atomically?",
+        )))
+    ) {
+      throw new Error(
+        "replace import cancelled; rerun with --yes in automation.",
+      );
+    }
+    const result = await client.importControlPlane({
+      content: source,
+      mode: rawMode,
+      passphrase,
+      resumeSessionId: flag(context, "resume"),
+    });
+    await output.value(result.data, "Import completed");
+    return result.data.conflicts.length > 0 ? 3 : 0;
+  }
+
+  throw new Error("Supported control-plane commands: export, import.");
+}
+
+async function diagnosticsCommand(
+  context: CommandContext,
+  output: Output,
+  client: UpstandClient,
+  action: string,
+): Promise<number> {
+  if (action !== "github") {
+    throw new Error("Supported diagnostics commands: github.");
+  }
+  const organizationId = context.options.organizationId;
+  const gitProviderId = flag(context, "provider");
+  const repository = context.positionals[2] || flag(context, "repository");
+  if (!organizationId || !gitProviderId || !repository) {
+    throw new Error(
+      "diagnostics github requires owner/repository, --organization, and --provider.",
+    );
+  }
+  const result = await client.mutate<{
+    ready: boolean;
+    checks: Array<{ code: string; status: string; summary: string }>;
+  }>("gitProvider.diagnostics", {
+    organizationId,
+    gitProviderId,
+    repository,
+    ref: flag(context, "ref"),
+    resourceId: flag(context, "resource"),
+  });
+  await output.value(result.data, "GitHub diagnostics");
+  return result.data.ready ? 0 : 4;
+}
+
 function helpText(): string {
-  return "Upstand CLI\n\nUsage:\n  upstand <command> [options]\n\nCommands:\n  login                  Save an API key for local or CI use\n  logout                 Remove the saved token\n  whoami                 Verify authentication and capabilities\n  link                   Link the current directory to a project environment\n  unlink                 Remove the current project link\n  deploy <resource-id>   Queue a resource deployment\n  logs <deployment-id>   Show deployment logs\n  inspect <id>           Inspect a resource (use --type project for projects)\n  rollback <resource>    Roll back a resource with --yes\n  project list           List organization projects\n  environment list       List project environments\n  resource list           List environment resources\n  deployment list         List organization deployments\n  deployment cancel       Cancel a deployment with --yes\n  deployment retry        Retry a failed deployment\n  api <procedure>         Call any supported API procedure\n\nGlobal options:\n  --url <url>             Control-plane URL (or UPSTAND_URL)\n  --token <token>         API key/token (or UPSTAND_TOKEN)\n  --json                  Emit stable JSON\n  --silent                Suppress human output\n  --yes                   Confirm destructive operations\n  --organization <id>     Organization context\n  --project <id>          Project context\n  --environment <id>      Environment context";
+  return `Upstand CLI
+
+Usage:
+  upstand <command> [options]
+
+Commands:
+  login                         Save an API key for local or CI use
+  logout                        Remove the saved token
+  whoami                        Verify authentication and capabilities
+  link                          Link the current directory to an environment
+  unlink                        Remove the current project link
+  deploy <resource-id>          Queue a resource deployment
+  status <resource-id>          Show resource status and placement
+  logs <deployment-id>          Show deployment logs
+  inspect <id>                  Inspect a resource or project
+  rollback <resource>           Roll back a resource with --yes
+  project list                  List organization projects
+  environment list              List project environments
+  resource list                 List environment resources
+  deployment list               List organization deployments
+  deployment cancel             Cancel a deployment with --yes
+  deployment retry              Retry a failed deployment
+  server migrate                Queue a migration with --target
+  server migration-status       Show migration progress by ID or --resource
+  server migration-cancel       Request cancellation before cutover
+  server migration-rollback     Roll back to the retained source
+  server migration-confirm      Confirm source cleanup with --yes
+  control-plane export          Stream an installation export to --file
+  control-plane import          Import --file in merge or replace mode
+  diagnostics github <repo>     Run redacted GitHub readiness checks
+  api <procedure>                Call any supported API procedure
+
+Global options:
+  --url <url>                    Control-plane URL (or UPSTAND_URL)
+  --token <token>                API key/token (or UPSTAND_TOKEN)
+  --json                         Emit stable JSON
+  --silent                       Suppress human output
+  --yes                          Confirm destructive operations
+  --organization <id>            Organization context
+  --project <id>                 Project context
+  --environment <id>             Environment context`;
 }

@@ -12,9 +12,11 @@ import {
   type BetterAuthInstance,
   createAuthMiddleware,
 } from "evlog/better-auth";
+import { createTraceContextEnricher } from "evlog/enrichers";
 import { createFsDrain } from "evlog/fs";
 import { evlog } from "evlog/hono";
 import { createOTLPDrain } from "evlog/otlp";
+import { createDrainPipeline } from "evlog/pipeline";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
 import { getServiceProvider } from "./di";
@@ -22,6 +24,7 @@ import { registerHttpMiddleware } from "./http/middleware";
 import { registerAiRoutes } from "./http/routes/ai";
 import { registerAuthRoutes } from "./http/routes/auth";
 import { registerCliDeviceAuthRoutes } from "./http/routes/cli-device-auth";
+import { registerControlPlaneTransferRoutes } from "./http/routes/control-plane-transfer";
 import { registerDeploymentRoutes } from "./http/routes/deployments";
 import { registerMonitoringRoutes } from "./http/routes/monitoring";
 import { registerProviderRoutes } from "./http/routes/providers";
@@ -51,12 +54,27 @@ const otlpDrain = otlpEndpoint
     })
   : undefined;
 
-const drain = async (context: DrainContext | DrainContext[]) => {
-  await Promise.allSettled([
+const drainAdapter = async (context: DrainContext | DrainContext[]) => {
+  await Promise.all([
     fileDrain(context),
     ...(otlpDrain ? [otlpDrain(context)] : []),
   ]);
 };
+const drain = createDrainPipeline<DrainContext>({
+  batch: { size: 50, intervalMs: 5_000 },
+  retry: {
+    maxAttempts: 3,
+    backoff: "exponential",
+    initialDelayMs: 500,
+    maxDelayMs: 5_000,
+  },
+  maxBufferSize: 2_000,
+  onDropped: (events, error) => {
+    process.stderr.write(
+      `${JSON.stringify({ service: "upstand-server", event: "telemetry_dropped", count: events.length, reason: error?.message ?? "buffer_overflow" })}\n`,
+    );
+  },
+})(async (batch) => drainAdapter(batch));
 
 initLogger({
   env: { service: "upstand-server" },
@@ -103,7 +121,12 @@ let caddyReady = false;
 let monitoringReady = env.NODE_ENV !== "production";
 let httpServer: Bun.Server<unknown> | null = null;
 
-app.use(evlog());
+app.use(
+  evlog({
+    redact: true,
+    enrich: createTraceContextEnricher(),
+  }),
+);
 
 registerHttpMiddleware(app, {
   getServiceProvider,
@@ -113,6 +136,8 @@ registerHttpMiddleware(app, {
 registerAuthRoutes(app);
 
 registerCliDeviceAuthRoutes(app);
+
+registerControlPlaneTransferRoutes(app);
 
 registerTerminalRoutes(app);
 
@@ -229,6 +254,7 @@ async function shutdown(signal: string): Promise<void> {
   closeRemoteDockerProxies();
   await closeDb();
   log.info({ message: "Graceful shutdown completed", signal });
+  await drain.flush();
   process.exit(0);
 }
 

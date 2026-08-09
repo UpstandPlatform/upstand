@@ -1,5 +1,6 @@
 {
   "name": "desktop",
+  "productName": "Upstand",
   "version": "0.2.25",
   "private": true,
   "description": "Upstand Desktop - secure native client for the Upstand control plane",
@@ -12,6 +13,7 @@
     "dev": "bun run ./scripts/dev.ts",
     "package": "bun run ./build/build.ts --package && electron-forge package",
     "make": "bun run ./build/build.ts --package && electron-forge make",
+    "verify:packaged-server": "bun run ./scripts/verify-packaged-server-runtime.ts",
     "check-types": "tsc --noEmit",
     "lint": "biome check .",
     "test": "bun test test"
@@ -24,8 +26,10 @@
     "@electron-forge/maker-zip": "^7.11.1",
     "@electron-forge/shared-types": "^7.11.1",
     "@types/bun": "catalog:",
+    "@types/electron-squirrel-startup": "^1.0.2",
     "@types/node": "^26.0.0",
     "electron": "^41.10.3",
+    "electron-squirrel-startup": "^1.0.1",
     "typescript": "catalog:"
   }
 }

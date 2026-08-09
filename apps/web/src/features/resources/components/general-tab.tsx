@@ -52,7 +52,7 @@ import {
 import { cn } from "@upstand/ui/lib/utils";
 import type { Route } from "next";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmActionDialog } from "@/components/dashboard/confirm-action-dialog";
 import { DangerZoneCard } from "@/components/dashboard/danger-zone-card";
@@ -86,6 +86,7 @@ import {
   type ResourceProvider,
   toStringRecord,
 } from "./general-tab.helpers";
+import { WorkloadMigrationStatusCard } from "./workload-migration-status-card";
 
 interface GeneralTabProps {
   resource: NonNullable<ResourceDetailState["resource"]>;
@@ -165,6 +166,7 @@ export function GeneralTab({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteVolumes, setDeleteVolumes] = useState(false);
   const [rebuildDialogOpen, setRebuildDialogOpen] = useState(false);
+  const [migrationDialogOpen, setMigrationDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!deleteDialogOpen) {
@@ -225,6 +227,24 @@ export function GeneralTab({
       toast.success(
         `Compose file converted to ${result.target === "stack" ? "Docker Stack" : "Docker Compose"}`,
       );
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const migrateResource = useMutation({
+    ...trpc.server.migrateResource.mutationOptions(),
+    onSuccess: async () => {
+      setMigrationDialogOpen(false);
+      toast.success(
+        "Migration queued. The source remains active until validated cutover.",
+      );
+      if (organizationState.status === "ready") {
+        await queryClient.invalidateQueries({
+          queryKey: trpc.server.getResourceWorkloadMigration.queryKey({
+            organizationId: organizationState.organizationId,
+            resourceId: resource.id,
+          }),
+        });
+      }
     },
     onError: (error) => toast.error(error.message),
   });
@@ -808,6 +828,49 @@ export function GeneralTab({
     controlResource({ id: resource.id, command });
   };
 
+  const currentDeploymentServerId = resource.serverId ?? "default";
+  const deploymentPlacementChanged =
+    deploymentServerId !== currentDeploymentServerId;
+  const selectedDeploymentServer = servers.find(
+    (server) => server.id === deploymentServerId,
+  );
+  const serverNames = useMemo(
+    () => new Map(servers.map((server) => [server.id, server.name])),
+    [servers],
+  );
+
+  const saveBuildInfrastructure = (onSuccess: () => void) => {
+    if (resource.type !== "application") {
+      onSuccess();
+      return;
+    }
+    updateResource(
+      {
+        id: resource.id,
+        buildServerId: buildServerId === "default" ? null : buildServerId,
+        buildRegistryId: buildRegistryId || null,
+      },
+      { onSuccess },
+    );
+  };
+
+  const queueWorkloadMigration = () => {
+    if (organizationState.status !== "ready") return;
+    if (deploymentServerId === "default") {
+      toast.error(
+        "Migration back to the local control plane is not available yet.",
+      );
+      return;
+    }
+    saveBuildInfrastructure(() =>
+      migrateResource.mutate({
+        organizationId: organizationState.organizationId,
+        resourceId: resource.id,
+        targetServerId: deploymentServerId,
+      }),
+    );
+  };
+
   const handleRename = (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (nameInput.trim() && appNameInput.trim()) {
@@ -1133,7 +1196,7 @@ export function GeneralTab({
             )}
             <div className="flex justify-end border-border/20 border-t pt-4 sm:col-span-2">
               <Button
-                disabled={isUpdatingResource}
+                disabled={isUpdatingResource || migrateResource.isPending}
                 onClick={() => {
                   if (
                     isCloud &&
@@ -1144,35 +1207,36 @@ export function GeneralTab({
                     );
                     return;
                   }
-                  updateResource(
-                    {
-                      id: resource.id,
-                      serverId:
-                        deploymentServerId === "default"
-                          ? null
-                          : deploymentServerId,
-                      ...(resource.type === "application"
-                        ? {
-                            buildServerId:
-                              buildServerId === "default"
-                                ? null
-                                : buildServerId,
-                            buildRegistryId: buildRegistryId || null,
-                          }
-                        : {}),
-                    },
-                    {
-                      onSuccess: () =>
-                        toast.success("Execution infrastructure saved"),
-                    },
+                  if (deploymentPlacementChanged) {
+                    if (deploymentServerId === "default") {
+                      toast.error(
+                        "Migration back to the local control plane is not available yet.",
+                      );
+                      return;
+                    }
+                    setMigrationDialogOpen(true);
+                    return;
+                  }
+                  saveBuildInfrastructure(() =>
+                    toast.success("Execution infrastructure saved"),
                   );
                 }}
               >
-                Save Infrastructure
+                {deploymentPlacementChanged
+                  ? "Review Migration"
+                  : "Save Infrastructure"}
               </Button>
             </div>
           </CardContent>
         </Card>
+
+        {organizationState.status === "ready" ? (
+          <WorkloadMigrationStatusCard
+            organizationId={organizationState.organizationId}
+            resourceId={resource.id}
+            serverNames={serverNames}
+          />
+        ) : null}
 
         {resource.type === "database" && (
           <Card className="border border-border/40 bg-card/20">
@@ -3375,6 +3439,17 @@ export function GeneralTab({
           </CardContent>
         </Card>
       </div>
+
+      <ConfirmActionDialog
+        open={migrationDialogOpen}
+        onOpenChange={setMigrationDialogOpen}
+        title={`Migrate ${resource.name} to ${selectedDeploymentServer?.name ?? "the selected server"}?`}
+        description="Upstand will preflight the target, transfer state, deploy a shadow workload, validate it, and then cut traffic over. The source remains intact until you explicitly confirm cleanup."
+        actionLabel="Queue migration"
+        variant="default"
+        pending={isUpdatingResource || migrateResource.isPending}
+        onConfirm={queueWorkloadMigration}
+      />
 
       {/* Delete Dialog */}
       <ConfirmActionDialog
