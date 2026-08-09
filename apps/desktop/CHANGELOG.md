@@ -1,5 +1,13 @@
 # desktop
 
+## 0.2.26
+
+### Patch Changes
+
+- [#227](https://github.com/UpstandPlatform/upstand/pull/227) [`d0afa63`](https://github.com/UpstandPlatform/upstand/commit/d0afa639de1a1c2cca58410947d43057a91927c6) Thanks [@mhbdev](https://github.com/mhbdev)! - Ship the Windows app as Upstand, run its bundled control plane from a verified
+  standalone Bun executable, and make Squirrel install, restart, and uninstall
+  lifecycle handling reliable.
+
 ## 0.2.25
 
 ### Patch Changes

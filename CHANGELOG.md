@@ -4,6 +4,14 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.0 - 2026-08-09
+
+Ship the Windows app as Upstand, run its bundled control plane from a verified
+standalone Bun executable, and make Squirrel install, restart, and uninstall
+lifecycle handling reliable.
+
+Add production deployment plans and capability policy, resumable workload and control-plane migration workflows, portable encrypted transfers, correlated operational telemetry, GitHub diagnostics, operator runbooks, and matching dashboard and CLI controls.
+
 ## 0.1.55 - 2026-08-08
 
 Harden stable release acceptance and dependency recovery so production images can be verified and published reliably.
