@@ -12,6 +12,7 @@ import {
   screen,
   shell,
 } from "electron";
+import squirrelStartup from "electron-squirrel-startup";
 import {
   type DesktopConnection,
   isAllowedNavigation,
@@ -31,6 +32,12 @@ import {
   startLocalServices,
   stopLocalServices,
 } from "./services";
+
+// The first Desktop releases used this directory. Keep it stable while the
+// visible product name becomes Upstand, so upgrades retain local control-plane
+// data and connection settings. Squirrel uninstall deliberately leaves this
+// per-user data intact.
+app.setPath("userData", join(app.getPath("appData"), "desktop"));
 
 let mainWindow: BrowserWindow | null = null;
 let connection: DesktopConnection | null = null;
@@ -582,7 +589,12 @@ function registerIpcHandlers(): void {
   });
 }
 
-if (!app.requestSingleInstanceLock()) {
+// Squirrel invokes the executable during install, update, and uninstall to
+// maintain shortcuts. Let its helper handle those lifecycle commands and exit
+// before any window or bundled local service can start.
+if (squirrelStartup) {
+  app.quit();
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
