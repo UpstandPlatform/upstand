@@ -10,11 +10,51 @@ on:
         description: Git tag or ref to release
         required: true
         type: string
+      acceptance_profile:
+        description: Release acceptance profile (smoke or full recovery rehearsal)
+        required: false
+        default: smoke
+        type: string
+      publish_release:
+        description: Create the GitHub Release after verification
+        required: false
+        default: true
+        type: boolean
+      build_images:
+        description: Build and push release images and desktop assets
+        required: false
+        default: true
+        type: boolean
+      attestation_source_ref:
+        description: Source ref used when verifying existing image attestations
+        required: false
+        default: ''
+        type: string
   workflow_call:
     inputs:
       release_ref:
         description: Git tag or ref to release
         required: true
+        type: string
+      acceptance_profile:
+        description: Release acceptance profile (smoke or full recovery rehearsal)
+        required: false
+        default: smoke
+        type: string
+      publish_release:
+        description: Create the GitHub Release after verification
+        required: false
+        default: true
+        type: boolean
+      build_images:
+        description: Build and push release images and desktop assets
+        required: false
+        default: true
+        type: boolean
+      attestation_source_ref:
+        description: Source ref used when verifying existing image attestations
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -127,6 +167,7 @@ jobs:
         run: bun run test
 
   build-and-publish:
+    if: github.event_name == 'push' || inputs.build_images
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -224,6 +265,7 @@ jobs:
           push-to-registry: true
 
   build-desktop:
+    if: github.event_name == 'push' || inputs.build_images
     needs: verify
     name: Build desktop (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
@@ -279,7 +321,7 @@ jobs:
           retention-days: 7
 
   publish-release:
-    if: startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')
+    if: (github.event_name == 'push' || inputs.publish_release) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v'))
     needs: [build-and-publish, build-desktop, pre-release-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -388,8 +430,8 @@ jobs:
           fi
 
   pre-release-acceptance:
-    if: startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')
-    needs: build-and-publish
+    if: always() && needs.verify.result == 'success' && (needs.build-and-publish.result == 'success' || inputs.build_images == false) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v'))
+    needs: [verify, build-and-publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -399,7 +441,8 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
-      ATTESTATION_SOURCE_REF: ${{ github.ref }}
+      ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || github.ref }}
+      ACCEPTANCE_PROFILE: ${{ inputs.acceptance_profile || 'smoke' }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
       ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network
@@ -567,16 +610,27 @@ jobs:
           # overlays. This explicit application-level override is passed only
           # to this disposable stack; normal production defaults remain strict.
           export UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true
+          case "$ACCEPTANCE_PROFILE" in
+            smoke|full) ;;
+            *)
+              echo "Unsupported release acceptance profile: $ACCEPTANCE_PROFILE" >&2
+              exit 1
+              ;;
+          esac
 
-          {
-            printf 'release_ref=%s\n' "$RELEASE_REF"
-            printf 'server_image=%s\n' "$UPSTAND_SERVER_IMAGE"
-            printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            UPSTAND_BACKUP_REHEARSAL_IMAGE="$UPSTAND_SERVER_IMAGE" \
-            UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS=900 \
-            UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS=300 \
-              bash scripts/backup-restore-rehearsal.sh
-          } 2>&1 | tee "$BACKUP_REHEARSAL_LOG"
+          if [[ "$ACCEPTANCE_PROFILE" == "full" ]]; then
+            {
+              printf 'release_ref=%s\n' "$RELEASE_REF"
+              printf 'server_image=%s\n' "$UPSTAND_SERVER_IMAGE"
+              printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              UPSTAND_BACKUP_REHEARSAL_IMAGE="$UPSTAND_SERVER_IMAGE" \
+              UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS=900 \
+              UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS=300 \
+                bash scripts/backup-restore-rehearsal.sh
+            } 2>&1 | tee "$BACKUP_REHEARSAL_LOG"
+          else
+            echo "Release acceptance profile: smoke (backup/recovery/load rehearsals run only in the full profile)"
+          fi
 
           advertise_addr="$(ip -4 route get 1.1.1.1 | awk '{for (field = 1; field <= NF; field++) if ($field == "src") { print $(field + 1); exit }}')"
           [[ "$advertise_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -822,7 +876,8 @@ jobs:
             --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --node-local \
             2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/node-local-external-ha.txt"
 
-          dependency_failure_log="$ACCEPTANCE_EVIDENCE_DIR/dependency-failure.txt"
+          if [[ "$ACCEPTANCE_PROFILE" == "full" ]]; then
+            dependency_failure_log="$ACCEPTANCE_EVIDENCE_DIR/dependency-failure.txt"
           : > "$dependency_failure_log"
           probe_server_readiness() {
             expected="$1"
@@ -996,6 +1051,7 @@ jobs:
             "$HEALTH_LOAD_IMAGE" \
             /tmp/health-soak-rehearsal.sh "http://${STACK_NAME}_server:3000" \
             2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/health-soak.txt"
+          fi
 
       - name: Upload recovery rehearsal evidence
         if: always()
