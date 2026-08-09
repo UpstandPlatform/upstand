@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
+RECOVERY_WORKFLOW="$ROOT_DIR/.github/workflows/release-recovery-rehearsal.yml"
 COMPOSE="$ROOT_DIR/docker-compose.prod.yml"
 WEB_DOCKERFILE="$ROOT_DIR/apps/web/Dockerfile"
 FUMADOCS_DOCKERFILE="$ROOT_DIR/apps/fumadocs/Dockerfile"
@@ -119,6 +120,12 @@ require_workflow_text 'docker node update'
 require_workflow_text '--label-add upstand.control-plane=true'
 require_workflow_text 'docker service ps "${STACK_NAME}_${service}" --no-trunc'
 require_workflow_text 'release_version="${RELEASE_REF##*/}"'
+require_workflow_text 'ACCEPTANCE_PROFILE: ${{ inputs.acceptance_profile || '\''smoke'\'' }}'
+require_workflow_text 'Release acceptance profile: smoke (backup/recovery/load rehearsals run only in the full profile)'
+require_workflow_text 'if [[ "$ACCEPTANCE_PROFILE" == "full" ]]; then'
+require_workflow_text 'Unsupported release acceptance profile: $ACCEPTANCE_PROFILE'
+require_workflow_text "ATTESTATION_SOURCE_REF: \${{ inputs.attestation_source_ref || github.ref }}"
+require_file_text "$RECOVERY_WORKFLOW" "build_images: false"
 require_workflow_text "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > \"\$UPSTAND_SECRETS_DIR/encryption_key\""
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"
 require_workflow_text "startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')"
@@ -186,6 +193,9 @@ require_workflow_text 'for attempt in {1..180}; do'
 require_workflow_text 'docker service update --replicas 0 "${STACK_NAME}_migrate"'
 require_workflow_text 'docker service update --replicas 1 "${STACK_NAME}_migrate"'
 require_workflow_text 'Migration task did not complete after external Postgres restoration'
+require_workflow_text '--force --update-parallelism 2 --detach=false'
+require_workflow_text 'for service in server schedules; do'
+require_workflow_text 'curl --fail --silent --show-error --max-time 2'
 require_workflow_text 'scripts/operational-status-rehearsal.ts'
 require_workflow_text 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0'
 require_workflow_text '--cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev'

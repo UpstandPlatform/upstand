@@ -10,7 +10,7 @@ published only from the stable branch.
 3. Merge the release pull request into `canary`.
 4. Open and merge the promotion pull request from `canary` to `master`.
 5. Confirm the stable-tag workflow created a new `vMAJOR.MINOR.PATCH` tag and
-   that the tag-triggered release workflow started once.
+   dispatched the Docker and CLI workflows once with that exact immutable tag.
 6. Confirm the release workflow builds, verifies, and publishes all
    server, schedules, web, Fumadocs, and monitoring images.
 7. Confirm the CLI publication workflow publishes `@upstand/cli` with npm
@@ -19,6 +19,25 @@ published only from the stable branch.
    CLI-only Changesets publish from the version-bump commit on `master`.
 8. Confirm the GitHub Release contains the release manifest and immutable image
    digests.
+
+The stable release workflow uses the `smoke` acceptance profile by default. It
+verifies the immutable images and attestations, deploys the bundled and
+external-data production-shaped Swarm topologies, and runs the node-local
+health, security, and observability checks required for publication. The
+failure-injection, backup/restore, load, and soak rehearsals are intentionally
+not on the publication critical path because they require a much longer-lived
+disposable environment and are operational readiness tests rather than release
+identity checks.
+
+Run the complete recovery rehearsal separately when validating an operational
+change or before a major infrastructure change. It never creates or modifies
+a GitHub Release:
+
+```bash
+gh workflow run "Release Recovery Rehearsal" \
+  --repo UpstandPlatform/upstand \
+  -f release_ref=vMAJOR.MINOR.PATCH
+```
 
 ## Retry and rollback
 
