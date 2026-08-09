@@ -32,3 +32,4 @@ export * from "./template/drizzle-template.repository";
 export * from "./user/drizzle-two-factor-admin.repository";
 export * from "./user/drizzle-user.repository";
 export * from "./web-server/drizzle-web-server-settings.repository";
+export * from "./workload-migration/drizzle-workload-migration.repository";

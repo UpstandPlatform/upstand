@@ -1,4 +1,10 @@
-import type { IUnitOfWork, Resource, Server } from "@upstand/domain";
+import { randomUUID } from "node:crypto";
+import type {
+  IUnitOfWork,
+  Resource,
+  Server,
+  WorkloadMigration,
+} from "@upstand/domain";
 import { z } from "zod";
 import { OUTBOX_COMMAND_TYPES } from "../outbox/outbox-commands";
 import {
@@ -18,7 +24,8 @@ export type MigrateResourceResult = {
   resource: Resource;
   sourceServerId: string;
   targetServer: Server;
-  status: "queued" | "completed";
+  migration: WorkloadMigration;
+  status: "queued";
 };
 
 export class MigrateResourceUseCase {
@@ -80,7 +87,19 @@ export class MigrateResourceUseCase {
         throw new Error("Resource is already placed on the target server");
       }
 
-      // Record migration action in deployment tracking
+      const existingMigrations =
+        await tx.workloadMigrationRepository.findByResourceId(resource.id, 20);
+      if (
+        existingMigrations.some(
+          (migration) =>
+            !["completed", "failed", "cancelled"].includes(migration.status),
+        )
+      ) {
+        throw new Error("Resource already has an active migration");
+      }
+
+      // Record migration action in deployment tracking without changing live
+      // placement. Placement moves only after shadow validation and cutover.
       const deployment = await tx.deploymentRepository.create({
         resourceId: resource.id,
         title: `Migrate from ${sourceServerId} to ${targetServer.name}`,
@@ -89,15 +108,16 @@ export class MigrateResourceUseCase {
         logs: `Initiating migration pipeline for resource '${resource.name}' (${resource.id})\nSource: ${sourceServerId}\nTarget: ${targetServer.id}\n`,
       });
 
-      // Update resource placement target
-      const updatedResource = await tx.resourceRepository.updateById(
-        resource.id,
-        { serverId: targetServer.id },
-      );
-
-      if (!updatedResource) {
-        throw new Error("Failed to update resource placement");
-      }
+      const migration = await tx.workloadMigrationRepository.create({
+        id: `mig-${randomUUID()}`,
+        organizationId: input.organizationId,
+        resourceId: resource.id,
+        deploymentId: deployment.id,
+        sourceServerId,
+        targetServerId: targetServer.id,
+        status: "queued",
+        progress: 0,
+      });
 
       // Emit outbox migration event for asynchronous worker processing
       await tx.outboxRepository.create({
@@ -107,18 +127,20 @@ export class MigrateResourceUseCase {
         aggregateType: "resource",
         aggregateId: resource.id,
         payload: {
+          migrationId: migration.id,
           deploymentId: deployment.id,
           resourceId: resource.id,
           sourceServerId,
           targetServerId: targetServer.id,
-          timestamp: new Date().toISOString(),
         },
+        organizationId: input.organizationId,
       });
 
       return {
-        resource: updatedResource,
+        resource,
         sourceServerId,
         targetServer,
+        migration,
         status: "queued",
       };
     });

@@ -1,5 +1,27 @@
+import {
+  type BuildLocation,
+  BuildLocationSchema,
+  DataOwnershipSchema,
+  type DeployTarget,
+  DeployTargetSchema,
+  type ExecutionRuntime,
+  ExecutionRuntimeSchema,
+} from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { z } from "zod";
+
+export type {
+  BuildLocation,
+  DataOwnership,
+  DeployTarget,
+  ExecutionRuntime,
+} from "@upstand/domain";
+export {
+  BuildLocationSchema,
+  DataOwnershipSchema,
+  DeployTargetSchema,
+  ExecutionRuntimeSchema,
+};
 
 export const ControlPlaneModeSchema = z.enum([
   "desktop",
@@ -16,9 +38,24 @@ export const DeploymentPlacementSchema = z.discriminatedUnion("kind", [
     serverId: z.string().min(1),
     buildServerId: z.string().min(1).nullable().optional(),
   }),
+  z.object({
+    kind: z.literal("cloud"),
+    cloudProjectId: z.string().min(1),
+  }),
 ]);
 
 export type DeploymentPlacement = z.infer<typeof DeploymentPlacementSchema>;
+
+export const RuntimeCapabilitySchema = z.object({
+  target: DeployTargetSchema,
+  runtime: ExecutionRuntimeSchema,
+  supported: z.boolean(),
+  buildLocations: z.array(BuildLocationSchema),
+  zeroDowntimeReplacement: z.boolean(),
+  reason: z.string().nullable(),
+});
+
+export type RuntimeCapability = z.infer<typeof RuntimeCapabilitySchema>;
 
 export const PlatformCapabilitiesSchema = z.object({
   mode: ControlPlaneModeSchema,
@@ -37,9 +74,90 @@ export const PlatformCapabilitiesSchema = z.object({
   desktopNativeNotifications: z.boolean(),
   enterpriseScimSso: z.boolean(),
   serverMigration: z.boolean(),
+  dataOwnership: DataOwnershipSchema,
+  runtimeMatrix: z.array(RuntimeCapabilitySchema),
 });
 
 export type PlatformCapabilities = z.infer<typeof PlatformCapabilitiesSchema>;
+
+const SELF_HOSTED_RUNTIME_MATRIX: RuntimeCapability[] = [
+  {
+    target: "local",
+    runtime: "docker",
+    supported: true,
+    buildLocations: ["control-plane", "target", "remote-builder"],
+    zeroDowntimeReplacement: true,
+    reason: null,
+  },
+  {
+    target: "local",
+    runtime: "bare-process",
+    supported: true,
+    buildLocations: ["control-plane", "target"],
+    zeroDowntimeReplacement: false,
+    reason: null,
+  },
+  {
+    target: "remote-server",
+    runtime: "docker",
+    supported: true,
+    buildLocations: ["control-plane", "target", "remote-builder"],
+    zeroDowntimeReplacement: true,
+    reason: null,
+  },
+  {
+    target: "remote-server",
+    runtime: "bare-process",
+    supported: true,
+    buildLocations: ["control-plane", "target", "remote-builder"],
+    zeroDowntimeReplacement: false,
+    reason: null,
+  },
+  {
+    target: "cloud",
+    runtime: "cloud",
+    supported: true,
+    buildLocations: ["cloud"],
+    zeroDowntimeReplacement: true,
+    reason: null,
+  },
+];
+
+const CLOUD_RUNTIME_MATRIX: RuntimeCapability[] = [
+  {
+    target: "local",
+    runtime: "docker",
+    supported: false,
+    buildLocations: [],
+    zeroDowntimeReplacement: false,
+    reason: "Cloud control planes cannot execute workloads locally",
+  },
+  {
+    target: "local",
+    runtime: "bare-process",
+    supported: false,
+    buildLocations: [],
+    zeroDowntimeReplacement: false,
+    reason: "Cloud control planes cannot execute workloads locally",
+  },
+  ...SELF_HOSTED_RUNTIME_MATRIX.filter(
+    (capability) => capability.target !== "local",
+  ),
+];
+
+export class PlatformCapabilityError extends Error {
+  readonly code = "PLATFORM_CAPABILITY_UNSUPPORTED";
+
+  constructor(
+    public readonly target: DeployTarget,
+    public readonly runtime: ExecutionRuntime,
+    public readonly buildLocation: BuildLocation,
+    reason: string,
+  ) {
+    super(reason);
+    this.name = "PlatformCapabilityError";
+  }
+}
 
 export function resolveControlPlaneMode(input: {
   platform?: string;
@@ -85,6 +203,8 @@ export function getPlatformCapabilities(
         desktopNativeNotifications: true,
         enterpriseScimSso: false,
         serverMigration: true,
+        dataOwnership: "local-control-plane",
+        runtimeMatrix: SELF_HOSTED_RUNTIME_MATRIX,
       };
     case "cloud":
       return {
@@ -104,6 +224,8 @@ export function getPlatformCapabilities(
         desktopNativeNotifications: false,
         enterpriseScimSso: true,
         serverMigration: true,
+        dataOwnership: "cloud-control-plane",
+        runtimeMatrix: CLOUD_RUNTIME_MATRIX,
       };
     case "self-hosted":
       return {
@@ -123,6 +245,46 @@ export function getPlatformCapabilities(
         desktopNativeNotifications: false,
         enterpriseScimSso: true,
         serverMigration: true,
+        dataOwnership: "local-control-plane",
+        runtimeMatrix: SELF_HOSTED_RUNTIME_MATRIX,
       };
   }
+}
+
+export function getRuntimeCapability(
+  mode: ControlPlaneMode,
+  target: DeployTarget,
+  runtime: ExecutionRuntime,
+): RuntimeCapability | null {
+  return (
+    getPlatformCapabilities(mode).runtimeMatrix.find(
+      (entry) => entry.target === target && entry.runtime === runtime,
+    ) ?? null
+  );
+}
+
+export function assertRuntimeCapability(input: {
+  mode: ControlPlaneMode;
+  target: DeployTarget;
+  runtime: ExecutionRuntime;
+  buildLocation: BuildLocation;
+}): RuntimeCapability {
+  const capability = getRuntimeCapability(
+    input.mode,
+    input.target,
+    input.runtime,
+  );
+  if (
+    !capability?.supported ||
+    !capability.buildLocations.includes(input.buildLocation)
+  ) {
+    throw new PlatformCapabilityError(
+      input.target,
+      input.runtime,
+      input.buildLocation,
+      capability?.reason ??
+        `Runtime '${input.runtime}' with build location '${input.buildLocation}' is not supported for target '${input.target}' in '${input.mode}' mode`,
+    );
+  }
+  return capability;
 }

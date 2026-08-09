@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  DeploymentPlanSchema,
   type IUnitOfWork,
   type PreviewDeployment,
   parseResourceAdvancedConfig,
@@ -18,6 +19,11 @@ import { resolveEnvironmentVariables } from "../environment/update-environment.u
 import { isSshGitUrl } from "../git-provider/git-url-sanitizer";
 import { getInstallationToken } from "../git-provider/github-client";
 import type { NotificationPublisher } from "../notification/publish-notification.usecase";
+import {
+  assertRuntimeCapability,
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
+} from "../platform/platform.types";
 import type { CaddyResource } from "../ports/caddy";
 import type { DockerApiTarget } from "../ports/docker";
 import { getDatabaseEnvironment } from "../resource/database-environment";
@@ -37,6 +43,7 @@ import {
 } from "../server/server-role";
 import type { CaddyService } from "../web-server/caddy.service";
 import { buildRegistryImageTag } from "./build-registry";
+import { appendBoundedDeploymentLog } from "./deployment-log-safety";
 import { getDeploymentQueueName } from "./deployment-queue-name";
 import {
   createGitBasicAuthEnvironment,
@@ -488,7 +495,7 @@ export class DeploymentWorker {
     };
 
     const appendLog = (msg: string) => {
-      logsAccumulator += msg;
+      logsAccumulator = appendBoundedDeploymentLog(logsAccumulator, msg);
 
       if (!flushTimeout) {
         flushTimeout = setTimeout(() => {
@@ -1322,6 +1329,75 @@ export class DeploymentWorker {
             buildEnvVars,
             gitEnvironment,
             sshHostKeyFingerprint,
+            async (artifact) => {
+              const mode = getConfiguredControlPlaneMode();
+              const capabilities = getPlatformCapabilities(mode);
+              const target =
+                deployedResource.serverId &&
+                !["local", "manager"].includes(deployedResource.serverId)
+                  ? ({
+                      kind: "remote-server" as const,
+                      serverId: deployedResource.serverId,
+                    } as const)
+                  : ({ kind: "local" as const } as const);
+              const buildLocation =
+                deployedResource.buildServerId &&
+                deployedResource.buildServerId !== deployedResource.serverId
+                  ? ({
+                      kind: "remote-builder" as const,
+                      serverId: deployedResource.buildServerId,
+                    } as const)
+                  : target.kind === "local"
+                    ? ({ kind: "control-plane" as const } as const)
+                    : ({ kind: "target" as const } as const);
+              assertRuntimeCapability({
+                mode,
+                target: target.kind,
+                runtime: "docker",
+                buildLocation: buildLocation.kind,
+              });
+              const plan = DeploymentPlanSchema.parse({
+                version: 1,
+                target,
+                runtime: "docker",
+                buildLocation,
+                ownership: capabilities.dataOwnership,
+                sourceRevision: artifact.sourceRevision,
+                configurationVersion: artifact.configurationVersion,
+                buildConfig: artifact.buildConfig,
+                detectorVersion: artifact.detectorVersion,
+                artifact: {
+                  digest: artifact.digest,
+                  reference: artifact.reference,
+                },
+                createdAt: new Date().toISOString(),
+              });
+              const stored = await uow.deploymentRepository.setPlanIfAbsent(
+                deploymentId,
+                plan,
+              );
+              if (!stored) {
+                const existing =
+                  await uow.deploymentRepository.findById(deploymentId);
+                const existingPlan = existing?.deploymentPlan;
+                const comparable = (value: typeof plan) => ({
+                  ...value,
+                  createdAt: "",
+                });
+                if (
+                  !existingPlan ||
+                  JSON.stringify(comparable(existingPlan)) !==
+                    JSON.stringify(comparable(plan))
+                ) {
+                  throw new Error(
+                    "Deployment plan is immutable and the resolved build no longer matches it",
+                  );
+                }
+              }
+              appendLog(
+                `[Plan] Locked ${target.kind}/${plan.runtime} deployment to ${plan.artifact.digest}.\n`,
+              );
+            },
           );
           appendLog(
             "Build compiled successfully and Swarm Service registered.\n",

@@ -5,6 +5,8 @@ export const OUTBOX_COMMAND_TYPES = {
   migrate: "resource.migrate",
 } as const;
 
+export const WORKLOAD_MIGRATION_QUEUE = "upstand-workload-migrations";
+
 export type DeployOutboxPayload = {
   resourceId: string;
   deploymentId: string;
@@ -25,11 +27,11 @@ export type NotificationDeliveryOutboxPayload = {
 };
 
 export type MigrateOutboxPayload = {
+  migrationId: string;
   deploymentId: string;
   resourceId: string;
   sourceServerId: string;
   targetServerId: string;
-  timestamp: string;
 };
 
 export type OutboxCommandPayload =

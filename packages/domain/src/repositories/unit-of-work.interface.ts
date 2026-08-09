@@ -29,6 +29,7 @@ import type { ITemplateRepository } from "./template-repository.interface";
 import type { ITwoFactorAdminRepository } from "./two-factor-admin-repository.interface";
 import type { IUserRepository } from "./user-repository.interface";
 import type { IWebServerSettingsRepository } from "./web-server-settings-repository.interface";
+import type { IWorkloadMigrationRepository } from "./workload-migration-repository.interface";
 
 export interface IUnitOfWork {
   readonly auditLogRepository: IAuditLogRepository;
@@ -45,6 +46,7 @@ export interface IUnitOfWork {
   readonly sshKeyRepository: ISshKeyRepository;
   readonly gitProviderRepository: IGitProviderRepository;
   readonly webServerSettingsRepository: IWebServerSettingsRepository;
+  readonly workloadMigrationRepository: IWorkloadMigrationRepository;
   readonly s3DestinationRepository: IS3DestinationRepository;
   readonly serverBuildSettingsRepository: IServerBuildSettingsRepository;
   readonly deploymentRepository: IDeploymentRepository;

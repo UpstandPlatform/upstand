@@ -24,3 +24,4 @@ export * from "./ssh-key";
 export * from "./tag";
 export * from "./template";
 export * from "./web-server-settings";
+export * from "./workload-migration";

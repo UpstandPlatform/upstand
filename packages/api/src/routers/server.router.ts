@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import {
+  ConfirmWorkloadMigrationInputSchema,
   ControlDockerContainerInputSchema,
   ControlDockerResourceInputSchema,
   CreateServerInputSchema,
@@ -16,8 +17,11 @@ import {
   SetupServerInputSchema,
   UpdateMonitoringSettingsInputSchema,
   UpdateServerInputSchema,
+  WorkloadMigrationIdInputSchema,
 } from "@upstand/usecases";
 import {
+  CancelWorkloadMigrationUseCaseToken,
+  ConfirmWorkloadMigrationUseCaseToken,
   CreateServerUseCaseToken,
   DeleteServerUseCaseToken,
   GetDockerInventoryUseCaseToken,
@@ -27,7 +31,9 @@ import {
   GetServerRuntimeStatsUseCaseToken,
   GetServersUseCaseToken,
   GetServerUseCaseToken,
+  GetWorkloadMigrationUseCaseToken,
   MigrateResourceUseCaseToken,
+  RollbackWorkloadMigrationUseCaseToken,
   ScanServerHostKeyUseCaseToken,
   SetupServerUseCaseToken,
   UnitOfWorkToken,
@@ -449,6 +455,74 @@ export const serverRouter = router({
       try {
         return await ctx.scope
           .resolve(MigrateResourceUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  getWorkloadMigration: twoFactorVerifiedProcedure
+    .input(WorkloadMigrationIdInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      try {
+        return await ctx.scope
+          .resolve(GetWorkloadMigrationUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  cancelWorkloadMigration: twoFactorVerifiedProcedure
+    .input(WorkloadMigrationIdInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(CancelWorkloadMigrationUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  rollbackWorkloadMigration: twoFactorVerifiedProcedure
+    .input(WorkloadMigrationIdInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(RollbackWorkloadMigrationUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  confirmWorkloadMigration: twoFactorVerifiedProcedure
+    .input(ConfirmWorkloadMigrationInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      try {
+        return await ctx.scope
+          .resolve(ConfirmWorkloadMigrationUseCaseToken)
           .execute(input);
       } catch (error) {
         handleUseCaseError(error, ctx.log);

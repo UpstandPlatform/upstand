@@ -6,6 +6,7 @@ import {
   NOTIFICATION_DELIVERY_QUEUE,
   OUTBOX_COMMAND_TYPES,
   type OutboxJobPublisher,
+  WORKLOAD_MIGRATION_QUEUE,
 } from "@upstand/usecases";
 import { Queue } from "bullmq";
 import { z } from "zod";
@@ -27,6 +28,14 @@ const backupPayloadSchema = z.object({
 
 const notificationPayloadSchema = z.object({
   deliveryId: z.string().min(1),
+});
+
+const migrationPayloadSchema = z.object({
+  migrationId: z.string().min(1),
+  deploymentId: z.string().min(1),
+  resourceId: z.string().min(1),
+  sourceServerId: z.string().min(1),
+  targetServerId: z.string().min(1),
 });
 
 type QueueJobData = Record<string, unknown>;
@@ -94,6 +103,17 @@ export class BullMqOutboxJobPublisher implements OutboxJobPublisher {
           attempts: 3,
           backoff: { type: "exponential", delay: 1_000 },
           removeOnComplete: 100,
+          removeOnFail: 1_000,
+        });
+        return;
+      }
+      case OUTBOX_COMMAND_TYPES.migrate: {
+        const payload = migrationPayloadSchema.parse(message.payload);
+        await this.queue(WORKLOAD_MIGRATION_QUEUE).add("migrate", payload, {
+          jobId: message.id,
+          attempts: 8,
+          backoff: { type: "exponential", delay: 5_000 },
+          removeOnComplete: 1_000,
           removeOnFail: 1_000,
         });
         return;
