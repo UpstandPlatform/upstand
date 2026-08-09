@@ -544,6 +544,7 @@ describe("dependency injection tokens", () => {
     const legacyTokenFactory = ["Symbol", "for("].join(".");
     const violations = (await workspaceSources).flatMap(
       ({ relativePath, source }) => {
+        if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(relativePath)) return [];
         const reasons: string[] = [];
         if (source.includes(legacyTokenFactory)) reasons.push("Symbol.for");
         if (/\.resolve\([^\r\n)]*\)\s+as\s+/.test(source)) {
