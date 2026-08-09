@@ -2,6 +2,8 @@ import { z } from "zod";
 import { DataOwnershipSchema } from "./deployment-plan";
 
 export const CONTROL_PLANE_TRANSFER_FORMAT_VERSION = 1;
+export const CONTROL_PLANE_TRANSFER_SCHEMA_VERSION = "0090";
+export const MINIMUM_PORTABLE_SCHEMA_VERSION = "0087";
 
 export const PortableControlPlaneTableSchema = z.enum([
   "users",

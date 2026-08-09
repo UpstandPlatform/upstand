@@ -631,6 +631,13 @@
       "when": 1786283225941,
       "tag": "0089_far_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1786285232428,
+      "tag": "0090_mighty_richard_fisk",
+      "breakpoints": true
     }
   ]
 }

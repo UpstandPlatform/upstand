@@ -3,6 +3,7 @@ export type OutputMode = "human" | "json" | "silent";
 export type GlobalOptions = {
   apiUrl: string;
   token?: string;
+  sessionCookie?: string;
   output: OutputMode;
   yes: boolean;
   organizationId?: string;

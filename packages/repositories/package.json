@@ -24,6 +24,7 @@
     "@upstand/db": "workspace:*",
     "@upstand/domain": "workspace:*",
     "@upstand/platform": "workspace:*",
+    "@upstand/usecases": "workspace:*",
     "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {

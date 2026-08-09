@@ -61,6 +61,8 @@ export async function runCommand(context: CommandContext): Promise<number> {
       return await deploymentCommand(context, output, client, action);
     if (group === "server" || group === "servers")
       return await serverCommand(context, output, client, action);
+    if (group === "control-plane")
+      return await controlPlaneCommand(context, output, client, action);
     throw new Error(
       `Unknown command '${context.positionals.join(" ")}'. Run 'upstand help'.`,
     );
@@ -613,6 +615,89 @@ async function selectOrPrompt(
   return promptText(`${title} ID`);
 }
 
+async function controlPlaneCommand(
+  context: CommandContext,
+  output: Output,
+  client: UpstandClient,
+  action: string,
+): Promise<number> {
+  const filePath = flag(context, "file");
+  if (!filePath) throw new Error(`control-plane ${action} requires --file.`);
+  const passphrase = process.env.UPSTAND_TRANSFER_PASSPHRASE?.trim();
+
+  if (action === "export") {
+    const target = Bun.file(filePath);
+    if ((await target.exists()) && !context.flags.has("force")) {
+      throw new Error(
+        "Export target already exists; use --force to replace it.",
+      );
+    }
+    const includeSecrets = context.flags.has("include-secrets");
+    if (includeSecrets && !passphrase) {
+      throw new Error(
+        "Secret export requires UPSTAND_TRANSFER_PASSPHRASE in the process environment.",
+      );
+    }
+    const response = await client.exportControlPlane({
+      includeSecrets,
+      passphrase,
+    });
+    if (!response.body) throw new Error("Transfer export returned no body.");
+    const sink = target.writer();
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        sink.write(chunk.value);
+      }
+      await sink.end();
+    } catch (error) {
+      try {
+        await sink.end();
+      } catch {
+        // Preserve the transfer failure.
+      }
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+    await output.value({ file: filePath, includeSecrets }, "Export completed");
+    return 0;
+  }
+
+  if (action === "import") {
+    const source = Bun.file(filePath);
+    if (!(await source.exists())) throw new Error("Import file was not found.");
+    const rawMode = flag(context, "mode") ?? "merge";
+    if (rawMode !== "merge" && rawMode !== "replace") {
+      throw new Error("Import mode must be merge or replace.");
+    }
+    if (
+      rawMode === "replace" &&
+      !context.options.yes &&
+      (context.options.output !== "human" ||
+        !(await promptConfirm(
+          "Replace the destination control-plane data atomically?",
+        )))
+    ) {
+      throw new Error(
+        "replace import cancelled; rerun with --yes in automation.",
+      );
+    }
+    const result = await client.importControlPlane({
+      content: source,
+      mode: rawMode,
+      passphrase,
+      resumeSessionId: flag(context, "resume"),
+    });
+    await output.value(result.data, "Import completed");
+    return result.data.conflicts.length > 0 ? 3 : 0;
+  }
+
+  throw new Error("Supported control-plane commands: export, import.");
+}
+
 function helpText(): string {
   return `Upstand CLI
 
@@ -641,6 +726,8 @@ Commands:
   server migration-cancel       Request cancellation before cutover
   server migration-rollback     Roll back to the retained source
   server migration-confirm      Confirm source cleanup with --yes
+  control-plane export          Stream an installation export to --file
+  control-plane import          Import --file in merge or replace mode
   api <procedure>                Call any supported API procedure
 
 Global options:

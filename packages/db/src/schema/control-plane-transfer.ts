@@ -14,6 +14,12 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+export const controlPlaneIdentity = pgTable("control_plane_identity", {
+  id: text("id").primaryKey().default("global"),
+  instanceId: text("instance_id").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const controlPlaneTransferSession = pgTable(
   "control_plane_transfer_session",
   {

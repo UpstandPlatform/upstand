@@ -28,7 +28,7 @@ type TransferEnvelope = ManifestEnvelope | RecordEnvelope | SecretEnvelope;
 export type ControlPlaneImportMode = "replace" | "merge";
 
 export interface ControlPlaneExportSourcePort {
-  prepare(): Promise<{
+  prepare(input?: { includeSecrets: boolean }): Promise<{
     manifest: ControlPlaneTransferManifest;
     records: AsyncIterable<PortableControlPlaneRecord>;
   }>;
@@ -134,7 +134,9 @@ export class ExportControlPlaneTransferService {
     includeSecrets: boolean;
     passphrase?: string;
   }): Promise<AsyncIterable<Uint8Array>> {
-    const prepared = await this.source.prepare();
+    const prepared = await this.source.prepare({
+      includeSecrets: input.includeSecrets,
+    });
     let secretBundle: PortableSecretBundle | null = null;
     if (input.includeSecrets) {
       if (!input.passphrase) {

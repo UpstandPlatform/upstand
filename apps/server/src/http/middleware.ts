@@ -41,12 +41,14 @@ export function registerHttpMiddleware(
   // Keep JSON, auth, terminal, and compatibility transports from buffering an
   // unbounded request before their route-specific validation runs. Smaller
   // endpoints (webhooks and AI/MCP) install stricter limits in their routers.
-  app.use(
-    "*",
-    bodyLimit({
-      maxSize: MAX_HTTP_REQUEST_BYTES,
-      onError: (c) => c.json({ error: "Request body is too large" }, 413),
-    }),
+  const defaultBodyLimit = bodyLimit({
+    maxSize: MAX_HTTP_REQUEST_BYTES,
+    onError: (c) => c.json({ error: "Request body is too large" }, 413),
+  });
+  app.use("*", (c, next) =>
+    c.req.path === "/api/control-plane-transfer/import"
+      ? next()
+      : defaultBodyLimit(c, next),
   );
 
   app.use("*", async (c, next) => {

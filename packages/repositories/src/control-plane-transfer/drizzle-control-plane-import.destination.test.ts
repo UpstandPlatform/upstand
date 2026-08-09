@@ -89,6 +89,27 @@ function fixture() {
 }
 
 describe("DrizzleControlPlaneImportDestination", () => {
+  test("rejects a transfer created by a newer database schema", async () => {
+    const { client, database } = await createDatabase();
+    try {
+      const destination = new DrizzleControlPlaneImportDestination(
+        database,
+        "actor-1",
+        {
+          prepareReplace: async () => {},
+          applyRecord: async () => ({ imported: true }),
+          applySecrets: async () => [],
+        },
+      );
+      const { manifest } = fixture();
+      await expect(
+        destination.begin({ ...manifest, schemaVersion: "9999" }, "merge"),
+      ).rejects.toThrow("not compatible");
+    } finally {
+      await client.close();
+    }
+  });
+
   test("stages retries idempotently and atomically commits records", async () => {
     const { client, database } = await createDatabase();
     try {

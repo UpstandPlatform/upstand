@@ -8,6 +8,8 @@ export async function parseArgs(argv: string[]): Promise<CommandContext> {
   const booleanFlags = new Set([
     "help",
     "include-archived",
+    "include-secrets",
+    "force",
     "json",
     "silent",
     "version",
@@ -48,6 +50,7 @@ export async function parseArgs(argv: string[]): Promise<CommandContext> {
       defaultApiUrl()
     ).replace(/\/$/, ""),
     token: value("token") || process.env.UPSTAND_TOKEN || config.token,
+    sessionCookie: process.env.UPSTAND_SESSION_COOKIE,
     output,
     yes: flags.has("yes"),
     organizationId: value("organization") || value("org"),

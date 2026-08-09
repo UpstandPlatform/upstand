@@ -67,6 +67,50 @@ export class UpstandClient {
     }>("token", { clientId: "upstand-cli", deviceCode });
   }
 
+  async exportControlPlane(input: {
+    includeSecrets: boolean;
+    passphrase?: string;
+  }): Promise<Response> {
+    const response = await this.fetcher(
+      new URL("/api/control-plane-transfer/export", this.options.apiUrl),
+      {
+        method: "POST",
+        headers: this.headers({ "Content-Type": "application/json" }),
+        body: JSON.stringify(input),
+      },
+    );
+    await this.assertSuccessful(response);
+    return response;
+  }
+
+  async importControlPlane(input: {
+    content: Blob;
+    mode: "merge" | "replace";
+    passphrase?: string;
+    resumeSessionId?: string;
+  }): Promise<ApiResponse<{ imported: number; conflicts: readonly string[] }>> {
+    const headers = this.headers({
+      "Content-Type": "application/vnd.upstand.transfer+ndjson",
+      "X-Upstand-Transfer-Mode": input.mode,
+    });
+    if (input.passphrase) {
+      headers.set("X-Upstand-Transfer-Passphrase", input.passphrase);
+    }
+    if (input.resumeSessionId) {
+      headers.set("X-Upstand-Transfer-Session", input.resumeSessionId);
+    }
+    const response = await this.fetcher(
+      new URL("/api/control-plane-transfer/import", this.options.apiUrl),
+      { method: "POST", headers, body: input.content },
+    );
+    const body = await response.json().catch(() => undefined);
+    if (!response.ok) throw this.apiError(response, body);
+    return {
+      data: body as { imported: number; conflicts: readonly string[] },
+      response,
+    };
+  }
+
   private async request<T>(
     method: "GET" | "POST",
     procedure: string,
@@ -82,12 +126,7 @@ export class UpstandClient {
       `/api/${normalized.replace(".", "/")}`,
       this.options.apiUrl,
     );
-    const headers = new Headers({
-      Accept: "application/json",
-      "User-Agent": "@upstand/cli",
-    });
-    if (this.options.token)
-      headers.set("Authorization", `Bearer ${this.options.token}`);
+    const headers = this.headers();
     if (method === "GET") {
       for (const [key, value] of Object.entries(input)) {
         const item = scalar(value);
@@ -103,14 +142,7 @@ export class UpstandClient {
     });
     const body = await response.json().catch(() => undefined);
     if (!response.ok) {
-      const message =
-        typeof body === "object" &&
-        body !== null &&
-        "message" in body &&
-        typeof body.message === "string"
-          ? body.message
-          : `Upstand API request failed with status ${response.status}`;
-      throw new ApiError(message, response.status, body);
+      throw this.apiError(response, body);
     }
     return { data: body as T, response };
   }
@@ -143,5 +175,34 @@ export class UpstandClient {
       throw new ApiError(message, response.status, payload);
     }
     return { data: payload as T, response };
+  }
+
+  private headers(initial?: Record<string, string>): Headers {
+    const headers = new Headers(initial);
+    headers.set("Accept", "application/json");
+    headers.set("User-Agent", "@upstand/cli");
+    if (this.options.token) {
+      headers.set("Authorization", `Bearer ${this.options.token}`);
+    }
+    if (this.options.sessionCookie) {
+      headers.set("Cookie", this.options.sessionCookie);
+    }
+    return headers;
+  }
+
+  private async assertSuccessful(response: Response): Promise<void> {
+    if (response.ok) return;
+    const body = await response.json().catch(() => undefined);
+    throw this.apiError(response, body);
+  }
+
+  private apiError(response: Response, body: unknown): ApiError {
+    const message =
+      typeof body === "object" &&
+      body !== null &&
+      ("message" in body || "error" in body)
+        ? String("message" in body ? body.message : body.error)
+        : `Upstand API request failed with status ${response.status}`;
+    return new ApiError(message, response.status, body);
   }
 }

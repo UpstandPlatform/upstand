@@ -8,6 +8,10 @@ import type {
   ControlPlaneTransferManifest,
   PortableControlPlaneRecord,
 } from "@upstand/domain";
+import {
+  CONTROL_PLANE_TRANSFER_SCHEMA_VERSION,
+  MINIMUM_PORTABLE_SCHEMA_VERSION,
+} from "@upstand/domain";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { and, asc, eq, gt } from "drizzle-orm";
 
@@ -46,6 +50,21 @@ export class DrizzleControlPlaneImportDestination {
   ) {}
 
   async begin(manifest: ControlPlaneTransferManifest, mode: ImportMode) {
+    const sourceVersion = Number.parseInt(manifest.schemaVersion, 10);
+    const destinationVersion = Number.parseInt(
+      CONTROL_PLANE_TRANSFER_SCHEMA_VERSION,
+      10,
+    );
+    const minimumVersion = Number.parseInt(MINIMUM_PORTABLE_SCHEMA_VERSION, 10);
+    if (
+      !Number.isSafeInteger(sourceVersion) ||
+      sourceVersion < minimumVersion ||
+      sourceVersion > destinationVersion
+    ) {
+      throw new Error(
+        `Control-plane schema '${manifest.schemaVersion}' is not compatible with destination schema '${CONTROL_PLANE_TRANSFER_SCHEMA_VERSION}'`,
+      );
+    }
     const sessionId = this.resumeSessionId ?? randomUUID();
     const existing = await this.findSession(sessionId);
     if (existing) {
