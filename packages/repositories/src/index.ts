@@ -3,6 +3,7 @@ export * from "./audit-log/drizzle-audit-log.repository";
 export * from "./backup/drizzle-backup-run.repository";
 export * from "./backup/drizzle-backup-schedule.repository";
 export * from "./certificate/drizzle-certificate.repository";
+export * from "./control-plane-transfer/drizzle-control-plane-import.destination";
 export * from "./deployment/drizzle-deployment.repository";
 export * from "./docker-registry/drizzle-docker-registry.repository";
 export * from "./drizzle-unit-of-work";

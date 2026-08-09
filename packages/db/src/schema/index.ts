@@ -3,6 +3,7 @@ export * from "./audit-log";
 export * from "./auth";
 export * from "./backup";
 export * from "./certificate";
+export * from "./control-plane-transfer";
 export * from "./custom-role";
 export * from "./deployment";
 export * from "./docker-registry";

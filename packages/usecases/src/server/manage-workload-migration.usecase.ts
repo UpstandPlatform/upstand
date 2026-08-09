@@ -14,6 +14,11 @@ export const WorkloadMigrationIdInputSchema = z.object({
   migrationId: z.string().min(1),
 });
 
+export const ResourceWorkloadMigrationInputSchema = z.object({
+  organizationId: z.string().min(1),
+  resourceId: z.string().min(1),
+});
+
 export const ConfirmWorkloadMigrationInputSchema =
   WorkloadMigrationIdInputSchema.extend({
     confirmCleanup: z.literal(true),
@@ -24,6 +29,35 @@ export class GetWorkloadMigrationUseCase {
 
   async execute(input: z.infer<typeof WorkloadMigrationIdInputSchema>) {
     return ownedMigration(this.uow, input.organizationId, input.migrationId);
+  }
+}
+
+export class GetResourceWorkloadMigrationUseCase {
+  constructor(private readonly uow: IUnitOfWork) {}
+
+  async execute(input: z.infer<typeof ResourceWorkloadMigrationInputSchema>) {
+    const resource = await this.uow.resourceRepository.findById(
+      input.resourceId,
+    );
+    const environment = resource
+      ? await this.uow.environmentRepository.findById(resource.environmentId)
+      : null;
+    const project = environment
+      ? await this.uow.projectRepository.findById(environment.projectId)
+      : null;
+    if (
+      !resource ||
+      !project ||
+      project.organizationId !== input.organizationId
+    ) {
+      throw new Error("Resource not found");
+    }
+    const migrations =
+      await this.uow.workloadMigrationRepository.findByResourceId(
+        resource.id,
+        50,
+      );
+    return migrations.at(0) ?? null;
   }
 }
 

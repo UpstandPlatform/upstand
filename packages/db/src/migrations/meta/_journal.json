@@ -624,6 +624,13 @@
       "when": 1786281301022,
       "tag": "0088_curvy_blue_shield",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1786283225941,
+      "tag": "0089_far_valeria_richards",
+      "breakpoints": true
     }
   ]
 }

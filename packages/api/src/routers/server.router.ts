@@ -13,6 +13,7 @@ import {
   GetServerRuntimeStatsInputSchema,
   GetServersInputSchema,
   MigrateResourceInputSchema,
+  ResourceWorkloadMigrationInputSchema,
   ScanServerHostKeyInputSchema,
   SetupServerInputSchema,
   UpdateMonitoringSettingsInputSchema,
@@ -25,6 +26,7 @@ import {
   CreateServerUseCaseToken,
   DeleteServerUseCaseToken,
   GetDockerInventoryUseCaseToken,
+  GetResourceWorkloadMigrationUseCaseToken,
   GetServerCountUseCaseToken,
   GetServerHistoricalMetricsUseCaseToken,
   GetServerMonitoringStatusUseCaseToken,
@@ -42,7 +44,11 @@ import {
 } from "@upstand/usecases/tokens";
 import { z } from "zod";
 import { handleUseCaseError } from "../errors";
-import { router, twoFactorVerifiedProcedure } from "../index";
+import {
+  protectedProcedure,
+  router,
+  twoFactorVerifiedProcedure,
+} from "../index";
 import { requireInstanceOwnerContext } from "../instance-access";
 import { checkPermission } from "../permissions";
 import { authorizeServerAccess } from "../trpc/server-authorization.helper";
@@ -444,7 +450,7 @@ export const serverRouter = router({
       }
     }),
 
-  migrateResource: twoFactorVerifiedProcedure
+  migrateResource: protectedProcedure
     .input(MigrateResourceInputSchema)
     .mutation(async ({ ctx, input }) => {
       await checkPermission(
@@ -461,7 +467,7 @@ export const serverRouter = router({
       }
     }),
 
-  getWorkloadMigration: twoFactorVerifiedProcedure
+  getWorkloadMigration: protectedProcedure
     .input(WorkloadMigrationIdInputSchema)
     .query(async ({ ctx, input }) => {
       await checkPermission(
@@ -478,7 +484,24 @@ export const serverRouter = router({
       }
     }),
 
-  cancelWorkloadMigration: twoFactorVerifiedProcedure
+  getResourceWorkloadMigration: protectedProcedure
+    .input(ResourceWorkloadMigrationInputSchema)
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      try {
+        return await ctx.scope
+          .resolve(GetResourceWorkloadMigrationUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  cancelWorkloadMigration: protectedProcedure
     .input(WorkloadMigrationIdInputSchema)
     .mutation(async ({ ctx, input }) => {
       await checkPermission(
@@ -495,7 +518,7 @@ export const serverRouter = router({
       }
     }),
 
-  rollbackWorkloadMigration: twoFactorVerifiedProcedure
+  rollbackWorkloadMigration: protectedProcedure
     .input(WorkloadMigrationIdInputSchema)
     .mutation(async ({ ctx, input }) => {
       await checkPermission(
@@ -512,7 +535,7 @@ export const serverRouter = router({
       }
     }),
 
-  confirmWorkloadMigration: twoFactorVerifiedProcedure
+  confirmWorkloadMigration: protectedProcedure
     .input(ConfirmWorkloadMigrationInputSchema)
     .mutation(async ({ ctx, input }) => {
       await checkPermission(

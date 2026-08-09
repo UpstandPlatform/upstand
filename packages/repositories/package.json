@@ -27,6 +27,7 @@
     "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.14",
     "@upstand/config": "workspace:*",
     "typescript": "catalog:"
   }

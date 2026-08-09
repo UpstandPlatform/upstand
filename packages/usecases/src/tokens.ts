@@ -441,6 +441,10 @@ export const GetWorkloadMigrationUseCaseToken =
   createToken<UseCases.GetWorkloadMigrationUseCase>(
     "GetWorkloadMigrationUseCase",
   );
+export const GetResourceWorkloadMigrationUseCaseToken =
+  createToken<UseCases.GetResourceWorkloadMigrationUseCase>(
+    "GetResourceWorkloadMigrationUseCase",
+  );
 export const CancelWorkloadMigrationUseCaseToken =
   createToken<UseCases.CancelWorkloadMigrationUseCase>(
     "CancelWorkloadMigrationUseCase",

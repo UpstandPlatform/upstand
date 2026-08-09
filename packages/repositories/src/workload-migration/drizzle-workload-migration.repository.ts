@@ -10,6 +10,7 @@ import {
 import {
   and,
   asc,
+  desc,
   eq,
   inArray,
   isNull,
@@ -53,7 +54,7 @@ export class DrizzleWorkloadMigrationRepository
       .select()
       .from(workloadMigration)
       .where(eq(workloadMigration.resourceId, resourceId))
-      .orderBy(asc(workloadMigration.createdAt))
+      .orderBy(desc(workloadMigration.createdAt))
       .limit(Math.max(1, Math.min(limit, 500)))) as WorkloadMigration[];
   }
 

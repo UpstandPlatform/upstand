@@ -266,6 +266,29 @@ describe("Resource Actions Exhaustive Edge-Case Suite", () => {
       expect(updated?.dockerImage).toBe("nginx:alpine");
     });
 
+    test("rejects direct workload placement changes", async () => {
+      const uow = createMockStoreUow();
+      uow.store.resources.push({
+        id: "res-migrate",
+        name: "Migrating App",
+        type: "application",
+        environmentId: "env-1",
+        serverId: "server-source",
+      });
+      uow.store.environments.push({ id: "env-1", projectId: "proj-1" });
+      uow.store.projects.push({ id: "proj-1", organizationId: "org-1" });
+
+      const useCase = new UpdateResourceUseCase(uow as never, null as never);
+
+      expect(
+        useCase.execute({
+          id: "res-migrate",
+          organizationId: "org-1",
+          serverId: "server-target",
+        }),
+      ).rejects.toThrow(/durable server migration workflow/i);
+    });
+
     test("rejects enabling rollback without selecting a Docker registry", async () => {
       const uow = createMockStoreUow();
       uow.store.resources.push({

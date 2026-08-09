@@ -219,6 +219,13 @@ export function registerRuntime(services: ServiceCollection) {
       ),
   );
   services.addTransient(
+    dependencies.GetResourceWorkloadMigrationUseCaseToken,
+    (c) =>
+      new dependencies.GetResourceWorkloadMigrationUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
     dependencies.CancelWorkloadMigrationUseCaseToken,
     (c) =>
       new dependencies.CancelWorkloadMigrationUseCase(

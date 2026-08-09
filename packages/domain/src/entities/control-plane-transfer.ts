@@ -7,6 +7,7 @@ export const PortableControlPlaneTableSchema = z.enum([
   "users",
   "organizations",
   "memberships",
+  "credentials",
   "projects",
   "environments",
   "servers",
@@ -17,7 +18,6 @@ export const PortableControlPlaneTableSchema = z.enum([
   "deployments",
   "settings",
   "audit_history",
-  "credentials",
 ]);
 export type PortableControlPlaneTable = z.infer<
   typeof PortableControlPlaneTableSchema
