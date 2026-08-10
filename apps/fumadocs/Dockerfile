@@ -25,6 +25,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV SKIP_ENV_VALIDATION=1
 
+ARG UPSTAND_VERSION=development
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="Upstand Documentation" \
+      org.opencontainers.image.version="$UPSTAND_VERSION" \
+      org.opencontainers.image.revision="$VCS_REF" \
+      org.opencontainers.image.source="https://github.com/UpstandPlatform/upstand"
+
 COPY --from=builder /app/apps/fumadocs/.next/standalone ./
 COPY --from=builder /app/apps/fumadocs/.next/static ./apps/fumadocs/.next/static
 COPY --from=builder /app/apps/fumadocs/public ./apps/fumadocs/public

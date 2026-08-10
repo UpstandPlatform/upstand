@@ -1,6 +1,6 @@
 {
   "name": "@upstand/cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The OpenTUI-powered command-line interface for Upstand.",
   "repository": {
     "type": "git",
@@ -35,7 +35,7 @@
   "dependencies": {
     "@opentui/core": "^0.4.5",
     "@opentui/keymap": "^0.4.5",
-    "zod": "catalog:"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@upstand/config": "workspace:*",

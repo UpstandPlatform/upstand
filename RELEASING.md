@@ -9,8 +9,9 @@ published only from the stable branch.
 2. Review the automated Changesets release pull request.
 3. Merge the release pull request into `canary`.
 4. Open and merge the promotion pull request from `canary` to `master`.
-5. Confirm the stable-tag workflow created a new `vMAJOR.MINOR.PATCH` tag and
-   dispatched the Docker and CLI workflows once with that exact immutable tag.
+5. Confirm the stable-tag workflow created a new `vMAJOR.MINOR.PATCH` tag.
+   The tag push starts the Docker/image release workflow exactly once; the
+   stable-tag workflow separately dispatches the CLI publication workflow.
 6. Confirm the release workflow builds, verifies, and publishes all
    server, schedules, web, Fumadocs, and monitoring images.
 7. Confirm the CLI publication workflow publishes `@upstand/cli` with npm
@@ -47,6 +48,10 @@ gh workflow run "Release Recovery Rehearsal" \
   --repo UpstandPlatform/upstand \
   -f release_ref=vMAJOR.MINOR.PATCH
 ```
+
+The recovery rehearsal also runs weekly against the newest stable tag.
+Scheduled runs validate the published artifact and do not rebuild or republish
+images.
 
 ## Retry and rollback
 
