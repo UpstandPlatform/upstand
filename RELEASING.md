@@ -48,6 +48,25 @@ gh workflow run "Release Recovery Rehearsal" \
   -f release_ref=vMAJOR.MINOR.PATCH
 ```
 
+The stable release workflow uses the `smoke` acceptance profile by default. It
+verifies the immutable images and attestations, deploys the bundled and
+external-data production-shaped Swarm topologies, and runs the node-local
+health, security, and observability checks required for publication. The
+failure-injection, backup/restore, load, and soak rehearsals are intentionally
+not on the publication critical path because they require a much longer-lived
+disposable environment and are operational readiness tests rather than release
+identity checks.
+
+Run the complete recovery rehearsal separately when validating an operational
+change or before a major infrastructure change. It never creates or modifies
+a GitHub Release:
+
+```bash
+gh workflow run "Release Recovery Rehearsal" \
+  --repo UpstandPlatform/upstand \
+  -f release_ref=vMAJOR.MINOR.PATCH
+```
+
 ## Retry and rollback
 
 The release workflow is safe to retry for an existing tag. Use the
