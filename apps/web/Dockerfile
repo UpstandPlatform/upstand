@@ -27,6 +27,13 @@ FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83
 WORKDIR /app
 ENV NODE_ENV=production
 
+ARG UPSTAND_VERSION=development
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="Upstand Web" \
+      org.opencontainers.image.version="$UPSTAND_VERSION" \
+      org.opencontainers.image.revision="$VCS_REF" \
+      org.opencontainers.image.source="https://github.com/UpstandPlatform/upstand"
+
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public ./apps/web/public

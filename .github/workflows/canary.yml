@@ -31,17 +31,17 @@ jobs:
           - name: server
             context: .
             file: apps/server/Dockerfile
-            scope: upstand-server
+            scope: canary-upstand-server
             build_args: ""
           - name: schedules
             context: .
             file: apps/schedules/Dockerfile
-            scope: upstand-schedules
+            scope: canary-upstand-schedules
             build_args: ""
           - name: web
             context: .
             file: apps/web/Dockerfile
-            scope: upstand-web
+            scope: canary-upstand-web
             # The Next.js build is platform-independent but very slow under
             # arm64 emulation. Stable releases remain multi-architecture;
             # canary web images prioritize fast feedback on amd64 runners.
@@ -52,7 +52,7 @@ jobs:
           - name: fumadocs
             context: .
             file: apps/fumadocs/Dockerfile
-            scope: upstand-fumadocs
+            scope: canary-upstand-fumadocs
             # Fumadocs is a Next.js build and is prohibitively slow under
             # arm64 emulation. Stable releases retain multi-architecture
             # publishing; canary prioritizes fast integration feedback.
@@ -61,7 +61,7 @@ jobs:
           - name: monitoring
             context: apps/monitoring
             file: apps/monitoring/Dockerfile
-            scope: upstand-monitoring
+            scope: canary-upstand-monitoring
             # Monitoring is a Go image, but its multi-architecture build also
             # pays the arm64 emulation cost. Stable releases retain
             # multi-architecture publishing; canary prioritizes fast feedback.
@@ -98,7 +98,10 @@ jobs:
           push: true
           platforms: ${{ matrix.platforms || 'linux/amd64,linux/arm64' }}
           tags: ghcr.io/${{ steps.image.outputs.repository }}-${{ matrix.name }}:canary
-          build-args: ${{ matrix.build_args }}
+          build-args: |
+            ${{ matrix.build_args }}
+            UPSTAND_VERSION=canary
+            VCS_REF=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           cache-from: type=gha,scope=${{ matrix.scope }}
           cache-to: type=gha,scope=${{ matrix.scope }},mode=max,ignore-error=true
           provenance: mode=max

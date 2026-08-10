@@ -5,8 +5,10 @@ on:
     inputs:
       release_ref:
         description: Immutable Git tag to validate
-        required: true
+        required: false
         type: string
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -14,12 +16,36 @@ permissions:
   attestations: read
 
 jobs:
+  resolve-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_ref: ${{ steps.release.outputs.release_ref }}
+    steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          REQUESTED_RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$REQUESTED_RELEASE_REF" ]]; then
+            release_ref="$REQUESTED_RELEASE_REF"
+          else
+            release_ref="$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'v*' | awk -F/ '{print $3}' | sort -V | tail -n 1)"
+          fi
+          [[ "$release_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Could not resolve a stable release tag" >&2
+            exit 1
+          }
+          echo "release_ref=$release_ref" >> "$GITHUB_OUTPUT"
+
   recovery-rehearsal:
+    needs: resolve-release
     uses: ./.github/workflows/release.yml
     with:
-      release_ref: ${{ inputs.release_ref }}
+      release_ref: ${{ needs.resolve-release.outputs.release_ref }}
       acceptance_profile: full
       publish_release: false
       build_images: false
-      attestation_source_ref: ${{ inputs.release_ref }}
+      attestation_source_ref: ${{ needs.resolve-release.outputs.release_ref }}
     secrets: inherit

@@ -251,9 +251,11 @@ jobs:
             ghcr.io/${{ steps.meta.outputs.repo }}-${{ matrix.name }}:${{ steps.meta.outputs.tag }}
           build-args: |
             ${{ matrix.build_args }}
+            UPSTAND_VERSION=${{ steps.meta.outputs.tag }}
+            VCS_REF=${{ github.sha }}
             ${{ matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag) || '' }}
-          cache-from: type=gha,scope=${{ matrix.scope }}
-          cache-to: type=gha,scope=${{ matrix.scope }},mode=max
+          cache-from: type=gha,scope=release-${{ matrix.scope }}
+          cache-to: type=gha,scope=release-${{ matrix.scope }},mode=max
           provenance: mode=max
           sbom: true
 
@@ -303,6 +305,9 @@ jobs:
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
+
+      - name: Prepare Desktop release version
+        run: bun run release:desktop-version -- "${{ inputs.release_ref || github.ref }}"
 
       - name: Build Desktop Payloads
         run: |

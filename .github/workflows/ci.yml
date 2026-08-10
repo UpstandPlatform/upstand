@@ -110,6 +110,7 @@ jobs:
           bash -n scripts/production-acceptance-cluster-contract.test.sh
           bash -n scripts/health-soak-rehearsal.sh
           bash -n scripts/health-soak-rehearsal-contract.test.sh
+          bash -n scripts/release-orchestration-contract.test.sh
           bash scripts/installer-contract.test.sh
           bash scripts/backup-restore-rehearsal-contract.test.sh
           bash scripts/external-services-smoke-contract.test.sh
@@ -121,6 +122,7 @@ jobs:
           bash scripts/observability-contract.test.sh
           bash scripts/production-acceptance-cluster-contract.test.sh
           bash scripts/health-soak-rehearsal-contract.test.sh
+          bash scripts/release-orchestration-contract.test.sh
           bash scripts/release-acceptance-contract.test.sh
       - name: Check diff integrity
         run: git diff --check
@@ -294,8 +296,8 @@ jobs:
           push: false
           tags: upstand-${{ matrix.name }}:${{ github.sha }}
           build-args: ${{ matrix.build_args }}
-          cache-from: type=gha,scope=ci-${{ matrix.name }}
-          cache-to: type=gha,scope=ci-${{ matrix.name }},mode=max,ignore-error=true
+          cache-from: type=gha,scope=ci-${{ github.event_name }}-${{ matrix.name }}
+          cache-to: type=gha,scope=ci-${{ github.event_name }}-${{ matrix.name }},mode=max,ignore-error=true
 
   merge-gate:
     name: Merge gate

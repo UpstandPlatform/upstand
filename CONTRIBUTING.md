@@ -83,9 +83,8 @@ checks, and affected package tests. After a merge to `canary`, one full
 type/test validation runs; the canary image workflow is the production-shaped
 application build and builds and publishes the images once. This avoids
 compiling the applications in CI and immediately compiling them again in
-Docker. The `canary` to `master` promotion reuses that validated integration
-result; the stable workflow is responsible for the immutable tag and
-production image publication.
+Docker. The `canary` to `master` promotion produces the immutable stable tag;
+the tag push starts production image publication exactly once.
 
 ```bash
 git fetch origin --prune
@@ -100,10 +99,10 @@ Changesets owns release intent, version updates, and changelog generation. The
 automated release PR is created after Changesets land on `canary`. Review and
 merge it into `canary`, then promote the resulting commit to `master` through a
 pull request. The stable-tag workflow creates the immutable
-`vMAJOR.MINOR.PATCH` tag. The stable-tag workflow then dispatches the reusable
-image publishing workflow and the CLI publication workflow exactly once with
-that immutable tag; the separate dispatch workflow remains available for
-explicit retries.
+`vMAJOR.MINOR.PATCH` tag. The tag-triggered release workflow publishes the
+production images, while the stable-tag workflow dispatches CLI publication
+with that immutable tag; the separate Docker dispatch workflow remains
+available for explicit retries.
 
 Production dependency updates need a patch release just like product changes.
 Dependabot adds that Changeset automatically; development-only dependency and
