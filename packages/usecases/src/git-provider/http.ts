@@ -3,14 +3,18 @@ import { assertSafeProviderUrlAsync } from "./provider-config";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+type AddressResolver = (
+  hostname: string,
+) => Promise<Array<{ address: string }>>;
 
 async function safeInput(
   input: string | URL | Request,
+  resolveHost?: AddressResolver,
 ): Promise<string | URL | Request> {
   if (input instanceof Request) {
-    await assertSafeProviderUrlAsync(input.url);
+    await assertSafeProviderUrlAsync(input.url, resolveHost);
   } else {
-    await assertSafeProviderUrlAsync(String(input));
+    await assertSafeProviderUrlAsync(String(input), resolveHost);
   }
   return input;
 }
@@ -19,8 +23,14 @@ export async function requestJson<T>(
   input: string | URL | Request,
   init: RequestInit | undefined,
   createError: (response: Response) => string | Promise<string>,
+  resolveHost?: AddressResolver,
 ): Promise<T> {
-  const result = await requestJsonWithResponse<T>(input, init, createError);
+  const result = await requestJsonWithResponse<T>(
+    input,
+    init,
+    createError,
+    resolveHost,
+  );
   return result.data;
 }
 
@@ -28,6 +38,7 @@ export async function requestJsonWithResponse<T>(
   input: string | URL | Request,
   init: RequestInit | undefined,
   createError: (response: Response) => string | Promise<string>,
+  resolveHost?: AddressResolver,
 ): Promise<{ data: T; response: Response }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -36,7 +47,7 @@ export async function requestJsonWithResponse<T>(
       once: true,
     });
   }
-  const response = await fetch(await safeInput(input), {
+  const response = await fetch(await safeInput(input, resolveHost), {
     ...init,
     signal: controller.signal,
     redirect: "error",

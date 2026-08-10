@@ -7,5 +7,6 @@ export type AppEnv = EvlogVariables & {
   Bindings: ApiBindings;
   Variables: {
     scope: ServiceScope;
+    correlationId: string;
   };
 };

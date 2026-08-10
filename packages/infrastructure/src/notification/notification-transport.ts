@@ -14,6 +14,9 @@ import nodemailer from "nodemailer";
 
 const NOTIFICATION_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_PROVIDER_ERROR_BODY_LENGTH = 500;
+type AddressResolver = (
+  hostname: string,
+) => Promise<Array<{ address: string }>>;
 
 function trimTrailingSlash(value: string): string {
   let str = value.trim();
@@ -314,6 +317,7 @@ function formatNotificationText(message: NotificationMessage): string {
 export class NotificationTransportRegistry implements NotificationTransport {
   constructor(
     private readonly outboundAllowlistedHosts: readonly string[] = getOutboundAllowlistedHosts(),
+    private readonly resolveHost?: AddressResolver,
   ) {}
 
   async send(
@@ -332,6 +336,7 @@ export class NotificationTransportRegistry implements NotificationTransport {
       await assertConfiguredHttpUrl(
         configuredEndpoint,
         this.outboundAllowlistedHosts,
+        this.resolveHost,
       );
     }
 

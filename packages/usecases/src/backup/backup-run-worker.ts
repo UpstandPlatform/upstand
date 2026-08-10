@@ -1,9 +1,11 @@
 import { Worker } from "bullmq";
+import { withJobTelemetry } from "../observability/job-telemetry";
 import { ManagedQueueWorker } from "../shared/managed-queue-worker";
 import { BACKUP_RUN_QUEUE } from "./trigger-backup-run.usecase";
 
 export interface BackupRunJob {
-  data: { runId?: string };
+  id?: string | number;
+  data: { runId?: string; correlationId?: string };
   opts: { attempts?: number };
   attemptsMade: number;
 }
@@ -19,12 +21,27 @@ export class BackupRunWorker {
       failedMessage: "Backup run job failed",
       connectionErrorMessage: "Backup worker connection error",
       createWorker: (connection) =>
-        new Worker(BACKUP_RUN_QUEUE, (job) => handleBackupRun(job), {
-          connection: connection as never,
-          concurrency: 2,
-          maxStalledCount: 1,
-          stalledInterval: 30_000,
-        }),
+        new Worker(
+          BACKUP_RUN_QUEUE,
+          (job) =>
+            withJobTelemetry(
+              {
+                operation: "backup.execute",
+                queue: BACKUP_RUN_QUEUE,
+                jobId: job.id,
+                correlationId: job.data?.correlationId,
+                attempt: job.attemptsMade + 1,
+                fields: { backup: { runId: job.data?.runId } },
+              },
+              () => handleBackupRun(job),
+            ),
+          {
+            connection: connection as never,
+            concurrency: 2,
+            maxStalledCount: 1,
+            stalledInterval: 30_000,
+          },
+        ),
       getFailedJobContext: (job) => ({ runId: job?.data?.runId }),
     });
   }

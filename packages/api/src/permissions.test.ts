@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from "bun:test";
 
 // 1. Configure environment variables for mock modules and schema loaders
 process.env.SKIP_ENV_VALIDATION = "1";
@@ -7,51 +16,31 @@ process.env.BETTER_AUTH_SECRET ??= "test-secret-that-is-at-least-32-characters";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
 process.env.CORS_ORIGIN ??= "http://localhost:3000";
 
-// Mocking schema fields so references don't fail
-mock.module("@upstand/db/schema/auth", () => {
-  return {
-    member: {
-      userId: "userId",
-      organizationId: "organizationId",
-      scimActive: "scimActive",
-      role: "role",
-      permissions: "permissions",
-    },
-    user: {
-      id: "id",
-      createdAt: "createdAt",
-    },
-  };
-});
-
 // Dynamic mock storage for database queries
 let mockDbRows: unknown[] = [];
-const dbSelectSpy = mock((..._args: unknown[]) => {});
 const dbWhereSpy = mock((..._args: unknown[]) => {});
+const { db } = await import("@upstand/db");
 
-mock.module("@upstand/db", () => {
-  const chain = {
-    from: mock(() => chain),
-    where: mock((...args: unknown[]) => {
-      dbWhereSpy(...args);
-      return chain;
-    }),
-    orderBy: mock(() => chain),
-    limit: mock(() => chain),
-    // biome-ignore lint/suspicious/noThenProperty: mock thenable object
-    then: mock((callback: (rows: unknown[]) => unknown) =>
-      Promise.resolve(callback(mockDbRows)),
-    ),
-  };
+const chain = {
+  from: mock(() => chain),
+  where: mock((...args: unknown[]) => {
+    dbWhereSpy(...args);
+    return chain;
+  }),
+  orderBy: mock(() => chain),
+  limit: mock(() => chain),
+  // biome-ignore lint/suspicious/noThenProperty: mock thenable object
+  then: mock((callback: (rows: unknown[]) => unknown) =>
+    Promise.resolve(callback(mockDbRows)),
+  ),
+};
 
-  return {
-    db: {
-      select: mock((...args: unknown[]) => {
-        dbSelectSpy(...args);
-        return chain;
-      }),
-    },
-  };
+const dbSelectSpy = spyOn(db, "select").mockImplementation(
+  () => chain as never,
+);
+
+afterAll(() => {
+  dbSelectSpy.mockRestore();
 });
 
 // 2. Import modules after mocks have been established

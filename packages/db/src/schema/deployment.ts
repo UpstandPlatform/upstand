@@ -1,5 +1,13 @@
+import type { DeploymentPlan } from "@upstand/domain";
 import { relations } from "drizzle-orm";
-import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 import { resource } from "./resource";
 import { server } from "./server";
 
@@ -18,6 +26,13 @@ export const deployment = pgTable(
     }),
     serverName: text("server_name"),
     sourceRevision: text("source_revision"),
+    deploymentPlan: jsonb("deployment_plan").$type<DeploymentPlan>(),
+    deployTarget: text("deploy_target"),
+    executionRuntime: text("execution_runtime"),
+    buildLocation: text("build_location"),
+    dataOwnership: text("data_ownership"),
+    artifactDigest: text("artifact_digest"),
+    configurationVersion: text("configuration_version"),
     executionToken: text("execution_token"),
     attempt: integer("attempt").default(0).notNull(),
     maxAttempts: integer("max_attempts").default(1).notNull(),
@@ -40,6 +55,7 @@ export const deployment = pgTable(
     index("deployment_server_status_idx").on(table.serverId, table.status),
     index("deployment_execution_lease_idx").on(table.status, table.updatedAt),
     index("deployment_retry_idx").on(table.status, table.retryAt),
+    index("deployment_artifact_digest_idx").on(table.artifactDigest),
   ],
 );
 

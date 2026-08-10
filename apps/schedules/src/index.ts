@@ -5,6 +5,7 @@ import { UnitOfWorkToken } from "@upstand/usecases/tokens";
 import { type DrainContext, initLogger, log } from "evlog";
 import { createFsDrain } from "evlog/fs";
 import { createOTLPDrain } from "evlog/otlp";
+import { createDrainPipeline } from "evlog/pipeline";
 import { getServiceProvider } from "./di";
 import {
   type BackupOperationalSummary,
@@ -28,12 +29,27 @@ const otlpDrain = otlpEndpoint
     })
   : undefined;
 
-const drain = async (context: DrainContext | DrainContext[]) => {
-  await Promise.allSettled([
+const drainAdapter = async (context: DrainContext | DrainContext[]) => {
+  await Promise.all([
     fileDrain(context),
     ...(otlpDrain ? [otlpDrain(context)] : []),
   ]);
 };
+const drain = createDrainPipeline<DrainContext>({
+  batch: { size: 50, intervalMs: 5_000 },
+  retry: {
+    maxAttempts: 3,
+    backoff: "exponential",
+    initialDelayMs: 500,
+    maxDelayMs: 5_000,
+  },
+  maxBufferSize: 2_000,
+  onDropped: (events, error) => {
+    process.stderr.write(
+      `${JSON.stringify({ service: "upstand-schedules", event: "telemetry_dropped", count: events.length, reason: error?.message ?? "buffer_overflow" })}\n`,
+    );
+  },
+})(async (batch) => drainAdapter(batch));
 
 initLogger({
   env: { service: "upstand-schedules" },
@@ -144,6 +160,7 @@ async function shutdown(signal: string): Promise<void> {
     message: "Graceful shutdown of Schedules Service completed",
     signal,
   });
+  await drain.flush();
   process.exit(result === "timeout" ? 1 : 0);
 }
 

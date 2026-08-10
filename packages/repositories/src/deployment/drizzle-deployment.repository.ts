@@ -2,9 +2,11 @@ import { deployment } from "@upstand/db";
 import type {
   CreateDeploymentDTO,
   Deployment,
+  DeploymentPlan,
   IDeploymentRepository,
   UpdateDeploymentDTO,
 } from "@upstand/domain";
+import { DeploymentPlanSchema } from "@upstand/domain";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { BaseRepository } from "../shared/base.repository";
 import type { Executor } from "../shared/types";
@@ -29,6 +31,13 @@ export class DrizzleDeploymentRepository
       serverId: deployment.serverId,
       serverName: deployment.serverName,
       sourceRevision: deployment.sourceRevision,
+      deploymentPlan: deployment.deploymentPlan,
+      deployTarget: deployment.deployTarget,
+      executionRuntime: deployment.executionRuntime,
+      buildLocation: deployment.buildLocation,
+      dataOwnership: deployment.dataOwnership,
+      artifactDigest: deployment.artifactDigest,
+      configurationVersion: deployment.configurationVersion,
       executionToken: deployment.executionToken,
       attempt: deployment.attempt,
       maxAttempts: deployment.maxAttempts,
@@ -94,6 +103,28 @@ export class DrizzleDeploymentRepository
       .orderBy(desc(deployment.createdAt))
       .limit(500);
     return rows as Deployment[];
+  }
+
+  async setPlanIfAbsent(
+    id: string,
+    input: DeploymentPlan,
+  ): Promise<Deployment | null> {
+    const plan = DeploymentPlanSchema.parse(input);
+    const [updated] = await this.executor
+      .update(deployment)
+      .set({
+        deploymentPlan: plan,
+        deployTarget: plan.target.kind,
+        executionRuntime: plan.runtime,
+        buildLocation: plan.buildLocation.kind,
+        dataOwnership: plan.ownership,
+        artifactDigest: plan.artifact.digest,
+        configurationVersion: plan.configurationVersion,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(deployment.id, id), isNull(deployment.deploymentPlan)))
+      .returning();
+    return updated ? (updated as Deployment) : null;
   }
 
   async claimForExecution(

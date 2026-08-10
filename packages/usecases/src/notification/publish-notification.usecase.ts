@@ -12,6 +12,7 @@ export interface PublishNotificationInput {
   organizationId?: string;
   metadata?: Record<string, unknown>;
   idempotencyKey?: string;
+  correlationId?: string;
 }
 
 export const NOTIFICATION_DELIVERY_QUEUE = "notification-delivery";
@@ -58,6 +59,7 @@ export class PublishNotificationUseCase {
         created.map((delivery) => {
           const payload: NotificationDeliveryOutboxPayload = {
             deliveryId: delivery.id,
+            correlationId: input.correlationId,
           };
           return {
             id: delivery.id,
