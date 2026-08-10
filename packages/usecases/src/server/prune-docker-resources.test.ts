@@ -1,16 +1,11 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type { IUnitOfWork } from "@upstand/domain";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import type { DockerPrunePort } from "../ports/docker";
 import { PruneDockerResourcesUseCase } from "./prune-docker-resources.usecase";
 
 const keyName = "ENCRYPTION_KEY_V1";
-const previousKey = process.env[keyName];
-
-afterEach(() => {
-  if (previousKey === undefined) delete process.env[keyName];
-  else process.env[keyName] = previousKey;
-});
+process.env[keyName] ??= Buffer.alloc(32, 7).toString("base64");
 
 interface RepositoryItem {
   id: string;
@@ -56,7 +51,6 @@ describe("PruneDockerResourcesUseCase", () => {
   });
 
   test("successfully prunes remote docker resources", async () => {
-    process.env[keyName] = Buffer.alloc(32, 7).toString("base64");
     const encrypted = encryptSecret("remote-private-key");
     const server = {
       id: "server-1",

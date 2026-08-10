@@ -72,8 +72,18 @@ function resourceRoot() {
 function resourcePaths() {
   const root = resourceRoot();
   return {
-    api: join(root, "local", "server", "index.mjs"),
-    dashboard: join(root, "local", "dashboard", "server.js"),
+    api: join(
+      root,
+      "local",
+      "server",
+      process.platform === "win32"
+        ? "upstand-local-server.exe"
+        : "upstand-local-server",
+    ),
+    // Next preserves the workspace path in its standalone output. Keep the
+    // containing standalone tree intact so its runtime node_modules remain
+    // available, then launch the nested server entrypoint.
+    dashboard: join(root, "local", "dashboard", "apps", "web", "server.js"),
     migrations: join(root, "local", "migrations"),
   };
 }
@@ -126,13 +136,20 @@ function spawnService(
   entry: string,
   cwd: string,
   environment: NodeJS.ProcessEnv,
+  useElectronNode = true,
 ) {
-  const child = spawn(process.execPath, [entry], {
-    cwd,
-    env: { ...environment, ELECTRON_RUN_AS_NODE: "1" },
-    stdio: "pipe",
-    windowsHide: true,
-  });
+  const child = spawn(
+    useElectronNode ? process.execPath : entry,
+    useElectronNode ? [entry] : [],
+    {
+      cwd,
+      env: useElectronNode
+        ? { ...environment, ELECTRON_RUN_AS_NODE: "1" }
+        : environment,
+      stdio: "pipe",
+      windowsHide: true,
+    },
+  );
   child.stdout?.on("data", (chunk: Buffer) =>
     process.stdout.write(`[desktop:${entry}] ${chunk}`),
   );
@@ -173,6 +190,9 @@ export async function startLocalServices(): Promise<{
     NODE_ENV: "production",
     UPSTAND_PLATFORM: "desktop",
     PGLITE_DATA_DIR: dataDir,
+    PGLITE_ASSETS_DIR: join(resourceRoot(), "local", "pglite"),
+    SWAGGER_UI_ASSETS_DIR: join(resourceRoot(), "local", "swagger"),
+    UPSTAND_NODE_RUNTIME_PATH: process.execPath,
     DB_MIGRATIONS_PATH: paths.migrations,
     BETTER_AUTH_SECRET: await localAuthSecret(),
     ENCRYPTION_KEY_V1: await localEncryptionKey(),
@@ -181,12 +201,17 @@ export async function startLocalServices(): Promise<{
     REDIS_URL: "",
   };
 
-  apiProcess = spawnService(paths.api, join(paths.api, ".."), {
-    ...baseEnvironment,
-    UPSTAND_BASE_URL: nextApiOrigin,
-    BETTER_AUTH_URL: nextApiOrigin,
-    CORS_ORIGIN: nextDashboardOrigin,
-  });
+  apiProcess = spawnService(
+    paths.api,
+    join(paths.api, ".."),
+    {
+      ...baseEnvironment,
+      UPSTAND_BASE_URL: nextApiOrigin,
+      BETTER_AUTH_URL: nextApiOrigin,
+      CORS_ORIGIN: nextDashboardOrigin,
+    },
+    false,
+  );
   dashboardProcess = spawnService(
     paths.dashboard,
     join(paths.dashboard, ".."),

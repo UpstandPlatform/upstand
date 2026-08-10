@@ -23,7 +23,7 @@ import {
   assertSafeGitNetworkUrl,
   assertSafeGitRef,
   assertSafeGitUrl,
-  detectApplicationBuildConfig,
+  detectBuildConfig,
   normalizeBuildImageTag,
 } from "@upstand/usecases";
 import type {
@@ -35,6 +35,7 @@ import type {
   DockerInspectionTarget,
   DockerRegistryAuth,
   DockerResourceContainer,
+  ResolvedBuildArtifact,
   ServerRuntimeStats,
 } from "@upstand/usecases/ports/docker";
 import { getApplicationBuildSecrets } from "@upstand/usecases/resource/application-build-secrets";
@@ -907,6 +908,7 @@ export class DockerService {
     buildEnvVars?: Record<string, string>,
     gitEnvironment?: Record<string, string>,
     sshHostKeyFingerprint?: string,
+    onBuildResolved?: (artifact: ResolvedBuildArtifact) => Promise<void>,
   ): Promise<void> {
     let currentResource = resource;
     const serviceName = this.sanitizeName(
@@ -1031,19 +1033,24 @@ export class DockerService {
     }
 
     try {
+      let detectorVersion: string | null = null;
       let buildConfig = parseApplicationBuildConfig(
         currentResource.buildConfig,
       );
 
       if (buildConfig.autoDetect !== false) {
-        const detectedConfig = detectApplicationBuildConfig(
-          clonePath,
-          buildConfig.buildPath,
-        );
+        const detection = detectBuildConfig(clonePath, buildConfig.buildPath);
+        if (detection.status !== "detected" || !detection.config) {
+          throw new Error(detection.warnings.join(" "));
+        }
+        detectorVersion = detection.detectorVersion;
         onLog(
-          `[Auto-Detect] Auto build-configuration detection active: detected '${detectedConfig.type}' based on application source code.\n`,
+          `[Auto-Detect] Detected '${detection.config.type}' (${detection.framework ?? detection.language ?? "repository configuration"}, confidence ${detection.confidence.toFixed(2)}). Evidence: ${detection.evidence.map((item) => item.file).join(", ")}.\n`,
         );
-        buildConfig = detectedConfig;
+        for (const warning of detection.warnings) {
+          onLog(`[Auto-Detect] Warning: ${warning}\n`);
+        }
+        buildConfig = detection.config;
       }
 
       const buildPath = this.resolveBuildPath(
@@ -1091,6 +1098,40 @@ export class DockerService {
         await this.transferImage(buildImageName, destinationDocker, onLog);
       }
 
+      let immutableImageReference = buildImageName;
+      if (onBuildResolved) {
+        const inspectedImage = await this.docker
+          .getImage(buildImageName)
+          .inspect();
+        const imageId = inspectedImage.Id;
+        if (!/^sha256:[0-9a-f]{64}$/.test(imageId)) {
+          throw new Error(
+            "Built image did not expose an immutable SHA-256 identity",
+          );
+        }
+        const sourceIdentity =
+          sourceRevision?.trim() || this.resolveGitHead(clonePath);
+        const configurationVersion = `sha256:${createHash("sha256")
+          .update(JSON.stringify(buildConfig))
+          .digest("hex")}`;
+        const registryDigest = inspectedImage.RepoDigests?.find((reference) =>
+          reference.includes("@sha256:"),
+        );
+        immutableImageReference = registryDigest ?? imageId;
+        const digest = registryDigest?.split("@").at(-1) ?? imageId;
+        if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
+          throw new Error("Resolved deployment artifact digest is invalid");
+        }
+        await onBuildResolved({
+          buildConfig,
+          detectorVersion,
+          sourceRevision: sourceIdentity,
+          configurationVersion,
+          digest,
+          reference: immutableImageReference,
+        });
+      }
+
       onLog("Deploying Swarm Service...\n");
       const envArray = Object.entries(envVars).map(
         ([key, value]) => `${key}=${value}`,
@@ -1107,7 +1148,7 @@ export class DockerService {
         },
         TaskTemplate: {
           ContainerSpec: {
-            Image: buildImageName,
+            Image: immutableImageReference,
             Env: envArray,
             ...(runtimeCommand ? { Command: runtimeCommand } : {}),
           },
@@ -1163,6 +1204,21 @@ export class DockerService {
         fs.rmSync(clonePath, { recursive: true, force: true });
       }
     }
+  }
+
+  private resolveGitHead(clonePath: string): string {
+    const result = Bun.spawnSync({
+      cmd: ["git", "-C", clonePath, "rev-parse", "HEAD"],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const revision = result.success
+      ? new TextDecoder().decode(result.stdout).trim()
+      : "";
+    if (!/^[0-9a-f]{40,64}$/i.test(revision)) {
+      throw new Error("Unable to resolve the immutable source revision");
+    }
+    return revision;
   }
 
   async readComposeFileFromGit(

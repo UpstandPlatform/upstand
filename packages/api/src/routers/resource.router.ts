@@ -417,6 +417,7 @@ export const resourceRouter = router({
           return publicResource(
             await new QueueDeploymentUseCase(uow).execute({
               resourceId: resource.id,
+              correlationId: ctx.correlationId,
               title: `Compose rollback to ${historical.sourceRevision.slice(0, 12)}`,
               sourceRevision: historical.sourceRevision,
             }),
@@ -456,6 +457,7 @@ export const resourceRouter = router({
           return publicResource(
             await new QueueDeploymentUseCase(uow).execute({
               resourceId: resource.id,
+              correlationId: ctx.correlationId,
               title: `Application rollback to ${historical.sourceRevision.slice(0, 12)}`,
               sourceRevision: historical.sourceRevision,
             }),

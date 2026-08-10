@@ -3,6 +3,7 @@
 import {
   AiBrain01Icon,
   Briefcase01Icon,
+  Database01Icon,
   InformationCircleIcon,
   Key01Icon,
   Menu01Icon,
@@ -53,6 +54,7 @@ import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { ApiKeysPanel } from "./components/api-keys-panel";
 import { AppInfoPanel } from "./components/app-info-panel";
+import { ControlPlaneTransferPanel } from "./components/control-plane-transfer-panel";
 import { MembersPanel } from "./components/members-panel";
 import { OrganizationPanel } from "./components/organization-panel";
 import { ProfilePanel } from "./components/profile-panel";
@@ -126,7 +128,10 @@ export function SettingsDialog() {
     {
       id: "system",
       label: "System",
-      items: [{ name: "app", label: "About", icon: InformationCircleIcon }],
+      items: [
+        { name: "transfer", label: "Transfer", icon: Database01Icon },
+        { name: "app", label: "About", icon: InformationCircleIcon },
+      ],
     },
   ];
 
@@ -280,6 +285,7 @@ export function SettingsDialog() {
                 {activeTab === "organization" && <OrganizationPanel />}
                 {activeTab === "security" && <SecurityPanel />}
                 {activeTab === "upgal" && <UpGalSettingsPanel />}
+                {activeTab === "transfer" && <ControlPlaneTransferPanel />}
                 {activeTab === "app" && <AppInfoPanel />}
               </div>
             </main>

@@ -3,14 +3,19 @@ import { BACKUP_RUN_EXECUTION_LEASE_MS } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import {
   BullMqOutboxJobPublisher,
+  DockerWorkloadMigrationPort,
   getDockerInstance,
 } from "@upstand/infrastructure";
+import { closeRedis, createRedis } from "@upstand/redis";
 import {
   BackupRunWorker,
   DeploymentWorker,
+  ExecuteWorkloadMigrationUseCase,
   NotificationDeliveryWorker,
   OUTBOX_COMMAND_TYPES,
   OutboxPublisher,
+  WORKLOAD_MIGRATION_QUEUE,
+  withJobTelemetry,
 } from "@upstand/usecases";
 import {
   ensureBackupRunLock,
@@ -25,6 +30,7 @@ import {
   PublishNotificationUseCaseToken,
   UnitOfWorkToken,
 } from "@upstand/usecases/tokens";
+import { Worker as BullMqWorker, Queue } from "bullmq";
 import { log } from "evlog";
 import { getServiceProvider } from "./di";
 
@@ -407,6 +413,109 @@ export class DeploymentRuntime {
   }
 }
 
+export class WorkloadMigrationRuntime {
+  private readonly connection = createRedis({
+    maxRetriesPerRequest: null,
+    loggerName: "workload-migration-worker",
+  });
+  private readonly queue = new Queue(WORKLOAD_MIGRATION_QUEUE, {
+    connection: this.connection as never,
+  });
+  private readonly worker = new BullMqWorker<{
+    migrationId?: string;
+    correlationId?: string;
+  }>(
+    WORKLOAD_MIGRATION_QUEUE,
+    async (job) => {
+      const migrationId = job.data.migrationId;
+      if (!migrationId) throw new Error("Migration job is missing migrationId");
+      await withJobTelemetry(
+        {
+          operation: "workload-migration.execute",
+          queue: WORKLOAD_MIGRATION_QUEUE,
+          jobId: job.id,
+          correlationId: job.data.correlationId,
+          attempt: job.attemptsMade + 1,
+          fields: { migration: { id: migrationId } },
+        },
+        async () => {
+          const scope = getServiceProvider().createScope();
+          try {
+            const uow = scope.resolve(UnitOfWorkToken);
+            const port = new DockerWorkloadMigrationPort(
+              uow,
+              scope.resolve(DockerServiceToken),
+              scope.resolve(CaddyServiceToken),
+            );
+            await new ExecuteWorkloadMigrationUseCase(uow, port).execute(
+              migrationId,
+              String(job.id ?? randomUUID()),
+            );
+          } finally {
+            await scope.dispose();
+          }
+        },
+      );
+    },
+    {
+      connection: this.connection as never,
+      concurrency: 1,
+      autorun: false,
+      lockDuration: 5 * 60_000,
+      stalledInterval: 30_000,
+      maxStalledCount: 2,
+    },
+  );
+  private ready = false;
+
+  async start(): Promise<void> {
+    await this.enqueueResumable();
+    this.worker.run().catch((error: unknown) => {
+      this.ready = false;
+      log.error({
+        message: "Workload migration worker stopped unexpectedly",
+        err: error,
+      });
+    });
+    await this.worker.waitUntilReady();
+    this.ready = true;
+  }
+
+  isReady(): boolean {
+    return this.ready && this.worker.isRunning();
+  }
+
+  async stop(): Promise<void> {
+    this.ready = false;
+    await Promise.allSettled([this.worker.close(), this.queue.close()]);
+    await closeRedis(this.connection);
+  }
+
+  private async enqueueResumable(): Promise<void> {
+    const scope = getServiceProvider().createScope();
+    try {
+      const migrations = await scope
+        .resolve(UnitOfWorkToken)
+        .workloadMigrationRepository.findResumable(100);
+      for (const migration of migrations) {
+        await this.queue.add(
+          "resume",
+          { migrationId: migration.id },
+          {
+            jobId: `migration-recovery-${migration.id}-${migration.updatedAt.getTime()}`,
+            attempts: 8,
+            backoff: { type: "exponential", delay: 5_000 },
+            removeOnComplete: 1_000,
+            removeOnFail: 1_000,
+          },
+        );
+      }
+    } finally {
+      await scope.dispose();
+    }
+  }
+}
+
 export function createBackupRunHandler() {
   return async (job: {
     data: { runId?: string };
@@ -491,6 +600,7 @@ export class WorkerManager {
   private backupWorker: BackupRunWorker | null = null;
   private deploymentRuntime: DeploymentRuntime | null = null;
   private outboxRuntime: OutboxRuntime | null = null;
+  private workloadMigrationRuntime: WorkloadMigrationRuntime | null = null;
 
   async start(): Promise<void> {
     log.info({ message: "Starting standalone queue workers & runtimes..." });
@@ -511,11 +621,13 @@ export class WorkerManager {
     this.backupWorker = new BackupRunWorker(createBackupRunHandler());
     this.deploymentRuntime = new DeploymentRuntime();
     this.outboxRuntime = new OutboxRuntime();
+    this.workloadMigrationRuntime = new WorkloadMigrationRuntime();
 
     await this.notificationWorker.start();
     await this.backupWorker.start();
     await this.deploymentRuntime.start();
     await this.outboxRuntime.start();
+    await this.workloadMigrationRuntime.start();
 
     log.info({
       message: "Standalone queue workers & runtimes started successfully 👷‍♂️",
@@ -527,7 +639,8 @@ export class WorkerManager {
       (this.notificationWorker?.isReady() ?? false) &&
       (this.backupWorker?.isReady() ?? false) &&
       (this.deploymentRuntime?.isReady() ?? false) &&
-      (this.outboxRuntime?.isReady() ?? false)
+      (this.outboxRuntime?.isReady() ?? false) &&
+      (this.workloadMigrationRuntime?.isReady() ?? false)
     );
   }
 
@@ -539,12 +652,14 @@ export class WorkerManager {
       this.backupWorker?.stop(),
       this.deploymentRuntime?.stop(),
       this.outboxRuntime?.stop(),
+      this.workloadMigrationRuntime?.stop(),
     ]);
 
     this.notificationWorker = null;
     this.backupWorker = null;
     this.deploymentRuntime = null;
     this.outboxRuntime = null;
+    this.workloadMigrationRuntime = null;
 
     log.info({ message: "Standalone queue workers stopped" });
   }

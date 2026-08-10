@@ -3,6 +3,13 @@ import type { NotificationConfiguration } from "@upstand/domain";
 import { NotificationTransportRegistry } from "./notification-transport";
 
 type JsonObject = Record<string, unknown>;
+const resolvePublicHost = async () => [{ address: "8.8.8.8" }];
+
+function createRegistry(
+  allowlistedHosts: readonly string[] = [],
+): NotificationTransportRegistry {
+  return new NotificationTransportRegistry(allowlistedHosts, resolvePublicHost);
+}
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -45,7 +52,7 @@ describe("NotificationTransportRegistry", () => {
     });
 
     try {
-      const registry = new NotificationTransportRegistry();
+      const registry = createRegistry();
       const config: NotificationConfiguration = {
         type: "slack",
         webhookUrl: "https://hooks.slack.com/services/XXX/YYY/ZZZ",
@@ -98,7 +105,7 @@ describe("NotificationTransportRegistry", () => {
     });
 
     try {
-      const registry = new NotificationTransportRegistry();
+      const registry = createRegistry();
       const config: NotificationConfiguration = {
         type: "telegram",
         botToken: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
@@ -138,7 +145,7 @@ describe("NotificationTransportRegistry", () => {
     });
 
     try {
-      const registry = new NotificationTransportRegistry();
+      const registry = createRegistry();
       const config: NotificationConfiguration = {
         type: "discord",
         webhookUrl: "https://discord.com/api/webhooks/123/abc",
@@ -176,7 +183,7 @@ describe("NotificationTransportRegistry", () => {
     });
 
     try {
-      const registry = new NotificationTransportRegistry(["example.com"]);
+      const registry = createRegistry(["example.com"]);
       const config: NotificationConfiguration = {
         type: "custom",
         endpoint: "https://example.com/webhooks/upstand",
@@ -219,7 +226,7 @@ describe("NotificationTransportRegistry", () => {
     );
 
     try {
-      const registry = new NotificationTransportRegistry();
+      const registry = createRegistry();
       await registry.send(
         {
           type: "slack",

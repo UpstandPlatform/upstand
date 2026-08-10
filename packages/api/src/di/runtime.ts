@@ -195,6 +195,58 @@ export function registerRuntime(services: ServiceCollection) {
         c.resolve(dependencies.UnitOfWorkToken),
       ),
   );
+  services.addTransient(
+    dependencies.MigrateResourceUseCaseToken,
+    (c) =>
+      new dependencies.MigrateResourceUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
+    dependencies.WorkloadMigrationPortToken,
+    (c) =>
+      new dependencies.DockerWorkloadMigrationPort(
+        c.resolve(dependencies.UnitOfWorkToken),
+        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.CaddyServiceToken),
+      ),
+  );
+  services.addTransient(
+    dependencies.GetWorkloadMigrationUseCaseToken,
+    (c) =>
+      new dependencies.GetWorkloadMigrationUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
+    dependencies.GetResourceWorkloadMigrationUseCaseToken,
+    (c) =>
+      new dependencies.GetResourceWorkloadMigrationUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
+    dependencies.CancelWorkloadMigrationUseCaseToken,
+    (c) =>
+      new dependencies.CancelWorkloadMigrationUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
+    dependencies.RollbackWorkloadMigrationUseCaseToken,
+    (c) =>
+      new dependencies.RollbackWorkloadMigrationUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
+    dependencies.ConfirmWorkloadMigrationUseCaseToken,
+    (c) =>
+      new dependencies.ConfirmWorkloadMigrationUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+        c.resolve(dependencies.WorkloadMigrationPortToken),
+      ),
+  );
 
   // Swarm Containers registration
   services.addTransient(

@@ -75,7 +75,6 @@ export const SESSION_ONLY_PROCEDURES = [
   "secret.createRotationSchedule",
   "secret.updateRotationSchedule",
   "secret.deleteRotationSchedule",
-  "server.migrateResource",
   "schedule.listForOrganization",
   "scim.create",
   "scim.list",

@@ -55,4 +55,32 @@ describe("UpstandClient", () => {
       "Expected namespace.action",
     );
   });
+
+  test("streams transfer requests with an ephemeral owner session cookie", async () => {
+    let request: Request | undefined;
+    const client = new UpstandClient(
+      {
+        apiUrl: "https://example.test",
+        sessionCookie: "better-auth.session_token=owner-session",
+        output: "json",
+        yes: false,
+      },
+      async (input, init) => {
+        request = new Request(String(input), init);
+        return new Response("transfer", { status: 200 });
+      },
+    );
+
+    const response = await client.exportControlPlane({
+      includeSecrets: false,
+    });
+
+    expect(request?.url).toBe(
+      "https://example.test/api/control-plane-transfer/export",
+    );
+    expect(request?.headers.get("cookie")).toBe(
+      "better-auth.session_token=owner-session",
+    );
+    expect(await response.text()).toBe("transfer");
+  });
 });

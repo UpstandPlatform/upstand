@@ -32,4 +32,32 @@ describe("production origin safety", () => {
       }),
     ).not.toThrow();
   });
+
+  test("allows only loopback HTTP origins for the production desktop runtime", () => {
+    expect(() =>
+      assertSecureProductionOrigins({
+        ...secureOrigins,
+        platform: "desktop",
+        betterAuthUrl: "http://127.0.0.1:54319",
+        corsOrigin: "http://[::1]:3000",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      assertSecureProductionOrigins({
+        ...secureOrigins,
+        platform: "desktop",
+        betterAuthUrl: "http://localhost:54319",
+        corsOrigin: "http://127.0.0.1:3000",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      assertSecureProductionOrigins({
+        ...secureOrigins,
+        platform: "desktop",
+        betterAuthUrl: "http://192.0.2.10:54319",
+      }),
+    ).toThrow("BETTER_AUTH_URL must use an HTTPS origin");
+  });
 });
