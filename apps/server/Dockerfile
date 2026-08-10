@@ -21,6 +21,13 @@ FROM oven/bun:1.3.14-slim@sha256:d56a2534ffd262e92c12fd3249d3924d296d97086da773f
 WORKDIR /app
 ENV NODE_ENV=production
 
+ARG UPSTAND_VERSION=development
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="Upstand Server" \
+      org.opencontainers.image.version="$UPSTAND_VERSION" \
+      org.opencontainers.image.revision="$VCS_REF" \
+      org.opencontainers.image.source="https://github.com/UpstandPlatform/upstand"
+
 ARG TARGETARCH
 ARG NIXPACKS_VERSION=1.41.0
 ARG UPSTAND_RCLONE_VERSION=1.74.4

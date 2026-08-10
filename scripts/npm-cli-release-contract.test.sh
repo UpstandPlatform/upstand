@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/npm-cli.yml"
 RUNBOOK="$ROOT_DIR/RELEASING.md"
 README="$ROOT_DIR/packages/cli/README.md"
+PACKAGE="$ROOT_DIR/packages/cli/package.json"
 
 require_text() {
   local file="$1"
@@ -43,5 +44,24 @@ fi
 require_text "$RUNBOOK" 'npm trusted publishing'
 require_text "$RUNBOOK" 'npm-cli.yml'
 require_text "$README" 'npm install -g @upstand/cli'
+
+node - "$PACKAGE" <<'NODE'
+const fs = require("node:fs");
+const packageJson = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const runtimeDependencies = {
+  ...(packageJson.dependencies ?? {}),
+  ...(packageJson.optionalDependencies ?? {}),
+};
+const invalid = Object.entries(runtimeDependencies).filter(([, range]) =>
+  /^(catalog:|workspace:|file:|link:)/.test(String(range)),
+);
+if (invalid.length > 0) {
+  console.error(
+    `published CLI runtime dependencies must use registry-resolvable semver ranges: ${invalid.map(([name, range]) => `${name}=${range}`).join(", ")}`,
+  );
+  process.exit(1);
+}
+NODE
+require_text "$PACKAGE" '"zod": "^4.4.3"'
 
 echo "npm CLI release contract passed."
