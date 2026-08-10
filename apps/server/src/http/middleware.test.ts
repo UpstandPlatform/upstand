@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { evlog } from "evlog/hono";
 import { Hono } from "hono";
 import { MAX_HTTP_REQUEST_BYTES, registerHttpMiddleware } from "./middleware";
 
@@ -6,6 +7,7 @@ describe("HTTP middleware request limits", () => {
   test("does not run authentication identification for public system probes", async () => {
     const identifiedPaths: string[] = [];
     const app = new Hono();
+    app.use(evlog({ drain: () => undefined }));
     registerHttpMiddleware(app as never, {
       getServiceProvider: () =>
         ({
@@ -32,6 +34,7 @@ describe("HTTP middleware request limits", () => {
   test("rejects oversized request bodies before route handlers run", async () => {
     let handlerCalled = false;
     const app = new Hono();
+    app.use(evlog({ drain: () => undefined }));
     registerHttpMiddleware(app as never, {
       getServiceProvider: () =>
         ({
@@ -56,6 +59,7 @@ describe("HTTP middleware request limits", () => {
 
   test("keeps arbitrary-origin MCP CORS responses credentialless", async () => {
     const app = new Hono();
+    app.use(evlog({ drain: () => undefined }));
     registerHttpMiddleware(app as never, {
       getServiceProvider: () =>
         ({
@@ -84,6 +88,7 @@ describe("HTTP middleware request limits", () => {
   test("rejects untrusted origins on state-changing cookie requests", async () => {
     let handlerCalled = false;
     const app = new Hono();
+    app.use(evlog({ drain: () => undefined }));
     registerHttpMiddleware(app as never, {
       getServiceProvider: () =>
         ({
@@ -110,6 +115,7 @@ describe("HTTP middleware request limits", () => {
 
   test("allows trusted dashboard origins on state-changing requests", async () => {
     const app = new Hono();
+    app.use(evlog({ drain: () => undefined }));
     registerHttpMiddleware(app as never, {
       getServiceProvider: () =>
         ({
@@ -128,5 +134,28 @@ describe("HTTP middleware request limits", () => {
     );
 
     expect(response.status).toBe(200);
+  });
+
+  test("propagates safe request IDs and replaces unsafe values", async () => {
+    const app = new Hono();
+    app.use(evlog({ drain: () => undefined }));
+    registerHttpMiddleware(app as never, {
+      getServiceProvider: () =>
+        ({
+          createScope: () => ({ dispose: async () => undefined }),
+        }) as never,
+      identifyUser: async () => false,
+    });
+    app.get("/request-id", (c) => c.text("ok"));
+
+    const preserved = await app.request("/request-id", {
+      headers: { "X-Request-ID": "request-123" },
+    });
+    expect(preserved.headers.get("x-request-id")).toBe("request-123");
+
+    const replaced = await app.request("/request-id", {
+      headers: { "X-Request-ID": "unsafe request id" },
+    });
+    expect(replaced.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

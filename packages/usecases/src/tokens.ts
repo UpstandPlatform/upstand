@@ -435,6 +435,28 @@ export const UpdateServerUseCaseToken =
   createToken<UseCases.UpdateServerUseCase>("UpdateServerUseCase");
 export const MigrateResourceUseCaseToken =
   createToken<UseCases.MigrateResourceUseCase>("MigrateResourceUseCase");
+export const WorkloadMigrationPortToken =
+  createToken<UseCases.WorkloadMigrationPort>("WorkloadMigrationPort");
+export const GetWorkloadMigrationUseCaseToken =
+  createToken<UseCases.GetWorkloadMigrationUseCase>(
+    "GetWorkloadMigrationUseCase",
+  );
+export const GetResourceWorkloadMigrationUseCaseToken =
+  createToken<UseCases.GetResourceWorkloadMigrationUseCase>(
+    "GetResourceWorkloadMigrationUseCase",
+  );
+export const CancelWorkloadMigrationUseCaseToken =
+  createToken<UseCases.CancelWorkloadMigrationUseCase>(
+    "CancelWorkloadMigrationUseCase",
+  );
+export const RollbackWorkloadMigrationUseCaseToken =
+  createToken<UseCases.RollbackWorkloadMigrationUseCase>(
+    "RollbackWorkloadMigrationUseCase",
+  );
+export const ConfirmWorkloadMigrationUseCaseToken =
+  createToken<UseCases.ConfirmWorkloadMigrationUseCase>(
+    "ConfirmWorkloadMigrationUseCase",
+  );
 export const GetServerHistoricalMetricsUseCaseToken =
   createToken<UseCases.GetServerHistoricalMetricsUseCase>(
     "GetServerHistoricalMetricsUseCase",

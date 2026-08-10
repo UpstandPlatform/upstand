@@ -1,0 +1,81 @@
+---
+title: Runtime and migration runbook
+description: Production procedures for immutable deployments, workload moves, and portable control-plane cutovers.
+---
+
+## Deployment invariants
+
+Every deployment must expose its resolved target, execution runtime, build
+location, source revision, detector version, configuration version, and
+digest-addressed artifact. Treat the saved deployment plan as immutable. A
+redeploy or rollback reuses that plan; changing build semantics creates a new
+deployment.
+
+Unsupported target/runtime combinations fail with a capability error. Do not
+work around a capability rejection by editing placement data. Docker workloads
+must retain their per-resource network, resource limits, health check, dropped
+capabilities, `no-new-privileges`, and namespace/socket escape checks. Bare
+workloads must use the platform supervisor and its explicit stop/start rollback
+semantics.
+
+## Workload migration
+
+1. Run preflight and resolve every failure before transfer. Confirm source and
+   target health, runtime compatibility, disk, ports, registry access,
+   credentials, volume support, and database consistency.
+2. Start the migration and monitor the durable migration status. A worker
+   restart may replay a step; steps are idempotent and the live `serverId` is
+   not changed during preflight or shadow deployment.
+3. Stateful resources are quiesced when their native dump/snapshot contract
+   requires it. Unsupported state transfer fails before routing cutover.
+4. After shadow health and smoke checks pass, routing switches to the target.
+   The source remains available for rollback.
+5. Use rollback if target validation degrades. Confirm source cleanup only
+   after the observation window and backup verification pass.
+
+CLI examples:
+
+```bash
+upstand server migrate <resource-id> --target <server-id> --organization <org-id>
+upstand server migration-status --resource <resource-id> --organization <org-id>
+upstand server migration-rollback <migration-id> --organization <org-id>
+upstand server migration-confirm <migration-id> --organization <org-id> --yes
+```
+
+## Control-plane cutover
+
+Portable exports are application-level NDJSON streams with a versioned
+manifest, dependency ordering, table checksums, and an optional encrypted
+secret bundle. Secret exports require `UPSTAND_TRANSFER_PASSPHRASE`; never put
+the passphrase on a command line or in shell history.
+
+1. Verify a current destination backup and enough free disk for staging.
+2. Export from the source. The operation requires an instance-owner session
+   with recent 2FA; API keys cannot export installation data.
+3. Import in `merge` mode first and review deterministic conflicts. Use
+   `replace` only for an intentional destination replacement.
+4. Validate organizations, projects, resources, schedules, backups, servers,
+   settings, audit history, and credential connectivity. Exported credentials
+   are decrypted only in memory and re-encrypted with the destination key.
+5. Existing sessions and non-portable authentication factors are invalidated.
+   Users must sign in again and may need to relink OAuth or re-enroll 2FA.
+6. Reconcile DNS/proxy routing, redeploy restored workloads, run smoke checks,
+   and keep the source read-only until rollback risk is accepted.
+
+```bash
+export UPSTAND_SESSION_COOKIE='better-auth.session_token=...'
+export UPSTAND_TRANSFER_PASSPHRASE='read-from-a-secret-manager'
+upstand control-plane export --file upstand.ndjson --include-secrets
+upstand control-plane import --file upstand.ndjson --mode merge
+```
+
+Cloud-owned projects are never exported into a locally authoritative shadow.
+Use the versioned cloud gateway promote or bring-home operation so ownership
+has exactly one canonical source.
+
+## Incident evidence
+
+Record the response `X-Request-ID`. The same correlation ID is attached to the
+audit event, outbox payload, queue job, deployment, backup, notification, and
+migration telemetry. Do not paste raw exports, tokens, environment values, or
+private logs into an incident ticket.

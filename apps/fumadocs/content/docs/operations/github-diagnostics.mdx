@@ -1,0 +1,43 @@
+---
+title: GitHub diagnostics and recovery
+description: Redacted checks for GitHub App, repository, webhook, clone, and deployment failures.
+---
+
+Run diagnostics with an organization API key that has `git_provider:view`:
+
+```bash
+upstand diagnostics github owner/repository \
+  --organization <organization-id> \
+  --provider <git-provider-id> \
+  --ref main \
+  --resource <resource-id> \
+  --json
+```
+
+The command returns exit code `0` when no fail-level check remains and `4`
+when deployment readiness is blocked. Results contain stable `GH_*` codes,
+redacted details, and an operator action. Tokens, private keys, webhook
+secrets, clone credentials, and response bodies are never returned.
+
+The workflow checks App installation or token authentication, repository
+contents permission, ref-to-commit resolution, authenticated HTTPS clone
+availability, active webhook configuration, signature-secret configuration,
+durable replay protection, rate-limit headroom, and saved resource
+repository/ref matching.
+
+Common blockers:
+
+| Code | Recovery |
+| --- | --- |
+| `GH_AUTH_FAILED` | Reconnect the provider and reinstall/authorize it for the repository. |
+| `GH_REPOSITORY_PERMISSION_DENIED` | Grant GitHub App `Contents: Read` and repository access. |
+| `GH_REF_NOT_FOUND` | Correct the resource branch/tag or restore the missing ref. |
+| `GH_WEBHOOK_SIGNATURE_MISSING` | Reconnect the App so Upstand receives a webhook secret. |
+| `GH_WEBHOOK_REPLAY_STORE_UNAVAILABLE` | Restore Redis; webhook processing fails closed without replay storage. |
+| `GH_RATE_LIMIT_LOW` | Wait for reset or reduce API activity. |
+| `GH_DEPLOYMENT_MATCH_MISMATCH` | Align the resource repository/ref with the diagnostic target. |
+
+After changing App permissions, approve the installation update in GitHub,
+rerun diagnostics, send a test webhook delivery, and verify the delivery ID
+appears once in Upstand telemetry. Use the response `X-Request-ID` to correlate
+API, audit, queue, and deployment evidence.

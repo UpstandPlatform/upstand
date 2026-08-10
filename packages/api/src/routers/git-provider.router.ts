@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { GitHubDiagnosticsHttpClient } from "@upstand/infrastructure";
 import { redis, withRedisTimeout } from "@upstand/redis";
 import {
   CreateGitProviderInputSchema,
@@ -9,6 +10,8 @@ import {
   gitProviderOAuthStateKey,
   ListGitBranchesInputSchema,
   ListGitRepositoriesInputSchema,
+  RunGitHubDiagnosticsInputSchema,
+  RunGitHubDiagnosticsUseCase,
   redactGitProvider,
   UpdateGitProviderInputSchema,
 } from "@upstand/usecases";
@@ -23,10 +26,39 @@ import {
 } from "@upstand/usecases/tokens";
 import { z } from "zod";
 import { handleUseCaseError } from "../errors";
-import { router, twoFactorVerifiedProcedure } from "../index";
+import {
+  protectedProcedure,
+  router,
+  twoFactorVerifiedProcedure,
+} from "../index";
 import { checkPermission } from "../permissions";
 
 export const gitProviderRouter = router({
+  diagnostics: protectedProcedure
+    .input(RunGitHubDiagnosticsInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "git_provider:view",
+      );
+      try {
+        return await new RunGitHubDiagnosticsUseCase(
+          ctx.scope.resolve(UnitOfWorkToken),
+          new GitHubDiagnosticsHttpClient(),
+          async () => {
+            try {
+              return (await withRedisTimeout(redis.ping(), 1_000)) === "PONG";
+            } catch {
+              return false;
+            }
+          },
+        ).execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
   createOAuthState: twoFactorVerifiedProcedure
     .input(
       GetGitProvidersInputSchema.pick({ organizationId: true }).extend({

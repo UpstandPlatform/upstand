@@ -303,6 +303,7 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
 
           await new QueueDeploymentUseCase(uow).execute({
             resourceId: resource.id,
+            correlationId: c.get("correlationId"),
             title: `PR #${prNumber} preview deployment (${action})`,
             previewDeploymentId: preview.id,
           });

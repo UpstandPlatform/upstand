@@ -15,6 +15,7 @@ export const BACKUP_RUN_QUEUE = "backup-run";
 
 export const TriggerBackupRunInputSchema = z.object({
   scheduleId: z.string().min(1),
+  correlationId: z.string().min(1).max(128).optional(),
 });
 export type TriggerBackupRunInput = z.infer<typeof TriggerBackupRunInputSchema>;
 
@@ -48,7 +49,10 @@ export class TriggerBackupRunUseCase {
           kind: schedule.kind,
           status: "queued",
         });
-        const payload: BackupRunOutboxPayload = { runId: run.id };
+        const payload: BackupRunOutboxPayload = {
+          runId: run.id,
+          correlationId: input.correlationId,
+        };
         await tx.outboxRepository.create({
           id: run.id,
           type: OUTBOX_COMMAND_TYPES.backupRun,
