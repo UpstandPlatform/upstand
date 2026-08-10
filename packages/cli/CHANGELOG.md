@@ -1,5 +1,11 @@
 # @upstand/cli
 
+## 0.2.1
+
+### Patch Changes
+
+- [#236](https://github.com/UpstandPlatform/upstand/pull/236) [`4803a37`](https://github.com/UpstandPlatform/upstand/commit/4803a37aec55d30436a1e8a6dc5b4db147f5b377) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix the published CLI package so its runtime Zod dependency uses a registry-resolvable semver range.
+
 ## 0.2.0
 
 ### Minor Changes
