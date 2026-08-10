@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { requestJson, requestJsonWithResponse } from "./http";
 
 const originalFetch = globalThis.fetch;
+const resolvePublicHost = async () => [{ address: "8.8.8.8" }];
 
 function mockFetch(response: Response): void {
   globalThis.fetch = (async () => response) as unknown as typeof fetch;
@@ -20,6 +21,7 @@ describe("git provider HTTP helpers", () => {
         "https://api.github.com",
         undefined,
         () => "request failed",
+        resolvePublicHost,
       ),
     ).resolves.toEqual({ value: "ok" });
   });
@@ -36,6 +38,7 @@ describe("git provider HTTP helpers", () => {
       "https://api.github.com",
       undefined,
       () => "request failed",
+      resolvePublicHost,
     );
 
     expect(result.data).toEqual([{ name: "main" }]);
@@ -52,6 +55,7 @@ describe("git provider HTTP helpers", () => {
         "https://api.github.com",
         undefined,
         (response) => `provider failed: ${response.statusText}`,
+        resolvePublicHost,
       ),
     ).rejects.toThrow("provider failed: Bad Request");
   });

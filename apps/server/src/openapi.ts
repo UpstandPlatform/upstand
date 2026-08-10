@@ -5,7 +5,8 @@ import { env } from "@upstand/env/server";
 
 const require = createRequire(import.meta.url);
 const swaggerUiDirectory =
-  require("swagger-ui-dist").getAbsoluteFSPath() as string;
+  env.SWAGGER_UI_ASSETS_DIR ??
+  (require("swagger-ui-dist").getAbsoluteFSPath() as string);
 const apiBaseUrl = new URL("/api", env.BETTER_AUTH_URL)
   .toString()
   .replace(/\/$/, "");

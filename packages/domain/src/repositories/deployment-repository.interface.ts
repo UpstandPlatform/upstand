@@ -16,6 +16,10 @@ export interface IDeploymentRepository {
   findByStatus(status: string, limit?: number): Promise<Deployment[]>;
   findByResourceId(resourceId: string): Promise<Deployment[]>;
   create(data: CreateDeploymentDTO): Promise<Deployment>;
+  setPlanIfAbsent(
+    id: string,
+    plan: import("../entities/deployment-plan").DeploymentPlan,
+  ): Promise<Deployment | null>;
   updateById(
     id: string,
     patch: UpdateDeploymentDTO,

@@ -33,6 +33,7 @@ import { DrizzleTemplateRepository } from "./template/drizzle-template.repositor
 import { DrizzleTwoFactorAdminRepository } from "./user/drizzle-two-factor-admin.repository";
 import { DrizzleUserRepository } from "./user/drizzle-user.repository";
 import { DrizzleWebServerSettingsRepository } from "./web-server/drizzle-web-server-settings.repository";
+import { DrizzleWorkloadMigrationRepository } from "./workload-migration/drizzle-workload-migration.repository";
 
 export class DrizzleUnitOfWork implements IUnitOfWork {
   public readonly auditLogRepository: DrizzleAuditLogRepository;
@@ -49,6 +50,7 @@ export class DrizzleUnitOfWork implements IUnitOfWork {
   public readonly sshKeyRepository: DrizzleSshKeyRepository;
   public readonly gitProviderRepository: DrizzleGitProviderRepository;
   public readonly webServerSettingsRepository: DrizzleWebServerSettingsRepository;
+  public readonly workloadMigrationRepository: DrizzleWorkloadMigrationRepository;
   public readonly s3DestinationRepository: DrizzleS3DestinationRepository;
   public readonly serverBuildSettingsRepository: DrizzleServerBuildSettingsRepository;
   public readonly deploymentRepository: DrizzleDeploymentRepository;
@@ -92,6 +94,9 @@ export class DrizzleUnitOfWork implements IUnitOfWork {
       this.executor,
     );
     this.webServerSettingsRepository = new DrizzleWebServerSettingsRepository(
+      this.executor,
+    );
+    this.workloadMigrationRepository = new DrizzleWorkloadMigrationRepository(
       this.executor,
     );
     this.s3DestinationRepository = new DrizzleS3DestinationRepository(

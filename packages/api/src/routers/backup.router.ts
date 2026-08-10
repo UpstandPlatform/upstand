@@ -221,7 +221,7 @@ export const backupRouter = router({
       try {
         return await ctx.scope
           .resolve(TriggerBackupRunUseCaseToken)
-          .execute(input);
+          .execute({ ...input, correlationId: ctx.correlationId });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -397,7 +397,7 @@ export const backupRouter = router({
       try {
         return await ctx.scope
           .resolve(TriggerBackupRunUseCaseToken)
-          .execute(input);
+          .execute({ ...input, correlationId: ctx.correlationId });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

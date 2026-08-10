@@ -13,10 +13,16 @@ afterEach(() => {
 
 describe("CLI argument parsing", () => {
   test("keeps boolean flags from consuming the next positional", async () => {
-    const context = await parseArgs(["--json", "project", "list"]);
+    const context = await parseArgs([
+      "--json",
+      "--include-secrets",
+      "control-plane",
+      "export",
+    ]);
 
-    expect(context.positionals).toEqual(["project", "list"]);
+    expect(context.positionals).toEqual(["control-plane", "export"]);
     expect(context.options.output).toBe("json");
+    expect(context.flags.has("include-secrets")).toBe(true);
   });
 
   test("supports explicit options and environment credentials", async () => {

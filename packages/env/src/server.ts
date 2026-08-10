@@ -79,6 +79,9 @@ const validatedEnv = createEnv({
       .default(false),
     UPSTAND_PLATFORM: z.enum(["desktop", "self-hosted", "cloud"]).optional(),
     PGLITE_DATA_DIR: z.string().min(1).optional(),
+    PGLITE_ASSETS_DIR: z.string().min(1).optional(),
+    SWAGGER_UI_ASSETS_DIR: z.string().min(1).optional(),
+    UPSTAND_NODE_RUNTIME_PATH: z.string().min(1).optional(),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
@@ -284,6 +287,7 @@ if (!skipValidation) {
   assertSecureProductionOrigins({
     nodeEnv: env.NODE_ENV,
     allowInsecureBootstrap: env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP,
+    platform: env.UPSTAND_PLATFORM,
     betterAuthUrl: env.BETTER_AUTH_URL,
     corsOrigin: env.CORS_ORIGIN,
   });

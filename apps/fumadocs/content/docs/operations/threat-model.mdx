@@ -1,0 +1,28 @@
+---
+title: Runtime threat model
+description: Trust boundaries and required controls for production Upstand runtimes.
+---
+
+## Security objectives
+
+Upstand must fail closed on unsupported isolation, keep cloud-owned data
+canonical upstream, prevent secrets from entering logs or exports, and make
+every privileged action attributable. Control-plane compromise remains a
+high-impact event: isolate manager nodes and installation keys accordingly.
+
+| Boundary | Primary threats | Required controls | Residual risk |
+| --- | --- | --- | --- |
+| Docker API/socket | Host takeover, privileged containers, namespace or socket escape | Manager-node isolation, explicit socket acknowledgement, per-resource networks, dropped capabilities, `no-new-privileges`, bounded mounts, host namespace/socket rejection | A compromised control-plane process with Docker access can control workloads |
+| SSH and server credentials | Credential theft, MITM, command injection | Encrypted credentials, strict host-key verification, structured command arguments, bounded output/timeouts, redaction, tenant authorization | An approved remote administrator can alter host state outside Upstand |
+| Arbitrary build code | Build-host escape, secret exfiltration, poisoned cache/artifact | Isolated cache/workspace, bounded logs, no runtime secrets during build, immutable digest/provenance, SBOM/signature hooks, build-here/run-there transfer | Kernel or builder-runtime vulnerabilities require host patching |
+| Cloud delegation | Confused deputy, dual ownership, contract downgrade | Versioned gateway contract, capability policy, tenant-bound authorization, explicit promote/bring-home, no local shadow copy | Hosted gateway availability is external to this repository |
+| Desktop local service | LAN exposure, IPC spoofing, local data theft, multi-instance corruption | Loopback-only ephemeral binding, secure cookies, sender/navigation validation, singleton PGlite lock, per-install keys, owner-only data files | A fully compromised OS user account can access that user's Upstand data |
+| Portable transfer | Offline secret theft, downgrade, partial import, tenant collision | Memory-hard KDF, authenticated encryption, checksums, schema compatibility, atomic staging, deterministic conflicts, destination re-encryption | Weak operator passphrases reduce offline resistance |
+| Webhooks and Git provider | Forgery, replay, token leakage, SSRF, permission drift | HMAC verification, durable replay store, HTTPS/host validation, bounded responses, redacted diagnostics, least-privilege installation permissions | Provider outages and rate limits can delay deployments |
+
+## Required review triggers
+
+Repeat threat review when adding a Docker mount/capability, supervisor backend,
+new portable entity or credential, cloud gateway version, desktop IPC channel,
+outbound provider host, or privileged API/CLI procedure. Add a regression test
+for the boundary and document the rollback/recovery procedure before release.

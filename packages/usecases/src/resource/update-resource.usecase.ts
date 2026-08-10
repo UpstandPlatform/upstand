@@ -458,6 +458,21 @@ export class UpdateResourceUseCase {
         );
       }
     }
+    if (input.serverId !== undefined) {
+      const currentServerId =
+        !resource.serverId || ["local", "manager"].includes(resource.serverId)
+          ? null
+          : resource.serverId;
+      const requestedServerId =
+        !input.serverId || ["local", "manager"].includes(input.serverId)
+          ? null
+          : input.serverId;
+      if (currentServerId !== requestedServerId) {
+        throw new ValidationError(
+          "Changing workload placement requires the durable server migration workflow.",
+        );
+      }
+    }
     if (requiresRemoteServerPlacement()) {
       if (
         input.serverId === null ||
