@@ -20,7 +20,7 @@
     "lint": "biome check ."
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.3.14",
+    "@electric-sql/pglite": "^0.5.4",
     "@upstand/domain": "workspace:*",
     "@upstand/env": "workspace:*",
     "dotenv": "catalog:",
@@ -28,7 +28,7 @@
     "pg": "^8.22.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.20.0",
+    "@types/pg": "^8.20.4",
     "@upstand/config": "workspace:*",
     "drizzle-kit": "^0.31.10",
     "typescript": "catalog:"

@@ -32,7 +32,7 @@
     "bullmq": "catalog:",
     "dockerode": "^5.0.1",
     "evlog": "catalog:",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^9.0.5",
     "ssh2": "^1.17.0",
     "yaml": "^2.9.0",
     "zod": "catalog:"

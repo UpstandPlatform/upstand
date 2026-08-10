@@ -104,14 +104,14 @@
     "release:tag": "bun scripts/create-release-tag.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.6",
+    "@biomejs/biome": "^2.5.7",
     "@changesets/changelog-github": "0.7.0",
     "@changesets/cli": "2.31.1",
     "@types/bun": "^1.3.14",
     "@upstand/config": "workspace:*",
     "@upstand/env": "workspace:*",
     "husky": "^9.1.7",
-    "knip": "^6.31.0",
+    "knip": "^6.32.0",
     "turbo": "^2.10.8",
     "typescript": "^7.0.2"
   },
