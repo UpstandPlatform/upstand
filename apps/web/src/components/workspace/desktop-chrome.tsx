@@ -27,6 +27,7 @@ type NavState = { canGoBack: boolean; canGoForward: boolean };
 type DesktopBridge = {
   isDesktop?: boolean;
   app?: { platform?: string };
+  runtime?: { mode?: "desktop" | "self-hosted" | "cloud" };
   connection?: { openPicker: () => Promise<void> };
   window?: {
     minimize: () => Promise<unknown>;
@@ -53,7 +54,8 @@ const getBridge = (): DesktopBridge | undefined => {
 
 function RuntimeStatus() {
   const { capabilities, isPending } = useSystemConfig();
-  const mode = capabilities?.mode ?? "self-hosted";
+  const mode =
+    capabilities?.mode ?? getBridge()?.runtime?.mode ?? "self-hosted";
   const label =
     mode === "desktop"
       ? "Local Desktop"

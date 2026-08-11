@@ -5,7 +5,7 @@ const originalWindow = globalThis.window;
 
 function setBrowserLocation(
   url: string,
-  runtime?: { apiOrigin: string },
+  runtime?: { apiOrigin: string; docsOrigin?: string },
 ): void {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -58,5 +58,14 @@ describe("runtime URL resolution", () => {
     expect(getServerApiUrl("/api/auth/get-session")).toBe(
       "https://self-hosted.example.com/api/auth/get-session",
     );
+  });
+
+  test("uses the active desktop profile documentation origin", () => {
+    setBrowserLocation("http://127.0.0.1:3001/", {
+      apiOrigin: "http://127.0.0.1:3000",
+      docsOrigin: "https://docs.upstand.dev",
+    });
+
+    expect(getDocsUrl()).toBe("https://docs.upstand.dev/docs/");
   });
 });

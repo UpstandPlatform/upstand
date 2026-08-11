@@ -16,6 +16,7 @@ export type DesktopRuntime = {
   mode: "desktop" | "self-hosted" | "cloud";
   dashboardOrigin: string;
   apiOrigin: string;
+  docsOrigin: string;
 };
 
 /**
@@ -60,6 +61,27 @@ export function getApiOriginForDashboardOrigin(origin: string): string {
   }
 
   return new URL(`${url.protocol}//api.${url.hostname}`).origin;
+}
+
+/** Resolve the documentation origin paired with a dashboard origin. */
+export function getDocsOriginForDashboardOrigin(origin: string): string {
+  const url = new URL(normalizeUpstandOrigin(origin));
+  if (url.hostname === "upstand.dev" || url.hostname.endsWith(".upstand.dev")) {
+    return "https://docs.upstand.dev";
+  }
+
+  if (url.hostname.startsWith("docs.")) return url.origin;
+
+  const prefixes = ["api.", "app.", "dashboard.", "console.", "www."];
+  for (const prefix of prefixes) {
+    if (url.hostname.startsWith(prefix)) {
+      return new URL(
+        `${url.protocol}//docs.${url.hostname.slice(prefix.length)}`,
+      ).origin;
+    }
+  }
+
+  return new URL(`${url.protocol}//docs.${url.hostname}`).origin;
 }
 
 function isLoopbackHost(hostname: string): boolean {

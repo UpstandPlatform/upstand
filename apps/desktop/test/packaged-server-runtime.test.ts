@@ -46,13 +46,15 @@ describe("packaged Desktop server runtime", () => {
 
   test("declares Upstand as the installed product and handles Squirrel lifecycle commands", () => {
     expect(desktopManifest).toContain('"productName": "Upstand"');
-    expect(forgeConfig).toContain('assets", "icon"');
+    expect(forgeConfig).toContain('assets", "icon.ico"');
+    expect(forgeConfig).toContain("setupIcon");
     expect(forgeConfig).toContain(
       "raw.githubusercontent.com/UpstandPlatform/upstand",
     );
     expect(mainProcess).toContain('from "electron-squirrel-startup"');
     expect(mainProcess).toContain("if (squirrelStartup)");
     expect(mainProcess).toContain('app.setPath("userData"');
+    expect(mainProcess).toContain('assets", "icon.png"');
     expect(forgeConfig).toContain("preMake");
     expect(forgeConfig).toContain('"squirrel.windows"');
   });
