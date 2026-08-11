@@ -1,8 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ConnectionMode } from "../main/connection-profiles";
-import type { DesktopConnectionProfile } from "../shared/connection";
+import type {
+  DesktopConnectionProfile,
+  DesktopRuntime,
+} from "../shared/connection";
 
 const localApiOrigin = ipcRenderer.sendSync("local-api:get-sync") as string;
+const runtime = ipcRenderer.sendSync(
+  "connection:runtime:get-sync",
+) as DesktopRuntime;
 
 const desktopBridge = {
   isDesktop: true,
@@ -14,8 +20,12 @@ const desktopBridge = {
   },
   connection: {
     get: () => ipcRenderer.invoke("connection:get"),
-    set: (origin: string) => ipcRenderer.invoke("connection:set", origin),
+    set: (
+      origin: string,
+      options?: { name?: string; mode?: DesktopRuntime["mode"] },
+    ) => ipcRenderer.invoke("connection:set", origin, options),
     clear: () => ipcRenderer.invoke("connection:clear"),
+    openPicker: () => ipcRenderer.invoke("connection:picker:open"),
     /** List all saved named connection profiles. */
     profiles: {
       list: () =>
@@ -50,6 +60,7 @@ const desktopBridge = {
   local: {
     apiOrigin: localApiOrigin,
   },
+  runtime,
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),
     toggleMaximize: () => ipcRenderer.invoke("window:toggle-maximize"),

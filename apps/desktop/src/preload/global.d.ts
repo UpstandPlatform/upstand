@@ -1,4 +1,4 @@
-import type { DesktopConnection } from "../shared/connection";
+import type { DesktopConnection, DesktopRuntime } from "../shared/connection";
 
 export type NavState = {
   canGoBack: boolean;
@@ -14,12 +14,27 @@ export type DesktopBridge = {
   };
   connection: {
     get: () => Promise<DesktopConnection | null>;
-    set: (origin: string) => Promise<DesktopConnection>;
+    set: (
+      origin: string,
+      options?: { name?: string; mode?: DesktopRuntime["mode"] },
+    ) => Promise<DesktopConnection>;
     clear: () => Promise<void>;
+    openPicker: () => Promise<void>;
+    profiles: {
+      list: () => Promise<
+        import("../shared/connection").DesktopConnectionProfile[]
+      >;
+      setActive: (
+        id: string,
+      ) => Promise<
+        import("../shared/connection").DesktopConnectionProfile | null
+      >;
+    };
   };
   local: {
     apiOrigin: string;
   };
+  runtime: DesktopRuntime;
   window: {
     minimize: () => Promise<unknown>;
     toggleMaximize: () => Promise<unknown>;

@@ -37,13 +37,16 @@ function getDesktopApiOrigin(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const desktop = (
     window as Window & {
-      upstandDesktop?: { local?: { apiOrigin?: unknown } };
+      upstandDesktop?: {
+        runtime?: { apiOrigin?: unknown };
+        local?: { apiOrigin?: unknown };
+      };
     }
   ).upstandDesktop;
-  // The preload API is asynchronous, so the current origin is injected by the
-  // desktop shell before navigation. This synchronous hook is reserved for a
-  // future cached value; normal browser requests continue through inference.
-  const value = desktop?.local?.apiOrigin;
+  // The desktop shell exposes the active profile's API origin synchronously so
+  // auth and API clients never accidentally use the embedded API when the
+  // window is connected to Cloud or another self-hosted control plane.
+  const value = desktop?.runtime?.apiOrigin ?? desktop?.local?.apiOrigin;
   return typeof value === "string" && value ? value : undefined;
 }
 

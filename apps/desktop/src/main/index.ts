@@ -15,12 +15,15 @@ import {
 import squirrelStartup from "electron-squirrel-startup";
 import {
   type DesktopConnection,
+  type DesktopRuntime,
+  getApiOriginForDashboardOrigin,
   isAllowedNavigation,
   normalizeUpstandOrigin,
 } from "../shared/connection";
 import type { ConnectionMode } from "./connection-profiles";
 import {
   addConnectionProfile,
+  clearActiveConnectionProfile,
   getActiveProfile,
   listConnectionProfiles,
   removeConnectionProfile,
@@ -41,6 +44,7 @@ app.setPath("userData", join(app.getPath("appData"), "desktop"));
 
 let mainWindow: BrowserWindow | null = null;
 let connection: DesktopConnection | null = null;
+let activeMode: DesktopRuntime["mode"] = "desktop";
 
 interface WindowConfig {
   windowBounds?: { x: number; y: number; width: number; height: number };
@@ -72,6 +76,39 @@ function saveWindowConfig(config: WindowConfig): void {
 
 function connectionFile(): string {
   return join(app.getPath("userData"), "connection.json");
+}
+
+function inferConnectionMode(origin: string): DesktopRuntime["mode"] {
+  try {
+    const hostname = new URL(origin).hostname;
+    return hostname === "upstand.dev" || hostname.endsWith(".upstand.dev")
+      ? "cloud"
+      : "self-hosted";
+  } catch {
+    return "self-hosted";
+  }
+}
+
+function getDesktopRuntime(): DesktopRuntime {
+  const dashboardOrigin = connection?.origin ?? getLocalDashboardOrigin();
+  if (!dashboardOrigin) {
+    return { mode: activeMode, dashboardOrigin: "", apiOrigin: "" };
+  }
+
+  try {
+    const url = new URL(dashboardOrigin);
+    const isLoopback =
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "[::1]";
+    const apiOrigin =
+      isLoopback || activeMode === "desktop"
+        ? getLocalApiOrigin()
+        : getApiOriginForDashboardOrigin(dashboardOrigin);
+    return { mode: activeMode, dashboardOrigin, apiOrigin };
+  } catch {
+    return { mode: activeMode, dashboardOrigin: "", apiOrigin: "" };
+  }
 }
 
 async function readConnection(): Promise<DesktopConnection | null> {
@@ -288,15 +325,41 @@ async function loadCurrentView(): Promise<void> {
  * renderer can show a real error, and must never persist a connection that
  * didn't actually load.
  */
-async function setConnection(origin: string): Promise<DesktopConnection> {
+async function setConnection(
+  origin: string,
+  options?: { name?: string; mode?: DesktopRuntime["mode"] },
+): Promise<DesktopConnection> {
   const normalized = normalizeUpstandOrigin(origin);
   if (!mainWindow) {
     throw new Error("Window is not ready yet.");
   }
-  await mainWindow.loadURL(new URL(normalized).toString());
+  const previousConnection = connection;
+  const previousMode = activeMode;
   connection = { origin: normalized };
+  activeMode = options?.mode ?? inferConnectionMode(normalized);
+  try {
+    await mainWindow.loadURL(new URL(normalized).toString());
+  } catch (error) {
+    connection = previousConnection;
+    activeMode = previousMode;
+    throw error;
+  }
   await saveConnection(connection);
+  if (options?.mode) {
+    await addConnectionProfile({
+      name: options.name?.trim() || normalized,
+      mode: options.mode,
+      origin: normalized,
+      setActive: true,
+    });
+  }
   return connection;
+}
+
+async function openConnectionPicker(): Promise<void> {
+  if (!mainWindow) return;
+  connection = null;
+  await mainWindow.loadFile(rendererPath());
 }
 
 async function openExternalWebUrl(value: string): Promise<void> {
@@ -419,12 +482,7 @@ function installMenu(): void {
                 type: "question",
               });
               if (response.response === 0) {
-                connection = null;
-                await saveConnection(null);
-                if (getLocalDashboardOrigin()) {
-                  connection = { origin: getLocalDashboardOrigin() };
-                }
-                await loadCurrentView();
+                await openConnectionPicker();
               }
             },
           },
@@ -463,17 +521,30 @@ function registerIpcHandlers(): void {
     validateIpcSender(event);
     return connection;
   });
-  ipcMain.handle("connection:set", (event, origin: string) => {
-    validateIpcSender(event);
-    return setConnection(origin);
-  });
+  ipcMain.handle(
+    "connection:set",
+    (
+      event,
+      origin: string,
+      options?: { name?: string; mode?: DesktopRuntime["mode"] },
+    ) => {
+      validateIpcSender(event);
+      return setConnection(origin, options);
+    },
+  );
   ipcMain.handle("connection:clear", async (event) => {
     validateIpcSender(event);
+    await clearActiveConnectionProfile();
     await saveConnection(null);
+    activeMode = "desktop";
     connection = getLocalDashboardOrigin()
       ? { origin: getLocalDashboardOrigin() }
       : null;
     await loadCurrentView();
+  });
+  ipcMain.handle("connection:picker:open", async (event) => {
+    validateIpcSender(event);
+    await openConnectionPicker();
   });
 
   // ------------------------------------------------------------------
@@ -498,7 +569,10 @@ function registerIpcHandlers(): void {
       const profile = await addConnectionProfile(opts);
       if (opts.setActive) {
         // Also switch the active connection window
-        await setConnection(profile.origin);
+        await setConnection(profile.origin, {
+          mode: profile.mode,
+          name: profile.name,
+        });
       }
       return profile;
     },
@@ -513,7 +587,10 @@ function registerIpcHandlers(): void {
       validateIpcSender(event);
       const profile = await setActiveConnectionProfile(id);
       if (profile) {
-        await setConnection(profile.origin);
+        await setConnection(profile.origin, {
+          mode: profile.mode,
+          name: profile.name,
+        });
       }
       return profile;
     },
@@ -523,6 +600,10 @@ function registerIpcHandlers(): void {
     const profile = await getActiveProfile();
     // Fall back to "desktop" when there is no profile (local embedded mode)
     return profile?.mode ?? "desktop";
+  });
+
+  ipcMain.on("connection:runtime:get-sync", (event) => {
+    event.returnValue = getDesktopRuntime();
   });
 
   ipcMain.handle("local-api:get", (event) => {
@@ -604,7 +685,16 @@ if (squirrelStartup) {
   });
 
   app.whenReady().then(async () => {
-    connection = await readConnection();
+    const activeProfile = await getActiveProfile();
+    if (activeProfile) {
+      connection = { origin: activeProfile.origin };
+      activeMode = activeProfile.mode;
+    } else {
+      connection = await readConnection();
+      activeMode = connection
+        ? inferConnectionMode(connection.origin)
+        : "desktop";
+    }
 
     ipcMain.on("local-api:get-sync", (event) => {
       event.returnValue = getLocalApiOrigin();
