@@ -1,5 +1,11 @@
 # @upstand/cli
 
+## 0.2.2
+
+### Patch Changes
+
+- [#245](https://github.com/UpstandPlatform/upstand/pull/245) [`9d82f72`](https://github.com/UpstandPlatform/upstand/commit/9d82f72ec1ac05c139129de815d9fca3df8d1d40) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep one-shot CLI output visible in terminal scrollback instead of clearing it on exit.
+
 ## 0.2.1
 
 ### Patch Changes
