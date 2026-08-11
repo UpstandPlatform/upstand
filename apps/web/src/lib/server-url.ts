@@ -48,14 +48,36 @@ function getDesktopApiOrigin(): string | undefined {
 }
 
 function inferApiOrigin(protocol: string, hostname: string, port = ""): string {
-  const apiHostname = hostname.startsWith("app.")
-    ? `api.${hostname.slice("app.".length)}`
-    : hostname;
+  const apiHostname = inferSiblingHostname(hostname, "api");
   const apiPort =
     port === "3001" ? "3000" : isLoopbackHost(hostname) ? "3000" : port;
   const portSuffix = apiPort ? `:${apiPort}` : "";
 
   return new URL(`${protocol}//${apiHostname}${portSuffix}`).origin;
+}
+
+function inferSiblingHostname(hostname: string, sibling: "api" | "docs") {
+  if (hostname === "localhost" || isLoopbackHost(hostname)) {
+    return hostname;
+  }
+
+  if (hostname.startsWith(`${sibling}.`)) {
+    return hostname;
+  }
+
+  for (const prefix of ["api.", "docs."]) {
+    if (hostname.startsWith(prefix)) {
+      return `${sibling}.${hostname.slice(prefix.length)}`;
+    }
+  }
+
+  for (const prefix of ["app.", "dashboard.", "console.", "www."]) {
+    if (hostname.startsWith(prefix)) {
+      return `${sibling}.${hostname.slice(prefix.length)}`;
+    }
+  }
+
+  return `${sibling}.${hostname}`;
 }
 
 /** Resolve the API origin at runtime for immutable self-hosted web images. */
@@ -145,7 +167,7 @@ export function getDocsUrl(path = ""): string {
     if (isLoopbackHost(hostname) && (port === "3001" || port === "3000")) {
       return `http://${hostname}:4000${docsPath}`;
     }
-    return `${protocol}//${hostname}${port ? `:${port}` : ""}${docsPath}`;
+    return `${protocol}//${inferSiblingHostname(hostname, "docs")}${docsPath}`;
   }
 
   const configuredServerUrl = parseConfiguredUrl(env.NEXT_PUBLIC_SERVER_URL);
@@ -154,7 +176,10 @@ export function getDocsUrl(path = ""): string {
       return `${configuredServerUrl.protocol}//${configuredServerUrl.hostname}:4000${docsPath}`;
     }
 
-    const docsHostname = `docs.${configuredServerUrl.hostname}`;
+    const docsHostname = inferSiblingHostname(
+      configuredServerUrl.hostname,
+      "docs",
+    );
     return `${configuredServerUrl.protocol}//${docsHostname}${docsPath}`;
   }
 
