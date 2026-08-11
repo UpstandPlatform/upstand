@@ -668,11 +668,11 @@ export default function WebServerDashboard(_props: {
     setPortsModalOpen(false);
   };
 
-  const { isCloud, platformMode } = useSystemConfig();
+  const { isCloud, isInstanceOwner, platformMode } = useSystemConfig();
   const isDesktop = platformMode === "desktop";
   const isSaving = updateSettingsMutation.isPending;
 
-  if (isCloud) {
+  if (isCloud && !isInstanceOwner) {
     return (
       <DashboardPage className="gap-6">
         <DashboardPageHeader

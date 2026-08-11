@@ -3,6 +3,7 @@ import { getServerApiUrl } from "@/lib/server-url";
 
 type SystemConfig = {
   isCloud: boolean;
+  isInstanceOwner: boolean;
   platformMode: "desktop" | "self-hosted" | "cloud";
   capabilities: {
     mode: "desktop" | "self-hosted" | "cloud";
@@ -36,6 +37,7 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
 
   const payload = (await response.json()) as {
     isCloud?: unknown;
+    isInstanceOwner?: unknown;
     platformMode?: unknown;
     capabilities?: SystemConfig["capabilities"];
   };
@@ -49,6 +51,7 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
         : "self-hosted";
   return {
     isCloud: platformMode === "cloud",
+    isInstanceOwner: payload.isInstanceOwner === true,
     platformMode,
     capabilities: payload.capabilities ?? {
       mode: platformMode,
@@ -84,6 +87,7 @@ export function useSystemConfig() {
   return {
     ...query,
     isCloud: query.data?.isCloud === true,
+    isInstanceOwner: query.data?.isInstanceOwner === true,
     platformMode: query.data?.platformMode ?? "self-hosted",
     capabilities: query.data?.capabilities,
   };

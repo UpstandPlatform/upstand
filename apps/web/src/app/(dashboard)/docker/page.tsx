@@ -329,13 +329,14 @@ type PendingRemoval =
     };
 
 export default function DockerInventoryPage() {
-  const { isCloud } = useSystemConfig();
+  const { isCloud, isInstanceOwner } = useSystemConfig();
+  const canInspectLocal = !isCloud || isInstanceOwner;
   const organizationState = useRequiredActiveOrganization();
   const organizationId =
     organizationState.status === "ready"
       ? organizationState.organizationId
       : "";
-  const [serverId, setServerId] = useState(isCloud ? "" : "local");
+  const [serverId, setServerId] = useState(canInspectLocal ? "local" : "");
   const [kind, setKind] = useState<(typeof kinds)[number]["id"]>("info");
 
   // Filtering & controls states
@@ -367,13 +368,17 @@ export default function DockerInventoryPage() {
   });
 
   useEffect(() => {
-    if (isCloud && (serverId === "local" || !serverId)) {
+    if (canInspectLocal && !serverId) {
+      setServerId("local");
+      return;
+    }
+    if (!canInspectLocal && (!serverId || serverId === "local")) {
       const firstRemote = serversQuery.data?.[0]?.id;
       if (firstRemote) {
         setServerId(firstRemote);
       }
     }
-  }, [isCloud, serverId, serversQuery.data]);
+  }, [canInspectLocal, serverId, serversQuery.data]);
 
   // Query all containers on the server to populate logs/stats selects
   const containersQuery = useQuery({
@@ -560,7 +565,7 @@ export default function DockerInventoryPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {!isCloud && (
+                  {canInspectLocal && (
                     <SelectItem value="local">Local Docker Daemon</SelectItem>
                   )}
                   {(serversQuery.data ?? []).map((server) => (

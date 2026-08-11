@@ -1,4 +1,6 @@
 import { getRateLimiterHealth } from "@upstand/api";
+import { auth } from "@upstand/api/auth";
+import { isInstanceOwner } from "@upstand/api/permissions";
 import { env } from "@upstand/env/server";
 import { pingRedis, redis } from "@upstand/redis";
 import {
@@ -64,10 +66,15 @@ export function registerSetupStatusRoute(app: Hono<AppEnv>): void {
       platform: env.UPSTAND_PLATFORM,
       isCloud: env.IS_CLOUD,
     });
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const instanceOwner = session
+      ? await isInstanceOwner({ userId: session.user.id, kind: "session" })
+      : false;
     return c.json({
       ...status,
       isCloud: platformMode === "cloud",
       platformMode,
+      isInstanceOwner: instanceOwner,
       capabilities: getPlatformCapabilities(platformMode),
     });
   });

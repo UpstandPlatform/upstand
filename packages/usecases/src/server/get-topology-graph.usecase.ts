@@ -19,6 +19,10 @@ export const GetTopologyGraphInputSchema = z.object({
 
 export type GetTopologyGraphInput = z.infer<typeof GetTopologyGraphInputSchema>;
 
+export type GetTopologyGraphOptions = {
+  includeLocal?: boolean;
+};
+
 export type TopologyNodeScope = "managed" | "platform" | "external";
 export type TopologyNodePlacement = "local" | "remote-server";
 
@@ -204,20 +208,28 @@ export class GetTopologyGraphUseCase {
     private readonly getDockerInventory: GetDockerInventoryUseCase,
   ) {}
 
-  async execute(input: GetTopologyGraphInput): Promise<TopologyGraphResponse> {
+  async execute(
+    input: GetTopologyGraphInput,
+    options: GetTopologyGraphOptions = {},
+  ): Promise<TopologyGraphResponse> {
     const mode = getConfiguredControlPlaneMode();
     const capabilities = getPlatformCapabilities(mode);
+    const includeLocal = options.includeLocal !== false;
 
     const configuredServers = await this.getServers.execute({
       organizationId: input.organizationId,
     });
     const allServers: TopologyServer[] = [
-      {
-        id: "local",
-        name: "Local Server",
-        ipAddress: "127.0.0.1",
-        status: "ready",
-      },
+      ...(includeLocal
+        ? [
+            {
+              id: "local",
+              name: "Local Server",
+              ipAddress: "127.0.0.1",
+              status: "ready",
+            } satisfies TopologyServer,
+          ]
+        : []),
       ...configuredServers,
     ];
     const selectedServers =
