@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getApiOriginForDashboardOrigin,
+  getDocsOriginForDashboardOrigin,
   isAllowedNavigation,
   normalizeUpstandOrigin,
 } from "../src/shared/connection";
@@ -43,5 +44,14 @@ describe("desktop connection policy", () => {
     expect(
       getApiOriginForDashboardOrigin("https://dashboard.example.com"),
     ).toBe("https://api.example.com");
+  });
+
+  test("maps dashboard origins to their documentation origins", () => {
+    expect(getDocsOriginForDashboardOrigin("https://upstand.dev")).toBe(
+      "https://docs.upstand.dev",
+    );
+    expect(getDocsOriginForDashboardOrigin("https://app.example.com")).toBe(
+      "https://docs.example.com",
+    );
   });
 });

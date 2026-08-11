@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -17,6 +17,7 @@ import {
   type DesktopConnection,
   type DesktopRuntime,
   getApiOriginForDashboardOrigin,
+  getDocsOriginForDashboardOrigin,
   isAllowedNavigation,
   normalizeUpstandOrigin,
 } from "../shared/connection";
@@ -45,6 +46,10 @@ app.setPath("userData", join(app.getPath("appData"), "desktop"));
 let mainWindow: BrowserWindow | null = null;
 let connection: DesktopConnection | null = null;
 let activeMode: DesktopRuntime["mode"] = "desktop";
+let activeApiOrigin = "";
+let activeDocsOrigin = "";
+
+const OFFICIAL_DOCS_ORIGIN = "https://docs.upstand.dev";
 
 interface WindowConfig {
   windowBounds?: { x: number; y: number; width: number; height: number };
@@ -89,25 +94,120 @@ function inferConnectionMode(origin: string): DesktopRuntime["mode"] {
   }
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function isApiOrigin(origin: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      new URL("/api/setup/status", `${origin}/`).toString(),
+      { signal: AbortSignal.timeout(2_500) },
+    );
+    if (!response.ok) return false;
+    const payload = (await response.json()) as unknown;
+    return Boolean(
+      payload &&
+        typeof payload === "object" &&
+        "needsOwnerSetup" in payload &&
+        typeof payload.needsOwnerSetup === "boolean",
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function isDocsOrigin(origin: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/docs/", `${origin}/`), {
+      signal: AbortSignal.timeout(2_500),
+    });
+    return (
+      response.ok && !response.headers.get("content-type")?.includes("json")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function resolveRuntimeOrigins(
+  dashboardOrigin: string,
+  mode: DesktopRuntime["mode"],
+): Promise<{ apiOrigin: string; docsOrigin: string }> {
+  if (mode === "desktop" || isLoopbackOrigin(dashboardOrigin)) {
+    return {
+      apiOrigin: getLocalApiOrigin(),
+      docsOrigin: OFFICIAL_DOCS_ORIGIN,
+    };
+  }
+
+  const apiCandidates = [
+    ...(mode === "cloud" ? [] : [dashboardOrigin]),
+    getApiOriginForDashboardOrigin(dashboardOrigin),
+  ].filter((origin, index, origins) => origins.indexOf(origin) === index);
+  let apiOrigin = apiCandidates[apiCandidates.length - 1] ?? dashboardOrigin;
+  for (const candidate of apiCandidates) {
+    if (await isApiOrigin(candidate)) {
+      apiOrigin = candidate;
+      break;
+    }
+  }
+
+  const docsCandidates = [
+    ...(mode === "cloud" ? [] : [dashboardOrigin]),
+    getDocsOriginForDashboardOrigin(dashboardOrigin),
+    OFFICIAL_DOCS_ORIGIN,
+  ].filter((origin, index, origins) => origins.indexOf(origin) === index);
+  let docsOrigin = OFFICIAL_DOCS_ORIGIN;
+  for (const candidate of docsCandidates) {
+    if (await isDocsOrigin(candidate)) {
+      docsOrigin = candidate;
+      break;
+    }
+  }
+
+  return { apiOrigin, docsOrigin };
+}
+
 function getDesktopRuntime(): DesktopRuntime {
   const dashboardOrigin = connection?.origin ?? getLocalDashboardOrigin();
   if (!dashboardOrigin) {
-    return { mode: activeMode, dashboardOrigin: "", apiOrigin: "" };
+    return {
+      mode: activeMode,
+      dashboardOrigin: "",
+      apiOrigin: "",
+      docsOrigin: OFFICIAL_DOCS_ORIGIN,
+    };
   }
 
   try {
-    const url = new URL(dashboardOrigin);
-    const isLoopback =
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "[::1]";
-    const apiOrigin =
-      isLoopback || activeMode === "desktop"
-        ? getLocalApiOrigin()
-        : getApiOriginForDashboardOrigin(dashboardOrigin);
-    return { mode: activeMode, dashboardOrigin, apiOrigin };
+    new URL(dashboardOrigin);
+    return {
+      mode: activeMode,
+      dashboardOrigin,
+      apiOrigin:
+        activeApiOrigin ||
+        (activeMode === "desktop" || isLoopbackOrigin(dashboardOrigin)
+          ? getLocalApiOrigin()
+          : getApiOriginForDashboardOrigin(dashboardOrigin)),
+      docsOrigin: activeDocsOrigin || OFFICIAL_DOCS_ORIGIN,
+    };
   } catch {
-    return { mode: activeMode, dashboardOrigin: "", apiOrigin: "" };
+    return {
+      mode: activeMode,
+      dashboardOrigin: "",
+      apiOrigin: "",
+      docsOrigin: OFFICIAL_DOCS_ORIGIN,
+    };
   }
 }
 
@@ -302,9 +402,23 @@ async function loadCurrentView(): Promise<void> {
   if (origin) {
     try {
       const normalizedOrigin = normalizeUpstandOrigin(origin);
-      if (!connection) {
+      const localDashboardOrigin = getLocalDashboardOrigin();
+      const isLocalDashboard =
+        localDashboardOrigin === normalizedOrigin ||
+        (isLoopbackOrigin(normalizedOrigin) && !connection);
+      if (isLocalDashboard) {
+        // If a saved remote profile is unavailable, the local fallback must
+        // become the active runtime too; otherwise the local page calls the
+        // unreachable remote API and renders the generic fetch error screen.
         connection = { origin: normalizedOrigin };
+        activeMode = "desktop";
+      } else if (!connection) {
+        connection = { origin: normalizedOrigin };
+        activeMode = inferConnectionMode(normalizedOrigin);
       }
+      const origins = await resolveRuntimeOrigins(normalizedOrigin, activeMode);
+      activeApiOrigin = origins.apiOrigin;
+      activeDocsOrigin = origins.docsOrigin;
       await mainWindow.loadURL(new URL(origin).toString());
       return;
     } catch {
@@ -335,13 +449,20 @@ async function setConnection(
   }
   const previousConnection = connection;
   const previousMode = activeMode;
+  const previousApiOrigin = activeApiOrigin;
+  const previousDocsOrigin = activeDocsOrigin;
   connection = { origin: normalized };
   activeMode = options?.mode ?? inferConnectionMode(normalized);
   try {
+    const origins = await resolveRuntimeOrigins(normalized, activeMode);
+    activeApiOrigin = origins.apiOrigin;
+    activeDocsOrigin = origins.docsOrigin;
     await mainWindow.loadURL(new URL(normalized).toString());
   } catch (error) {
     connection = previousConnection;
     activeMode = previousMode;
+    activeApiOrigin = previousApiOrigin;
+    activeDocsOrigin = previousDocsOrigin;
     throw error;
   }
   await saveConnection(connection);
@@ -359,6 +480,8 @@ async function setConnection(
 async function openConnectionPicker(): Promise<void> {
   if (!mainWindow) return;
   connection = null;
+  activeApiOrigin = "";
+  activeDocsOrigin = "";
   await mainWindow.loadFile(rendererPath());
 }
 
@@ -398,6 +521,7 @@ function createWindow(): BrowserWindow {
       : { center: true }),
     show: false,
     title: "Upstand",
+    icon: resolve(app.getAppPath(), "assets", "icon.png"),
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#09090b" : "#ffffff",
     ...(process.platform === "darwin"
       ? {
@@ -537,6 +661,8 @@ function registerIpcHandlers(): void {
     await clearActiveConnectionProfile();
     await saveConnection(null);
     activeMode = "desktop";
+    activeApiOrigin = "";
+    activeDocsOrigin = "";
     connection = getLocalDashboardOrigin()
       ? { origin: getLocalDashboardOrigin() }
       : null;

@@ -38,7 +38,7 @@ function getDesktopApiOrigin(): string | undefined {
   const desktop = (
     window as Window & {
       upstandDesktop?: {
-        runtime?: { apiOrigin?: unknown };
+        runtime?: { apiOrigin?: unknown; docsOrigin?: unknown };
         local?: { apiOrigin?: unknown };
       };
     }
@@ -47,6 +47,17 @@ function getDesktopApiOrigin(): string | undefined {
   // auth and API clients never accidentally use the embedded API when the
   // window is connected to Cloud or another self-hosted control plane.
   const value = desktop?.runtime?.apiOrigin ?? desktop?.local?.apiOrigin;
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function getDesktopDocsOrigin(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const desktop = (
+    window as Window & {
+      upstandDesktop?: { runtime?: { docsOrigin?: unknown } };
+    }
+  ).upstandDesktop;
+  const value = desktop?.runtime?.docsOrigin;
   return typeof value === "string" && value ? value : undefined;
 }
 
@@ -164,6 +175,11 @@ export function getDocsUrl(path = ""): string {
   const docsPath = normalizedPath.startsWith("/docs")
     ? normalizedPath
     : `/docs${normalizedPath}`;
+
+  const desktopDocsOrigin = getDesktopDocsOrigin();
+  if (desktopDocsOrigin) {
+    return `${desktopDocsOrigin}${docsPath}`;
+  }
 
   if (typeof window !== "undefined") {
     const { protocol, hostname, port } = window.location;
