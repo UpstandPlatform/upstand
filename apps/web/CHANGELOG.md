@@ -1,5 +1,11 @@
 # web
 
+## 0.2.3
+
+### Patch Changes
+
+- [#254](https://github.com/UpstandPlatform/upstand/pull/254) [`cb16eeb`](https://github.com/UpstandPlatform/upstand/commit/cb16eeb1ad24a95b051a0d061447e0d0a958d16d) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix packaged Desktop assets and branding, add runtime and connection switching, and keep authentication requests on the active Cloud or self-hosted control plane.
+
 ## 0.2.2
 
 ### Patch Changes
