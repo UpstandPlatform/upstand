@@ -1,5 +1,11 @@
 # web
 
+## 0.2.2
+
+### Patch Changes
+
+- [#251](https://github.com/UpstandPlatform/upstand/pull/251) [`94014dd`](https://github.com/UpstandPlatform/upstand/commit/94014dd6ce86dccea401d807dc44cc3aaac932de) Thanks [@mhbdev](https://github.com/mhbdev)! - Resolve the header documentation link from the browser runtime so immutable images do not render localhost documentation URLs.
+
 ## 0.2.1
 
 ### Patch Changes

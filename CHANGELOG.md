@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.2 - 2026-08-11
+
+Resolve the header documentation link from the browser runtime so immutable images do not render localhost documentation URLs.
+
 ## 0.2.1 - 2026-08-11
 
 Fix cloud and prefixed self-hosted web runtimes resolving API and documentation links to the wrong origin.
