@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.3 - 2026-08-11
+
+Fix packaged Desktop assets and branding, add runtime and connection switching, and keep authentication requests on the active Cloud or self-hosted control plane.
+
 ## 0.2.2 - 2026-08-11
 
 Resolve the header documentation link from the browser runtime so immutable images do not render localhost documentation URLs.
