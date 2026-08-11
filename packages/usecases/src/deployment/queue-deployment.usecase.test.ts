@@ -23,6 +23,45 @@ function resource(overrides: Record<string, unknown> = {}) {
 }
 
 describe("queue deployment", () => {
+  test("rejects local deployment targets in cloud mode", async () => {
+    const currentResource = resource({ type: "database", provider: "raw" });
+    const uow = {
+      transaction: async (callback: (tx: unknown) => unknown) =>
+        await callback(uow),
+      resourceRepository: {
+        findById: async () => currentResource,
+      },
+    } as never;
+
+    await expect(
+      new QueueDeploymentUseCase(uow, undefined, "cloud").execute({
+        resourceId: currentResource.id,
+      }),
+    ).rejects.toThrow("require a remote server");
+  });
+
+  test("rejects local build targets in cloud mode", async () => {
+    const currentResource = resource({
+      type: "database",
+      provider: "raw",
+      serverId: "remote-server",
+      buildServerId: "local",
+    });
+    const uow = {
+      transaction: async (callback: (tx: unknown) => unknown) =>
+        await callback(uow),
+      resourceRepository: {
+        findById: async () => currentResource,
+      },
+    } as never;
+
+    await expect(
+      new QueueDeploymentUseCase(uow, undefined, "cloud").execute({
+        resourceId: currentResource.id,
+      }),
+    ).rejects.toThrow("require a remote server");
+  });
+
   test("rejects an unconfigured Git source before creating queue state", async () => {
     let deploymentCreates = 0;
     let outboxCreates = 0;

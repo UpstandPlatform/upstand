@@ -22,6 +22,7 @@ type SystemConfig = {
     desktopNativeNotifications?: boolean;
     enterpriseScimSso?: boolean;
     serverMigration?: boolean;
+    controlPlaneTransfer?: boolean;
   };
 };
 
@@ -70,6 +71,7 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
       desktopNativeNotifications: platformMode === "desktop",
       enterpriseScimSso: platformMode !== "desktop",
       serverMigration: true,
+      controlPlaneTransfer: platformMode !== "cloud",
     },
   };
 }

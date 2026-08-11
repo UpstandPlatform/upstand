@@ -13,26 +13,33 @@ export interface DeploymentServerSettingResult {
 export class GetDeploymentServerSettingsUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
-    private readonly inventory: DockerInventoryReaderPort,
+    private readonly inventory: Pick<
+      DockerInventoryReaderPort,
+      "listSwarmNodes"
+    >,
   ) {}
 
   async execute(
     organizationId: string,
+    options: { includeLocal?: boolean } = {},
   ): Promise<DeploymentServerSettingResult[]> {
     const nodes = await this.inventory.listSwarmNodes({
       kind: "local",
       name: "local",
     });
-    const visibleNodes = nodes.length
-      ? nodes
-      : [
-          {
-            id: "local",
-            hostname: "Upstand Server",
-            ip: "127.0.0.1",
-            isLeader: true,
-          },
-        ];
+    const visibleNodes =
+      options.includeLocal === false
+        ? []
+        : nodes.length
+          ? nodes
+          : [
+              {
+                id: "local",
+                hostname: "Upstand Server",
+                ip: "127.0.0.1",
+                isLeader: true,
+              },
+            ];
     const dbSettings = await this.uow.serverBuildSettingsRepository.findMany();
     const settingsMap = new Map(
       dbSettings.map((setting) => [setting.id, setting]),
@@ -41,6 +48,7 @@ export class GetDeploymentServerSettingsUseCase {
       await this.uow.serverRepository.findByOrganizationId(organizationId);
 
     for (const server of remoteServers) {
+      if (server.serverType === "database") continue;
       if (visibleNodes.some((node) => node.id === server.id)) continue;
       visibleNodes.push({
         id: server.id,

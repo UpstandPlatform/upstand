@@ -1,6 +1,10 @@
 import { type IUnitOfWork, ValidationError } from "@upstand/domain";
 import { redis, withRedisTimeout } from "@upstand/redis";
-import { getDeploymentQueueName } from "@upstand/usecases";
+import {
+  getConfiguredControlPlaneMode,
+  getDeploymentQueueName,
+  getPlatformCapabilities,
+} from "@upstand/usecases";
 import {
   DeployResourceUseCaseToken,
   GetDeploymentServerSettingsUseCaseToken,
@@ -198,7 +202,11 @@ export const deploymentRouter = router({
       try {
         return await ctx.scope
           .resolve(GetDeploymentServerSettingsUseCaseToken)
-          .execute(input.organizationId);
+          .execute(input.organizationId, {
+            includeLocal: getPlatformCapabilities(
+              getConfiguredControlPlaneMode(),
+            ).localRuntime,
+          });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -222,7 +230,11 @@ export const deploymentRouter = router({
       );
       const useCase = ctx.scope.resolve(UpdateConcurrencyUseCaseToken);
       try {
-        return await useCase.execute(input);
+        return await useCase.execute({
+          ...input,
+          allowLocal: getPlatformCapabilities(getConfiguredControlPlaneMode())
+            .localRuntime,
+        });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

@@ -13,6 +13,7 @@ export interface UpdateConcurrencyInput {
   concurrency: number;
   hostname?: string;
   ip?: string;
+  allowLocal?: boolean;
 }
 
 export interface RedisPublisher {
@@ -43,11 +44,24 @@ export class UpdateConcurrencyUseCase {
     if (!input.organizationId.trim()) {
       throw new ValidationError("Organization is required");
     }
+    if (
+      input.allowLocal === false &&
+      ["local", "manager"].includes(input.serverId)
+    ) {
+      throw new ValidationError(
+        "Cloud control planes can only configure concurrency for remote build servers",
+      );
+    }
     if (!["local", "manager"].includes(input.serverId)) {
       const server = await this.uow.serverRepository.findById(input.serverId);
       const isLocalSwarmNode = server
         ? false
         : await this.isLocalSwarmNode(input.serverId);
+      if (input.allowLocal === false && !server) {
+        throw new ValidationError(
+          "Cloud control planes can only configure concurrency for remote build servers",
+        );
+      }
       if (
         (!server || server.organizationId !== input.organizationId) &&
         !isLocalSwarmNode

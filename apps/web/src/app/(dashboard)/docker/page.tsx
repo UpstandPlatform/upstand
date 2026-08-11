@@ -373,7 +373,9 @@ export default function DockerInventoryPage() {
       return;
     }
     if (!canInspectLocal && (!serverId || serverId === "local")) {
-      const firstRemote = serversQuery.data?.[0]?.id;
+      const firstRemote = serversQuery.data?.find(
+        (server) => server.status === "ready",
+      )?.id;
       if (firstRemote) {
         setServerId(firstRemote);
       }
@@ -387,7 +389,7 @@ export default function DockerInventoryPage() {
       serverId,
       kind: "containers",
     }),
-    enabled: organizationState.status === "ready",
+    enabled: organizationState.status === "ready" && Boolean(serverId),
   });
 
   const inventoryQuery = useQuery({
@@ -420,6 +422,7 @@ export default function DockerInventoryPage() {
     }),
     enabled:
       Boolean(organizationId) &&
+      Boolean(serverId) &&
       // logs requires at least a container ID or service name to avoid a server-side error
       (kind !== "logs" || Boolean(containerId) || Boolean(serviceName)) &&
       // stats requires a container ID

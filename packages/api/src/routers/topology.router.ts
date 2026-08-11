@@ -1,6 +1,8 @@
 import { TRPCError } from "@trpc/server";
-import { env } from "@upstand/env/server";
-import { GetTopologyGraphInputSchema } from "@upstand/usecases";
+import {
+  GetTopologyGraphInputSchema,
+  requiresRemoteServerPlacement,
+} from "@upstand/usecases";
 import { GetTopologyGraphUseCaseToken } from "@upstand/usecases/tokens";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
@@ -17,7 +19,11 @@ export const topologyRouter = router({
         "server:view",
       );
       const instanceOwner = await isInstanceOwnerContext(ctx);
-      if (env.IS_CLOUD && input.serverId === "local" && !instanceOwner) {
+      if (
+        requiresRemoteServerPlacement() &&
+        input.serverId === "local" &&
+        !instanceOwner
+      ) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message:
@@ -29,7 +35,7 @@ export const topologyRouter = router({
         return await ctx.scope
           .resolve(GetTopologyGraphUseCaseToken)
           .execute(input, {
-            includeLocal: !env.IS_CLOUD || instanceOwner,
+            includeLocal: !requiresRemoteServerPlacement() || instanceOwner,
           });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
