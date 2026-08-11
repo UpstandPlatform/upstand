@@ -30,6 +30,26 @@ export function registerHttpMiddleware(
   app: Hono<AppEnv>,
   dependencies: HttpMiddlewareDependencies,
 ): void {
+  app.use(
+    "*",
+    secureHeaders({
+      xFrameOptions: "DENY",
+      xContentTypeOptions: "nosniff",
+      referrerPolicy: "strict-origin-when-cross-origin",
+    }),
+  );
+
+  // Keep JSON, auth, terminal, and compatibility transports from buffering an
+  // unbounded request before their route-specific validation runs. Smaller
+  // endpoints (webhooks and AI/MCP) install stricter limits in their routers.
+  app.use(
+    "*",
+    bodyLimit({
+      maxSize: MAX_HTTP_REQUEST_BYTES,
+      onError: (c) => c.json({ error: "Request body is too large" }, 413),
+    }),
+  );
+
   app.use("*", async (c, next) => {
     const correlationId = resolveCorrelationId(c.req.header("x-request-id"));
     c.set("correlationId", correlationId);
