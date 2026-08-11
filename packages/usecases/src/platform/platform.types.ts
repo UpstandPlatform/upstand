@@ -86,6 +86,7 @@ export const PlatformCapabilitiesSchema = z.object({
   desktopNativeNotifications: z.boolean(),
   enterpriseScimSso: z.boolean(),
   serverMigration: z.boolean(),
+  controlPlaneTransfer: z.boolean(),
   dataOwnership: DataOwnershipSchema,
   runtimeMatrix: z.array(RuntimeCapabilitySchema),
 });
@@ -201,9 +202,10 @@ export function resolveControlPlaneMode(input: {
   platform?: string;
   isCloud: boolean;
 }): ControlPlaneMode {
+  if (input.isCloud) return "cloud";
   const parsed = ControlPlaneModeSchema.safeParse(input.platform);
   if (parsed.success) return parsed.data;
-  return input.isCloud ? "cloud" : "self-hosted";
+  return "self-hosted";
 }
 
 /** Resolve the mode once at the application boundary so feature policy does
@@ -244,6 +246,7 @@ export function getPlatformCapabilities(
         desktopNativeNotifications: true,
         enterpriseScimSso: false,
         serverMigration: true,
+        controlPlaneTransfer: true,
         dataOwnership: "local-control-plane",
         runtimeMatrix: selfHostedRuntimeMatrix,
       };
@@ -265,6 +268,7 @@ export function getPlatformCapabilities(
         desktopNativeNotifications: false,
         enterpriseScimSso: true,
         serverMigration: true,
+        controlPlaneTransfer: false,
         dataOwnership: "cloud-control-plane",
         runtimeMatrix: createCloudRuntimeMatrix(runtimeAvailability),
       };
@@ -286,6 +290,7 @@ export function getPlatformCapabilities(
         desktopNativeNotifications: false,
         enterpriseScimSso: true,
         serverMigration: true,
+        controlPlaneTransfer: true,
         dataOwnership: "local-control-plane",
         runtimeMatrix: selfHostedRuntimeMatrix,
       };

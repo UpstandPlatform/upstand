@@ -144,23 +144,14 @@ export class AuthorizationService {
     });
   }
 
-  async authorizeInstance(actor: InstanceAuthorizationActor): Promise<void> {
+  async isInstanceOwner(actor: InstanceAuthorizationActor): Promise<boolean> {
     if (actor.kind !== "session") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Instance operations require an interactive owner session",
-      });
+      return false;
     }
 
     const configuredOwnerId = env.UPSTAND_INSTANCE_OWNER_USER_ID?.trim();
     if (configuredOwnerId) {
-      if (configuredOwnerId !== actor.userId) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Instance owner permission required",
-        });
-      }
-      return;
+      return configuredOwnerId === actor.userId;
     }
 
     const configuredOwnerEmail =
@@ -173,16 +164,9 @@ export class AuthorizationService {
         .limit(1)
         .then((rows) => rows[0]);
 
-      if (
-        !currentUser ||
-        currentUser.email.toLowerCase() !== configuredOwnerEmail
-      ) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Instance owner permission required",
-        });
-      }
-      return;
+      return Boolean(
+        currentUser && currentUser.email.toLowerCase() === configuredOwnerEmail,
+      );
     }
 
     const firstUser = await db
@@ -191,7 +175,18 @@ export class AuthorizationService {
       .orderBy(asc(user.createdAt), asc(user.id))
       .limit(1)
       .then((rows) => rows[0]);
-    if (!firstUser || firstUser.id !== actor.userId) {
+    return Boolean(firstUser && firstUser.id === actor.userId);
+  }
+
+  async authorizeInstance(actor: InstanceAuthorizationActor): Promise<void> {
+    if (actor.kind !== "session") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Instance operations require an interactive owner session",
+      });
+    }
+
+    if (!(await this.isInstanceOwner(actor))) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Instance owner permission required",
@@ -237,6 +232,12 @@ export function authorizeMcpTool(
   toolName: string,
 ): Promise<void> {
   return authorizationService.authorizeMcpTool(principal, toolName);
+}
+
+export function isInstanceOwner(
+  actor: InstanceAuthorizationActor,
+): Promise<boolean> {
+  return authorizationService.isInstanceOwner(actor);
 }
 
 export function authorizeContextCapability(

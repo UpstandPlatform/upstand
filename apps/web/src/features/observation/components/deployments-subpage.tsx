@@ -63,10 +63,12 @@ import {
   DeploymentStatusBadge,
 } from "@/components/shared/deployment-presentation";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { trpc } from "@/utils/trpc";
 
 export function DeploymentsSubpage() {
   const organizationState = useRequiredActiveOrganization();
+  const { isCloud } = useSystemConfig();
   const organizationId = organizationState.organizationId as string;
   const [activeTab, setActiveTab] = useState("history");
   const [selectedDeployment, setSelectedDeployment] =
@@ -111,7 +113,7 @@ export function DeploymentsSubpage() {
     refetch: refetchServers,
   } = useQuery({
     ...trpc.deployment.getServerSettings.queryOptions({ organizationId }),
-    enabled: organizationState.status === "ready",
+    enabled: organizationState.status === "ready" && !isCloud,
   });
 
   // Listen to parent refresh event
@@ -239,10 +241,12 @@ export function DeploymentsSubpage() {
               <Clock className="size-4" />
               Queue ({queueJobs.length})
             </TabsTrigger>
-            <TabsTrigger value="concurrency" className="gap-2">
-              <Settings className="size-4" />
-              Build Concurrency
-            </TabsTrigger>
+            {!isCloud && (
+              <TabsTrigger value="concurrency" className="gap-2">
+                <Settings className="size-4" />
+                Build Concurrency
+              </TabsTrigger>
+            )}
           </TabsList>
         </div>
 
@@ -415,116 +419,121 @@ export function DeploymentsSubpage() {
         </TabsContent>
 
         {/* Tab 3: Concurrency */}
-        <TabsContent value="concurrency" className="space-y-4">
-          <Alert variant="warning" className="w-full">
-            <AlertTriangleIcon />
-            <AlertTitle>
-              Running multiple builds at once increases CPU, memory and disk
-              usage on each server.
-            </AlertTitle>
-            <AlertDescription>
-              Each concurrent build runs its own builder and image build, so set
-              this based on the resources the machine can handle — too high a
-              value can exhaust memory and make deployments fail.
-            </AlertDescription>
-          </Alert>
-          <Card className="border-muted/40 shadow-sm">
-            <CardHeader>
-              <CardTitle className="font-semibold text-lg">
-                Build Concurrency Settings
-              </CardTitle>
-              <CardDescription>
-                Configure the maximum number of parallel docker builds allowed
-                on each Swarm node / server.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loadingServers ? (
-                <CardGridSkeleton
-                  count={2}
-                  className="grid gap-6 md:grid-cols-2"
-                />
-              ) : servers.length === 0 ? (
-                <PageEmpty
-                  icon={Server}
-                  title="No active servers detected"
-                  description="Configure server concurrency settings once a server is connected."
-                />
-              ) : (
-                <div className="grid gap-6 md:grid-cols-2">
-                  {servers.map((server) => (
-                    <Card
-                      key={server.id}
-                      className="border bg-card/50 transition-all hover:bg-card"
-                    >
-                      <CardContent className="space-y-4">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h3 className="font-semibold text-base text-foreground">
-                              {server.hostname}
-                            </h3>
-                            <p className="mt-0.5 font-mono text-muted-foreground text-xs">
-                              {server.ip}
-                            </p>
-                            <span className="mt-2 inline-block rounded bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
-                              ID: {server.id}
-                            </span>
+        {!isCloud && (
+          <TabsContent value="concurrency" className="space-y-4">
+            <Alert variant="warning" className="w-full">
+              <AlertTriangleIcon />
+              <AlertTitle>
+                Running multiple builds at once increases CPU, memory and disk
+                usage on each server.
+              </AlertTitle>
+              <AlertDescription>
+                Each concurrent build runs its own builder and image build, so
+                set this based on the resources the machine can handle — too
+                high a value can exhaust memory and make deployments fail.
+              </AlertDescription>
+            </Alert>
+            <Card className="border-muted/40 shadow-sm">
+              <CardHeader>
+                <CardTitle className="font-semibold text-lg">
+                  Build Concurrency Settings
+                </CardTitle>
+                <CardDescription>
+                  Configure the maximum number of parallel docker builds allowed
+                  on each Swarm node / server.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingServers ? (
+                  <CardGridSkeleton
+                    count={2}
+                    className="grid gap-6 md:grid-cols-2"
+                  />
+                ) : servers.length === 0 ? (
+                  <PageEmpty
+                    icon={Server}
+                    title="No active servers detected"
+                    description="Configure server concurrency settings once a server is connected."
+                  />
+                ) : (
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {servers.map((server) => (
+                      <Card
+                        key={server.id}
+                        className="border bg-card/50 transition-all hover:bg-card"
+                      >
+                        <CardContent className="space-y-4">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <h3 className="font-semibold text-base text-foreground">
+                                {server.hostname}
+                              </h3>
+                              <p className="mt-0.5 font-mono text-muted-foreground text-xs">
+                                {server.ip}
+                              </p>
+                              <span className="mt-2 inline-block rounded bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                ID: {server.id}
+                              </span>
+                            </div>
+                            <Server className="size-5 text-muted-foreground/60" />
                           </div>
-                          <Server className="size-5 text-muted-foreground/60" />
-                        </div>
 
-                        <FieldGroup className="pt-2">
-                          <Field>
-                            <FieldLabel htmlFor={`concurrency-${server.id}`}>
-                              Max Parallel Builds
-                            </FieldLabel>
-                            <InputGroup>
-                              <InputGroupInput
-                                id={`concurrency-${server.id}`}
-                                type="number"
-                                min="1"
-                                max="16"
-                                value={concurrencyInputs[server.id] ?? 1}
-                                onChange={(e) => {
-                                  setDirtyConcurrency((current) => ({
-                                    ...current,
-                                    [server.id]: true,
-                                  }));
-                                  setConcurrencyInputs({
-                                    ...concurrencyInputs,
-                                    [server.id]:
-                                      Number.parseInt(e.target.value, 10) || 1,
-                                  });
-                                }}
-                                className="h-9 w-24"
-                              />
-                              <InputGroupAddon align="inline-end">
-                                <InputGroupButton
-                                  variant="default"
-                                  onClick={() =>
-                                    handleUpdateConcurrency(server.id)
-                                  }
-                                  disabled={updateConcurrencyMutation.isPending}
-                                  size="xs"
-                                >
-                                  Save
-                                </InputGroupButton>
-                              </InputGroupAddon>
-                            </InputGroup>
-                            <FieldDescription>
-                              Additional deployment triggers for this server
-                              will queue up and wait.
-                            </FieldDescription>
-                          </Field>
-                        </FieldGroup>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                          <FieldGroup className="pt-2">
+                            <Field>
+                              <FieldLabel htmlFor={`concurrency-${server.id}`}>
+                                Max Parallel Builds
+                              </FieldLabel>
+                              <InputGroup>
+                                <InputGroupInput
+                                  id={`concurrency-${server.id}`}
+                                  type="number"
+                                  min="1"
+                                  max="16"
+                                  value={concurrencyInputs[server.id] ?? 1}
+                                  onChange={(e) => {
+                                    setDirtyConcurrency((current) => ({
+                                      ...current,
+                                      [server.id]: true,
+                                    }));
+                                    setConcurrencyInputs({
+                                      ...concurrencyInputs,
+                                      [server.id]:
+                                        Number.parseInt(e.target.value, 10) ||
+                                        1,
+                                    });
+                                  }}
+                                  className="h-9 w-24"
+                                />
+                                <InputGroupAddon align="inline-end">
+                                  <InputGroupButton
+                                    variant="default"
+                                    onClick={() =>
+                                      handleUpdateConcurrency(server.id)
+                                    }
+                                    disabled={
+                                      updateConcurrencyMutation.isPending
+                                    }
+                                    size="xs"
+                                  >
+                                    Save
+                                  </InputGroupButton>
+                                </InputGroupAddon>
+                              </InputGroup>
+                              <FieldDescription>
+                                Additional deployment triggers for this server
+                                will queue up and wait.
+                              </FieldDescription>
+                            </Field>
+                          </FieldGroup>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
 
       <DeploymentLogDialog

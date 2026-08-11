@@ -12,6 +12,8 @@ import {
 } from "@upstand/repositories";
 import {
   ExportControlPlaneTransferService,
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
   ImportControlPlaneTransferService,
 } from "@upstand/usecases";
 import { log } from "evlog";
@@ -108,7 +110,10 @@ async function* requestContent(
 
 export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
   app.post("/api/control-plane-transfer/export", async (c) => {
-    if (env.IS_CLOUD) {
+    if (
+      !getPlatformCapabilities(getConfiguredControlPlaneMode())
+        .controlPlaneTransfer
+    ) {
       return c.json(
         {
           error:
@@ -193,7 +198,10 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/api/control-plane-transfer/import", async (c) => {
-    if (env.IS_CLOUD) {
+    if (
+      !getPlatformCapabilities(getConfiguredControlPlaneMode())
+        .controlPlaneTransfer
+    ) {
       return c.json(
         {
           error:

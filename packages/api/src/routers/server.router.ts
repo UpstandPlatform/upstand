@@ -214,6 +214,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
 
       const uow = ctx.scope.resolve(UnitOfWorkToken);
       if (input.serverId !== "local") {
@@ -407,6 +408,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:update",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
       try {
         return await ctx.scope
           .resolve(UpdateMonitoringSettingsUseCaseToken)
@@ -424,6 +426,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
 
       const useCase = ctx.scope.resolve(GetServerHistoricalMetricsUseCaseToken);
       try {
@@ -441,6 +444,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
       try {
         return await ctx.scope
           .resolve(GetServerMonitoringStatusUseCaseToken)

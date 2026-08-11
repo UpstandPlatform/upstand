@@ -53,6 +53,7 @@ import { PageEmpty } from "@/components/dashboard/page-empty";
 import { PagePagination } from "@/components/dashboard/page-pagination";
 import { Activity, Copy, Download, Eye } from "@/components/huge-icons";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { copyText, downloadJson } from "@/lib/browser";
 import { trpc } from "@/utils/trpc";
 
@@ -368,11 +369,13 @@ function RequestsTable({
 
 export function RequestsSubpage() {
   const organizationState = useRequiredActiveOrganization();
+  const { isCloud, isInstanceOwner } = useSystemConfig();
+  const canViewLocalLogs = !isCloud || isInstanceOwner;
   const organizationId = organizationState.organizationId as string;
-  const logs = useAccessLogs(Boolean(organizationId));
+  const logs = useAccessLogs(Boolean(organizationId) && canViewLocalLogs);
   const status = useQuery({
     ...trpc.webServer.accessLogStatus.queryOptions(),
-    enabled: Boolean(organizationId),
+    enabled: Boolean(organizationId) && canViewLocalLogs,
   });
 
   const toggleMutation = useMutation({
@@ -388,6 +391,20 @@ export function RequestsSubpage() {
   useEffect(() => {
     if (status.data?.cleanupCron) setCleanupCron(status.data.cleanupCron);
   }, [status.data?.cleanupCron]);
+
+  if (!canViewLocalLogs) {
+    return (
+      <Card className="border-border/60 p-6">
+        <CardHeader className="p-0 pb-2">
+          <CardTitle>Request monitoring unavailable</CardTitle>
+          <CardDescription>
+            Caddy access logs for the cloud control plane are restricted to the
+            instance owner.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   const pending = toggleMutation.isPending;
   const active = Boolean(status.data?.enabled);

@@ -11,10 +11,10 @@ import {
 } from "./platform.types";
 
 describe("platform types", () => {
-  test("resolves explicit platform modes before legacy cloud fallback", () => {
+  test("cloud deployment identity takes precedence over conflicting platform input", () => {
     expect(
       resolveControlPlaneMode({ platform: "desktop", isCloud: true }),
-    ).toBe("desktop");
+    ).toBe("cloud");
     expect(
       resolveControlPlaneMode({ platform: undefined, isCloud: true }),
     ).toBe("cloud");
@@ -31,6 +31,7 @@ describe("platform types", () => {
     expect(capabilities.localGitCli).toBe(false);
     expect(capabilities.swarmManagement).toBe(false);
     expect(capabilities.enterpriseScimSso).toBe(true);
+    expect(capabilities.controlPlaneTransfer).toBe(false);
     expect(capabilities.dataOwnership).toBe("cloud-control-plane");
   });
 
@@ -44,6 +45,7 @@ describe("platform types", () => {
     expect(capabilities.desktopNativeNotifications).toBe(true);
     expect(capabilities.enterpriseScimSso).toBe(false);
     expect(capabilities.dataOwnership).toBe("local-control-plane");
+    expect(capabilities.controlPlaneTransfer).toBe(true);
   });
 
   test("defines self-hosted control plane capabilities", () => {
@@ -52,6 +54,7 @@ describe("platform types", () => {
     expect(capabilities.acmeCertificates).toBe(true);
     expect(capabilities.swarmManagement).toBe(true);
     expect(capabilities.enterpriseScimSso).toBe(true);
+    expect(capabilities.controlPlaneTransfer).toBe(true);
   });
 
   test("validates deployment placement as a discriminated union", () => {

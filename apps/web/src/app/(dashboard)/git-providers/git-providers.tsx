@@ -161,7 +161,7 @@ export default function GitProviders({
     },
   });
 
-  const createGithubManifestStateMutation = useMutation(
+  const { mutateAsync: createGithubManifestState } = useMutation(
     trpc.gitProvider.createGithubManifestState.mutationOptions(),
   );
 
@@ -169,7 +169,7 @@ export default function GitProviders({
   const fetchManifestOptions = useCallback(async () => {
     if (!orgId) return;
     try {
-      const state = await createGithubManifestStateMutation.mutateAsync({
+      const state = await createGithubManifestState({
         organizationId: orgId,
       });
       setGithubManifestState(state.state);
@@ -239,7 +239,7 @@ export default function GitProviders({
     } catch {
       toast.error("Failed to compile manifest setup details");
     }
-  }, [createGithubManifestStateMutation, orgId]);
+  }, [createGithubManifestState, orgId]);
 
   useEffect(() => {
     if (addProviderOpen && providerType === "github") {

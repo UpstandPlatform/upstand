@@ -329,13 +329,14 @@ type PendingRemoval =
     };
 
 export default function DockerInventoryPage() {
-  const { isCloud } = useSystemConfig();
+  const { isCloud, isInstanceOwner } = useSystemConfig();
+  const canInspectLocal = !isCloud || isInstanceOwner;
   const organizationState = useRequiredActiveOrganization();
   const organizationId =
     organizationState.status === "ready"
       ? organizationState.organizationId
       : "";
-  const [serverId, setServerId] = useState(isCloud ? "" : "local");
+  const [serverId, setServerId] = useState(canInspectLocal ? "local" : "");
   const [kind, setKind] = useState<(typeof kinds)[number]["id"]>("info");
 
   // Filtering & controls states
@@ -367,13 +368,19 @@ export default function DockerInventoryPage() {
   });
 
   useEffect(() => {
-    if (isCloud && (serverId === "local" || !serverId)) {
-      const firstRemote = serversQuery.data?.[0]?.id;
+    if (canInspectLocal && !serverId) {
+      setServerId("local");
+      return;
+    }
+    if (!canInspectLocal && (!serverId || serverId === "local")) {
+      const firstRemote = serversQuery.data?.find(
+        (server) => server.status === "ready",
+      )?.id;
       if (firstRemote) {
         setServerId(firstRemote);
       }
     }
-  }, [isCloud, serverId, serversQuery.data]);
+  }, [canInspectLocal, serverId, serversQuery.data]);
 
   // Query all containers on the server to populate logs/stats selects
   const containersQuery = useQuery({
@@ -382,7 +389,7 @@ export default function DockerInventoryPage() {
       serverId,
       kind: "containers",
     }),
-    enabled: organizationState.status === "ready",
+    enabled: organizationState.status === "ready" && Boolean(serverId),
   });
 
   const inventoryQuery = useQuery({
@@ -415,6 +422,7 @@ export default function DockerInventoryPage() {
     }),
     enabled:
       Boolean(organizationId) &&
+      Boolean(serverId) &&
       // logs requires at least a container ID or service name to avoid a server-side error
       (kind !== "logs" || Boolean(containerId) || Boolean(serviceName)) &&
       // stats requires a container ID
@@ -560,7 +568,7 @@ export default function DockerInventoryPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {!isCloud && (
+                  {canInspectLocal && (
                     <SelectItem value="local">Local Docker Daemon</SelectItem>
                   )}
                   {(serversQuery.data ?? []).map((server) => (

@@ -299,29 +299,44 @@ function DashboardSidebarGroup({
   isCollapsed,
   currentTab,
   isCloud,
+  isInstanceOwner,
 }: {
   group: NavigationGroup;
   pathname: string;
   isCollapsed: boolean;
   currentTab: string | null;
   isCloud: boolean;
+  isInstanceOwner: boolean;
 }) {
   const { capabilities } = usePlatformCapabilities();
 
-  const filteredItems = group.items.filter((item) => {
-    if (isCloud && item.href === "/web-server") return false;
-    if (capabilities) {
-      if (item.href === "/docker-swarm" && !capabilities.swarmManagement)
+  const filteredItems = group.items
+    .filter((item) => {
+      if (isCloud && item.href === "/web-server" && !isInstanceOwner)
         return false;
-      if (
-        (item.href === "/settings/scim" || item.href === "/settings/sso") &&
-        !capabilities.enterpriseScimSso
-      ) {
-        return false;
+      if (isCloud && item.href === "/docker" && !isInstanceOwner) return false;
+      if (capabilities) {
+        if (item.href === "/docker-swarm" && !capabilities.swarmManagement)
+          return false;
+        if (
+          (item.href === "/settings/scim" || item.href === "/settings/sso") &&
+          !capabilities.enterpriseScimSso
+        ) {
+          return false;
+        }
       }
-    }
-    return true;
-  });
+      return true;
+    })
+    .map((item) =>
+      isCloud && !isInstanceOwner && item.href === "/observation"
+        ? {
+            ...item,
+            items: item.items?.filter(
+              (subItem) => subItem.href !== "/observation?tab=requests",
+            ),
+          }
+        : item,
+    );
 
   const content = (
     <SidebarGroupContent className={isCollapsed ? undefined : "mt-1"}>
@@ -397,7 +412,7 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
   const currentTab = useSearchParams().get("tab");
-  const { isCloud } = useSystemConfig();
+  const { isCloud, isInstanceOwner } = useSystemConfig();
 
   return (
     <Sidebar className={cn("in-[.is-desktop]:pt-9")} collapsible="icon">
@@ -414,6 +429,7 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
             pathname={pathname}
             currentTab={currentTab}
             isCloud={isCloud}
+            isInstanceOwner={isInstanceOwner}
           />
         ))}
       </SidebarContent>

@@ -149,4 +149,15 @@ describe("GetTopologyGraphUseCase", () => {
       ),
     ).toBe(false);
   });
+
+  test("can omit the local control-plane topology", async () => {
+    const useCase = makeUseCase(() => []);
+
+    const graph = await useCase.execute(
+      { organizationId: "org-1" },
+      { includeLocal: false },
+    );
+
+    expect(graph.nodes.map((node) => node.id)).toEqual(["server:remote-1"]);
+  });
 });
