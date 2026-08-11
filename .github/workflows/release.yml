@@ -103,7 +103,7 @@ jobs:
             ${{ runner.os }}-bun-1.3.14-
 
       - name: Install macOS native build tools
-        if: matrix.name == 'macos'
+        if: matrix.runner == 'macos-latest'
         run: npm install --global node-gyp
 
       - name: Install Dependencies
