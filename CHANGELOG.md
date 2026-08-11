@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.1 - 2026-08-11
+
+Fix cloud and prefixed self-hosted web runtimes resolving API and documentation links to the wrong origin.
+
 ## 0.2.0 - 2026-08-09
 
 Ship the Windows app as Upstand, run its bundled control plane from a verified

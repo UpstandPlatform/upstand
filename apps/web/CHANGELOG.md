@@ -1,5 +1,11 @@
 # web
 
+## 0.2.1
+
+### Patch Changes
+
+- [#249](https://github.com/UpstandPlatform/upstand/pull/249) [`3c07cca`](https://github.com/UpstandPlatform/upstand/commit/3c07ccae10562de62fc583120fba446901579bce) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix cloud and prefixed self-hosted web runtimes resolving API and documentation links to the wrong origin.
+
 ## 0.2.0
 
 ### Minor Changes
