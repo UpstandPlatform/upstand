@@ -1,5 +1,11 @@
 # web
 
+## 0.2.5
+
+### Patch Changes
+
+- [#258](https://github.com/UpstandPlatform/upstand/pull/258) [`0d22592`](https://github.com/UpstandPlatform/upstand/commit/0d22592404ce98b4875617fb811f73a4d5fd87cc) Thanks [@mhbdev](https://github.com/mhbdev)! - Restrict cloud control-plane topology, Docker inventory, request logs, local monitoring, control-plane transfer, and local build/deployment settings to their supported runtimes, promote the first cloud account to instance-owner access, and stabilize GitHub manifest setup.
+
 ## 0.2.4
 
 ### Patch Changes
