@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.5 - 2026-08-11
+
+Restrict cloud control-plane topology, Docker inventory, request logs, local monitoring, control-plane transfer, and local build/deployment settings to their supported runtimes, promote the first cloud account to instance-owner access, and stabilize GitHub manifest setup.
+
 ## 0.2.4 - 2026-08-11
 
 Fix Desktop startup fallback and runtime origin probing, and apply the Upstand icon to Windows installers, shortcuts, and windows.
