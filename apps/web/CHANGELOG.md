@@ -1,5 +1,11 @@
 # web
 
+## 0.2.4
+
+### Patch Changes
+
+- [#256](https://github.com/UpstandPlatform/upstand/pull/256) [`491fb73`](https://github.com/UpstandPlatform/upstand/commit/491fb739772d617358642116c17e3247747e4899) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix Desktop startup fallback and runtime origin probing, and apply the Upstand icon to Windows installers, shortcuts, and windows.
+
 ## 0.2.3
 
 ### Patch Changes
