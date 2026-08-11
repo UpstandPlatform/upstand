@@ -1,5 +1,5 @@
 ---
-"api": patch
+"@upstand/api": patch
 "web": patch
 ---
 
