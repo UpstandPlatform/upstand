@@ -12,6 +12,12 @@ export type DesktopConnection = {
   profiles?: DesktopConnectionProfile[];
 };
 
+export type DesktopRuntime = {
+  mode: "desktop" | "self-hosted" | "cloud";
+  dashboardOrigin: string;
+  apiOrigin: string;
+};
+
 /**
  * Desktop may connect to a local development/self-hosted instance over HTTP,
  * but remote control planes must use TLS. Credentials and non-web schemes are
@@ -37,6 +43,23 @@ export function normalizeUpstandOrigin(value: string): string {
     throw new Error("Remote Upstand instances must use https.");
   }
   return url.origin;
+}
+
+/** Resolve the API origin paired with a dashboard/control-plane origin. */
+export function getApiOriginForDashboardOrigin(origin: string): string {
+  const url = new URL(normalizeUpstandOrigin(origin));
+  if (url.hostname.startsWith("api.")) return url.origin;
+
+  const prefixes = ["api.", "docs.", "app.", "dashboard.", "console.", "www."];
+  for (const prefix of prefixes) {
+    if (url.hostname.startsWith(prefix)) {
+      return new URL(
+        `${url.protocol}//api.${url.hostname.slice(prefix.length)}`,
+      ).origin;
+    }
+  }
+
+  return new URL(`${url.protocol}//api.${url.hostname}`).origin;
 }
 
 function isLoopbackHost(hostname: string): boolean {

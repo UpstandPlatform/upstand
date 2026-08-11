@@ -27,6 +27,7 @@ type NavState = { canGoBack: boolean; canGoForward: boolean };
 type DesktopBridge = {
   isDesktop?: boolean;
   app?: { platform?: string };
+  connection?: { openPicker: () => Promise<void> };
   window?: {
     minimize: () => Promise<unknown>;
     toggleMaximize: () => Promise<unknown>;
@@ -206,6 +207,12 @@ export function DesktopChrome() {
               >
                 <HugeiconsIcon icon={RefreshIcon} className="mr-2 size-4" />
                 Reload
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => void getBridge()?.connection?.openPicker()}
+              >
+                <HugeiconsIcon icon={GearsFreeIcons} className="mr-2 size-4" />
+                Switch runtime or connection
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => void getBridge()?.window?.toggleDevTools?.()}

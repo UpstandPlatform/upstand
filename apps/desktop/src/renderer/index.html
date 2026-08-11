@@ -14,32 +14,73 @@
       form { display: grid; gap: .75rem; margin-top: 2rem; } input, button { border-radius: .6rem; font: inherit; padding: .8rem .9rem; }
       input { background: #18181b; border: 1px solid #3f3f46; color: inherit; } button { background: #fafafa; border: 0; color: #18181b; cursor: pointer; font-weight: 650; }
       #error { color: #fca5a5; min-height: 1.25rem; margin: .25rem 0 0; }
+      .choices, .profiles { display: grid; gap: .55rem; margin-top: 1rem; }
+      .choice, .profile { background: #18181b; border: 1px solid #3f3f46; color: inherit; text-align: left; }
+      .choice:hover, .profile:hover { border-color: #71717a; }
       small { color: #71717a; }
+      .profile { display: flex; justify-content: space-between; align-items: center; }
+      .profile small { color: #a1a1aa; }
     </style>
   </head>
   <body>
     <div class="drag-handle"></div>
     <main>
       <h1>Connect to Upstand</h1>
-      <p>Connect this desktop client to a self-hosted or cloud Upstand control plane. Once connected, the workspace dashboard opens automatically.</p>
+      <p>Choose where Upstand should run. You can switch between the local desktop runtime, Upstand Cloud, and any self-hosted control plane whenever you need.</p>
+      <div class="choices">
+        <button class="choice" id="local" type="button">Use this computer <small>Local Desktop runtime</small></button>
+        <button class="choice" id="cloud" type="button">Use Upstand Cloud <small>upstand.dev</small></button>
+      </div>
+      <div class="profiles" id="profiles"></div>
       <form id="connection-form">
-        <label for="origin">Control plane URL</label>
+        <label for="origin">Self-hosted or custom control plane URL</label>
         <input id="origin" name="origin" type="url" autocomplete="url" placeholder="https://upstand.example.com" required />
+        <select id="mode" aria-label="Connection type">
+          <option value="self-hosted">Self-hosted</option>
+          <option value="cloud">Cloud</option>
+        </select>
         <button type="submit">Open Upstand</button>
         <p id="error" role="alert"></p>
         <small id="version"></small>
       </form>
     </main>
     <script>
+      const bridge = window.upstandDesktop;
       const form = document.querySelector('#connection-form');
       const input = document.querySelector('#origin');
+      const mode = document.querySelector('#mode');
       const error = document.querySelector('#error');
-      window.upstandDesktop.connection.get().then((connection) => { if (connection) input.value = connection.origin; });
-      window.upstandDesktop.app.version().then((version) => { document.querySelector('#version').textContent = `Upstand Desktop v${version}`; });
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault(); error.textContent = '';
-        try { await window.upstandDesktop.connection.set(input.value); }
-        catch (reason) { error.textContent = reason instanceof Error ? reason.message : 'Unable to connect.'; }
+      const profiles = document.querySelector('#profiles');
+      const setError = (reason) => { error.textContent = reason instanceof Error ? reason.message : 'Unable to connect.'; };
+      const connect = async (origin, selectedMode, name) => {
+        error.textContent = '';
+        try { await bridge.connection.set(origin, { mode: selectedMode, name }); }
+        catch (reason) { setError(reason); }
+      };
+      document.querySelector('#local').addEventListener('click', async () => {
+        error.textContent = '';
+        try { await bridge.connection.clear(); } catch (reason) { setError(reason); }
+      });
+      document.querySelector('#cloud').addEventListener('click', () => {
+        input.value = 'https://upstand.dev'; mode.value = 'cloud';
+        void connect(input.value, mode.value, 'Upstand Cloud');
+      });
+      bridge.connection.get().then((connection) => { if (connection) input.value = connection.origin; });
+      bridge.connection.profiles.list().then((items) => {
+        profiles.replaceChildren(...items.map((profile) => {
+          const button = document.createElement('button');
+          button.className = 'profile'; button.type = 'button';
+          const name = document.createElement('span');
+          const type = document.createElement('small');
+          name.textContent = profile.name; type.textContent = profile.mode;
+          button.append(name, type);
+          button.addEventListener('click', () => bridge.connection.profiles.setActive(profile.id).catch(setError));
+          return button;
+        }));
+      }).catch(() => {});
+      bridge.app.version().then((version) => { document.querySelector('#version').textContent = `Upstand Desktop v${version}`; });
+      form.addEventListener('submit', (event) => {
+        event.preventDefault(); void connect(input.value, mode.value, input.value);
       });
     </script>
   </body>

@@ -74,6 +74,10 @@ export async function addConnectionProfile(opts: {
   const existing = store.profiles.find((p) => p.origin === normalized);
   if (existing) {
     if (opts.setActive) {
+      store.profiles = store.profiles.map((p) => ({
+        ...p,
+        isActive: p.id === existing.id,
+      }));
       store.activeProfileId = existing.id;
       await writeProfileStore(store);
     }
@@ -130,4 +134,14 @@ export async function setActiveConnectionProfile(
 
   await writeProfileStore(store);
   return { ...profile, isActive: true };
+}
+
+export async function clearActiveConnectionProfile(): Promise<void> {
+  const store = await readProfileStore();
+  store.activeProfileId = null;
+  store.profiles = store.profiles.map((profile) => ({
+    ...profile,
+    isActive: false,
+  }));
+  await writeProfileStore(store);
 }

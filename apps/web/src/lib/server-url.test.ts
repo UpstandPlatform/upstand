@@ -3,10 +3,16 @@ import { getDocsUrl, getServerApiUrl, getServerUrl } from "./server-url";
 
 const originalWindow = globalThis.window;
 
-function setBrowserLocation(url: string): void {
+function setBrowserLocation(
+  url: string,
+  runtime?: { apiOrigin: string },
+): void {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: { location: new URL(url) },
+    value: {
+      location: new URL(url),
+      upstandDesktop: runtime ? { runtime } : undefined,
+    },
   });
 }
 
@@ -42,5 +48,15 @@ describe("runtime URL resolution", () => {
 
     expect(getServerUrl()).toBe("http://127.0.0.1:3000");
     expect(getDocsUrl()).toBe("http://127.0.0.1:4000/docs/");
+  });
+
+  test("uses the active desktop profile API origin for auth and API calls", () => {
+    setBrowserLocation("https://upstand.dev/", {
+      apiOrigin: "https://self-hosted.example.com",
+    });
+
+    expect(getServerApiUrl("/api/auth/get-session")).toBe(
+      "https://self-hosted.example.com/api/auth/get-session",
+    );
   });
 });
