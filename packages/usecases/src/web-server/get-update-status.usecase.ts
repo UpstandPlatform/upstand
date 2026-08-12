@@ -139,11 +139,16 @@ export class GetUpdateStatusUseCase {
     forceRefresh?: boolean;
     fetcher?: typeof fetch;
     repository?: string;
+    allowManagedUpdates?: boolean;
   }): Promise<UpdateStatusResult> {
-    // Cloud control planes are updated by the hosting rollout. Exposing the
-    // self-hosted mutation here would let a tenant race that rollout and
-    // could also make the UI suggest that a managed instance is stale.
-    if (requiresRemoteServerPlacement()) {
+    const managedControlPlane = requiresRemoteServerPlacement();
+    const canUpdateManagedControlPlane =
+      managedControlPlane && options?.allowManagedUpdates === true;
+
+    // Cloud tenants must never see or trigger control-plane updates. The
+    // instance owner may inspect the managed channel from the panel so that
+    // an operator can perform a controlled rollout when required.
+    if (managedControlPlane && !canUpdateManagedControlPlane) {
       const managedVersion = env.UPSTAND_VERSION || "managed";
       return {
         currentVersion: managedVersion,
@@ -169,18 +174,18 @@ export class GetUpdateStatusUseCase {
     if (!currentVersion) currentVersion = "source-local";
 
     const currentImage = env.UPSTAND_SERVER_IMAGE || "";
-    const channel: UpdateStatusResult["channel"] = currentImage.includes(
-      ":canary",
-    )
-      ? "canary"
-      : currentImage.includes(":source-")
-        ? "source"
-        : "stable";
+    const channel: UpdateStatusResult["channel"] = managedControlPlane
+      ? "managed"
+      : currentImage.includes(":canary")
+        ? "canary"
+        : currentImage.includes(":source-")
+          ? "source"
+          : "stable";
     const checkedAt = new Date().toISOString();
     const repo = options?.repository || env.GITHUB_REPOSITORY;
 
     const now = Date.now();
-    const cacheKey = `${channel}:${currentVersion}:${repo}`;
+    const cacheKey = `${channel}:${currentVersion}:${repo}:${canUpdateManagedControlPlane}`;
     if (
       cachedStatus &&
       cachedStatus.expiresAt > now &&
@@ -343,7 +348,10 @@ export class GetUpdateStatusUseCase {
         latestVersion,
         updateAvailable,
         channel,
-        canUpdate: channel !== "source",
+        canUpdate:
+          channel === "managed"
+            ? canUpdateManagedControlPlane
+            : channel !== "source",
         checkedAt,
         images: verifiedImages,
       };

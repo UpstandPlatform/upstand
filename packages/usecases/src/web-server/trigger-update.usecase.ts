@@ -28,10 +28,14 @@ export class TriggerUpdateUseCase {
 
   constructor(private readonly notificationPublisher?: NotificationPublisher) {}
 
-  async execute(input: TriggerUpdateInput): Promise<{ success: boolean }> {
-    if (requiresRemoteServerPlacement()) {
+  async execute(
+    input: TriggerUpdateInput,
+    options?: { allowManagedUpdate?: boolean },
+  ): Promise<{ success: boolean }> {
+    const managedControlPlane = requiresRemoteServerPlacement();
+    if (managedControlPlane && options?.allowManagedUpdate !== true) {
       throw new Error(
-        "Cloud Upstand instances are updated by the managed release rollout.",
+        "Only the cloud instance owner can trigger a managed control-plane update.",
       );
     }
     const version = input.version;
@@ -42,6 +46,7 @@ export class TriggerUpdateUseCase {
     }
     const verified = await new GetUpdateStatusUseCase().execute({
       forceRefresh: true,
+      allowManagedUpdates: options?.allowManagedUpdate === true,
     });
     if (
       verified.latestVersion !== version ||

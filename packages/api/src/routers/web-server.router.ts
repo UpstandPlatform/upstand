@@ -337,7 +337,7 @@ export const webServerRouter = router({
     await requireWebServerOwner(ctx);
     const useCase = ctx.scope.resolve(GetUpdateStatusUseCaseToken);
     try {
-      return await useCase.execute();
+      return await useCase.execute({ allowManagedUpdates: true });
     } catch (error) {
       handleUseCaseError(error, ctx.log);
     }
@@ -347,7 +347,10 @@ export const webServerRouter = router({
     await requireWebServerOwner(ctx);
     const useCase = ctx.scope.resolve(GetUpdateStatusUseCaseToken);
     try {
-      return await useCase.execute({ forceRefresh: true });
+      return await useCase.execute({
+        forceRefresh: true,
+        allowManagedUpdates: true,
+      });
     } catch (error) {
       handleUseCaseError(error, ctx.log);
     }
@@ -359,7 +362,7 @@ export const webServerRouter = router({
       await requireWebServerOwner(ctx);
       const useCase = ctx.scope.resolve(TriggerUpdateUseCaseToken);
       try {
-        return await useCase.execute(input);
+        return await useCase.execute(input, { allowManagedUpdate: true });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
