@@ -42,6 +42,7 @@ import {
 // data and connection settings. Squirrel uninstall deliberately leaves this
 // per-user data intact.
 app.setPath("userData", join(app.getPath("appData"), "desktop"));
+app.setAppUserModelId("dev.upstand.desktop");
 
 let mainWindow: BrowserWindow | null = null;
 let connection: DesktopConnection | null = null;
@@ -49,6 +50,7 @@ let activeMode: DesktopRuntime["mode"] = "desktop";
 let activeApiOrigin = "";
 let activeDocsOrigin = "";
 
+const OFFICIAL_CLOUD_ORIGIN = "https://upstand.dev";
 const OFFICIAL_DOCS_ORIGIN = "https://docs.upstand.dev";
 
 interface WindowConfig {
@@ -86,6 +88,7 @@ function connectionFile(): string {
 function inferConnectionMode(origin: string): DesktopRuntime["mode"] {
   try {
     const hostname = new URL(origin).hostname;
+    if (isLoopbackOrigin(origin)) return "desktop";
     return hostname === "upstand.dev" || hostname.endsWith(".upstand.dev")
       ? "cloud"
       : "self-hosted";
@@ -663,9 +666,10 @@ function registerIpcHandlers(): void {
     activeMode = "desktop";
     activeApiOrigin = "";
     activeDocsOrigin = "";
-    connection = getLocalDashboardOrigin()
-      ? { origin: getLocalDashboardOrigin() }
-      : null;
+    const localDashboardOrigin = app.isPackaged
+      ? (await startLocalServices()).dashboardOrigin
+      : getLocalDashboardOrigin();
+    connection = localDashboardOrigin ? { origin: localDashboardOrigin } : null;
     await loadCurrentView();
   });
   ipcMain.handle("connection:picker:open", async (event) => {
@@ -724,8 +728,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("connection:mode:get", async (event) => {
     validateIpcSender(event);
     const profile = await getActiveProfile();
-    // Fall back to "desktop" when there is no profile (local embedded mode)
-    return profile?.mode ?? "desktop";
+    return profile?.mode ?? "cloud";
   });
 
   ipcMain.on("connection:runtime:get-sync", (event) => {
@@ -819,7 +822,8 @@ if (squirrelStartup) {
       connection = await readConnection();
       activeMode = connection
         ? inferConnectionMode(connection.origin)
-        : "desktop";
+        : "cloud";
+      if (!connection) connection = { origin: OFFICIAL_CLOUD_ORIGIN };
     }
 
     ipcMain.on("local-api:get-sync", (event) => {
@@ -834,7 +838,7 @@ if (squirrelStartup) {
     registerIpcHandlers();
     await showLoadingScreen();
 
-    if (app.isPackaged) {
+    if (app.isPackaged && activeMode === "desktop") {
       try {
         const local = await startLocalServices();
         if (!connection) connection = { origin: local.dashboardOrigin };

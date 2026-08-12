@@ -351,7 +351,9 @@ function DockerDiskUsagePieChart({
 
 export function MonitoringSubpage() {
   const organizationState = useRequiredActiveOrganization();
-  const { isCloud, isInstanceOwner } = useSystemConfig();
+  const systemConfig = useSystemConfig();
+  const { isCloud, isInstanceOwner } = systemConfig;
+  const systemConfigPending = systemConfig.isPending;
   const canInspectLocal = !isCloud || isInstanceOwner;
   const activeOrganization =
     organizationState.status === "ready"
@@ -359,7 +361,7 @@ export function MonitoringSubpage() {
       : null;
 
   const organizationId = organizationState.organizationId as string;
-  const [selectedServerId, setSelectedServerId] = useState("local");
+  const [selectedServerId, setSelectedServerId] = useState("");
   const [rangeKey, setRangeKey] = useState<RangeKey>("24h");
   const [cpuThreshold, setCpuThreshold] = useState(90);
   const [memoryThreshold, setMemoryThreshold] = useState(90);
@@ -382,6 +384,7 @@ export function MonitoringSubpage() {
   });
 
   useEffect(() => {
+    if (systemConfigPending || serversQuery.isPending) return;
     if (canInspectLocal) {
       if (!selectedServerId) setSelectedServerId("local");
       return;
@@ -389,14 +392,25 @@ export function MonitoringSubpage() {
     if (selectedServerId === "local" || !selectedServerId) {
       setSelectedServerId(serversQuery.data?.[0]?.id ?? "");
     }
-  }, [canInspectLocal, selectedServerId, serversQuery.data]);
+  }, [
+    canInspectLocal,
+    selectedServerId,
+    serversQuery.data,
+    serversQuery.isPending,
+    systemConfigPending,
+  ]);
+
+  const canQueryMonitoring =
+    !systemConfigPending &&
+    organizationState.status === "ready" &&
+    Boolean(selectedServerId);
 
   const monitoringSettingsQuery = useQuery({
     ...trpc.server.monitoringSettings.queryOptions({
       organizationId,
       serverId: selectedServerId,
     }),
-    enabled: organizationState.status === "ready" && Boolean(selectedServerId),
+    enabled: canQueryMonitoring,
   });
 
   const monitoringStatusQuery = useQuery({
@@ -404,7 +418,7 @@ export function MonitoringSubpage() {
       organizationId,
       serverId: selectedServerId,
     }),
-    enabled: organizationState.status === "ready" && Boolean(selectedServerId),
+    enabled: canQueryMonitoring,
     refetchInterval: 30_000,
   });
 
@@ -416,8 +430,7 @@ export function MonitoringSubpage() {
       limit: range.limit,
     }),
     enabled:
-      organizationState.status === "ready" &&
-      Boolean(selectedServerId) &&
+      canQueryMonitoring &&
       monitoringSettingsQuery.data?.isConfigured === true &&
       monitoringStatusQuery.data?.reachable !== false,
     refetchInterval: 30_000,
@@ -432,8 +445,7 @@ export function MonitoringSubpage() {
       limit: "1000",
     }),
     enabled:
-      organizationState.status === "ready" &&
-      Boolean(selectedServerId) &&
+      canQueryMonitoring &&
       monitoringSettingsQuery.data?.isConfigured === true &&
       historicalQuery.isSuccess,
     refetchInterval: 30_000,
@@ -444,7 +456,7 @@ export function MonitoringSubpage() {
       organizationId,
       serverId: selectedServerId === "local" ? undefined : selectedServerId,
     }),
-    enabled: organizationState.status === "ready" && Boolean(selectedServerId),
+    enabled: canQueryMonitoring,
     refetchInterval: 10_000,
   });
 

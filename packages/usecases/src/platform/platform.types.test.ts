@@ -37,15 +37,23 @@ describe("platform types", () => {
 
   test("defines desktop control plane capabilities", () => {
     const capabilities = getPlatformCapabilities("desktop");
-    expect(capabilities.localRuntime).toBe(true);
+    expect(capabilities.localRuntime).toBe(false);
+    expect(capabilities.scheduler).toBe(false);
+    expect(capabilities.jobs).toBe(false);
     expect(capabilities.acmeCertificates).toBe(false);
-    expect(capabilities.localGitCli).toBe(true);
-    expect(capabilities.localDockerSocket).toBe(true);
+    expect(capabilities.localGitCli).toBe(false);
+    expect(capabilities.localDockerSocket).toBe(false);
+    expect(capabilities.embeddedMonitoring).toBe(false);
     expect(capabilities.swarmManagement).toBe(false);
     expect(capabilities.desktopNativeNotifications).toBe(true);
     expect(capabilities.enterpriseScimSso).toBe(false);
     expect(capabilities.dataOwnership).toBe("local-control-plane");
     expect(capabilities.controlPlaneTransfer).toBe(true);
+    expect(
+      capabilities.runtimeMatrix.find(
+        (entry) => entry.target === "local" && entry.runtime === "docker",
+      ),
+    ).toMatchObject({ supported: false, buildLocations: [] });
   });
 
   test("defines self-hosted control plane capabilities", () => {

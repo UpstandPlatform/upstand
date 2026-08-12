@@ -316,6 +316,12 @@ function DashboardSidebarGroup({
       return false;
     if (isCloud && item.href === "/docker" && !isInstanceOwner) return false;
     if (capabilities) {
+      if (item.href === "/docker" && capabilities.mode === "desktop")
+        return false;
+      if (item.href === "/web-server" && capabilities.mode === "desktop")
+        return false;
+      if (item.href === "/certificates" && !capabilities.acmeCertificates)
+        return false;
       if (item.href === "/docker-swarm" && !capabilities.swarmManagement)
         return false;
       if (
