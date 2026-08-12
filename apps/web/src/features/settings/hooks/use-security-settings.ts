@@ -8,10 +8,12 @@ export function useSecuritySettings(onVerifySuccess?: () => void) {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [showBackupCodes, setShowBackupCodes] = useState(false);
 
-  const handleEnable = async (password: string) => {
+  const handleEnable = async (password?: string) => {
     setLoading(true);
     try {
-      const { data, error } = await authClient.twoFactor.enable({ password });
+      const { data, error } = await authClient.twoFactor.enable(
+        password ? { password } : {},
+      );
       if (error) {
         toast.error(error.message || "Failed to start 2FA setup");
       } else if (data) {
@@ -50,10 +52,12 @@ export function useSecuritySettings(onVerifySuccess?: () => void) {
     }
   };
 
-  const handleDisable = async (password: string) => {
+  const handleDisable = async (password?: string) => {
     setLoading(true);
     try {
-      const { error } = await authClient.twoFactor.disable({ password });
+      const { error } = await authClient.twoFactor.disable(
+        password ? { password } : {},
+      );
       if (error) {
         toast.error(error.message || "Failed to disable 2FA");
       } else {

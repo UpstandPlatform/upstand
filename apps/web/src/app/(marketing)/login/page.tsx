@@ -54,6 +54,7 @@ function LoginPageContent() {
   const [setupAttempt, setSetupAttempt] = useState(0);
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [isCloud, setIsCloud] = useState<boolean>(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
   const {
     data: session,
@@ -85,6 +86,7 @@ function LoginPageContent() {
         return (await response.json()) as {
           needsOwnerSetup: boolean;
           isCloud?: boolean;
+          googleEnabled?: boolean;
         };
       })
       .then((status) => {
@@ -93,6 +95,7 @@ function LoginPageContent() {
         if (typeof status.isCloud === "boolean") {
           setIsCloud(status.isCloud);
         }
+        setGoogleEnabled(status.googleEnabled === true);
       })
       .catch(() => {
         if (active) {
@@ -276,21 +279,23 @@ function LoginPageContent() {
                   />
                 )}
 
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={handleGoogleSignIn}
-                  disabled={loading || needsOwnerSetup}
-                  className="w-full gap-3 border-border bg-muted/40 font-semibold text-foreground hover:bg-accent hover:text-accent-foreground"
-                >
-                  {loading ? (
-                    <Spinner />
-                  ) : (
-                    <>
-                      <GoogleIcon /> Continue with Google
-                    </>
-                  )}
-                </Button>
+                {googleEnabled && (
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={handleGoogleSignIn}
+                    disabled={loading || needsOwnerSetup}
+                    className="w-full gap-3 border-border bg-muted/40 font-semibold text-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {loading ? (
+                      <Spinner />
+                    ) : (
+                      <>
+                        <GoogleIcon /> Continue with Google
+                      </>
+                    )}
+                  </Button>
+                )}
                 {!isSignUp && <SsoSignInForm successPath={cliPath} />}
               </div>
             </>

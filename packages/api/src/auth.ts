@@ -258,4 +258,20 @@ export const auth = createAuth({
   },
 });
 
+/** Returns only whether a user has a local credential account. Never expose
+ * password hashes or account tokens to the browser. */
+export async function hasCredentialAccount(userId: string): Promise<boolean> {
+  const account = await db
+    .select({ id: authSchema.account.id })
+    .from(authSchema.account)
+    .where(
+      and(
+        eq(authSchema.account.userId, userId),
+        eq(authSchema.account.providerId, "credential"),
+      ),
+    )
+    .limit(1);
+  return account.length > 0;
+}
+
 export { stepUp };
