@@ -1,5 +1,11 @@
 # web
 
+## 0.2.8
+
+### Patch Changes
+
+- [#265](https://github.com/UpstandPlatform/upstand/pull/265) [`c000108`](https://github.com/UpstandPlatform/upstand/commit/c000108342fdd1fde23d1c77849627841a417ad1) Thanks [@mhbdev](https://github.com/mhbdev)! - Make direct IP recovery access resolve to the same-host API, expose complete local topology only to the cloud instance owner, prevent cloud and desktop bare runtimes from reaching local Docker surfaces, and make Desktop default to Upstand Cloud with an explicit local bare-mode opt-in.
+
 ## 0.2.7
 
 ### Patch Changes
