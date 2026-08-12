@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.6 - 2026-08-12
+
+Harden runtime-aware authorization across cloud, desktop, and self-hosted control planes. Stored membership permissions are now constrained to their role scope, instance-only operations require interactive owner sessions, cloud-mode policy is resolved consistently, and control-plane transfer requests are bounded. Cloud users can view request observations from their authorized remote servers without exposing control-plane logs, the first workspace is selected reliably after authentication, member role updates use the shared permission catalog, and the web-server settings surface handles configured cloud domains responsively.
+
 ## 0.2.5 - 2026-08-11
 
 Restrict cloud control-plane topology, Docker inventory, request logs, local monitoring, control-plane transfer, and local build/deployment settings to their supported runtimes, promote the first cloud account to instance-owner access, and stabilize GitHub manifest setup.
