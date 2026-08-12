@@ -92,7 +92,7 @@ export function SettingsDialog() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const { data: activeOrg } = authClient.useActiveOrganization();
-  const { capabilities, isCloud } = useSystemConfig();
+  const { capabilities, isCloud, isInstanceOwner } = useSystemConfig();
 
   useEffect(() => {
     const handleOpen = (e: Event) => {
@@ -130,6 +130,7 @@ export function SettingsDialog() {
     {
       id: "system",
       label: "System",
+      visible: !isCloud || isInstanceOwner,
       items: [
         ...(isCloud || capabilities?.controlPlaneTransfer === false
           ? []
@@ -290,7 +291,9 @@ export function SettingsDialog() {
                 {activeTab === "security" && <SecurityPanel />}
                 {activeTab === "upgal" && <UpGalSettingsPanel />}
                 {activeTab === "transfer" && <ControlPlaneTransferPanel />}
-                {activeTab === "app" && <AppInfoPanel />}
+                {activeTab === "app" && (!isCloud || isInstanceOwner) && (
+                  <AppInfoPanel />
+                )}
               </div>
             </main>
           </SidebarProvider>

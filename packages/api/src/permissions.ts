@@ -5,6 +5,7 @@ import {
   CAPABILITY_ACTIONS,
   CAPABILITY_CATALOG,
   type Capability,
+  CUSTOM_ROLE_CAPABILITY_ACTIONS,
   capabilitiesForRole,
   hasApiKeyPermission,
   hasMcpPermission,
@@ -54,10 +55,22 @@ export type InstanceAuthorizationActor = {
   kind: string | undefined;
 };
 
+type OrganizationAccessResolver = typeof ensureOrganizationAccess;
+
 /** The application policy decision point used by session-backed routes. */
 export class AuthorizationService {
+  constructor(
+    private readonly resolveOrganizationAccess: OrganizationAccessResolver = ensureOrganizationAccess,
+  ) {}
+
   async authorize(request: AuthorizationRequest) {
     const definition = CAPABILITY_CATALOG[request.capability];
+    if (!definition) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Unknown capability.",
+      });
+    }
     if (request.organizationId !== request.principal.organizationId) {
       throw new TRPCError({
         code: "FORBIDDEN",
@@ -66,6 +79,19 @@ export class AuthorizationService {
     }
 
     if (request.principal.kind === "api-key") {
+      if (
+        !request.principal.userId ||
+        request.principal.userId.startsWith("api-key:")
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "This API key has no auditable organization user.",
+        });
+      }
+      await this.resolveOrganizationAccess(
+        request.principal.userId,
+        request.organizationId,
+      );
       if (!definition.apiKey) {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -95,9 +121,12 @@ export class AuthorizationService {
     organizationId: string,
     capability: PermissionAction,
   ) {
-    const membership = await ensureOrganizationAccess(userId, organizationId);
+    const membership = await this.resolveOrganizationAccess(
+      userId,
+      organizationId,
+    );
     const permissions = membership.permissions
-      ? parseStoredPermissions(membership.permissions)
+      ? parseStoredPermissions(membership.permissions, membership.role)
       : ROLE_PERMISSIONS[membership.role as OrganizationRole] || [];
 
     if (!permissions.includes(capability)) {
@@ -125,10 +154,9 @@ export class AuthorizationService {
 
     if (
       toolName === "get_web_server_logs" ||
-      (env.IS_CLOUD &&
-        (toolName === "get_swarm_info" ||
-          toolName === "get_swarm_nodes" ||
-          toolName === "get_swarm_containers"))
+      toolName === "get_swarm_info" ||
+      toolName === "get_swarm_nodes" ||
+      toolName === "get_swarm_containers"
     ) {
       throw new TRPCError({
         code: "FORBIDDEN",
@@ -195,9 +223,19 @@ export class AuthorizationService {
   }
 }
 
-function parseStoredPermissions(value: string): PermissionAction[] {
+function parseStoredPermissions(
+  value: string,
+  role: string,
+): PermissionAction[] {
   try {
-    return parseCapabilities(JSON.parse(value));
+    const allowed = new Set<PermissionAction>(
+      role.startsWith("custom:")
+        ? CUSTOM_ROLE_CAPABILITY_ACTIONS
+        : capabilitiesForRole(role),
+    );
+    return parseCapabilities(JSON.parse(value)).filter((permission) =>
+      allowed.has(permission),
+    );
   } catch {
     return [];
   }

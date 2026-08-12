@@ -49,7 +49,7 @@ function pgliteDataDirectory(): string {
 }
 
 export async function createDb(): Promise<Database> {
-  if (env.UPSTAND_PLATFORM === "desktop") {
+  if (env.UPSTAND_PLATFORM === "desktop" && !env.IS_CLOUD) {
     const { PGlite } = await import("@electric-sql/pglite");
     const { drizzle } = await import("drizzle-orm/pglite");
     const dataDir = pgliteDataDirectory();
@@ -95,7 +95,7 @@ export async function closeDb(): Promise<void> {
 }
 
 export async function migrateDatabase(migrationsFolder: string): Promise<void> {
-  if (env.UPSTAND_PLATFORM === "desktop") return;
+  if (env.UPSTAND_PLATFORM === "desktop" && !env.IS_CLOUD) return;
   const { migrate } = await import("drizzle-orm/node-postgres/migrator");
   await migrate(db as NodePgDatabase<typeof schema>, { migrationsFolder });
 }

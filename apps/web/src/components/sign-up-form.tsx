@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import z from "zod";
 
 import { authClient } from "@/lib/auth-client";
+import { getUserFacingError } from "@/lib/error-message";
+import { bootstrapInitialOrganization } from "@/lib/organization-bootstrap";
 import { AuthFormField } from "./auth/auth-form-field";
 
 export default function SignUpForm({
@@ -35,18 +37,18 @@ export default function SignUpForm({
           onSuccess: async () => {
             // Keep the shared client session state in sync before entering the
             // protected dashboard after the first-account bootstrap flow.
-            for (const delay of [0, 150, 400]) {
-              if (delay > 0) {
-                await new Promise((resolve) => setTimeout(resolve, delay));
-              }
-              await refetchSession();
-              break;
-            }
+            await refetchSession();
+            await bootstrapInitialOrganization();
             router.push(successPath as Route);
             toast.success("Sign up successful");
           },
           onError: (error) => {
-            toast.error(error.error.message || error.error.statusText);
+            toast.error(
+              getUserFacingError(
+                error.error.message || error.error.statusText,
+                "Unable to create your account",
+              ),
+            );
           },
         },
       );

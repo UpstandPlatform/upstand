@@ -3,7 +3,6 @@
 import { cn } from "@upstand/ui/lib/utils";
 import type { Organization } from "better-auth/client";
 import type { ComponentProps } from "react";
-import { authClient } from "@/lib/auth-client";
 import {
   OrganizationLogo,
   type OrganizationLogoSize,
@@ -28,12 +27,9 @@ export function OrganizationView({
   organization,
   ...props
 }: OrganizationViewProps & ComponentProps<"div">) {
-  const { data: activeOrg, isPending: activeOrgPending } =
-    authClient.useActiveOrganization();
+  const resolvedOrganization = organization || undefined;
 
-  const resolvedOrganization = (organization ?? activeOrg) || undefined;
-
-  if (isPending || (!organization && activeOrgPending)) {
+  if (isPending) {
     return (
       <OrganizationViewSkeleton
         className={className}

@@ -30,10 +30,18 @@ const permissionActions = MEMBER_SCOPE_ACTIONS as [
 const permissionsSchema = MemberPermissionsSchema;
 const baseInput = z.object({ organizationId: z.string().min(1) });
 
-function parseStoredPermissions(value: string): PermissionAction[] {
+function parseStoredPermissions(
+  value: string,
+  role: string,
+): PermissionAction[] {
   try {
+    const allowed = new Set<PermissionAction>(
+      role.startsWith("custom:")
+        ? MEMBER_SCOPE_ACTIONS
+        : capabilitiesForRole(role),
+    );
     return parseCapabilities(JSON.parse(value)).filter((permission) =>
-      permissionActions.includes(permission),
+      allowed.has(permission),
     );
   } catch {
     return [];
@@ -81,11 +89,16 @@ async function resolveRoleAssignment(
       code: "BAD_REQUEST",
       message: "Custom role not found",
     });
-  const selectedPermissions = parseStoredPermissions(selected.permissions);
+  const selectedPermissions = parseStoredPermissions(
+    selected.permissions,
+    `custom:${selected.id}`,
+  );
   const allowed = new Set(
     actorRole === "owner"
       ? permissionActions
-      : capabilitiesForRole(actorRole || "member"),
+      : capabilitiesForRole(actorRole || "member").filter((permission) =>
+          MEMBER_SCOPE_ACTIONS.includes(permission),
+        ),
   );
   if (selectedPermissions.some((permission) => !allowed.has(permission))) {
     throw new TRPCError({
@@ -101,7 +114,9 @@ async function resolveRoleAssignment(
 
 function validatePermissions(role: string, permissions: PermissionAction[]) {
   const allowed = new Set(
-    ROLE_PERMISSIONS[role as keyof typeof ROLE_PERMISSIONS] || [],
+    (ROLE_PERMISSIONS[role as keyof typeof ROLE_PERMISSIONS] || []).filter(
+      (permission) => MEMBER_SCOPE_ACTIONS.includes(permission),
+    ),
   );
   if (permissions.some((permission) => !allowed.has(permission))) {
     throw new TRPCError({
@@ -127,7 +142,7 @@ export const memberRouter = router({
       members: rows.map(({ member: membership, user: memberUser }) => ({
         ...membership,
         permissions: membership.permissions
-          ? parseStoredPermissions(membership.permissions)
+          ? parseStoredPermissions(membership.permissions, membership.role)
           : null,
         user: memberUser,
       })),
@@ -182,6 +197,18 @@ export const memberRouter = router({
         throw new TRPCError({
           code: "CONFLICT",
           message: "This user is already a workspace member",
+        });
+
+      const registered = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.email, email))
+        .limit(1);
+      if (registered.length)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "This email already belongs to a platform user. Send an invitation instead of creating credentials.",
         });
 
       const created = await auth.api.createUser({

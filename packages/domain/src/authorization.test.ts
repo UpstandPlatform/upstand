@@ -74,4 +74,13 @@ describe("authorization catalog", () => {
       false,
     );
   });
+
+  test("keeps member-role grants assignable through the member schema", () => {
+    for (const role of ["owner", "admin", "member"] as const) {
+      const roleGrants = capabilitiesForRole(role).filter((capability) =>
+        MEMBER_SCOPE_ACTIONS.includes(capability),
+      );
+      expect(MemberPermissionsSchema.safeParse(roleGrants).success).toBe(true);
+    }
+  });
 });

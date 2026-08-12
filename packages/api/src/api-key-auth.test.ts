@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import type { ApiKeyPrincipal } from "./api-key-auth";
 
 let enforceApiKeyRoute: typeof import("./api-key-auth").enforceApiKeyRoute;
@@ -9,7 +9,13 @@ process.env.DATABASE_URL ??= "postgres://test:test@localhost:5432/test";
 process.env.BETTER_AUTH_SECRET ??= "test-secret-that-is-at-least-32-characters";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
 process.env.CORS_ORIGIN ??= "http://localhost:3000";
+const permissions = await import("./permissions");
+mock.module("./permissions", () => ({
+  ...permissions,
+  authorizeApiKeyCapability: async () => undefined,
+}));
 const apiKeyAuth = await import("./api-key-auth");
+mock.restore();
 enforceApiKeyRoute = apiKeyAuth.enforceApiKeyRoute;
 requiredApiKeyPermission = apiKeyAuth.requiredApiKeyPermission;
 

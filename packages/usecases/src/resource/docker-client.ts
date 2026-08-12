@@ -18,6 +18,9 @@ import type {
 } from "../ports/docker";
 
 let resolver: DockerInfrastructureResolverPort = {
+  async resolveCaddyServiceForServer() {
+    throw new Error("Remote Caddy infrastructure has not been configured");
+  },
   async resolveDockerServiceForServer(_serverId, _uow, defaultDockerService) {
     return { dockerService: defaultDockerService, cleanup: () => {} };
   },
@@ -58,6 +61,13 @@ export type DockerContainerControlService = DockerContainerControlPort;
 export type DockerCommandService = DockerCommandPort;
 export type DockerDatabaseDeploymentService = DockerDatabaseDeploymentPort;
 export type DockerServerStatsService = DockerServerStatsPort;
+
+export function resolveCaddyServiceForServer(
+  serverId: string,
+  uow: IUnitOfWork,
+) {
+  return resolver.resolveCaddyServiceForServer(serverId, uow);
+}
 
 export function getDockerInstance(): Docker {
   if (!dockerClientFactory) {

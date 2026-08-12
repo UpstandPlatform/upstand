@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { buildControlPlaneRoutes } from "./get-web-server-settings.usecase";
+import {
+  applyConfiguredDashboardHost,
+  buildControlPlaneRoutes,
+} from "./get-web-server-settings.usecase";
 
 describe("buildControlPlaneRoutes", () => {
   test("uses one site block when dashboard and API share a host", () => {
@@ -32,5 +35,26 @@ describe("buildControlPlaneRoutes", () => {
 
     expect(caddyfile.match(/^example\.com \{$/gm)).toHaveLength(1);
     expect(caddyfile).toContain("api.example.com {");
+  });
+});
+
+describe("applyConfiguredDashboardHost", () => {
+  const settings = {
+    serverDomain: null,
+  } as never;
+
+  test("prefills a missing domain from the configured cloud host", () => {
+    expect(
+      applyConfiguredDashboardHost(settings, " cloud.example.com "),
+    ).toMatchObject({ serverDomain: "cloud.example.com" });
+  });
+
+  test("does not overwrite a user-configured domain", () => {
+    expect(
+      applyConfiguredDashboardHost(
+        { serverDomain: "custom.example.com" } as never,
+        "cloud.example.com",
+      ).serverDomain,
+    ).toBe("custom.example.com");
   });
 });

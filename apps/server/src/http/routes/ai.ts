@@ -135,6 +135,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
           context: body.page ? { page: body.page } : {},
         });
     const context = {
+      actorKind: "session" as const,
       organizationId: body.organizationId,
       userId: session.user.id,
       userName: session.user.name?.trim() || undefined,
@@ -566,6 +567,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
 
       try {
         const result = await executeUpGalReadTool(name, args, {
+          actorKind: "api-key" as const,
           organizationId: key.organizationId,
           userId: key.userId,
           conversationId: randomUUID(),
