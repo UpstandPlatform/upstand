@@ -97,7 +97,9 @@ export function AppInfoPanel() {
 
   const handleCheck = async () => {
     const result = await checkUpdates.mutateAsync();
-    if (result.channel === "managed") {
+    if (result.channel === "managed" && result.updateAvailable) {
+      toast.info(`Managed Upstand ${result.latestVersion} is available.`);
+    } else if (result.channel === "managed") {
       toast.info("Cloud Upstand is updated by the managed release rollout.");
     } else if (result.updateAvailable) {
       toast.info(`Upstand ${result.latestVersion} is available.`);
