@@ -1,5 +1,11 @@
 # web
 
+## 0.2.9
+
+### Patch Changes
+
+- [#267](https://github.com/UpstandPlatform/upstand/pull/267) [`113086f`](https://github.com/UpstandPlatform/upstand/commit/113086f79b8768b083dc16fa38cf42cc53db03d6) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the cloud instance owner to inspect and trigger managed control-plane updates from the panel while keeping the update surface unavailable to regular cloud users.
+
 ## 0.2.8
 
 ### Patch Changes
