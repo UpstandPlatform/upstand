@@ -88,8 +88,8 @@ function resourcePaths() {
   };
 }
 
-async function localAuthSecret() {
-  const file = join(app.getPath("userData"), "auth-secret");
+async function readOrCreateSecret(name: string): Promise<string> {
+  const file = join(app.getPath("userData"), name);
   try {
     const existing = (await readFile(file, "utf8")).trim();
     if (existing) return existing;
@@ -102,18 +102,12 @@ async function localAuthSecret() {
   return secret;
 }
 
+async function localAuthSecret() {
+  return readOrCreateSecret("auth-secret");
+}
+
 async function localEncryptionKey() {
-  const file = join(app.getPath("userData"), "encryption-key");
-  try {
-    const existing = (await readFile(file, "utf8")).trim();
-    if (existing) return existing;
-  } catch {
-    // First launch.
-  }
-  const secret = randomBytes(32).toString("base64url");
-  await mkdir(app.getPath("userData"), { recursive: true });
-  await writeFile(file, secret, { mode: 0o600 });
-  return secret;
+  return readOrCreateSecret("encryption-key");
 }
 
 async function waitFor(url: string, processRef: ChildProcess): Promise<void> {

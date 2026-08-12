@@ -12,6 +12,7 @@ import {
   GetServerMonitoringStatusInputSchema,
   GetServerRuntimeStatsInputSchema,
   GetServersInputSchema,
+  getConfiguredControlPlaneMode,
   MigrateResourceInputSchema,
   ResourceWorkloadMigrationInputSchema,
   ScanServerHostKeyInputSchema,
@@ -58,6 +59,12 @@ async function requireLocalDockerOwner(
   serverId: string | undefined,
 ): Promise<void> {
   if (!serverId || serverId === "local" || serverId === "manager") {
+    if (getConfiguredControlPlaneMode() === "desktop") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Desktop bare mode does not expose local Docker operations",
+      });
+    }
     await requireInstanceOwnerContext(ctx);
   }
 }

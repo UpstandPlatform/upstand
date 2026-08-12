@@ -31,6 +31,16 @@ describe("packaged Desktop server runtime", () => {
     expect(services).toContain("false,");
   });
 
+  test("uses Upstand Windows application metadata and icon assets", () => {
+    expect(forgeConfig).toContain('appBundleId: "dev.upstand.desktop"');
+    expect(forgeConfig).toContain(
+      'setupIcon: resolve(__dirname, "assets", "icon.ico")',
+    );
+    expect(mainProcess).toContain(
+      'app.setAppUserModelId("dev.upstand.desktop")',
+    );
+  });
+
   test("uses Next's nested standalone dashboard entrypoint", () => {
     expect(services).toContain('"dashboard", "apps", "web", "server.js"');
     expect(desktopBuild).toContain('resolve(localRoot, "dashboard")');

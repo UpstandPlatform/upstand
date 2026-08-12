@@ -20,6 +20,9 @@
       small { color: #71717a; }
       .profile { display: flex; justify-content: space-between; align-items: center; }
       .profile small { color: #a1a1aa; }
+      .mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+      .mode-tab { background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; }
+      .mode-tab[aria-pressed="true"] { background: #27272a; border-color: #fafafa; color: #fafafa; }
     </style>
   </head>
   <body>
@@ -35,10 +38,11 @@
       <form id="connection-form">
         <label for="origin">Self-hosted or custom control plane URL</label>
         <input id="origin" name="origin" type="url" autocomplete="url" placeholder="https://upstand.example.com" required />
-        <select id="mode" aria-label="Connection type">
-          <option value="self-hosted">Self-hosted</option>
-          <option value="cloud">Cloud</option>
-        </select>
+        <div class="mode-tabs" role="group" aria-label="Connection type">
+          <button class="mode-tab" type="button" data-mode="cloud" aria-pressed="false">Cloud</button>
+          <button class="mode-tab" type="button" data-mode="self-hosted" aria-pressed="true">Self-hosted</button>
+        </div>
+        <input id="mode" type="hidden" value="self-hosted" />
         <button type="submit">Open Upstand</button>
         <p id="error" role="alert"></p>
         <small id="version"></small>
@@ -49,6 +53,7 @@
       const form = document.querySelector('#connection-form');
       const input = document.querySelector('#origin');
       const mode = document.querySelector('#mode');
+      const modeButtons = [...document.querySelectorAll('[data-mode]')];
       const error = document.querySelector('#error');
       const profiles = document.querySelector('#profiles');
       const setError = (reason) => { error.textContent = reason instanceof Error ? reason.message : 'Unable to connect.'; };
@@ -57,12 +62,21 @@
         try { await bridge.connection.set(origin, { mode: selectedMode, name }); }
         catch (reason) { setError(reason); }
       };
+      const setMode = (selectedMode) => {
+        mode.value = selectedMode;
+        modeButtons.forEach((button) => {
+          button.setAttribute('aria-pressed', String(button.dataset.mode === selectedMode));
+        });
+      };
+      modeButtons.forEach((button) => {
+        button.addEventListener('click', () => setMode(button.dataset.mode));
+      });
       document.querySelector('#local').addEventListener('click', async () => {
         error.textContent = '';
         try { await bridge.connection.clear(); } catch (reason) { setError(reason); }
       });
       document.querySelector('#cloud').addEventListener('click', () => {
-        input.value = 'https://upstand.dev'; mode.value = 'cloud';
+        input.value = 'https://upstand.dev'; setMode('cloud');
         void connect(input.value, mode.value, 'Upstand Cloud');
       });
       bridge.connection.get().then((connection) => { if (connection) input.value = connection.origin; });

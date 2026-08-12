@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import {
   GetTopologyGraphInputSchema,
+  getConfiguredControlPlaneMode,
   requiresRemoteServerPlacement,
 } from "@upstand/usecases";
 import { GetTopologyGraphUseCaseToken } from "@upstand/usecases/tokens";
@@ -35,7 +36,10 @@ export const topologyRouter = router({
         return await ctx.scope
           .resolve(GetTopologyGraphUseCaseToken)
           .execute(input, {
-            includeLocal: !requiresRemoteServerPlacement() || instanceOwner,
+            includeLocal:
+              getConfiguredControlPlaneMode() !== "desktop" &&
+              (!requiresRemoteServerPlacement() || instanceOwner),
+            allowLocalInCloud: instanceOwner,
           });
       } catch (error) {
         handleUseCaseError(error, ctx.log);

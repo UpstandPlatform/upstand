@@ -184,6 +184,64 @@ function createCloudRuntimeMatrix(
   ];
 }
 
+function createDesktopRuntimeMatrix(
+  availability: RuntimeAdapterAvailability,
+): RuntimeCapability[] {
+  return [
+    {
+      target: "local",
+      runtime: "docker",
+      supported: false,
+      buildLocations: [],
+      zeroDowntimeReplacement: false,
+      reason: "Desktop uses bare mode and does not execute workloads locally",
+    },
+    {
+      target: "local",
+      runtime: "bare-process",
+      supported: false,
+      buildLocations: [],
+      zeroDowntimeReplacement: false,
+      reason:
+        "Desktop bare mode is a control plane, not a local workload runtime",
+    },
+    {
+      target: "remote-server",
+      runtime: "docker",
+      supported: availability.docker,
+      buildLocations: availability.docker
+        ? ["control-plane", "target", "remote-builder"]
+        : [],
+      zeroDowntimeReplacement: true,
+      reason: availability.docker
+        ? null
+        : "Docker execution is unavailable because no Docker runtime adapter is configured",
+    },
+    {
+      target: "remote-server",
+      runtime: "bare-process",
+      supported: availability.bareProcess,
+      buildLocations: availability.bareProcess
+        ? ["control-plane", "target", "remote-builder"]
+        : [],
+      zeroDowntimeReplacement: false,
+      reason: availability.bareProcess
+        ? null
+        : "Bare-process execution is unavailable because no process supervisor and artifact materializer are configured",
+    },
+    {
+      target: "cloud",
+      runtime: "cloud",
+      supported: availability.cloudGateway,
+      buildLocations: availability.cloudGateway ? ["cloud"] : [],
+      zeroDowntimeReplacement: true,
+      reason: availability.cloudGateway
+        ? null
+        : "Cloud execution is unavailable because no cloud gateway is configured",
+    },
+  ];
+}
+
 export class PlatformCapabilityError extends Error {
   readonly code = "PLATFORM_CAPABILITY_UNSUPPORTED";
 
@@ -231,24 +289,24 @@ export function getPlatformCapabilities(
     case "desktop":
       return {
         mode,
-        localRuntime: true,
+        localRuntime: false,
         remoteServers: true,
-        scheduler: true,
+        scheduler: false,
         redis: false,
         cloudConnection: true,
-        jobs: true,
+        jobs: false,
         acmeCertificates: false,
-        localGitCli: true,
-        localDockerSocket: true,
+        localGitCli: false,
+        localDockerSocket: false,
         swarmManagement: false,
-        localFileSystemBackups: true,
-        embeddedMonitoring: true,
+        localFileSystemBackups: false,
+        embeddedMonitoring: false,
         desktopNativeNotifications: true,
         enterpriseScimSso: false,
         serverMigration: true,
         controlPlaneTransfer: true,
         dataOwnership: "local-control-plane",
-        runtimeMatrix: selfHostedRuntimeMatrix,
+        runtimeMatrix: createDesktopRuntimeMatrix(runtimeAvailability),
       };
     case "cloud":
       return {

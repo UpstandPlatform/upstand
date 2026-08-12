@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { getDocsUrl, getServerApiUrl, getServerUrl } from "./server-url";
+import {
+  getDocsUrl,
+  getServerApiUrl,
+  getServerUrl,
+  getServerUrlFromHeaders,
+} from "./server-url";
 
 const originalWindow = globalThis.window;
 
@@ -67,5 +72,19 @@ describe("runtime URL resolution", () => {
     });
 
     expect(getDocsUrl()).toBe("https://docs.upstand.dev/docs/");
+  });
+
+  test("keeps direct IP access on HTTP and maps the dashboard port to the API", () => {
+    const headers = new Headers({ host: "85.155.230.19:3001" });
+
+    expect(getServerUrlFromHeaders(headers, "https://upstand.dev")).toBe(
+      "http://85.155.230.19:3000",
+    );
+  });
+
+  test("resolves direct IP documentation to the local docs port", () => {
+    setBrowserLocation("http://85.155.230.19:3001/");
+
+    expect(getDocsUrl()).toBe("http://85.155.230.19:4000/docs/");
   });
 });

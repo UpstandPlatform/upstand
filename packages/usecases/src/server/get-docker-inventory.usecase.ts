@@ -104,6 +104,10 @@ export type GetDockerInventoryInput = z.infer<
   typeof GetDockerInventoryInputSchema
 >;
 
+export type DockerInventoryExecutionOptions = {
+  allowLocalInCloud?: boolean;
+};
+
 export class GetDockerInventoryUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
@@ -113,10 +117,15 @@ export class GetDockerInventoryUseCase {
     private readonly archiveTransfer: DockerArchiveTransferPort,
   ) {}
 
-  async execute(input: GetDockerInventoryInput) {
+  async execute(
+    input: GetDockerInventoryInput,
+    options: DockerInventoryExecutionOptions = {},
+  ) {
     const mode = getConfiguredControlPlaneMode();
     const capabilities = getPlatformCapabilities(mode);
-    const target = await resolveDockerInspectionTarget(this.uow, input);
+    const target = await resolveDockerInspectionTarget(this.uow, input, {
+      allowLocalInCloud: options.allowLocalInCloud,
+    });
     switch (input.kind) {
       case "info":
         return this.inventory.getInfo(target);

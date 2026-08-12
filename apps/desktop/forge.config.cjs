@@ -7,6 +7,13 @@ module.exports = {
     asar: true,
     name: "upstand",
     executableName: "upstand",
+    appBundleId: "dev.upstand.desktop",
+    win32metadata: {
+      CompanyName: "Upstand",
+      ProductName: "Upstand",
+      FileDescription: "Upstand Desktop",
+      OriginalFilename: "upstand.exe",
+    },
     icon: resolve(__dirname, "assets", "icon.ico"),
     // Allows an air-gapped verification host to provide a pre-verified Electron
     // archive while CI continues to use Electron Packager's normal download.

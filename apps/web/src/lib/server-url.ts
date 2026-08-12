@@ -11,6 +11,10 @@ function isLoopbackHost(hostname: string): boolean {
   );
 }
 
+function isDirectHost(hostname: string): boolean {
+  return isLoopbackHost(hostname) || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+}
+
 function parseConfiguredUrl(configured: string | undefined): URL | null {
   if (!configured) return null;
   try {
@@ -26,10 +30,7 @@ function isConfiguredOrigin(url: URL | null): url is URL {
 
 function isDirectOrigin(url: URL): boolean {
   return (
-    isLoopbackHost(url.hostname) ||
-    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname) ||
-    url.port === "3000" ||
-    url.port === "3001"
+    isDirectHost(url.hostname) || url.port === "3000" || url.port === "3001"
   );
 }
 
@@ -62,7 +63,9 @@ function getDesktopDocsOrigin(): string | undefined {
 }
 
 function inferApiOrigin(protocol: string, hostname: string, port = ""): string {
-  const apiHostname = inferSiblingHostname(hostname, "api");
+  const apiHostname = isDirectHost(hostname)
+    ? hostname
+    : inferSiblingHostname(hostname, "api");
   const apiPort =
     port === "3001" ? "3000" : isLoopbackHost(hostname) ? "3000" : port;
   const portSuffix = apiPort ? `:${apiPort}` : "";
@@ -126,8 +129,6 @@ export function getServerUrlFromHeaders(
   configured = env.NEXT_PUBLIC_SERVER_URL,
 ): string {
   const internalUrl = parseConfiguredUrl(env.UPSTAND_SERVER_INTERNAL_URL);
-  if (internalUrl) return internalUrl.origin;
-
   const configuredUrl = parseConfiguredUrl(configured);
   const forwardedHost = requestHeaders.get("x-forwarded-host");
   const host = (forwardedHost || requestHeaders.get("host") || "localhost:3001")
@@ -137,19 +138,27 @@ export function getServerUrlFromHeaders(
     .get("x-forwarded-proto")
     ?.split(",")[0]
     .trim();
-  const protocol =
-    forwardedProtocol === "http" || forwardedProtocol === "https"
-      ? `${forwardedProtocol}:`
-      : isLoopbackHost(host)
-        ? "http:"
-        : "https:";
-
   try {
+    const hostUrl = new URL(`http://${host}`);
+    // A direct IP request is the user's explicit recovery path. Resolve the
+    // sibling API on that same host instead of sending SSR back to a service
+    // name that is only reachable inside the container network.
+    if (internalUrl && !isDirectHost(hostUrl.hostname)) {
+      return internalUrl.origin;
+    }
+    const protocol =
+      forwardedProtocol === "http" || forwardedProtocol === "https"
+        ? `${forwardedProtocol}:`
+        : isDirectHost(hostUrl.hostname)
+          ? "http:"
+          : "https:";
     const requestUrl = new URL(`${protocol}//${host}`);
     if (
       isConfiguredOrigin(configuredUrl) &&
-      (!isDirectOrigin(configuredUrl) ||
-        configuredUrl.hostname === requestUrl.hostname)
+      (isDirectOrigin(requestUrl)
+        ? isDirectOrigin(configuredUrl) &&
+          configuredUrl.hostname === requestUrl.hostname
+        : !isDirectOrigin(configuredUrl))
     ) {
       return configuredUrl.origin;
     }
@@ -183,7 +192,7 @@ export function getDocsUrl(path = ""): string {
 
   if (typeof window !== "undefined") {
     const { protocol, hostname, port } = window.location;
-    if (isLoopbackHost(hostname) && (port === "3001" || port === "3000")) {
+    if (isDirectHost(hostname) && (port === "3001" || port === "3000")) {
       return `http://${hostname}:4000${docsPath}`;
     }
     return `${protocol}//${inferSiblingHostname(hostname, "docs")}${docsPath}`;
