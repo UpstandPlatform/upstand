@@ -68,6 +68,8 @@ jobs:
           npm --version
 
       - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: bun install --frozen-lockfile
 
       - name: Build CLI

@@ -43,6 +43,8 @@ jobs:
             ${{ runner.os }}-bun-1.3.14-
 
       - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: bun install --frozen-lockfile
 
       - name: Create or update release PR
