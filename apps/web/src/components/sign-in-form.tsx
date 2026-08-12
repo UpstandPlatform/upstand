@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import z from "zod";
 
 import { authClient } from "@/lib/auth-client";
+import { getUserFacingError } from "@/lib/error-message";
+import { bootstrapInitialOrganization } from "@/lib/organization-bootstrap";
 import { AuthFormField } from "./auth/auth-form-field";
 
 export default function SignInForm({
@@ -38,37 +40,21 @@ export default function SignInForm({
             // A stale anonymous request can finish just after sign-in and
             // overwrite the shared atom. Retry briefly until the new cookie is
             // visible to the API instead of navigating with a null snapshot.
-            for (const delay of [0, 150, 400]) {
-              if (delay > 0) {
-                await new Promise((resolve) => setTimeout(resolve, delay));
-              }
-              await refetchSession();
-              break;
-            }
+            await refetchSession();
 
             // Imperatively select the active organization before navigating so
             // the dashboard layout sees it immediately without a reload.
-            try {
-              const { data: orgs } = await authClient.organization.list();
-              if (orgs && orgs.length > 0) {
-                const personal = orgs.find(
-                  (o) =>
-                    (o.metadata as { isPersonal?: boolean } | null)
-                      ?.isPersonal || o.name.toLowerCase() === "personal",
-                );
-                const target = personal || orgs[0];
-                await authClient.organization.setActive({
-                  organizationId: target.id,
-                });
-              }
-            } catch {
-              // Non-fatal: dashboard layout will handle org selection as fallback
-            }
+            await bootstrapInitialOrganization();
             router.push(successPath as Route);
             toast.success("Sign in successful");
           },
           onError: (error) => {
-            toast.error(error.error.message || error.error.statusText);
+            toast.error(
+              getUserFacingError(
+                error.error.message || error.error.statusText,
+                "Unable to sign in",
+              ),
+            );
           },
         },
       );

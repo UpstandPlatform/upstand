@@ -471,6 +471,10 @@ export interface RemoteDockerConnectionPort {
 }
 
 export interface DockerInfrastructureResolverPort {
+  resolveCaddyServiceForServer(
+    serverId: string,
+    uow: import("@upstand/domain").IUnitOfWork,
+  ): Promise<{ caddyService: CaddyServicePort; cleanup: () => void }>;
   resolveDockerServiceForServer(
     serverId: string | null | undefined,
     uow: import("@upstand/domain").IUnitOfWork,

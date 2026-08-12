@@ -95,7 +95,7 @@ export function setApiKeyRateLimitHeaders(
 }
 
 export function requiredApiKeyPermission(path: string): Capability | null {
-  return path in API_KEY_ROUTE_CAPABILITIES
+  return Object.hasOwn(API_KEY_ROUTE_CAPABILITIES, path)
     ? API_KEY_ROUTE_CAPABILITIES[path as ApiKeyRoute]
     : null;
 }

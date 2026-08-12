@@ -72,6 +72,7 @@ import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 import { usePlatformCapabilities } from "@/hooks/use-platform-capabilities";
 import { useSystemConfig } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
+import { selectInitialOrganization } from "@/lib/organization-bootstrap";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/utils/trpc";
 
@@ -310,33 +311,22 @@ function DashboardSidebarGroup({
 }) {
   const { capabilities } = usePlatformCapabilities();
 
-  const filteredItems = group.items
-    .filter((item) => {
-      if (isCloud && item.href === "/web-server" && !isInstanceOwner)
+  const filteredItems = group.items.filter((item) => {
+    if (isCloud && item.href === "/web-server" && !isInstanceOwner)
+      return false;
+    if (isCloud && item.href === "/docker" && !isInstanceOwner) return false;
+    if (capabilities) {
+      if (item.href === "/docker-swarm" && !capabilities.swarmManagement)
         return false;
-      if (isCloud && item.href === "/docker" && !isInstanceOwner) return false;
-      if (capabilities) {
-        if (item.href === "/docker-swarm" && !capabilities.swarmManagement)
-          return false;
-        if (
-          (item.href === "/settings/scim" || item.href === "/settings/sso") &&
-          !capabilities.enterpriseScimSso
-        ) {
-          return false;
-        }
+      if (
+        (item.href === "/settings/scim" || item.href === "/settings/sso") &&
+        !capabilities.enterpriseScimSso
+      ) {
+        return false;
       }
-      return true;
-    })
-    .map((item) =>
-      isCloud && !isInstanceOwner && item.href === "/observation"
-        ? {
-            ...item,
-            items: item.items?.filter(
-              (subItem) => subItem.href !== "/observation?tab=requests",
-            ),
-          }
-        : item,
-    );
+    }
+    return true;
+  });
 
   const content = (
     <SidebarGroupContent className={isCollapsed ? undefined : "mt-1"}>
@@ -487,6 +477,7 @@ export function DashboardLayout({
   const [sessionValidationError, setSessionValidationError] = useState(false);
   const [sessionPendingTimedOut, setSessionPendingTimedOut] = useState(false);
   const sessionValidationInFlight = useRef(false);
+  const organizationSelectionInFlight = useRef(false);
 
   useEffect(() => {
     if (!sessionPending) {
@@ -516,17 +507,22 @@ export function DashboardLayout({
 
   useEffect(() => {
     if (sessionPending || organizationsPending || activeOrgPending) return;
-    if (session && organizations && organizations.length > 0 && !activeOrg) {
-      const personal = organizations.find(
-        (o) => o.metadata?.isPersonal || o.name.toLowerCase() === "personal",
-      );
-      const targetOrg = personal || organizations[0];
-      authClient.organization
-        .setActive({
-          organizationId: targetOrg.id,
-        })
-        .then(() => {
-          void refetchActiveOrg();
+    if (
+      session &&
+      organizations &&
+      organizations.length > 0 &&
+      !activeOrg &&
+      !organizationSelectionInFlight.current
+    ) {
+      const targetOrg = selectInitialOrganization(organizations);
+      if (!targetOrg) return;
+      organizationSelectionInFlight.current = true;
+      void authClient.organization
+        .setActive({ organizationId: targetOrg.id })
+        .then(() => refetchActiveOrg())
+        .catch(() => undefined)
+        .finally(() => {
+          organizationSelectionInFlight.current = false;
         });
     }
   }, [

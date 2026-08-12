@@ -399,6 +399,71 @@ export async function resolveDockerServiceForServer(
   };
 }
 
+export async function resolveCaddyServiceForServer(
+  serverId: string,
+  uow: IUnitOfWork,
+): Promise<{ caddyService: CaddyService; cleanup: () => void }> {
+  const server = await uow.serverRepository.findById(serverId);
+  if (!server) throw new Error("Target deployment server was not found");
+
+  let privateKey: string | undefined;
+  let password: string | undefined;
+  const isPasswordAuth =
+    server.authType === "password" ||
+    (!server.sshKeyId && Boolean(server.passwordCiphertext));
+
+  if (isPasswordAuth) {
+    if (
+      !server.passwordCiphertext ||
+      !server.passwordIv ||
+      !server.passwordAuthTag ||
+      server.passwordVersion == null
+    ) {
+      throw new Error("Target deployment server password credentials missing");
+    }
+    password = decryptSecret({
+      ciphertext: server.passwordCiphertext,
+      iv: server.passwordIv,
+      authTag: server.passwordAuthTag,
+      keyVersion: server.passwordVersion,
+    });
+  } else {
+    if (!server.sshKeyId) {
+      throw new Error("Target deployment server has no SSH key configured");
+    }
+    const sshKey = await uow.sshKeyRepository.findById(server.sshKeyId);
+    if (!sshKey) throw new Error("Target deployment server SSH key not found");
+    privateKey = decryptSecret({
+      ciphertext: sshKey.privateKeyCiphertext,
+      iv: sshKey.privateKeyIv,
+      authTag: sshKey.privateKeyAuthTag,
+      keyVersion: sshKey.privateKeyVersion,
+    });
+  }
+
+  const remoteDocker = createRemoteDocker({
+    host: server.ipAddress,
+    port: server.port,
+    username: server.username,
+    privateKey,
+    password,
+    hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
+  });
+  const remoteCli = createRemoteDockerCliEnvironment({
+    host: server.ipAddress,
+    port: server.port,
+    username: server.username,
+    privateKey,
+    password,
+    hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
+  });
+
+  return {
+    caddyService: new CaddyService(remoteDocker),
+    cleanup: remoteCli.cleanup,
+  };
+}
+
 export async function resolveServicesForResource(
   resource: ResourceAutoscalingProjection,
   uow: IUnitOfWork,
@@ -486,6 +551,7 @@ export async function resolveServicesForResource(
 
 export function createDockerInfrastructureResolver(): DockerInfrastructureResolverPort {
   return {
+    resolveCaddyServiceForServer,
     resolveDockerServiceForServer,
     resolveDockerCliEnvironmentForServer,
     resolveServicesForResource,
