@@ -1,6 +1,7 @@
 import { getRateLimiterHealth } from "@upstand/api";
 import { auth } from "@upstand/api/auth";
 import { isInstanceOwner } from "@upstand/api/permissions";
+import { env } from "@upstand/env/server";
 import { pingRedis, redis } from "@upstand/redis";
 import {
   getConfiguredControlPlaneMode,
@@ -69,6 +70,9 @@ export function registerSetupStatusRoute(app: Hono<AppEnv>): void {
     return c.json({
       ...status,
       isCloud: platformMode === "cloud",
+      googleEnabled: Boolean(
+        env.GOOGLE_CLIENT_ID?.trim() && env.GOOGLE_CLIENT_SECRET?.trim(),
+      ),
       platformMode,
       isInstanceOwner: instanceOwner,
       capabilities: getPlatformCapabilities(platformMode),

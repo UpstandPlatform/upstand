@@ -138,13 +138,19 @@ async function loginWithBrowser(
   throw new Error("CLI authorization expired. Run upstand login again.");
 }
 
+export function browserCommand(
+  url: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return platform === "win32"
+    ? ["cmd", "/c", "start", "", `"${url.replace(/"/g, '""')}"`]
+    : platform === "darwin"
+      ? ["open", url]
+      : ["xdg-open", url];
+}
+
 async function openBrowser(url: string): Promise<void> {
-  const command =
-    process.platform === "win32"
-      ? ["cmd", "/c", "start", "", url]
-      : process.platform === "darwin"
-        ? ["open", url]
-        : ["xdg-open", url];
+  const command = browserCommand(url);
   try {
     const child = Bun.spawn(command, {
       stdin: "ignore",

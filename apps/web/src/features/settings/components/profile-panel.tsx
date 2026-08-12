@@ -15,14 +15,42 @@ import {
 import { Field, FieldError, FieldLabel } from "@upstand/ui/components/field";
 import { Input } from "@upstand/ui/components/input";
 import { Spinner } from "@upstand/ui/components/spinner";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import z from "zod";
 import { EditableEntityIcon } from "@/components/editable-entity-icon";
 import { authClient } from "@/lib/auth-client";
+import { getServerApiUrl } from "@/lib/server-url";
 import { useProfileSettings } from "../hooks/use-profile-settings";
 
 export function ProfilePanel() {
   const { data: session } = authClient.useSession();
+  const [hasCredentialAccount, setHasCredentialAccount] = useState<
+    boolean | null
+  >(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(getServerApiUrl("/api/auth/security/status"), {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to load account security");
+        return (await response.json()) as {
+          hasCredentialAccount?: boolean;
+        };
+      })
+      .then((status) => {
+        if (active)
+          setHasCredentialAccount(status.hasCredentialAccount === true);
+      })
+      .catch(() => {
+        if (active) setHasCredentialAccount(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const profileForm = useForm({
     defaultValues: {
@@ -47,16 +75,25 @@ export function ProfilePanel() {
       confirmPassword: "",
     },
     onSubmit: async ({ value }) => {
-      changePassword({
-        currentPassword: value.currentPassword,
-        newPassword: value.newPassword,
-        revokeOtherSessions: true,
-      });
+      if (hasCredentialAccount === false) {
+        void setPassword(value.newPassword);
+      } else {
+        changePassword({
+          currentPassword: value.currentPassword,
+          newPassword: value.newPassword,
+          revokeOtherSessions: true,
+        });
+      }
     },
     validators: {
       onSubmit: z
         .object({
-          currentPassword: z.string().min(1, "Current password is required"),
+          currentPassword: z
+            .string()
+            .refine(
+              (value) => hasCredentialAccount === false || Boolean(value),
+              "Current password is required",
+            ),
           newPassword: z
             .string()
             .min(8, "New password must be at least 8 characters"),
@@ -71,10 +108,16 @@ export function ProfilePanel() {
     },
   });
 
-  const { updateUser, isUpdatingProfile, changePassword, isChangingPassword } =
-    useProfileSettings(() => {
-      passwordForm.reset();
-    });
+  const {
+    updateUser,
+    isUpdatingProfile,
+    changePassword,
+    setPassword,
+    isChangingPassword,
+  } = useProfileSettings(() => {
+    passwordForm.reset();
+    setHasCredentialAccount(true);
+  });
 
   // Keep form in sync when session load finishes
   const userName = session?.user?.name;
@@ -176,9 +219,15 @@ export function ProfilePanel() {
       {/* Change Password */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Change Password</CardTitle>
+          <CardTitle className="text-sm">
+            {hasCredentialAccount === false
+              ? "Create Password"
+              : "Change Password"}
+          </CardTitle>
           <CardDescription>
-            Only applicable if you signed up with email & password.
+            {hasCredentialAccount === false
+              ? "Add a local password so you can also sign in without Google."
+              : "Use your current password to update your sign-in credentials."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -190,23 +239,27 @@ export function ProfilePanel() {
             }}
             className="flex flex-col gap-4"
           >
-            <passwordForm.Field name="currentPassword">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>Current Password</FieldLabel>
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    type="password"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="••••••••"
-                  />
-                  <FieldError errors={field.state.meta.errors} />
-                </Field>
-              )}
-            </passwordForm.Field>
+            {hasCredentialAccount !== false && (
+              <passwordForm.Field name="currentPassword">
+                {(field) => (
+                  <Field>
+                    <FieldLabel htmlFor={field.name}>
+                      Current Password
+                    </FieldLabel>
+                    <Input
+                      id={field.name}
+                      name={field.name}
+                      type="password"
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      placeholder="••••••••"
+                    />
+                    <FieldError errors={field.state.meta.errors} />
+                  </Field>
+                )}
+              </passwordForm.Field>
+            )}
 
             <passwordForm.Field name="newPassword">
               {(field) => (
@@ -257,7 +310,9 @@ export function ProfilePanel() {
                     disabled={!canSubmit || isChangingPassword}
                   >
                     {isChangingPassword && <Spinner data-icon="inline-start" />}
-                    Update Password
+                    {hasCredentialAccount === false
+                      ? "Create Password"
+                      : "Update Password"}
                   </Button>
                 )}
               </passwordForm.Subscribe>

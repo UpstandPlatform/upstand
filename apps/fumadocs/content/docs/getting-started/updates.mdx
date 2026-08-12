@@ -20,7 +20,7 @@ sequenceDiagram
 
     Admin->>API: Trigger Update Check / Polling Job
     API->>GH: Query Latest Image Digests & Release Tags
-    GH-->>API: Return Release Manifest (v0.1.133)
+    GH-->>API: Return Release Manifest (v0.2.6)
     API->>DB: Execute Drizzle Migration Check (runDatabaseMigrations)
     DB-->>API: Migrations Applied (Idempotent Schema Check)
     API->>Swarm: Trigger Rolling Stack Update (docker stack deploy)
@@ -34,12 +34,14 @@ sequenceDiagram
 
 ## Update Channels
 
-Upstand has two main distribution channels:
+Upstand exposes four runtime channels:
 
 | Channel | Branch | Recommendations |
 | --- | --- | --- |
 | **Stable** | `master` / Tags (`vX.Y.Z`) | Production environments. Uses versioned image tags. |
 | **Canary** | `canary` | Test/staging environments. Rolling updates with the latest commits. |
+| **Source** | Repository checkout/build | Development and explicitly opted-in source builds. Not a verified release artifact. |
+| **Managed** | Upstand-operated cloud | Provider-controlled rollout. Tenants cannot mutate the cloud control-plane services. |
 
 > [!WARNING]
 > **Mutable Tags**: Never use mutable tags like `latest` or `canary` directly in production stacks. Always resolve tags to their immutable SHA-256 digests in `/etc/upstand/.env`.
@@ -59,7 +61,7 @@ To update your production instance to a newer version manually:
    UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<new-digest>
    UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<new-digest>
    UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<new-digest>
-   UPSTAND_VERSION=v1.6.70 # Update matching release version
+   UPSTAND_VERSION=v0.2.6 # Update matching release version
    ```
 4. **Rerun the installer**: Execute `sudo bash ./install.sh`. The installer will perform a zero-downtime rolling update on your Docker Swarm.
 5. **Confirm state**: Check `docker stack services upstand` and `/health/ready` to ensure services have fully restarted.
