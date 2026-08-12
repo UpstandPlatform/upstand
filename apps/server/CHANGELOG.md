@@ -1,5 +1,13 @@
 # server
 
+## 0.2.7
+
+### Patch Changes
+
+- [#262](https://github.com/UpstandPlatform/upstand/pull/262) [`95c8817`](https://github.com/UpstandPlatform/upstand/commit/95c88178badb0a60ad004787723638f5a3d0828e) Thanks [@mhbdev](https://github.com/mhbdev)! - Hide unavailable Google sign-in, support password setup and passwordless 2FA
+  for social accounts, preserve CLI device-login URLs on Windows, and refresh
+  authentication, runtime-channel, release, and self-hosting documentation.
+
 ## 0.2.6
 
 ### Patch Changes
