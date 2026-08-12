@@ -1,5 +1,4 @@
 ---
-"@upstand/api": patch
 "@upstand/cli": patch
 server: patch
 web: patch
