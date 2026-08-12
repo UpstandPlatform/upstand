@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.9 - 2026-08-12
+
+Allow the cloud instance owner to inspect and trigger managed control-plane updates from the panel while keeping the update surface unavailable to regular cloud users.
+
 ## 0.2.8 - 2026-08-12
 
 Make direct IP recovery access resolve to the same-host API, expose complete local topology only to the cloud instance owner, prevent cloud and desktop bare runtimes from reaching local Docker surfaces, and make Desktop default to Upstand Cloud with an explicit local bare-mode opt-in.
