@@ -1,5 +1,11 @@
 # server
 
+## 0.2.10
+
+### Patch Changes
+
+- [#269](https://github.com/UpstandPlatform/upstand/pull/269) [`5f68c89`](https://github.com/UpstandPlatform/upstand/commit/5f68c89ecfc645bff49149ac7413d62c6957efbb) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep long-running control-plane services recoverable after transient Docker Swarm node or agent interruptions by removing finite restart-attempt limits from the production stack.
+
 ## 0.2.9
 
 ### Patch Changes
