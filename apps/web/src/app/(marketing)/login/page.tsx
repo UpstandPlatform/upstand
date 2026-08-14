@@ -15,6 +15,10 @@ import SignInForm from "@/components/sign-in-form";
 import SignUpForm from "@/components/sign-up-form";
 import { SsoSignInForm } from "@/components/sso-sign-in-form";
 import { authClient } from "@/lib/auth-client";
+import {
+  cliAuthorizationPath,
+  cliUserCodeFromSearchParams,
+} from "@/lib/cli-authorization";
 import { getServerApiUrl } from "@/lib/server-url";
 
 const GoogleIcon = () => (
@@ -41,13 +45,8 @@ const GoogleIcon = () => (
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const cliUserCode =
-    searchParams.get("cli") === "upstand"
-      ? searchParams.get("user_code")
-      : null;
-  const cliPath = cliUserCode
-    ? `/login?cli=upstand&user_code=${encodeURIComponent(cliUserCode)}`
-    : "/login";
+  const cliUserCode = cliUserCodeFromSearchParams(searchParams);
+  const cliPath = cliUserCode ? cliAuthorizationPath(cliUserCode) : "/login";
   const [loading, setLoading] = useState(false);
   const [needsOwnerSetup, setNeedsOwnerSetup] = useState<boolean | null>(null);
   const [setupError, setSetupError] = useState(false);
