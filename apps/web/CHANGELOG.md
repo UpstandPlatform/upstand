@@ -1,5 +1,11 @@
 # web
 
+## 0.2.11
+
+### Patch Changes
+
+- [#271](https://github.com/UpstandPlatform/upstand/pull/271) [`43ac1da`](https://github.com/UpstandPlatform/upstand/commit/43ac1dacbbb421a3ac8eb358ef5f8e113d3b8a74) Thanks [@mhbdev](https://github.com/mhbdev)! - Prevent transient control-plane session failures from crashing dashboard Server Component renders by retrying temporary responses and degrading to the normal session guard.
+
 ## 0.2.10
 
 ## 0.2.9
