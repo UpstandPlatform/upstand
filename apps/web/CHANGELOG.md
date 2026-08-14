@@ -1,5 +1,13 @@
 # web
 
+## 0.2.13
+
+### Patch Changes
+
+- [#277](https://github.com/UpstandPlatform/upstand/pull/277) [`62ee7eb`](https://github.com/UpstandPlatform/upstand/commit/62ee7eb89ed977985ad3fd61d4b26435c4a7eeba) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix CLI browser sign-in to open the default browser on Windows and complete
+  device authorization for both already-authenticated and newly-authenticated
+  users.
+
 ## 0.2.12
 
 ## 0.2.11

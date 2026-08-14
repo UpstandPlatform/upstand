@@ -1,5 +1,15 @@
 # server
 
+## 0.2.13
+
+### Patch Changes
+
+- [#275](https://github.com/UpstandPlatform/upstand/pull/275) [`743d046`](https://github.com/UpstandPlatform/upstand/commit/743d0462614856bf7a4cb032d1da7c501c984278) Thanks [@mhbdev](https://github.com/mhbdev)! - Remove a duplicate internal error-message helper, make the signed-in dashboard
+  resolve its capability surface before rendering navigation, improve environment
+  comparison and promotion workflows, enforce server-side dashboard session
+  checks before protected pages render, and remove redundant local Docker script
+  aliases plus repository-local agent skills.
+
 ## 0.2.12
 
 ### Patch Changes

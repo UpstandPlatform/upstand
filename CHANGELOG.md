@@ -4,6 +4,18 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.13 - 2026-08-14
+
+Fix CLI browser sign-in to open the default browser on Windows and complete
+device authorization for both already-authenticated and newly-authenticated
+users.
+
+Remove a duplicate internal error-message helper, make the signed-in dashboard
+resolve its capability surface before rendering navigation, improve environment
+comparison and promotion workflows, enforce server-side dashboard session
+checks before protected pages render, and remove redundant local Docker script
+aliases plus repository-local agent skills.
+
 ## 0.2.12 - 2026-08-14
 
 Harden release packaging and keep internal monitoring collection failures out of the public health response.
