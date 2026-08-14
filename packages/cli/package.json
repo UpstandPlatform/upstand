@@ -1,6 +1,6 @@
 {
   "name": "@upstand/cli",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "The OpenTUI-powered command-line interface for Upstand.",
   "repository": {
     "type": "git",
