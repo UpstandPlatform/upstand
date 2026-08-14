@@ -125,7 +125,7 @@ if (runtime === "compose") {
   );
   if (!runningServices.success || missingServices.length > 0) {
     fail(
-      `expected local Compose services are not all running. Missing: ${missingServices.join(", ") || "unknown"}. Run 'bun run docker:local:up' and inspect 'bun run docker:logs'.`,
+      `expected local Compose services are not all running. Missing: ${missingServices.join(", ") || "unknown"}. Run 'bun run docker:up' and inspect 'bun run docker:logs'.`,
     );
   }
   console.log(`✔ Compose services running: ${expectedServices.join(", ")}`);
