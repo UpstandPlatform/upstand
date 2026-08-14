@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.11 - 2026-08-14
+
+Prevent transient control-plane session failures from crashing dashboard Server Component renders by retrying temporary responses and degrading to the normal session guard.
+
 ## 0.2.10 - 2026-08-14
 
 Keep long-running control-plane services recoverable after transient Docker Swarm node or agent interruptions by removing finite restart-attempt limits from the production stack.
