@@ -1,5 +1,12 @@
 # desktop
 
+## 0.2.29
+
+### Patch Changes
+
+- Harden desktop packaging dependency resolution and stop the monitoring health
+  endpoint from returning internal collection error details.
+
 ## 0.2.28
 
 ### Patch Changes

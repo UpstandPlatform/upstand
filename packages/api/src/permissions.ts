@@ -139,6 +139,20 @@ export class AuthorizationService {
     return membership;
   }
 
+  async getSessionCapabilities(
+    userId: string,
+    organizationId: string,
+  ): Promise<Set<PermissionAction>> {
+    const membership = await this.resolveOrganizationAccess(
+      userId,
+      organizationId,
+    );
+    const permissions = membership.permissions
+      ? parseStoredPermissions(membership.permissions, membership.role)
+      : ROLE_PERMISSIONS[membership.role as OrganizationRole] || [];
+    return new Set(permissions);
+  }
+
   async authorizeMcpTool(
     principal: ApiKeyPrincipal,
     toolName: string,
@@ -253,6 +267,13 @@ export async function checkPermission(
   action: PermissionAction,
 ) {
   return authorizationService.authorizeSession(userId, organizationId, action);
+}
+
+export function getSessionCapabilities(
+  userId: string,
+  organizationId: string,
+): Promise<Set<PermissionAction>> {
+  return authorizationService.getSessionCapabilities(userId, organizationId);
 }
 
 export function authorizeApiKeyCapability(

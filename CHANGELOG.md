@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.12 - 2026-08-14
+
+Harden release packaging and keep internal monitoring collection failures out of the public health response.
+
 ## 0.2.11 - 2026-08-14
 
 Prevent transient control-plane session failures from crashing dashboard Server Component renders by retrying temporary responses and degrading to the normal session guard.
