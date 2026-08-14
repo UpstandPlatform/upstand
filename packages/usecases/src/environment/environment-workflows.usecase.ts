@@ -41,6 +41,7 @@ export type EnvironmentDiff = {
     key: string;
     source: "present" | "absent";
     target: "present" | "absent";
+    action: "add" | "update" | "remove" | "unchanged";
     changed: boolean;
     secretsChanged: boolean;
   }>;
@@ -203,38 +204,48 @@ export class DiffEnvironmentsUseCase {
     const resources = resourceKeys.map((key) => {
       const left = sourceByKey.get(key);
       const right = targetByKey.get(key);
+      const secretsChanged = Boolean(
+        left &&
+          right &&
+          JSON.stringify({
+            credentials: left.credentials,
+            buildSecrets: left.buildSecrets,
+            buildEnvVars: left.buildEnvVars,
+            envVars: parseResourceEnvironmentVariables(left.envVars),
+          }) !==
+            JSON.stringify({
+              credentials: right.credentials,
+              buildSecrets: right.buildSecrets,
+              buildEnvVars: right.buildEnvVars,
+              envVars: parseResourceEnvironmentVariables(right.envVars),
+            }),
+      );
+      const configurationChanged = Boolean(
+        left &&
+          right &&
+          JSON.stringify({
+            buildConfig: left.buildConfig,
+            advancedConfig: left.advancedConfig,
+          }) !==
+            JSON.stringify({
+              buildConfig: right.buildConfig,
+              advancedConfig: right.advancedConfig,
+            }),
+      );
+      const action: EnvironmentDiff["resources"][number]["action"] = !right
+        ? "add"
+        : !left
+          ? "remove"
+          : configurationChanged || secretsChanged
+            ? "update"
+            : "unchanged";
       return {
         key,
         source: left ? ("present" as const) : ("absent" as const),
         target: right ? ("present" as const) : ("absent" as const),
-        changed: Boolean(
-          left &&
-            right &&
-            JSON.stringify({
-              buildConfig: left.buildConfig,
-              advancedConfig: left.advancedConfig,
-              envVars: parseResourceEnvironmentVariables(left.envVars),
-            }) !==
-              JSON.stringify({
-                buildConfig: right.buildConfig,
-                advancedConfig: right.advancedConfig,
-                envVars: parseResourceEnvironmentVariables(right.envVars),
-              }),
-        ),
-        secretsChanged: Boolean(
-          left &&
-            right &&
-            JSON.stringify({
-              credentials: left.credentials,
-              buildSecrets: left.buildSecrets,
-              buildEnvVars: left.buildEnvVars,
-            }) !==
-              JSON.stringify({
-                credentials: right.credentials,
-                buildSecrets: right.buildSecrets,
-                buildEnvVars: right.buildEnvVars,
-              }),
-        ),
+        action,
+        changed: action !== "unchanged",
+        secretsChanged,
       };
     });
     return {

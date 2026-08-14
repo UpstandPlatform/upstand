@@ -1,10 +1,11 @@
 import { useForm } from "@tanstack/react-form";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@upstand/ui/components/button";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import z from "zod";
-
+import { SYSTEM_CONFIG_QUERY_KEY } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
 import { getUserFacingError } from "@/lib/error-message";
 import { bootstrapInitialOrganization } from "@/lib/organization-bootstrap";
@@ -18,6 +19,7 @@ export default function SignInForm({
   successPath?: string;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { refetch: refetchSession } = authClient.useSession();
 
   const form = useForm({
@@ -41,6 +43,13 @@ export default function SignInForm({
             // overwrite the shared atom. Retry briefly until the new cookie is
             // visible to the API instead of navigating with a null snapshot.
             await refetchSession();
+
+            // Setup status includes the signed-in instance-owner surface. The
+            // anonymous login page may have populated this query already, so
+            // invalidate it before mounting the dashboard.
+            await queryClient.invalidateQueries({
+              queryKey: SYSTEM_CONFIG_QUERY_KEY,
+            });
 
             // Imperatively select the active organization before navigating so
             // the dashboard layout sees it immediately without a reload.
