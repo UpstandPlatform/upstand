@@ -1,6 +1,6 @@
 {
   "name": "upstand",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "private": true,
   "workspaces": {
     "packages": [
@@ -55,7 +55,8 @@
     "sharp": "0.35.3",
     "shiki": "4.4.1",
     "tar": "7.5.22",
-    "tmp": "0.2.7"
+    "tmp": "0.2.7",
+    "@electron/packager": "20.3.0"
   },
   "type": "module",
   "scripts": {

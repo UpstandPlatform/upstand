@@ -83,7 +83,7 @@ import { createEvlogIntegration } from "evlog/ai";
 import { z } from "zod";
 import type { RequestLog } from "../context";
 import { requireInstanceOwner } from "../instance-access";
-import { checkPermission } from "../permissions";
+import { getSessionCapabilities } from "../permissions";
 import { connectUpGalMCPApps } from "./mcp-apps";
 import { listUpGalModelCatalog } from "./model-catalog";
 import { getUpGalProvider, type UpGalProviderOverrides } from "./provider";
@@ -1876,30 +1876,39 @@ export async function getUpGalToolNamesForUser(
   userId: string,
   organizationId: string,
 ): Promise<UpGalToolName[]> {
-  const allowed: UpGalToolName[] = [];
-  for (const [name] of UPGAL_TOOL_METADATA) {
+  let capabilities: Set<Capability>;
+  try {
+    capabilities = await getSessionCapabilities(userId, organizationId);
+  } catch {
+    return [];
+  }
+
+  const instanceTools = new Set<UpGalToolName>([
+    "get_web_server_logs",
+    "get_swarm_info",
+    "get_swarm_nodes",
+    "get_swarm_containers",
+  ]);
+  const hasAllowedInstanceTool = UPGAL_TOOL_METADATA.some(
+    ([name]) =>
+      instanceTools.has(name) &&
+      capabilities.has(UPGAL_TOOL_CAPABILITIES[name]),
+  );
+  let instanceOwner = false;
+  if (hasAllowedInstanceTool) {
     try {
-      await checkPermission(
-        userId,
-        organizationId,
-        UPGAL_TOOL_CAPABILITIES[name],
-      );
-      if (name === "get_web_server_logs") {
-        await requireInstanceOwner(userId, "session");
-      }
-      if (
-        name === "get_swarm_info" ||
-        name === "get_swarm_nodes" ||
-        name === "get_swarm_containers"
-      ) {
-        await requireInstanceOwner(userId, "session");
-      }
-      allowed.push(name);
+      await requireInstanceOwner(userId, "session");
+      instanceOwner = true;
     } catch {
-      // A missing capability removes only this tool from the agent surface.
+      // Instance-wide tools remain hidden from non-owner sessions.
     }
   }
-  return allowed;
+
+  return UPGAL_TOOL_METADATA.filter(
+    ([name]) =>
+      capabilities.has(UPGAL_TOOL_CAPABILITIES[name]) &&
+      (!instanceTools.has(name) || instanceOwner),
+  ).map(([name]) => name);
 }
 
 export function upGalToolNeedsApproval(value: string): boolean {
