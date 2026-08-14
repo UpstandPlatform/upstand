@@ -143,7 +143,7 @@ export function browserCommand(
   platform: NodeJS.Platform = process.platform,
 ): string[] {
   return platform === "win32"
-    ? ["explorer.exe", url]
+    ? ["cmd.exe", "/d", "/s", "/c", `start "" "${url.replaceAll('"', '""')}"`]
     : platform === "darwin"
       ? ["open", url]
       : ["xdg-open", url];
