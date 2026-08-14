@@ -263,7 +263,7 @@ export function GeneralTab({
   const [previewWildcard, setPreviewWildcard] = useState("");
   const [previewHttps, setPreviewHttps] = useState(false);
   const [previewPort, setPreviewPort] = useState("3000");
-  const [deploymentServerId, setDeploymentServerId] = useState("default");
+  const [deploymentServerId, setDeploymentServerId] = useState("local");
   const [buildServerId, setBuildServerId] = useState("default");
 
   // Provider State
@@ -419,7 +419,7 @@ export function GeneralTab({
       setPreviewWildcard(resource.previewWildcard ?? "");
       setPreviewHttps(resource.previewHttps === true);
       setPreviewPort(String(resource.previewPort ?? 3000));
-      setDeploymentServerId(resource.serverId ?? "default");
+      setDeploymentServerId(resource.serverId ?? "local");
       setBuildServerId(resource.buildServerId ?? "default");
       if (resource.provider) {
         const provider =
@@ -856,12 +856,6 @@ export function GeneralTab({
 
   const queueWorkloadMigration = () => {
     if (organizationState.status !== "ready") return;
-    if (deploymentServerId === "default") {
-      toast.error(
-        "Migration back to the local control plane is not available yet.",
-      );
-      return;
-    }
     saveBuildInfrastructure(() =>
       migrateResource.mutate({
         organizationId: organizationState.organizationId,
@@ -1058,7 +1052,7 @@ export function GeneralTab({
               <Select
                 items={[
                   ...(!isCloud
-                    ? [{ value: "default", label: "Local Swarm manager" }]
+                    ? [{ value: "local", label: "Local Swarm manager" }]
                     : []),
                   ...servers
                     .filter((server) =>
@@ -1086,7 +1080,7 @@ export function GeneralTab({
                 </SelectTrigger>
                 <SelectContent>
                   {!isCloud && (
-                    <SelectItem value="default">Local Swarm manager</SelectItem>
+                    <SelectItem value="local">Local Swarm manager</SelectItem>
                   )}
                   {servers
                     .filter((server) =>
@@ -1200,7 +1194,7 @@ export function GeneralTab({
                 onClick={() => {
                   if (
                     isCloud &&
-                    (deploymentServerId === "default" || !deploymentServerId)
+                    (deploymentServerId === "local" || !deploymentServerId)
                   ) {
                     toast.error(
                       "Please select a target server for deployment.",
@@ -1208,12 +1202,6 @@ export function GeneralTab({
                     return;
                   }
                   if (deploymentPlacementChanged) {
-                    if (deploymentServerId === "default") {
-                      toast.error(
-                        "Migration back to the local control plane is not available yet.",
-                      );
-                      return;
-                    }
                     setMigrationDialogOpen(true);
                     return;
                   }

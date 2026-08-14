@@ -53,9 +53,10 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
       migration.sourceServerId === "local"
         ? null
         : await this.uow.serverRepository.findById(migration.sourceServerId);
-    const target = await this.uow.serverRepository.findById(
-      migration.targetServerId,
-    );
+    const target =
+      migration.targetServerId === "local"
+        ? null
+        : await this.uow.serverRepository.findById(migration.targetServerId);
     const artifactReference = plan?.artifact.reference ?? "";
     const immutableRegistryArtifact = /^.+\/.+@sha256:[0-9a-f]{64}$/.test(
       artifactReference,
@@ -77,7 +78,7 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
       },
       {
         code: "target_health",
-        ok: target?.status === "ready",
+        ok: migration.targetServerId === "local" || target?.status === "ready",
         message: "Target server must be ready",
       },
       {

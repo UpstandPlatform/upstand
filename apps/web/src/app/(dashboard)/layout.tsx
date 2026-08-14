@@ -69,8 +69,10 @@ import { ProjectsBreadcrumb } from "@/components/projects-breadcrumb";
 import { UpGalTarget } from "@/components/upgal-target";
 import { DesktopChrome } from "@/components/workspace/desktop-chrome";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
-import { usePlatformCapabilities } from "@/hooks/use-platform-capabilities";
-import { useSystemConfig } from "@/hooks/use-system-config";
+import {
+  type SystemCapabilities,
+  useSystemConfig,
+} from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
 import { selectInitialOrganization } from "@/lib/organization-bootstrap";
 import { cn } from "@/lib/utils";
@@ -299,6 +301,7 @@ function DashboardSidebarGroup({
   pathname,
   isCollapsed,
   currentTab,
+  capabilities,
   isCloud,
   isInstanceOwner,
 }: {
@@ -306,11 +309,10 @@ function DashboardSidebarGroup({
   pathname: string;
   isCollapsed: boolean;
   currentTab: string | null;
+  capabilities: SystemCapabilities;
   isCloud: boolean;
   isInstanceOwner: boolean;
 }) {
-  const { capabilities } = usePlatformCapabilities();
-
   const filteredItems = group.items.filter((item) => {
     if (isCloud && item.href === "/web-server" && !isInstanceOwner)
       return false;
@@ -408,7 +410,8 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
   const currentTab = useSearchParams().get("tab");
-  const { isCloud, isInstanceOwner } = useSystemConfig();
+  const { capabilities, isCloud, isInstanceOwner, isLoading, sessionPending } =
+    useSystemConfig();
 
   return (
     <Sidebar className={cn("in-[.is-desktop]:pt-9")} collapsible="icon">
@@ -417,17 +420,31 @@ function DashboardSidebar({ pathname }: { pathname: string }) {
       <Separator />
 
       <SidebarContent className="group-data-[collapsible=icon]:overflow-auto! flex flex-col gap-4 px-2 py-2">
-        {NAVIGATION_GROUPS.map((group) => (
-          <DashboardSidebarGroup
-            key={group.title}
-            group={group}
-            isCollapsed={isCollapsed}
-            pathname={pathname}
-            currentTab={currentTab}
-            isCloud={isCloud}
-            isInstanceOwner={isInstanceOwner}
-          />
-        ))}
+        {sessionPending || isLoading || !capabilities ? (
+          <SidebarGroup className="p-0">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton disabled className="text-xs">
+                  <Spinner />
+                  <span>Loading features…</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+        ) : (
+          NAVIGATION_GROUPS.map((group) => (
+            <DashboardSidebarGroup
+              key={group.title}
+              group={group}
+              isCollapsed={isCollapsed}
+              pathname={pathname}
+              currentTab={currentTab}
+              capabilities={capabilities}
+              isCloud={isCloud}
+              isInstanceOwner={isInstanceOwner}
+            />
+          ))
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t p-0">
