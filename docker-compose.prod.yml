@@ -42,7 +42,9 @@ services:
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 3
+        # A transient Swarm node/session interruption must not permanently
+        # strand the stateful control-plane service at 0/1 replicas.
+        max_attempts: 0
         window: 120s
       update_config:
         parallelism: 1
@@ -113,7 +115,7 @@ services:
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 3
+        max_attempts: 0
         window: 120s
       update_config:
         parallelism: 1
@@ -304,7 +306,7 @@ services:
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 3
+        max_attempts: 0
         window: 120s
       update_config:
         parallelism: 1
@@ -420,7 +422,7 @@ services:
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 3
+        max_attempts: 0
         window: 120s
       update_config:
         parallelism: 1
@@ -489,7 +491,7 @@ services:
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 3
+        max_attempts: 0
         window: 120s
       update_config:
         parallelism: 1
@@ -559,7 +561,7 @@ services:
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 3
+        max_attempts: 0
         window: 120s
       update_config:
         parallelism: 1

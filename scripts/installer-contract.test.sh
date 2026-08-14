@@ -72,6 +72,16 @@ grep -Fq 'verify_release_deployment_artifacts' "$ROOT_DIR/install.sh" || {
   exit 1
 }
 
+unlimited_restart_policies="$(grep -c '^        max_attempts: 0$' "$ROOT_DIR/docker-compose.prod.yml")"
+[[ "$unlimited_restart_policies" == 6 ]] || {
+  echo "all long-running control-plane services must use unlimited Swarm restart attempts" >&2
+  exit 1
+}
+if grep -Fq '        max_attempts: 3' "$ROOT_DIR/docker-compose.prod.yml"; then
+  echo "production control-plane stack must not use finite restart attempts" >&2
+  exit 1
+fi
+
 run_replica_validation() {
   (
     validate_replica_configuration "$@"
