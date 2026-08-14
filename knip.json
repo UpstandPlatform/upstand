@@ -19,7 +19,6 @@
       "entry": [
         "src/main/index.ts!",
         "src/preload/index.ts!",
-        "build/build.ts!",
         "forge.config.cjs!",
         "test/**/*.ts!"
       ],
