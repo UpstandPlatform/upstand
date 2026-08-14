@@ -1,0 +1,10 @@
+{
+  "name": "@upstand/electron-extract-zip-compat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.cjs",
+  "dependencies": {
+    "@electron-internal/extract-zip": "1.0.5"
+  }
+}

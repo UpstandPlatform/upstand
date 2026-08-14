@@ -1,5 +1,11 @@
 # server
 
+## 0.2.12
+
+### Patch Changes
+
+- Harden release packaging and keep internal monitoring collection failures out of the public health response.
+
 ## 0.2.11
 
 ## 0.2.10
