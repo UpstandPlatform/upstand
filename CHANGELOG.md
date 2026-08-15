@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.1 - 2026-08-15
+
+Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
+
 ## 0.2.0 - 2026-08-09
 
 Ship the Windows app as Upstand, run its bundled control plane from a verified
