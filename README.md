@@ -132,6 +132,36 @@ docker-compose.prod.yml  Production Swarm stack configuration
    ```
    Open `http://localhost:3001` for the web console, `http://localhost:3000/api/docs/` for the API Swagger UI, and `http://localhost:4000` for Fumadocs. Run `bun setup` again after pulling dependency or schema changes.
 
+The mode-specific launchers are safe to rerun and switch between:
+
+```bash
+bun dev:self-hosted
+bun dev:cloud
+```
+
+Only an Upstand-owned development process is stopped when switching modes.
+Self-hosted and cloud development use separate Compose projects, PostgreSQL
+volumes, Redis volumes, and framework caches. They share the existing local
+encrypted Swarm network so Docker Desktop does not have to attach standalone
+Compose containers to multiple overlay networks. The previous mode's data is
+preserved while its runtime is stopped.
+
+To create a disposable local Ubuntu SSH target for real remote-server setup
+tests, install Multipass with Hyper-V support and run:
+
+```bash
+bun run remote:up
+bun run remote:status
+bun run remote:down       # stop VMs without deleting them
+bun run remote:reset      # explicit destructive VM deletion
+```
+
+The default `deploy` VM starts without Docker so the Upstand provisioning flow
+can install Docker, initialize Swarm, configure Caddy, and deploy monitoring.
+Optional role targets are available with `bun run remote:up -- --profile database,build`.
+The command prints each VM's IP and the generated local SSH-key path for the
+Remote Servers onboarding wizard.
+
 For database schema changes, update the TypeScript schema and run `bun run db:generate`; Drizzle Kit generates the migration files. Never create migration files manually.
 
 ### Desktop shell

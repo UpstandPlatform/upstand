@@ -6,6 +6,40 @@ const webDirectory = path.join(root, "apps", "web");
 const fumadocsDirectory = path.join(root, "apps", "fumadocs");
 const requiredBunVersion = "1.3.14";
 const composeFile = path.join(root, "docker-compose.local.yml");
+type LocalMode = "cloud" | "self-hosted";
+
+const modeProfiles: Record<
+  LocalMode,
+  {
+    isCloud: "true" | "false";
+    composeProject: string;
+    dockerNetwork: string;
+    postgresVolume: string;
+    redisVolume: string;
+    webCacheVolume: string;
+    fumadocsCacheVolume: string;
+  }
+> = {
+  "self-hosted": {
+    isCloud: "false",
+    composeProject: "upstand-local-self-hosted",
+    dockerNetwork: "upstand-network",
+    postgresVolume: "upstand-postgres-data-v18-self-hosted",
+    redisVolume: "upstand-redis-data-self-hosted",
+    webCacheVolume: "upstand-web-next-cache-self-hosted",
+    fumadocsCacheVolume: "upstand-fumadocs-next-cache-self-hosted",
+  },
+  cloud: {
+    isCloud: "true",
+    composeProject: "upstand-local-cloud",
+    dockerNetwork: "upstand-network",
+    postgresVolume: "upstand-postgres-data-v18-cloud",
+    redisVolume: "upstand-redis-data-cloud",
+    webCacheVolume: "upstand-web-next-cache-cloud",
+    fumadocsCacheVolume: "upstand-fumadocs-next-cache-cloud",
+  },
+};
+const legacyComposeProjects = ["upstand-local"];
 
 function fail(message: string): never {
   console.error(`\nSetup failed: ${message}`);
@@ -182,7 +216,10 @@ function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-async function waitForPostgres(env: NodeJS.ProcessEnv): Promise<void> {
+async function waitForPostgres(
+  env: NodeJS.ProcessEnv,
+  composeProject: string,
+): Promise<void> {
   const attempts = 30;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -190,6 +227,8 @@ async function waitForPostgres(env: NodeJS.ProcessEnv): Promise<void> {
         cmd: [
           "docker",
           "compose",
+          "--project-name",
+          composeProject,
           "-f",
           composeFile,
           "exec",
@@ -267,20 +306,62 @@ async function main(): Promise<void> {
   const serverEnvPath = path.join(serverDirectory, ".env");
   let serverEnv = await Bun.file(serverEnvPath).text();
   const modeOverride = getLocalModeOverride();
-  if (modeOverride) {
-    env.IS_CLOUD = modeOverride;
-    rootEnv = replaceEnvValue(rootEnv, "IS_CLOUD", modeOverride);
-    serverEnv = replaceEnvValue(serverEnv, "IS_CLOUD", modeOverride);
-    await Promise.all([
-      Bun.write(path.join(root, ".env"), rootEnv),
-      Bun.write(serverEnvPath, serverEnv),
-    ]);
-    console.log(
-      `✔ Local deployment mode set to ${modeOverride === "true" ? "cloud" : "self-hosted"}`,
-    );
-  }
-  const localNetworkName =
-    readEnvValue(serverEnv, "DOCKER_NETWORK") || "upstand-network";
+  const currentMode: LocalMode = modeOverride
+    ? modeOverride === "true"
+      ? "cloud"
+      : "self-hosted"
+    : readEnvValue(rootEnv, "IS_CLOUD") === "true"
+      ? "cloud"
+      : "self-hosted";
+  const profile = modeProfiles[currentMode];
+  env.IS_CLOUD = profile.isCloud;
+  env.COMPOSE_PROJECT_NAME = profile.composeProject;
+  env.DOCKER_NETWORK = profile.dockerNetwork;
+  env.UPSTAND_POSTGRES_VOLUME = profile.postgresVolume;
+  env.UPSTAND_REDIS_VOLUME = profile.redisVolume;
+  env.UPSTAND_WEB_CACHE_VOLUME = profile.webCacheVolume;
+  env.UPSTAND_FUMADOCS_CACHE_VOLUME = profile.fumadocsCacheVolume;
+  rootEnv = replaceEnvValue(rootEnv, "IS_CLOUD", profile.isCloud);
+  rootEnv = replaceEnvValue(
+    rootEnv,
+    "COMPOSE_PROJECT_NAME",
+    profile.composeProject,
+  );
+  rootEnv = replaceEnvValue(rootEnv, "DOCKER_NETWORK", profile.dockerNetwork);
+  rootEnv = replaceEnvValue(
+    rootEnv,
+    "UPSTAND_POSTGRES_VOLUME",
+    profile.postgresVolume,
+  );
+  rootEnv = replaceEnvValue(
+    rootEnv,
+    "UPSTAND_REDIS_VOLUME",
+    profile.redisVolume,
+  );
+  rootEnv = replaceEnvValue(
+    rootEnv,
+    "UPSTAND_WEB_CACHE_VOLUME",
+    profile.webCacheVolume,
+  );
+  rootEnv = replaceEnvValue(
+    rootEnv,
+    "UPSTAND_FUMADOCS_CACHE_VOLUME",
+    profile.fumadocsCacheVolume,
+  );
+  serverEnv = replaceEnvValue(serverEnv, "IS_CLOUD", profile.isCloud);
+  serverEnv = replaceEnvValue(
+    serverEnv,
+    "DOCKER_NETWORK",
+    profile.dockerNetwork,
+  );
+  await Promise.all([
+    Bun.write(path.join(root, ".env"), rootEnv),
+    Bun.write(serverEnvPath, serverEnv),
+  ]);
+  console.log(
+    `✔ Local deployment mode set to ${currentMode} (${profile.composeProject})`,
+  );
+  const localNetworkName = profile.dockerNetwork;
   console.log(
     `🌐 Ensuring local Docker Swarm network '${localNetworkName}'...`,
   );
@@ -314,26 +395,46 @@ async function main(): Promise<void> {
 
   console.log("🐘 Ensuring local PostgreSQL and Redis services are active...");
   // Stop full application containers if running in Docker so host ports (3000, 3001, 3002, 4000) are freed
+  for (const project of [
+    ...legacyComposeProjects,
+    "upstand-local-self-hosted",
+    "upstand-local-cloud",
+  ]) {
+    run(
+      "docker",
+      [
+        "compose",
+        "--project-name",
+        project,
+        "-f",
+        composeFile,
+        "stop",
+        "server",
+        "web",
+        "schedules",
+        "fumadocs",
+        "postgres",
+        "redis",
+      ],
+      { ...env, COMPOSE_PROJECT_NAME: project },
+    );
+  }
   run(
     "docker",
     [
       "compose",
+      "--project-name",
+      profile.composeProject,
       "-f",
       composeFile,
-      "stop",
-      "server",
-      "web",
-      "schedules",
-      "fumadocs",
+      "up",
+      "-d",
+      "postgres",
+      "redis",
     ],
     env,
   );
-  run(
-    "docker",
-    ["compose", "-f", composeFile, "up", "-d", "postgres", "redis"],
-    env,
-  );
-  await waitForPostgres(env);
+  await waitForPostgres(env, profile.composeProject);
   console.log("✔ PostgreSQL & Redis services ready");
 
   if (postgresPassword) {
@@ -341,6 +442,8 @@ async function main(): Promise<void> {
       "docker",
       [
         "compose",
+        "--project-name",
+        profile.composeProject,
         "-f",
         composeFile,
         "exec",
