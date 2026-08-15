@@ -1,9 +1,8 @@
-name: upstand-local
+name: ${COMPOSE_PROJECT_NAME:-upstand-local}
 
 services:
   postgres:
     image: postgres:18-alpine
-    container_name: upstand-postgres-local
     labels:
       com.upstand.component: postgres
       com.upstand.platform: "true"
@@ -30,7 +29,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: upstand-server-local
     init: true
     labels:
       com.upstand.component: server
@@ -70,7 +68,7 @@ services:
       BETTER_AUTH_URL: http://localhost:3000
       CORS_ORIGIN: http://localhost:3001
       REDIS_URL: redis://redis:6379
-      DOCKER_NETWORK: upstand-network
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
     networks:
       upstand-network:
@@ -94,7 +92,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: upstand-schedules-local
     init: true
     labels:
       com.upstand.component: schedules
@@ -134,6 +131,7 @@ services:
       REDIS_URL: redis://redis:6379
       SCHEDULES_PORT: 3002
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
     networks:
       - upstand-network
@@ -155,7 +153,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: upstand-web-local
     init: true
     labels:
       com.upstand.component: web
@@ -210,7 +207,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: upstand-fumadocs-local
     init: true
     labels:
       com.upstand.component: fumadocs
@@ -263,7 +259,6 @@ services:
 
   redis:
     image: redis:8.8-alpine
-    container_name: upstand-redis-local
     labels:
       com.upstand.component: redis
       com.upstand.platform: "true"
@@ -283,9 +278,13 @@ services:
 
 volumes:
   postgres_data_v18:
+    name: ${UPSTAND_POSTGRES_VOLUME:-upstand-postgres-data-v18}
   redis_data:
+    name: ${UPSTAND_REDIS_VOLUME:-upstand-redis-data}
   web_next_cache:
+    name: ${UPSTAND_WEB_CACHE_VOLUME:-upstand-web-next-cache}
   fumadocs_next_cache:
+    name: ${UPSTAND_FUMADOCS_CACHE_VOLUME:-upstand-fumadocs-next-cache}
 
 networks:
   upstand-network:
