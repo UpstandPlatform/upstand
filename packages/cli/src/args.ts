@@ -53,7 +53,8 @@ export async function parseArgs(argv: string[]): Promise<CommandContext> {
     sessionCookie: process.env.UPSTAND_SESSION_COOKIE,
     output,
     yes: flags.has("yes"),
-    organizationId: value("organization") || value("org"),
+    organizationId:
+      value("organization") || value("org") || config.organizationId,
     projectId: value("project"),
     environmentId: value("environment") || value("env"),
   };

@@ -9,11 +9,9 @@ describe("browser command construction", () => {
         "win32",
       ),
     ).toEqual([
-      "cmd.exe",
-      "/d",
-      "/s",
-      "/c",
-      'start "" "https://upstand.dev/login?cli=upstand-cli&user_code=ABCD2"',
+      "rundll32.exe",
+      "url.dll,FileProtocolHandler",
+      "https://upstand.dev/login?cli=upstand-cli&user_code=ABCD2",
     ]);
   });
 });
