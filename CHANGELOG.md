@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.14 - 2026-08-15
+
+Publish the CLI browser-login and interactive resource-selection fixes in the next Upstand patch release.
+
 ## 0.2.13 - 2026-08-14
 
 Fix CLI browser sign-in to open the default browser on Windows and complete
