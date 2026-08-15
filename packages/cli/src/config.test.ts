@@ -2,13 +2,22 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readProjectLink, saveToken, writeProjectLink } from "./config";
+import {
+  clearToken,
+  readProjectLink,
+  readUserConfig,
+  saveToken,
+  writeProjectLink,
+} from "./config";
 
 describe("CLI configuration", () => {
   test("round-trips credentials and project links without exposing project tokens", async () => {
     const directory = await mkdtemp(join(tmpdir(), "upstand-cli-"));
     process.env.UPSTAND_CONFIG_DIR = join(directory, "config");
-    await saveToken("upk_secret", "https://example.test");
+    await saveToken("upk_secret", "https://example.test", "org_1");
+    expect((await readUserConfig()).organizationId).toBe("org_1");
+    await clearToken();
+    expect((await readUserConfig()).organizationId).toBeUndefined();
     const projectDirectory = join(directory, "project");
     await writeProjectLink(
       {
