@@ -24,15 +24,14 @@ function run(args: string[]): string {
   const result = Bun.spawnSync({
     cmd: ["multipass", ...args],
     cwd: root,
-    stdout: "pipe",
+    stdout: "inherit",
     stderr: "pipe",
   });
-  const stdout = result.stdout.toString().trim();
   if (!result.success) {
     const stderr = result.stderr.toString().trim();
     fail(stderr || `multipass ${args.join(" ")} failed.`);
   }
-  return stdout;
+  return "";
 }
 
 function tryRun(args: string[]): string | undefined {
