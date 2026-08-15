@@ -1,5 +1,11 @@
 # @upstand/cli
 
+## 0.2.6
+
+### Patch Changes
+
+- [#278](https://github.com/UpstandPlatform/upstand/pull/278) [`f028b92`](https://github.com/UpstandPlatform/upstand/commit/f028b92b6b0c7b29fee35bcfc4e385f77e06aa06) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the native Windows URL handler for browser-based CLI login so verification URLs open in the user's default browser. Persist the organization selected during browser approval and use interactive project and environment selectors for human CLI workflows.
+
 ## 0.2.5
 
 ### Patch Changes
