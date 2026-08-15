@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.15 - 2026-08-15
+
+Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
+
 ## 0.2.14 - 2026-08-15
 
 Publish the CLI browser-login and interactive resource-selection fixes in the next Upstand patch release.

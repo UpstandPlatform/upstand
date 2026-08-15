@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.2.15
+
+### Patch Changes
+
+- [#286](https://github.com/UpstandPlatform/upstand/pull/286) [`ea7d678`](https://github.com/UpstandPlatform/upstand/commit/ea7d678185fceb73efcdb0eda5498e042471d6a1) Thanks [@mhbdev](https://github.com/mhbdev)! - Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
+
 ## 0.2.14
 
 ## 0.2.13
