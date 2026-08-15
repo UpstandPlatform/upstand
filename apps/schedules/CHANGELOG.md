@@ -1,5 +1,11 @@
 # schedules
 
+## 0.2.1
+
+### Patch Changes
+
+- [#283](https://github.com/UpstandPlatform/upstand/pull/283) [`820f037`](https://github.com/UpstandPlatform/upstand/commit/820f03737641f485f06318eefb1ec7ef096fa79e) Thanks [@mhbdev](https://github.com/mhbdev)! - Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
+
 ## 0.2.0
 
 ### Minor Changes
