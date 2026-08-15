@@ -1,5 +1,11 @@
 # server
 
+## 0.2.14
+
+### Patch Changes
+
+- [#280](https://github.com/UpstandPlatform/upstand/pull/280) [`21eb71d`](https://github.com/UpstandPlatform/upstand/commit/21eb71d1bc6b37dca880d21e86339f704f1cecaa) Thanks [@mhbdev](https://github.com/mhbdev)! - Publish the CLI browser-login and interactive resource-selection fixes in the next Upstand patch release.
+
 ## 0.2.13
 
 ### Patch Changes
