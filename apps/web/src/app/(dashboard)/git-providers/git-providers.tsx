@@ -56,9 +56,9 @@ import { UpGalTarget } from "@/components/upgal-target";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
 import type { authClient } from "@/lib/auth-client";
 import {
+  buildGithubAppManifest,
   getGithubAppInstallationUrl,
   getGithubAppManifestCreationUrl,
-  getGithubAppSetupUrl,
 } from "@/lib/github-app";
 import { safeExternalUrl } from "@/lib/safe-external-url";
 import { getServerApiUrl, getServerUrl } from "@/lib/server-url";
@@ -180,64 +180,11 @@ export default function GitProviders({
       setGithubManifestState(state.state);
 
       const serverUrl = getServerUrl();
-      const callback = `${serverUrl}/api/providers/github/setup`;
-
-      const manifestData = {
-        name: `Upstand Deploy (${orgId.substring(0, 6)})`,
-        url: serverUrl,
-        hook_attributes: {
-          url: `${serverUrl}/api/webhooks/github/manifest/${encodeURIComponent(state.state)}`,
-          active: true,
-        },
-        redirect_url: callback,
-        setup_url: getGithubAppSetupUrl(serverUrl, state.state),
-        setup_on_install: true,
-        public: false,
-        default_permissions: {
-          actions: "read",
-          administration: "read",
-          checks: "read",
-          contents: "read",
-          deployments: "write",
-          environments: "write",
-          issues: "read",
-          metadata: "read",
-          packages: "read",
-          pages: "read",
-          pull_requests: "read",
-          repository_hooks: "write",
-          statuses: "read",
-          vulnerability_alerts: "read",
-          workflows: "write",
-        },
-        default_events: [
-          "create",
-          "delete",
-          "deployment",
-          "deployment_status",
-          "fork",
-          "gollum",
-          "issue_comment",
-          "issues",
-          "label",
-          "milestone",
-          "member",
-          "project",
-          "project_card",
-          "project_column",
-          "public",
-          "pull_request",
-          "pull_request_review",
-          "pull_request_review_comment",
-          "push",
-          "release",
-          "repository",
-          "status",
-          "watch",
-          "workflow_dispatch",
-          "workflow_run",
-        ],
-      };
+      const manifestData = buildGithubAppManifest({
+        organizationId: orgId,
+        serverUrl,
+        state: state.state,
+      });
       setManifest(JSON.stringify(manifestData));
     } catch {
       toast.error("Failed to compile manifest setup details");
