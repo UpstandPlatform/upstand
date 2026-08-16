@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.16 - 2026-08-16
+
+Fix mobile provider dialogs and make GitHub App manifest installation callbacks
+reliable across cloud and self-hosted runtimes.
+
 ## 0.2.15 - 2026-08-15
 
 Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
