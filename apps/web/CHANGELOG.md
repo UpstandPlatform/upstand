@@ -1,5 +1,11 @@
 # web
 
+## 0.2.2
+
+### Patch Changes
+
+- [#290](https://github.com/UpstandPlatform/upstand/pull/290) [`13dc591`](https://github.com/UpstandPlatform/upstand/commit/13dc591ad4d1161e462d6d32cc318e0525b9426c) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden container file management around explicitly selected full container IDs and named Docker volumes. File operations are now mount-scoped, symlink-safe, bounded, binary-safe, atomic for writes, and reject read-only or non-canonical targets. The release also removes runtime compatibility paths that accepted legacy labels, plaintext secret documents, abbreviated container IDs, legacy installer artifacts, and non-paginated backup adapters.
+
 ## 0.2.1
 
 ### Patch Changes
