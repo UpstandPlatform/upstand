@@ -47,7 +47,7 @@ networks:
   test("converts restart and fixed container names for a Swarm stack", async () => {
     const result = await useCase.convert({
       composeFile:
-        "services:\n  web:\n    image: nginx\n    container_name: legacy-web\n    restart: unless-stopped\n",
+        "services:\n  web:\n    image: nginx\n    container_name: sample-web\n    restart: unless-stopped\n",
       target: "stack",
     });
 

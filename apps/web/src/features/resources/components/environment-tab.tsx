@@ -173,7 +173,7 @@ export function EnvironmentTab({
               <p className="mt-1 text-muted-foreground text-xs">
                 Available to image builders, but never injected into the running
                 container. Runtime variables remain available during builds for
-                compatibility.
+                during builds.
               </p>
             </div>
             <KeyValueEditor

@@ -81,7 +81,7 @@ The Upstand installer supports two compilation strategies:
   <Step>
     ### Prepare the environment variables
     
-    Configure the HTTPS origins before running the installer. It will generate cryptographic secrets under `/etc/upstand/secrets/`, resolve the latest stable release, verify its immutable GitHub release manifest and deployment-artifact hashes, and pull the exact published GHCR image digests. Releases predating deployment-artifact hashes are rejected unless you explicitly set `UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS=true` after reviewing the fetched files. Source builds require the explicit `UPSTAND_BUILD_FROM_SOURCE=true` opt-in.
+    Configure the HTTPS origins before running the installer. It will generate cryptographic secrets under `/etc/upstand/secrets/`, resolve the latest stable release, verify its immutable GitHub release manifest and deployment-artifact hashes, and pull the exact published GHCR image digests. Releases without deployment-artifact hashes are rejected. Source builds require the explicit `UPSTAND_BUILD_FROM_SOURCE=true` opt-in.
 
     For a production deployment with DNS and pre-built immutable images, export your target domains and image digests first:
     

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { IUnitOfWork } from "@upstand/domain";
 import { DatabaseCommandUseCase } from "./database-command.usecase";
+import { serializeResourceCredentials } from "./resource-credentials";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,7 +21,9 @@ function makeUseCase(
           type: "database",
           dbType,
           serverId: "local",
-          ...(credentials ? { credentials: JSON.stringify(credentials) } : {}),
+          ...(credentials
+            ? { credentials: serializeResourceCredentials(credentials) }
+            : {}),
         }),
       },
     } as unknown as IUnitOfWork,

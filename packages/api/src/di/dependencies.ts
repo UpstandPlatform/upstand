@@ -239,6 +239,7 @@ export {
   CloneEnvironmentUseCaseToken,
   ConfirmWorkloadMigrationUseCaseToken,
   ContainerFileManagerUseCaseToken,
+  ContainerFileSystemToken,
   ControlContainerUseCaseToken,
   ControlResourceUseCaseToken,
   CreateAuditLogUseCaseToken,

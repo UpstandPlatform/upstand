@@ -47,7 +47,10 @@ function isEncryptedResourceEnvironment(
 
 function parseEnvironmentObject(value: unknown): Record<string, string> {
   const parsed = ResourceEnvironmentVariablesSchema.safeParse(value);
-  return parsed.success ? parsed.data : {};
+  if (parsed.success) return parsed.data;
+  throw new ValidationError(
+    "Stored resource environment variables are invalid",
+  );
 }
 
 function parseEnvironmentObjectForWrite(
@@ -62,11 +65,7 @@ function parseEnvironmentObjectForWrite(
   );
 }
 
-/**
- * Environment variables are encrypted as one authenticated document. The
- * decoder intentionally accepts legacy plaintext JSON so existing rows remain
- * deployable and are upgraded the next time they are written.
- */
+/** Environment variables are encrypted as one authenticated document. */
 export function parseResourceEnvironmentVariables(
   value: string | null | undefined,
 ): Record<string, string> {
@@ -74,9 +73,12 @@ export function parseResourceEnvironmentVariables(
   try {
     const parsed = JSON.parse(value) as unknown;
     if (isEncryptedResourceEnvironment(parsed)) {
-      return parseEnvironmentObject(JSON.parse(decryptSecret(parsed)));
+      const decrypted = parseEnvironmentObject(
+        JSON.parse(decryptSecret(parsed)),
+      );
+      return decrypted;
     }
-    return parseEnvironmentObject(parsed);
+    return {};
   } catch {
     return {};
   }
@@ -245,9 +247,8 @@ export function resolveResourceEnvironmentVariables(
 }
 
 /**
- * Build processes retain the historical runtime variables for compatibility,
- * then layer explicitly build-only variables on top. Build-only values never
- * flow back into the container runtime environment.
+ * Build processes layer explicitly build-only variables over runtime values.
+ * Build-only values never flow back into the container runtime environment.
  */
 export function resolveResourceBuildEnvironmentVariables(
   rawBuildEnvVars: string | null | undefined,

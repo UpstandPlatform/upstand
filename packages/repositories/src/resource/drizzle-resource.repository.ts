@@ -32,7 +32,6 @@ import {
 } from "drizzle-orm";
 import { DrizzleSecretVersionRepository } from "../secret/drizzle-secret-version.repository";
 import { isPostgresUniqueViolation } from "../shared/database-errors";
-import { normalizeStoredSecret } from "../shared/secret-normalization";
 import type { Executor } from "../shared/types";
 
 const MAX_CADDY_ROUTING_RESOURCES = 10_000;
@@ -442,70 +441,6 @@ export class DrizzleResourceRepository implements IResourceRepository {
         .from(resourceSecret)
         .where(inArray(resourceSecret.resourceId, ids)),
     ]);
-    await Promise.all(
-      secretRows.map(async (secret) => {
-        const credentials = normalizeStoredSecret(secret.credentials);
-        const buildSecrets = normalizeStoredSecret(secret.buildSecrets);
-        const buildEnvVars = normalizeStoredSecret(secret.buildEnvVars);
-        const envVars = normalizeStoredSecret(secret.envVars);
-        if (
-          typeof credentials === "string" &&
-          credentials !== secret.credentials &&
-          typeof secret.credentials === "string"
-        ) {
-          await this.executor
-            .update(resourceSecret)
-            .set({ credentials })
-            .where(
-              and(
-                eq(resourceSecret.resourceId, secret.resourceId),
-                eq(resourceSecret.credentials, secret.credentials),
-              ),
-            );
-        }
-        if (
-          typeof buildSecrets === "string" &&
-          buildSecrets !== secret.buildSecrets &&
-          typeof secret.buildSecrets === "string"
-        ) {
-          await this.executor
-            .update(resourceSecret)
-            .set({ buildSecrets })
-            .where(
-              and(
-                eq(resourceSecret.resourceId, secret.resourceId),
-                eq(resourceSecret.buildSecrets, secret.buildSecrets),
-              ),
-            );
-        }
-        if (
-          typeof buildEnvVars === "string" &&
-          buildEnvVars !== secret.buildEnvVars &&
-          typeof secret.buildEnvVars === "string"
-        ) {
-          await this.executor
-            .update(resourceSecret)
-            .set({ buildEnvVars })
-            .where(
-              and(
-                eq(resourceSecret.resourceId, secret.resourceId),
-                eq(resourceSecret.buildEnvVars, secret.buildEnvVars),
-              ),
-            );
-        }
-        if (envVars !== secret.envVars) {
-          await this.executor
-            .update(resourceSecret)
-            .set({ envVars })
-            .where(
-              and(
-                eq(resourceSecret.resourceId, secret.resourceId),
-                eq(resourceSecret.envVars, secret.envVars),
-              ),
-            );
-        }
-      }),
-    );
     const configs = new Map(
       configRows.map((configuration) => [
         configuration.resourceId,

@@ -5,6 +5,7 @@ import type {
   Resource,
   Server,
 } from "@upstand/domain";
+import { serializeResourceCredentials } from "../resource/resource-credentials";
 import { RollbackResourceUseCase } from "../resource/rollback-resource.usecase";
 import { QueueDeploymentUseCase } from "./queue-deployment.usecase";
 
@@ -54,9 +55,11 @@ function createMultiResourceTestUow(
         provider: "git",
         repositoryName: "upstand/web-app",
         gitBranch: "main",
-        credentials: JSON.stringify({
-          repositoryUrl: "https://github.com/upstand/web-app.git",
-        }),
+        credentials: serializeResourceCredentials(
+          JSON.stringify({
+            repositoryUrl: "https://github.com/upstand/web-app.git",
+          }),
+        ),
         serverId: "server-deploy-1",
         status: "running",
         imageName: "registry.upstand.internal/web-app:v2",
@@ -75,9 +78,11 @@ function createMultiResourceTestUow(
         appName: "stack-app",
         type: "compose",
         provider: "raw",
-        credentials: JSON.stringify({
-          composeFile: "services:\n  web:\n    image: nginx\n",
-        }),
+        credentials: serializeResourceCredentials(
+          JSON.stringify({
+            composeFile: "services:\n  web:\n    image: nginx\n",
+          }),
+        ),
         serverId: "server-deploy-1",
         status: "stopped",
         createdAt: new Date(),

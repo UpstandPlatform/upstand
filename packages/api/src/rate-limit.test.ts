@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { RateLimiter, type RateLimitRedis } from "./rate-limit";
+import {
+  RateLimiter,
+  type RateLimitRedis,
+} from "@upstand/infrastructure/rate-limit";
 
 function createFakeRedis() {
   const values = new Map<string, number>();

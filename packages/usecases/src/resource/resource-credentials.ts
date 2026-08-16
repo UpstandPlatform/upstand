@@ -44,23 +44,31 @@ function parseCredentialDocument(value: string): ResourceCredentials {
     }
     return decrypted;
   }
-  if (!isRecord(parsed)) {
-    throw new ResourceCredentialsError();
-  }
-  return parsed;
+  throw new ResourceCredentialsError("Credential document is not encrypted");
 }
 
-/**
- * Resource source/database/Compose credentials are one authenticated document
- * at rest. Legacy plaintext JSON and the previous database-only envelope are
- * accepted so existing resources remain deployable and are upgraded on write.
- */
+/** Resource source/database/Compose credentials are one authenticated document at rest. */
 export function parseResourceCredentials(
   value: string | null | undefined,
 ): ResourceCredentials {
   if (!value) return {};
   try {
     return parseCredentialDocument(value);
+  } catch {
+    return {};
+  }
+}
+
+/** Parses a new API credential document before it is encrypted for storage. */
+export function parseResourceCredentialInput(
+  value: string | null | undefined,
+): ResourceCredentials {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (isEncryptedPayload(parsed)) return parseCredentialDocument(value);
+    if (!isRecord(parsed)) throw new ResourceCredentialsError();
+    return parsed;
   } catch {
     return {};
   }

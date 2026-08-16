@@ -6,6 +6,7 @@ import type {
   Resource,
   Server,
 } from "@upstand/domain";
+import { serializeResourceCredentials } from "../resource/resource-credentials";
 import { RollbackResourceUseCase } from "../resource/rollback-resource.usecase";
 import {
   assertBuildServerSupportsResource,
@@ -94,9 +95,11 @@ function createDeploymentTestUow() {
         provider: "git",
         repositoryName: "upstand/app",
         gitBranch: "main",
-        credentials: JSON.stringify({
-          repositoryUrl: "https://github.com/upstand/app.git",
-        }),
+        credentials: serializeResourceCredentials(
+          JSON.stringify({
+            repositoryUrl: "https://github.com/upstand/app.git",
+          }),
+        ),
         serverId: "deploy-server-1",
         buildServerId: "build-server-1",
         status: "running",
@@ -312,9 +315,11 @@ describe("Deployment Pipeline & Server Isolation Tests", () => {
       appName: "pwd-app",
       type: "application",
       provider: "git",
-      credentials: JSON.stringify({
-        repositoryUrl: "https://github.com/upstand/pwd-app.git",
-      }),
+      credentials: serializeResourceCredentials(
+        JSON.stringify({
+          repositoryUrl: "https://github.com/upstand/pwd-app.git",
+        }),
+      ),
       serverId: "pwd-server-1",
       status: "running",
       createdAt: new Date(),
@@ -365,9 +370,11 @@ describe("Deployment Pipeline & Server Isolation Tests", () => {
       appName: "pwd-app-missing",
       type: "application",
       provider: "git",
-      credentials: JSON.stringify({
-        repositoryUrl: "https://github.com/upstand/pwd-app.git",
-      }),
+      credentials: serializeResourceCredentials(
+        JSON.stringify({
+          repositoryUrl: "https://github.com/upstand/pwd-app.git",
+        }),
+      ),
       serverId: "pwd-server-missing",
       status: "running",
       createdAt: new Date(),

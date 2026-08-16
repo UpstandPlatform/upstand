@@ -13,25 +13,8 @@ import {
 import type { Executor } from "../shared/types";
 
 function decodeToken(value: string): string {
-  try {
-    const payload = JSON.parse(value) as {
-      ciphertext?: unknown;
-      iv?: unknown;
-      authTag?: unknown;
-      keyVersion?: unknown;
-    };
-    if (
-      typeof payload.ciphertext === "string" &&
-      typeof payload.iv === "string" &&
-      typeof payload.authTag === "string" &&
-      typeof payload.keyVersion === "number"
-    ) {
-      return decryptSecret(payload as Parameters<typeof decryptSecret>[0]);
-    }
-  } catch {
-    // Existing installations may contain a legacy plaintext token.
-  }
-  return value;
+  const payload = JSON.parse(value) as Parameters<typeof decryptSecret>[0];
+  return decryptSecret(payload);
 }
 
 function encodeToken(value: string): string {

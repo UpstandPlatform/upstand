@@ -34,8 +34,7 @@ export function containerBelongsToResource(
   );
   const expectedName = resourceName(resource);
 
-  const upstandResourceId =
-    labels.get("upstand.resource.id") ?? labels.get("com.upstand.resource-id");
+  const upstandResourceId = labels.get("com.upstand.resource-id");
   if (upstandResourceId && upstandResourceId === resource.id) {
     return true;
   }
@@ -78,11 +77,7 @@ export function matchesContainerIdentifier(
   actual?: string,
 ): boolean {
   if (!requested || !actual) return false;
-  return (
-    requested === actual ||
-    requested.startsWith(actual) ||
-    actual.startsWith(requested)
-  );
+  return requested === actual;
 }
 
 export function shellQuote(str: string): string {

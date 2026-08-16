@@ -37,7 +37,10 @@ function decodeSecret(
 ): string | null | undefined {
   if (value === null || value === undefined || value === "") return value;
   const payload = getEncryptedPayload(value);
-  return payload ? decryptSecret(payload) : value;
+  if (!payload) {
+    throw new Error("Docker registry password is not encrypted");
+  }
+  return decryptSecret(payload);
 }
 
 function encodeSecret(
@@ -62,11 +65,6 @@ export class DrizzleDockerRegistryRepository
 
   private async publicRow(row: DockerRegistry): Promise<DockerRegistry> {
     const decodedPassword = decodeSecret(row.password);
-    if (row.password && !getEncryptedPayload(row.password)) {
-      await super.updateById(row.id, {
-        password: encodeSecret(row.password),
-      });
-    }
     return {
       ...row,
       password: decodedPassword ?? row.password,

@@ -57,17 +57,4 @@ describe("backup run pagination", () => {
     expect(calls[0]?.limit).toBe(BACKUP_RUN_PAGE_SIZE);
     expect(calls[1]?.cursor?.id).toBe("run-499");
   });
-
-  test("keeps legacy repository adapters compatible", async () => {
-    const visited: string[] = [];
-    const repository = {
-      findByScheduleId: async () => [run("legacy", 0)],
-    } as unknown as IBackupRunRepository;
-
-    await forEachBackupRunBySchedule(repository, "schedule-1", (item) => {
-      visited.push(item.id);
-    });
-
-    expect(visited).toEqual(["legacy"]);
-  });
 });

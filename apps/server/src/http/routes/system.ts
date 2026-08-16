@@ -73,7 +73,7 @@ export function registerSetupStatusRoute(app: Hono<AppEnv>): void {
   });
 }
 
-/** Registers generated API compatibility routes and process health endpoints. */
+/** Registers generated API routes and process health endpoints. */
 export function registerSystemRoutes(
   app: Hono<AppEnv>,
   dependencies: SystemRouteDependencies,

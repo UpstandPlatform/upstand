@@ -37,7 +37,10 @@ function decodeSecret(
 ): string | null | undefined {
   if (value === null || value === undefined || value === "") return value;
   const payload = getEncryptedPayload(value);
-  return payload ? decryptSecret(payload) : value;
+  if (!payload) {
+    throw new Error("S3 secret access key is not encrypted");
+  }
+  return decryptSecret(payload);
 }
 
 function encodeSecret(
@@ -62,12 +65,6 @@ export class DrizzleS3DestinationRepository
 
   private async publicRow(row: S3Destination): Promise<S3Destination> {
     const decodedSecret = decodeSecret(row.secretAccessKey);
-    if (row.secretAccessKey && !getEncryptedPayload(row.secretAccessKey)) {
-      const encodedSecret = encodeSecret(row.secretAccessKey);
-      if (encodedSecret) {
-        await super.updateById(row.id, { secretAccessKey: encodedSecret });
-      }
-    }
     return {
       ...row,
       secretAccessKey: decodedSecret ?? row.secretAccessKey,

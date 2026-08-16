@@ -24,7 +24,7 @@ type ParsedResponse = {
  *
  * The channel is a connected byte stream, not a TCP listener. Using
  * node:http.request() with createConnection is not reliable under Bun's Node
- * compatibility layer because it can attempt a new local TCP connection
+ * behavior because it can attempt a new local TCP connection
  * instead of writing to the supplied ssh2 channel.
  */
 export async function requestHttpOverSshChannel<T>(
