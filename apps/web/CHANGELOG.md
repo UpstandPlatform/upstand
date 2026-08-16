@@ -1,5 +1,11 @@
 # web
 
+## 0.2.19
+
+### Patch Changes
+
+- [#297](https://github.com/UpstandPlatform/upstand/pull/297) [`a3a4917`](https://github.com/UpstandPlatform/upstand/commit/a3a4917a1256365d14cd73fe3caa17e55f297a31) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix GitHub App manifest registration by removing the unsupported `setup_on_install` field.
+
 ## 0.2.18
 
 ### Patch Changes

@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.19 - 2026-08-16
+
+Fix GitHub App manifest registration by removing the unsupported `setup_on_install` field.
+
 ## 0.2.18 - 2026-08-16
 
 Allow the GitHub App manifest form to submit to GitHub while keeping the production Content Security Policy strict for scripts.
