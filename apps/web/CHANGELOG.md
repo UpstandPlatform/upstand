@@ -1,5 +1,12 @@
 # web
 
+## 0.2.16
+
+### Patch Changes
+
+- [#288](https://github.com/UpstandPlatform/upstand/pull/288) [`55789af`](https://github.com/UpstandPlatform/upstand/commit/55789af2e7633c5655820af24b5f0c67a3d139b7) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix mobile provider dialogs and make GitHub App manifest installation callbacks
+  reliable across cloud and self-hosted runtimes.
+
 ## 0.2.15
 
 ### Patch Changes
