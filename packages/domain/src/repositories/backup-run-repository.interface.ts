@@ -10,7 +10,7 @@ export interface BackupRunPageCursor {
 export interface IBackupRunRepository {
   findById(id: string): Promise<BackupRun | null>;
   findByScheduleId(scheduleId: string, limit?: number): Promise<BackupRun[]>;
-  findByScheduleIdPage?(
+  findByScheduleIdPage(
     scheduleId: string,
     options?: { cursor?: BackupRunPageCursor; limit?: number },
   ): Promise<BackupRun[]>;

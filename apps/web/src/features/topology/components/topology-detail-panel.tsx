@@ -493,7 +493,8 @@ export function TopologyDetailPanel({
                 <ContainerFileExplorer
                   resourceId={node.resourceId}
                   initialContainerId={node.containerId}
-                  initialPath={node.mountPath}
+                  initialMountPath={node.mountPath}
+                  initialPath="/"
                   title={`Files · ${node.name}`}
                   compact
                 />

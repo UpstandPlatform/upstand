@@ -27,7 +27,7 @@ import {
 import { ensureManagedDatabaseCredentials } from "./database-credentials";
 import { validateLibsqlSettings } from "./libsql-settings";
 import {
-  parseResourceCredentials,
+  parseResourceCredentialInput,
   serializeResourceCredentials,
 } from "./resource-credentials";
 import {
@@ -271,7 +271,7 @@ export class CreateResourceUseCase {
       }
 
       let credentials = input.credentials ?? null;
-      const sourceConfig = parseResourceCredentials(input.credentials);
+      const sourceConfig = parseResourceCredentialInput(input.credentials);
       const triggerType =
         input.triggerType ??
         (String(sourceConfig.triggerType ?? "push")

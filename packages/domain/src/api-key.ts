@@ -9,15 +9,12 @@ import { API_KEY_SCOPE_ACTIONS } from "./permission-scopes";
 
 export const API_KEY_CONFIG_ID = "upstand" as const;
 
-/** Backwards-compatible name for the canonical API-key permission scope. */
-export const API_KEY_PERMISSION_ACTIONS = API_KEY_SCOPE_ACTIONS;
-
 export type ApiKeyPermissionAction = Capability;
 
-const apiKeyPermissionValues = [
-  ...API_KEY_PERMISSION_ACTIONS,
-  "*",
-] as unknown as [Capability | "*", ...(Capability | "*")[]];
+const apiKeyPermissionValues = [...API_KEY_SCOPE_ACTIONS, "*"] as unknown as [
+  Capability | "*",
+  ...(Capability | "*")[],
+];
 
 export const ApiKeyPermissionsSchema = z.object({
   upstand: z.array(z.enum(apiKeyPermissionValues)).default([]),
@@ -38,9 +35,7 @@ export type ApiKeyPreset = z.infer<typeof ApiKeyPresetSchema>;
 
 export const API_KEY_PRESETS: Record<ApiKeyPreset, ApiKeyPermissions> = {
   "read-only": {
-    upstand: API_KEY_PERMISSION_ACTIONS.filter((action) =>
-      action.endsWith(":view"),
-    ),
+    upstand: API_KEY_SCOPE_ACTIONS.filter((action) => action.endsWith(":view")),
     mcp: ["read"],
   },
   deployment: {

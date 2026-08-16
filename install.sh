@@ -13,7 +13,6 @@ readonly RECOMMENDED_CPU_CORES=2
 readonly RECOMMENDED_MEMORY_BYTES=$((4 * 1024 * 1024 * 1024))
 readonly RECOMMENDED_DISK_BYTES=$((30 * 1024 * 1024 * 1024))
 readonly POSTGRES_VOLUME="upstand_postgres_data_v18"
-readonly LEGACY_POSTGRES_VOLUME="upstand_postgres_data"
 readonly STABLE_IMAGE_REPOSITORY="${UPSTAND_IMAGE_REPOSITORY:-ghcr.io/upstandplatform/upstand}"
 # BASH_SOURCE is an array only when Bash executes a file. A curl | bash install
 # has no array element, so use the scalar expansion with a safe $0 fallback.
@@ -44,10 +43,6 @@ control-plane boundary and single-replica services:
 UPSTAND_ALLOW_DOCKER_SOCKET=true and UPSTAND_ALLOW_SINGLE_REPLICA=true. Configure
 OTLP_ENDPOINT, or set UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true only when an
 approved external telemetry path is unavailable.
-Legacy releases without deployment-artifact hashes are rejected by default;
-set UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS=true only after reviewing the
-release content and accepting that those fetched artifacts are not hash-bound.
-
 For a durable HA data plane, provide DATABASE_URL and REDIS_URL (or the
 UPSTAND_DATABASE_URL and UPSTAND_REDIS_URL aliases). The URLs are stored as
 Docker secrets and the bundled PostgreSQL and Redis services are disabled.
@@ -179,17 +174,6 @@ require_digest_image() {
   local image="${!name:-}"
   [[ "$image" =~ @sha256:[0-9a-fA-F]{64}$ ]] \
     || fail "$name must be set to an immutable 64-character SHA-256 image digest (for example ghcr.io/acme/image@sha256:...)"
-}
-
-ensure_postgres_storage_layout() {
-  # PostgreSQL 18 uses /var/lib/postgresql/18/docker. Never let a rollout
-  # accidentally start an empty cluster beside an older populated volume.
-  if docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1; then
-    return
-  fi
-  if docker volume inspect "$LEGACY_POSTGRES_VOLUME" >/dev/null 2>&1; then
-    fail "the existing $LEGACY_POSTGRES_VOLUME volume must be migrated to $POSTGRES_VOLUME before deploying PostgreSQL 18; see the database upgrade guide"
-  fi
 }
 
 ensure_host_dependencies() {
@@ -416,10 +400,8 @@ verify_release_deployment_artifacts() {
     verify_release_artifact_hash "$acceptance_file" productionAcceptanceSha256
     verify_release_artifact_hash "$evidence_file" productionEvidenceCollectSha256
     verify_release_artifact_hash "$cluster_file" productionAcceptanceClusterSha256
-  elif [[ "${UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS:-false}" == true ]]; then
-    warn "release $UPSTAND_VERSION predates deployment-artifact hashes; the explicit UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS acknowledgement permits unbound Compose/acceptance content"
   else
-    fail "release $UPSTAND_VERSION predates deployment-artifact hashes; set UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS=true only after reviewing the unbound Compose/acceptance content"
+    fail "release $UPSTAND_VERSION is missing required deployment-artifact hashes"
   fi
 }
 
@@ -596,7 +578,6 @@ write_environment() {
   local requested_monitoring_image="${UPSTAND_MONITORING_IMAGE:-}"
   local requested_auto_update="${UPSTAND_AUTO_UPDATE:-}"
   local requested_allow_unobserved_production="${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-}"
-  local requested_allow_legacy_release_artifacts="${UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS:-}"
   local requested_audit_log_retention_days="${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-}"
   local requested_otlp_endpoint="${OTLP_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}"
   local requested_allow_insecure_bootstrap="${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-}"
@@ -639,9 +620,6 @@ write_environment() {
   UPSTAND_ALLOW_UNOBSERVED_PRODUCTION="${requested_allow_unobserved_production:-${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}}"
   [[ "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION" == true || "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION" == false ]] \
     || fail "UPSTAND_ALLOW_UNOBSERVED_PRODUCTION must be true or false"
-  UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS="${requested_allow_legacy_release_artifacts:-${UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS:-false}}"
-  [[ "$UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS" == true || "$UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS" == false ]] \
-    || fail "UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS must be true or false"
   AUTH_COOKIE_DOMAIN="${requested_auth_cookie_domain:-${AUTH_COOKIE_DOMAIN:-}}"
   TRUSTED_PROXY_HEADERS="${requested_trusted_proxy_headers:-${TRUSTED_PROXY_HEADERS:-false}}"
   [[ "$TRUSTED_PROXY_HEADERS" == true || "$TRUSTED_PROXY_HEADERS" == false ]] \
@@ -886,7 +864,6 @@ write_environment() {
     write_env_assignment UPSTAND_AUTO_UPDATE "$UPSTAND_AUTO_UPDATE"
     write_env_assignment UPSTAND_ALLOW_INSECURE_BOOTSTRAP "$UPSTAND_ALLOW_INSECURE_BOOTSTRAP"
     write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION"
-    write_env_assignment UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS "$UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS"
     write_env_assignment UPSTAND_OUTBOUND_ALLOWED_HOSTS "$UPSTAND_OUTBOUND_ALLOWED_HOSTS"
     write_env_assignment UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS "$UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS"
     write_env_assignment UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS "$UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS"
@@ -919,7 +896,6 @@ deploy_stack() {
     stack_file="$SOURCE_DIR/docker-compose.prod.yml"
   fi
   [[ -f "$stack_file" ]] || fail "docker-compose.prod.yml is unavailable"
-  ensure_postgres_storage_layout
   install -m 0600 "$stack_file" "$INSTALL_DIR/docker-compose.yml"
 
   set -a

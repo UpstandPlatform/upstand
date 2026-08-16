@@ -20,12 +20,12 @@ test("resource environment variables encrypt on write and decrypt on read", () =
   });
 });
 
-test("legacy plaintext resource environment variables remain readable", () => {
+test("rejects unencrypted resource environment variables", () => {
   expect(
     parseResourceEnvironmentVariables(
-      JSON.stringify({ LEGACY_TOKEN: "still-deployable" }),
+      JSON.stringify({ UNENCRYPTED_TOKEN: "rejected" }),
     ),
-  ).toEqual({ LEGACY_TOKEN: "still-deployable" });
+  ).toEqual({});
 });
 
 test("rejects unsafe environment variable names before persisting", () => {

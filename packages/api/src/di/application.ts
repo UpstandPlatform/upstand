@@ -530,8 +530,8 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.ContainerFileManagerUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerExecToken),
         c.resolve(dependencies.DockerInventoryReaderToken),
+        c.resolve(dependencies.ContainerFileSystemToken),
       ),
   );
   services.addTransient(

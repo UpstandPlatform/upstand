@@ -76,12 +76,7 @@ const authorizeApplication = createResourceAuthorizer({
 });
 
 function publicApplication(resource: Resource) {
-  let domains: ReturnType<typeof parseDomainMappings> = [];
-  try {
-    domains = parseDomainMappings(resource.domains);
-  } catch {
-    // The resource endpoint remains readable while an invalid legacy mapping is repaired.
-  }
+  const domains = parseDomainMappings(resource.domains);
 
   return {
     id: resource.id,

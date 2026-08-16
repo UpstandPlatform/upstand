@@ -96,6 +96,13 @@ function createMockStoreUow() {
       }
       return null;
     },
+    async updateByIdIfUpdatedAt(
+      id: string,
+      _updatedAt: Date,
+      patch: Partial<TestRecord>,
+    ) {
+      return this.updateById(id, patch);
+    },
     async deleteById(id: string) {
       const idx = store.resources.findIndex((item) => item.id === id);
       if (idx > -1) {

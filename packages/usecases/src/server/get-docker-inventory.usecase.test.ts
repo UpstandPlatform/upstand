@@ -41,7 +41,7 @@ function createUploadUseCase() {
             ports: "",
             mounts: [],
             networks: [],
-            labels: ["upstand.resource.id=resource-a"],
+            labels: ["com.upstand.resource-id=resource-a"],
             createdAt: null,
           },
           {
@@ -53,7 +53,7 @@ function createUploadUseCase() {
             ports: "",
             mounts: [],
             networks: [],
-            labels: ["upstand.resource.id=resource-b"],
+            labels: ["com.upstand.resource-id=resource-b"],
             createdAt: null,
           },
         ];
@@ -90,14 +90,14 @@ describe("GetDockerInventoryUseCase upload authorization", () => {
     expect(uploads).toEqual([]);
   });
 
-  test("uses the full authorized container ID for archive upload", async () => {
+  test("uses the explicitly authorized full container ID for archive upload", async () => {
     const { uploads, useCase } = createUploadUseCase();
 
     await useCase.uploadContainer(
       {
         organizationId: "organization-a",
         resourceId: "resource-a",
-        containerId: "container-a",
+        containerId: "container-a-full",
         destination: "/",
       },
       Buffer.from("archive"),
@@ -115,7 +115,7 @@ describe("GetDockerInventoryUseCase upload authorization", () => {
           organizationId: "organization-a",
           resourceId: "resource-a",
           serverId: "server-b",
-          containerId: "container-a",
+          containerId: "container-a-full",
           destination: "/",
         },
         Buffer.from("archive"),

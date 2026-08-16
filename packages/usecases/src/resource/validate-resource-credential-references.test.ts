@@ -1,22 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import { ValidationError } from "@upstand/domain";
+import { serializeResourceCredentials } from "./resource-credentials";
 import {
   hasResourceCredentialReferences,
   validateResourceCredentialReferences,
 } from "./validate-resource-credential-references";
 
+const storedCredentials = (value: Record<string, unknown>) =>
+  serializeResourceCredentials(JSON.stringify(value)) ?? "";
+
 describe("resource credential references", () => {
   test("detects scoped provider and SSH-key references", () => {
     expect(
       hasResourceCredentialReferences(
-        JSON.stringify({ githubAccount: "provider-1" }),
+        storedCredentials({ githubAccount: "provider-1" }),
       ),
     ).toBe(true);
     expect(
-      hasResourceCredentialReferences(JSON.stringify({ sshKeyId: "key-1" })),
+      hasResourceCredentialReferences(storedCredentials({ sshKeyId: "key-1" })),
     ).toBe(true);
     expect(
-      hasResourceCredentialReferences(JSON.stringify({ repository: "a/b" })),
+      hasResourceCredentialReferences(storedCredentials({ repository: "a/b" })),
     ).toBe(false);
   });
 
@@ -32,7 +36,7 @@ describe("resource credential references", () => {
           },
         } as never,
         "org-1",
-        JSON.stringify({ githubAccount: "provider-1", sshKeyId: "key-1" }),
+        storedCredentials({ githubAccount: "provider-1", sshKeyId: "key-1" }),
       ),
     ).resolves.toBeUndefined();
   });
@@ -49,7 +53,7 @@ describe("resource credential references", () => {
           },
         } as never,
         "org-1",
-        JSON.stringify({ githubAccount: "provider-2" }),
+        storedCredentials({ githubAccount: "provider-2" }),
       ),
     ).rejects.toBeInstanceOf(ValidationError);
   });

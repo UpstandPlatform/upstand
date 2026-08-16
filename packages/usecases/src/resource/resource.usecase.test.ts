@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { IUnitOfWork } from "@upstand/domain";
-import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { mockUnitOfWork } from "../testing/mock-unit-of-work";
 import { ControlContainerUseCase } from "./control-container.usecase";
 import { ControlResourceUseCase } from "./control-resource.usecase";
@@ -10,7 +9,11 @@ import { DeployResourceUseCase } from "./deploy-resource.usecase";
 import { GetResourceContainersUseCase } from "./get-resource-containers.usecase";
 import { GetResourceLogsUseCase } from "./get-resource-logs.usecase";
 import { RebuildDatabaseUseCase } from "./rebuild-database.usecase";
-import { parseResourceCredentials } from "./resource-credentials";
+import {
+  parseResourceCredentials,
+  serializeResourceCredentials,
+} from "./resource-credentials";
+import { serializeResourceEnvironmentVariables } from "./resource-environment";
 import { RollbackResourceUseCase } from "./rollback-resource.usecase";
 import { UpdateResourceUseCase } from "./update-resource.usecase";
 
@@ -94,6 +97,22 @@ class MockResourceRepository {
       return { ...item };
     }
     return null;
+  }
+
+  async updateByIdIfUpdatedAt(
+    id: string,
+    updatedAt: Date,
+    patch: Partial<MockRecord>,
+  ) {
+    const item = this.store.find((r) => r.id === id);
+    if (
+      !item ||
+      !(item.updatedAt instanceof Date) ||
+      item.updatedAt.getTime() !== updatedAt.getTime()
+    ) {
+      return null;
+    }
+    return this.updateById(id, patch);
   }
 
   async checkDuplicateServiceKey(appName: string, excludeResourceId?: string) {
@@ -424,12 +443,14 @@ describe("Resource Usecases", () => {
       dbType: "postgres",
       provider: "docker",
       status: "running",
-      credentials: JSON.stringify({
-        dbUser: "app",
-        dbPassword: "secret",
-        dbName: "appdb",
-      }),
-      envVars: "{}",
+      credentials: serializeResourceCredentials(
+        JSON.stringify({
+          dbUser: "app",
+          dbPassword: "secret",
+          dbName: "appdb",
+        }),
+      ),
+      envVars: serializeResourceEnvironmentVariables({}),
       serverId: null,
     });
     const calls: string[] = [];
@@ -459,19 +480,19 @@ describe("Resource Usecases", () => {
     });
   });
 
-  test("preflights legacy database authentication before deleting its volume", async () => {
+  test("preflights database authentication before deleting its volume", async () => {
     const uow = createMockUnitOfWork();
     const resource = await uow.resourceRepository.create({
-      id: "legacy-db",
+      id: "database-without-credentials",
       environmentId: "env-1",
-      name: "legacy-postgres",
-      appName: "legacy-postgres",
+      name: "postgres-without-credentials",
+      appName: "postgres-without-credentials",
       type: "database",
       dbType: "postgres",
       provider: "docker",
       status: "running",
       credentials: null,
-      envVars: "{}",
+      envVars: serializeResourceEnvironmentVariables({}),
       serverId: null,
     });
     let removed = false;
@@ -651,7 +672,7 @@ describe("Resource Usecases", () => {
             organizationId: "org-rollback",
             name: "private",
             username: "deploy",
-            password: JSON.stringify(encryptSecret("registry-secret")),
+            password: "registry-secret",
             registryUrl: "https://registry.example.com",
           }
         : null;

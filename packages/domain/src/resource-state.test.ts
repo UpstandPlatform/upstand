@@ -6,7 +6,7 @@ import {
 } from "./index";
 
 describe("versioned resource configuration", () => {
-  test("normalizes missing and malformed legacy values to safe defaults", () => {
+  test("normalizes missing and malformed values to safe defaults", () => {
     const configuration = parseResourceConfiguration({
       buildConfig: "not-json",
       advancedConfig: "not-json",

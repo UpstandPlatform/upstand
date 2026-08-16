@@ -11,7 +11,7 @@ import {
 } from "./platform.types";
 
 describe("platform types", () => {
-  test("resolves explicit platform modes before legacy cloud fallback", () => {
+  test("resolves explicit platform modes before environment defaults", () => {
     expect(
       resolveControlPlaneMode({ platform: "desktop", isCloud: true }),
     ).toBe("desktop");

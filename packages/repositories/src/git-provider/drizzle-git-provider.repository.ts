@@ -40,14 +40,9 @@ export class DrizzleGitProviderRepository
 
   private async decode(row: GitProvider): Promise<GitProvider> {
     const payload = this.encryptedPayload(row.config);
-    if (payload) return { ...row, config: decryptSecret(payload) };
-
-    // Existing installations may contain legacy plaintext JSON. Migrate the
-    // row on first read so compatibility does not leave credentials plaintext
-    // indefinitely while still allowing a zero-downtime rollout.
-    const encrypted = this.encode(row.config);
-    await super.updateById(row.id, { config: encrypted });
-    return row;
+    if (!payload)
+      throw new Error("Git provider configuration is not encrypted.");
+    return { ...row, config: decryptSecret(payload) };
   }
 
   private encode(config: string): string {

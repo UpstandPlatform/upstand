@@ -4,6 +4,7 @@ import {
   CreateContainerItemInputSchema,
   DeleteContainerItemInputSchema,
   ListContainerFilesInputSchema,
+  ListContainerMountsInputSchema,
   ReadContainerFileInputSchema,
   RenameContainerItemInputSchema,
   SearchContainerFilesInputSchema,
@@ -40,6 +41,27 @@ async function resolveResourceOrgId(
 }
 
 export const containerFileManagerRouter = router({
+  listMounts: twoFactorVerifiedProcedure
+    .input(ListContainerMountsInputSchema.omit({ organizationId: true }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const organizationId = await resolveResourceOrgId(
+          ctx,
+          input.resourceId,
+        );
+        await checkPermission(
+          ctx.session.user.id,
+          organizationId,
+          "resource:view",
+        );
+        return await ctx.scope
+          .resolve(ContainerFileManagerUseCaseToken)
+          .listMounts({ ...input, organizationId });
+      } catch (error) {
+        handleUseCaseError(error);
+      }
+    }),
+
   listFiles: twoFactorVerifiedProcedure
     .input(ListContainerFilesInputSchema.omit({ organizationId: true }))
     .query(async ({ ctx, input }) => {

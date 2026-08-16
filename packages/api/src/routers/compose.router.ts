@@ -84,22 +84,10 @@ const authorizeCompose = createResourceAuthorizer({
 });
 
 function composePayload(resource: Resource) {
-  let composeFile = "";
-  try {
-    const credentials = parseResourceCredentials(resource.credentials);
-    if (typeof credentials.composeFile === "string") {
-      composeFile = credentials.composeFile;
-    }
-  } catch {
-    // Preserve a readable typed response for malformed legacy resources.
-  }
-
-  let domains: unknown[] = [];
-  try {
-    domains = parseDomainMappings(resource.domains);
-  } catch {
-    // Legacy domain data is handled by the generic resource repair path.
-  }
+  const credentials = parseResourceCredentials(resource.credentials);
+  const composeFile =
+    typeof credentials.composeFile === "string" ? credentials.composeFile : "";
+  const domains = parseDomainMappings(resource.domains);
 
   const envVars = parseResourceEnvironmentVariables(resource.envVars);
 

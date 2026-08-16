@@ -39,7 +39,10 @@ function decodeSecret(
 ): string | null | undefined {
   if (value === null || value === undefined || value === "") return value;
   const payload = getEncryptedPayload(value);
-  return payload ? decryptSecret(payload) : value;
+  if (!payload) {
+    throw new Error("Secret version payload is not encrypted");
+  }
+  return decryptSecret(payload);
 }
 
 function encodeSecret(

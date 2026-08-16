@@ -2,11 +2,15 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  BuildDetectionError,
-  detectApplicationBuildConfig,
-  detectBuildConfig,
-} from "./detect-build-config";
+import { BuildDetectionError, detectBuildConfig } from "./detect-build-config";
+
+function detectedConfig(directory: string) {
+  const result = detectBuildConfig(directory);
+  if (result.status !== "detected" || !result.config) {
+    throw new BuildDetectionError(result);
+  }
+  return result.config;
+}
 
 function withRepository(
   files: Record<string, string>,
@@ -52,9 +56,7 @@ describe("detectBuildConfig", () => {
         const result = detectBuildConfig(directory);
         expect(result.status).toBe("requires-operator-input");
         expect(result.warnings[0]).toContain("upstand.json is invalid");
-        expect(() => detectApplicationBuildConfig(directory)).toThrow(
-          BuildDetectionError,
-        );
+        expect(() => detectedConfig(directory)).toThrow(BuildDetectionError);
       },
     );
   });
@@ -80,7 +82,7 @@ describe("detectBuildConfig", () => {
           reason: "Container build instructions are present",
         },
       ]);
-      expect(detectApplicationBuildConfig(directory).type).toBe("dockerfile");
+      expect(detectedConfig(directory).type).toBe("dockerfile");
     });
   });
 
@@ -163,9 +165,7 @@ describe("detectBuildConfig", () => {
       );
       const empty = detectBuildConfig(directory);
       expect(empty.status).toBe("requires-operator-input");
-      expect(() => detectApplicationBuildConfig(directory)).toThrow(
-        BuildDetectionError,
-      );
+      expect(() => detectedConfig(directory)).toThrow(BuildDetectionError);
     });
   });
 });

@@ -36,7 +36,10 @@ function decodeSecret(
 ): string | null | undefined {
   if (value === null || value === undefined || value === "") return value;
   const payload = getEncryptedPayload(value);
-  return payload ? decryptSecret(payload) : value;
+  if (!payload) {
+    throw new Error("Cloudflare API token is not encrypted");
+  }
+  return decryptSecret(payload);
 }
 
 function encodeSecret(
@@ -61,14 +64,6 @@ export class DrizzleWebServerSettingsRepository
 
   private async publicRow(row: WebServerSettings): Promise<WebServerSettings> {
     const decodedToken = decodeSecret(row.cloudflareApiToken);
-    if (
-      row.cloudflareApiToken &&
-      !getEncryptedPayload(row.cloudflareApiToken)
-    ) {
-      await super.updateById(row.id, {
-        cloudflareApiToken: encodeSecret(row.cloudflareApiToken),
-      });
-    }
     return {
       ...row,
       cloudflareApiToken: decodedToken ?? row.cloudflareApiToken,

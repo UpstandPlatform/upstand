@@ -22,16 +22,9 @@ const OrganizationInputSchema = z.object({
   organizationId: z.string().min(1),
 });
 
-const CancelDeploymentInputSchema = z
-  .object({
-    deploymentId: z.string().min(1).optional(),
-    serverId: z.string().min(1).optional(),
-    jobId: z.string().min(1).optional(),
-  })
-  .refine(
-    (input) => Boolean(input.deploymentId || (input.serverId && input.jobId)),
-    "A deploymentId or serverId/jobId pair is required",
-  );
+const CancelDeploymentInputSchema = z.object({
+  deploymentId: z.string().min(1),
+});
 
 async function getDeploymentScope(
   ctx: AuthenticatedContext,
@@ -232,25 +225,13 @@ export const deploymentRouter = router({
     .input(CancelDeploymentInputSchema)
     .mutation(async ({ ctx, input }) => {
       try {
-        const deploymentId = input.deploymentId ?? input.jobId;
-        if (!deploymentId) {
-          throw new ValidationError("Deployment job has no deployment record");
-        }
-
-        // Deployment IDs are the durable cancellation key. The queue page also
-        // supplies serverId/jobId for compatibility with older clients, but a
-        // stale server selection must never make a real deployment uncancellable.
+        const deploymentId = input.deploymentId;
         const scope = await getDeploymentScope(
           ctx,
           deploymentId,
           "resource:update",
         );
-        const candidateServerIds = [
-          scope.deployment.serverId || "local",
-          input.serverId,
-        ].filter((serverId, index, values): serverId is string =>
-          Boolean(serverId && values.indexOf(serverId) === index),
-        );
+        const serverId = scope.deployment.serverId || "local";
 
         await withRedisTimeout(
           redis.set(
@@ -261,22 +242,10 @@ export const deploymentRouter = router({
           ),
         );
 
-        let job: Awaited<ReturnType<Queue["getJob"]>> | null = null;
-        let queue: Queue | null = null;
-        for (const serverId of candidateServerIds) {
-          const candidateQueue = new Queue(getDeploymentQueueName(serverId), {
-            connection: redis.options,
-          });
-          const candidateJob = await candidateQueue.getJob(
-            input.jobId ?? deploymentId,
-          );
-          if (candidateJob) {
-            job = candidateJob;
-            queue = candidateQueue;
-            break;
-          }
-          await candidateQueue.close();
-        }
+        const queue = new Queue(getDeploymentQueueName(serverId), {
+          connection: redis.options,
+        });
+        const job = await queue.getJob(deploymentId);
 
         if (job && queue) {
           const state = await job.getState();
