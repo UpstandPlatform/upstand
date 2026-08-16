@@ -39,7 +39,14 @@ test.describe("public web production surface", () => {
     });
 
     expect(response?.ok()).toBe(true);
-    expect(response?.headers()["content-security-policy"]).toBeTruthy();
+    const contentSecurityPolicy =
+      response?.headers()["content-security-policy"] ?? "";
+    expect(contentSecurityPolicy).toContain(
+      "form-action 'self' https://github.com",
+    );
+    expect(contentSecurityPolicy).not.toContain(
+      "script-src 'self' 'unsafe-eval'",
+    );
     expect(response?.headers()["x-content-type-options"]).toBe("nosniff");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page).toHaveTitle(/Upstand/);
