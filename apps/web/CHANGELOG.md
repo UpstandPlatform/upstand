@@ -1,5 +1,11 @@
 # web
 
+## 0.2.18
+
+### Patch Changes
+
+- [#295](https://github.com/UpstandPlatform/upstand/pull/295) [`947d467`](https://github.com/UpstandPlatform/upstand/commit/947d467f2be5d19f73d9c761806b7351b3457f20) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the GitHub App manifest form to submit to GitHub while keeping the production Content Security Policy strict for scripts.
+
 ## 0.2.17
 
 ### Patch Changes
