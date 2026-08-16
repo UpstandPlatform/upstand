@@ -2,6 +2,89 @@ import { safeExternalUrl } from "./safe-external-url";
 
 const GITHUB_APP_HOST = "github.com";
 
+const GITHUB_APP_DEFAULT_PERMISSIONS = {
+  actions: "read",
+  administration: "read",
+  checks: "read",
+  contents: "read",
+  deployments: "write",
+  environments: "write",
+  issues: "read",
+  metadata: "read",
+  packages: "read",
+  pages: "read",
+  pull_requests: "read",
+  repository_hooks: "write",
+  statuses: "read",
+  vulnerability_alerts: "read",
+  workflows: "write",
+} as const;
+
+const GITHUB_APP_DEFAULT_EVENTS = [
+  "create",
+  "delete",
+  "deployment",
+  "deployment_status",
+  "fork",
+  "gollum",
+  "issue_comment",
+  "issues",
+  "label",
+  "milestone",
+  "member",
+  "project",
+  "project_card",
+  "project_column",
+  "public",
+  "pull_request",
+  "pull_request_review",
+  "pull_request_review_comment",
+  "push",
+  "release",
+  "repository",
+  "status",
+  "watch",
+  "workflow_dispatch",
+  "workflow_run",
+] as const;
+
+export type GithubAppManifest = {
+  name: string;
+  url: string;
+  hook_attributes: {
+    url: string;
+    active: true;
+  };
+  redirect_url: string;
+  setup_url: string;
+  public: false;
+  default_permissions: typeof GITHUB_APP_DEFAULT_PERMISSIONS;
+  default_events: typeof GITHUB_APP_DEFAULT_EVENTS;
+};
+
+export function buildGithubAppManifest(input: {
+  organizationId: string;
+  serverUrl: string;
+  state: string;
+}): GithubAppManifest {
+  const { organizationId, serverUrl, state } = input;
+  const callback = `${serverUrl}/api/providers/github/setup`;
+
+  return {
+    name: `Upstand Deploy (${organizationId.substring(0, 6)})`,
+    url: serverUrl,
+    hook_attributes: {
+      url: `${serverUrl}/api/webhooks/github/manifest/${encodeURIComponent(state)}`,
+      active: true,
+    },
+    redirect_url: callback,
+    setup_url: getGithubAppSetupUrl(serverUrl, state),
+    public: false,
+    default_permissions: GITHUB_APP_DEFAULT_PERMISSIONS,
+    default_events: GITHUB_APP_DEFAULT_EVENTS,
+  };
+}
+
 export function getGithubAppManifestCreationUrl(
   organizationName: string | undefined,
   state: string,
