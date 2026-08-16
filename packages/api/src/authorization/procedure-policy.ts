@@ -5,8 +5,7 @@ import {
 
 /**
  * API-key capability declarations are transport policy, not domain data.
- * The domain export remains a compatibility source until all consumers move
- * to this application-owned registry.
+ * The domain export is re-exported here as the application policy registry.
  */
 export const API_KEY_ROUTE_CAPABILITIES = catalogRouteCapabilities;
 export type ApiKeyRoute = CatalogApiKeyRoute;
@@ -31,6 +30,7 @@ export const SESSION_ONLY_PROCEDURES = [
   "backup.runWebServerNow",
   "backup.updateWebServerSchedule",
   "containerFileManager.listFiles",
+  "containerFileManager.listMounts",
   "containerFileManager.readFile",
   "containerFileManager.writeFile",
   "containerFileManager.createItem",

@@ -71,7 +71,12 @@ function readSecret(
       throw new Error(`Portable secret column '${storage.column}' is invalid`);
     }
     const payload = encryptedPayload(raw);
-    return payload ? decryptSecret(payload) : raw;
+    if (!payload) {
+      throw new Error(
+        `Portable secret column '${storage.column}' is not encrypted`,
+      );
+    }
+    return decryptSecret(payload);
   }
   const ciphertext = row[storage.ciphertext];
   const iv = row[storage.iv];

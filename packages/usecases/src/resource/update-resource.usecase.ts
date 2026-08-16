@@ -639,25 +639,17 @@ export class UpdateResourceUseCase {
 
     try {
       return await this.uow.transaction(async (tx) => {
-        const updateIfUnchanged = tx.resourceRepository.updateByIdIfUpdatedAt;
-        if (updateIfUnchanged) {
-          const updated = await updateIfUnchanged.call(
-            tx.resourceRepository,
-            input.id,
-            resource.updatedAt,
-            patch,
+        const updated = await tx.resourceRepository.updateByIdIfUpdatedAt(
+          input.id,
+          resource.updatedAt,
+          patch,
+        );
+        if (!updated) {
+          throw new ValidationError(
+            "Resource changed while it was being updated. Retry the operation.",
           );
-          if (!updated) {
-            throw new ValidationError(
-              "Resource changed while it was being updated. Retry the operation.",
-            );
-          }
-          return updated;
         }
-
-        // Compatibility for lightweight test/in-memory repositories that do
-        // not implement the production compare-and-set operation.
-        return tx.resourceRepository.updateById(input.id, patch);
+        return updated;
       });
     } catch (error) {
       if (routingChanged) {

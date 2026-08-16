@@ -463,7 +463,7 @@ export function ContainersTab({
                   Service: resource.appName,
                   Labels: {
                     "swarm.service.name": resource.appName,
-                    "upstand.resource.id": resource.id,
+                    "com.upstand.resource-id": resource.id,
                   },
                   RestartPolicy: {
                     Name: "on-failure",

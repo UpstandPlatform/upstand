@@ -5,15 +5,15 @@ import type { CaddyStatus } from "../ports/caddy";
 import type { CaddyService } from "./caddy.service";
 
 function addUpstreamRetry(snippets: string, upstream: string): string {
-  const legacy = `\treverse_proxy ${upstream}`;
-  const resilient = `${legacy} {
+  const direct = `\treverse_proxy ${upstream}`;
+  const resilient = `${direct} {
 \t\tlb_try_duration 30s
 \t\tlb_try_interval 250ms
 \t}`;
 
   return snippets.replaceAll(
-    `${legacy}\n`,
-    snippets.includes(`${legacy} {`) ? `${legacy}\n` : `${resilient}\n`,
+    `${direct}\n`,
+    snippets.includes(`${direct} {`) ? `${direct}\n` : `${resilient}\n`,
   );
 }
 
@@ -35,8 +35,8 @@ function ensureControlPlaneRetries(snippets: string): string {
     ["upstand_fumadocs:4000", controlPlaneUpstream("fumadocs")],
   ];
   return replacements.reduce(
-    (current, [legacy, upstream]) =>
-      addUpstreamRetry(current.replaceAll(legacy, upstream), upstream),
+    (current, [configured, upstream]) =>
+      addUpstreamRetry(current.replaceAll(configured, upstream), upstream),
     snippets,
   );
 }

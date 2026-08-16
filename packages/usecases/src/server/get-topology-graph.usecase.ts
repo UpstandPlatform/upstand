@@ -376,8 +376,7 @@ export class GetTopologyGraphUseCase {
       const volumeMountPathByName = new Map<string, string>();
       for (const container of containers) {
         const labels = parseLabels(container.labels);
-        const resourceId =
-          labels["upstand.resource.id"] ?? labels["com.upstand.resource-id"];
+        const resourceId = labels["com.upstand.resource-id"];
         for (const mount of container.mounts ?? []) {
           const { name, path } = mountParts(mount);
           if (!name) continue;
@@ -449,8 +448,7 @@ export class GetTopologyGraphUseCase {
         const containerId = `container:${server.id}:${container.id}`;
         const name = cleanContainerName(container);
         const labels = parseLabels(container.labels);
-        const resourceId =
-          labels["upstand.resource.id"] ?? labels["com.upstand.resource-id"];
+        const resourceId = labels["com.upstand.resource-id"];
         const project =
           labels["com.docker.compose.project"] ??
           labels["com.docker.stack.namespace"];

@@ -16,11 +16,11 @@ describe("resource terminal container ownership", () => {
   // ------------------------------------------------------------------
   // Label-based authorization (canonical path)
   // ------------------------------------------------------------------
-  test("authorizes via upstand.resource.id label (exact match only)", () => {
+  test("authorizes via the canonical resource label (exact match only)", () => {
     // exact match → authorized
     expect(
       containerBelongsToResource(
-        { id: "abcdef123456", labels: ["upstand.resource.id=res-uuid-1"] },
+        { id: "abcdef123456", labels: ["com.upstand.resource-id=res-uuid-1"] },
         application,
       ),
     ).toBe(true);
@@ -31,7 +31,7 @@ describe("resource terminal container ownership", () => {
         {
           id: "abcdef123456",
           labels: [
-            "upstand.resource.id=res-uuid-OTHER",
+            "com.upstand.resource-id=res-uuid-OTHER",
             "com.docker.swarm.service.name=checkout-api",
           ],
         },
@@ -167,9 +167,11 @@ describe("resource terminal container ownership", () => {
     ).toBe(false);
   });
 
-  test("supports Docker's abbreviated ids without accepting an unrelated id", () => {
-    expect(matchesContainerIdentifier("abcdef", "abcdef123456")).toBe(true);
-    expect(matchesContainerIdentifier("abcdef123456", "abcdef")).toBe(true);
+  test("requires an exact full container id", () => {
+    expect(matchesContainerIdentifier("abcdef123456", "abcdef123456")).toBe(
+      true,
+    );
+    expect(matchesContainerIdentifier("abcdef", "abcdef123456")).toBe(false);
     expect(matchesContainerIdentifier("fedcba", "abcdef123456")).toBe(false);
   });
 });

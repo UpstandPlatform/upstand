@@ -224,7 +224,7 @@ function isDockerContainer(value: unknown): value is DockerContainer {
 }
 
 function getManagedResourceId(container: DockerContainer): string | null {
-  const prefix = "upstand.resource.id=";
+  const prefix = "com.upstand.resource-id=";
   const label = container.labels.find((value) => value.startsWith(prefix));
   const resourceId = label?.slice(prefix.length).trim();
   return resourceId || null;

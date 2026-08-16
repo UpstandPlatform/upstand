@@ -256,13 +256,9 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
   app.use("/api/mcp*", mcpBodyLimit);
 
   // ---------------------------------------------------------------------------
-  // MCP Endpoints — supports both transports & all endpoint path aliases:
-  //   • GET  /api/mcp, /api/mcp/sse  → SSE (legacy transport, EventSource)
-  //   • POST /api/mcp, /api/mcp/sse  → Streamable HTTP / SSE message endpoint
-  //
-  // Authentication accepts only headers. Query-string credentials are
-  // intentionally rejected because URLs are copied into browser history,
-  // proxy logs, referrers, and telemetry.
+  // MCP endpoint. Authentication accepts only headers. Query-string
+  // credentials are intentionally rejected because URLs are copied into
+  // browser history, proxy logs, referrers, and telemetry.
   // ---------------------------------------------------------------------------
 
   /** Resolve an API key from request headers only. */
@@ -271,7 +267,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     return authenticateApiKey(headers);
   };
 
-  // GET: legacy SSE transport — MCP 2024-11-05 and older clients.
+  // GET: establish the server-sent event stream.
   const handleMcpGet = async (c: Context<AppEnv>) => {
     const requestLog = c.get("log");
     const key = await resolveMcpKey(c);
@@ -300,27 +296,13 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       setApiKeyRateLimitHeaders(key, (name, value) => c.header(name, value));
 
       const requestUrl = new URL(c.req.url);
-      const sessionId =
-        c.req.query("sessionId") || c.req.query("session_id") || randomUUID();
+      const sessionId = c.req.header("mcp-session-id") || randomUUID();
 
       const postUrlObj = new URL(
         `${requestUrl.origin}${requestUrl.pathname.replace(/\/+$/, "")}`,
       );
       postUrlObj.searchParams.set("sessionId", sessionId);
 
-      // Preserve only the transport session identifier. Authentication must be
-      // supplied in request headers and must never be echoed into a URL.
-      for (const [k, v] of requestUrl.searchParams.entries()) {
-        if (
-          k !== "sessionId" &&
-          k !== "session_id" &&
-          k !== "api_key" &&
-          k !== "token" &&
-          k !== "apiKey"
-        ) {
-          postUrlObj.searchParams.set(k, v);
-        }
-      }
       const postUrl = postUrlObj.toString();
 
       c.header("Content-Type", "text/event-stream");
@@ -332,7 +314,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       return await streamSSE(c, async (stream) => {
         stream.onAbort(() => void release());
         try {
-          // MCP legacy SSE transport: first event must be "endpoint".
+          // The first event communicates the canonical message endpoint.
           await stream.writeSSE({ event: "endpoint", data: postUrl });
 
           // Keep the SSE connection alive with periodic heartbeats.
@@ -356,7 +338,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     }
   };
 
-  // POST: Streamable HTTP transport + legacy SSE message endpoint.
+  // POST: MCP JSON-RPC messages.
   const handleMcpPost = async (c: Context<AppEnv>) => {
     const requestLog = c.get("log");
     const contentLength = Number(c.req.header("content-length") ?? 0);
@@ -376,10 +358,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     }
     setApiKeyRateLimitHeaders(key, (name, value) => c.header(name, value));
 
-    const sessionId =
-      c.req.query("sessionId") ||
-      c.req.query("session_id") ||
-      c.req.header("mcp-session-id");
+    const sessionId = c.req.header("mcp-session-id");
     if (sessionId) {
       c.header("Mcp-Session-Id", sessionId);
     }
@@ -614,20 +593,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     );
   };
 
-  // Register route handlers across all path aliases (/api/mcp, /api/mcp/sse, /api/mcp/messages, etc.)
-  const mcpGetPaths = ["/api/mcp", "/api/mcp/sse", "/api/mcp/*"];
-  for (const path of mcpGetPaths) {
-    app.get(path, handleMcpGet);
-  }
-
-  const mcpPostPaths = [
-    "/api/mcp",
-    "/api/mcp/sse",
-    "/api/mcp/messages",
-    "/api/mcp/*",
-  ];
-  for (const path of mcpPostPaths) {
-    app.post(path, handleMcpPost);
-    app.options(path, (c) => c.body(null, 204));
-  }
+  app.get("/api/mcp", handleMcpGet);
+  app.post("/api/mcp", handleMcpPost);
+  app.options("/api/mcp", (c) => c.body(null, 204));
 }

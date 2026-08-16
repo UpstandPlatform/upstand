@@ -48,7 +48,7 @@ describe("GetTopologyGraphUseCase", () => {
             networks: ["app-net", "bridge"],
             labels: [
               "com.docker.compose.project=demo",
-              "upstand.resource.id=resource-1",
+              "com.upstand.resource-id=resource-1",
             ],
             createdAt: null,
           },

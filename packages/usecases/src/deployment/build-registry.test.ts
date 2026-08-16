@@ -11,7 +11,6 @@ describe("build registry image references", () => {
         {
           registryUrl: "https://ghcr.io/",
           imagePrefix: "/acme/",
-          username: "ignored-login-name",
         },
         "My App",
         "deployment-123",
@@ -19,14 +18,14 @@ describe("build registry image references", () => {
     ).toBe("ghcr.io/acme/my-app:deployment-123");
   });
 
-  test("keeps legacy username fallback when no image prefix is configured", () => {
+  test("uses the registry root when no image prefix is configured", () => {
     expect(
       buildRegistryImageTag(
-        { registryUrl: "registry.example.com", username: "team" },
+        { registryUrl: "registry.example.com" },
         "web_app",
         "deployment-456",
       ),
-    ).toBe("registry.example.com/team/web_app:deployment-456");
+    ).toBe("registry.example.com/web_app:deployment-456");
   });
 
   test("normalizes deployment identifiers into safe bounded Docker tags", () => {

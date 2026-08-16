@@ -3,16 +3,20 @@ import {
   getDatabaseEnvironment,
   getManagedDatabaseEnvironment,
 } from "./database-environment";
+import { serializeResourceCredentials } from "./resource-credentials";
+import { serializeResourceEnvironmentVariables } from "./resource-environment";
 
 describe("database runtime environment", () => {
   test("derives libSQL basic authentication without exposing plaintext", () => {
     const environment = getDatabaseEnvironment({
       dbType: "libsql",
-      credentials: JSON.stringify({
-        dbUser: "admin",
-        dbPassword: "secret",
-      }),
-      envVars: "{}",
+      credentials: serializeResourceCredentials(
+        JSON.stringify({
+          dbUser: "admin",
+          dbPassword: "secret",
+        }),
+      ),
+      envVars: serializeResourceEnvironmentVariables({}),
     } as never);
 
     expect(environment.SQLD_HTTP_AUTH).toBe(
@@ -24,12 +28,14 @@ describe("database runtime environment", () => {
   test("keeps managed credentials separate from user-managed variables", () => {
     const resource = {
       dbType: "postgres",
-      credentials: JSON.stringify({
-        dbUser: "app",
-        dbPassword: "secret",
-        dbName: "appdb",
-      }),
-      envVars: JSON.stringify({ LOG_LEVEL: "debug" }),
+      credentials: serializeResourceCredentials(
+        JSON.stringify({
+          dbUser: "app",
+          dbPassword: "secret",
+          dbName: "appdb",
+        }),
+      ),
+      envVars: serializeResourceEnvironmentVariables({ LOG_LEVEL: "debug" }),
     } as never;
 
     expect(getManagedDatabaseEnvironment(resource)).toEqual({

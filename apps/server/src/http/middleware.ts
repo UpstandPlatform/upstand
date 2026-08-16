@@ -56,7 +56,7 @@ export function registerHttpMiddleware(
     }),
   );
 
-  // Keep JSON, auth, terminal, and compatibility transports from buffering an
+  // Keep JSON, auth, terminal, and streaming transports from buffering an
   // unbounded request before their route-specific validation runs. Smaller
   // endpoints (webhooks and AI/MCP) install stricter limits in their routers.
   const defaultBodyLimit = bodyLimit({

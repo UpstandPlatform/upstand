@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Resource } from "@upstand/domain";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
+import { serializeResourceCredentials } from "../resource/resource-credentials";
 import {
   parseResourceEnvironmentVariables,
   serializeResourceEnvironmentVariables,
@@ -21,7 +22,7 @@ const resource: Resource = {
   status: "running",
   provider: "drop",
   appName: "web",
-  credentials: "{}",
+  credentials: serializeResourceCredentials("{}"),
   buildSecrets: null,
   buildConfig: "{}",
   advancedConfig: "{}",

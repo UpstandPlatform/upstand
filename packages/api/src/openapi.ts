@@ -112,7 +112,7 @@ function createOpenApiRouter() {
 }
 
 /**
- * REST compatibility router generated from the canonical tRPC router.
+ * REST router generated from the canonical tRPC router.
  * Business logic continues to run through appRouter.createCaller, so auth,
  * authorization, rate limiting, and auditing remain centralized.
  */

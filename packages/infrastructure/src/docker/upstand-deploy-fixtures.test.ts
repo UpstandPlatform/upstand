@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ApplicationBuildConfig } from "@upstand/domain";
-import { detectApplicationBuildConfig } from "@upstand/usecases";
+import { BuildDetectionError, detectBuildConfig } from "@upstand/usecases";
 import { DockerService } from "./docker.service";
 
 /**
@@ -31,6 +31,14 @@ type BuildCall = {
   args: string[];
   environment?: NodeJS.ProcessEnv;
 };
+
+function detectedConfig(directory: string): ApplicationBuildConfig {
+  const result = detectBuildConfig(directory);
+  if (result.status !== "detected" || !result.config) {
+    throw new BuildDetectionError(result);
+  }
+  return result.config;
+}
 
 function createBuildHarness(): {
   build(config: ApplicationBuildConfig, fixturePath: string): Promise<void>;
@@ -93,7 +101,7 @@ describe("Upstand deployment fixtures & auto build-configuration detection", () 
   for (const [fixture] of fixtures) {
     test(`detects best build-configuration for ${fixture} fixture actual source`, () => {
       const fixturePath = path.join(fixtureRoot, fixture);
-      const detected = detectApplicationBuildConfig(fixturePath);
+      const detected = detectedConfig(fixturePath);
       expect(detected.autoDetect).toBe(true);
       expect(detected.type).toBe("railpack");
       if (detected.type === "railpack") {
@@ -170,7 +178,7 @@ describe("Upstand deployment fixtures & auto build-configuration detection", () 
         path.join(tmpDir, "Dockerfile"),
         "FROM alpine:latest\nCMD echo hello\n",
       );
-      const detected = detectApplicationBuildConfig(tmpDir);
+      const detected = detectedConfig(tmpDir);
       expect(detected.autoDetect).toBe(true);
       expect(detected.type).toBe("dockerfile");
       if (detected.type === "dockerfile") {
@@ -188,7 +196,7 @@ describe("Upstand deployment fixtures & auto build-configuration detection", () 
         path.join(tmpDir, "index.html"),
         "<!DOCTYPE html><html></html>",
       );
-      const detected = detectApplicationBuildConfig(tmpDir);
+      const detected = detectedConfig(tmpDir);
       expect(detected.autoDetect).toBe(true);
       expect(detected.type).toBe("static");
       if (detected.type === "static") {

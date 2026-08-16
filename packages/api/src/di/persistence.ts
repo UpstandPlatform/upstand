@@ -45,6 +45,10 @@ export function registerPersistence(services: ServiceCollection) {
     () => new dependencies.DockerReadOnlyService(),
   );
   services.addSingleton(
+    dependencies.ContainerFileSystemToken,
+    () => new dependencies.DockerReadOnlyService(),
+  );
+  services.addSingleton(
     dependencies.DockerArchiveTransferToken,
     () => new dependencies.DockerReadOnlyService(),
   );

@@ -7,6 +7,7 @@ import * as schema from "@upstand/db/schema/index";
 import {
   decryptSecret,
   type EncryptedPayload,
+  encryptSecret,
 } from "@upstand/platform/crypto/secret-box";
 import {
   ExportControlPlaneTransferService,
@@ -58,7 +59,7 @@ describe("full-schema portable PGlite transfer", () => {
         organizationId: "organization-1",
         name: "Registry",
         username: "owner",
-        password: "plaintext-registry-secret",
+        password: JSON.stringify(encryptSecret("plaintext-registry-secret")),
         registryUrl: "registry.example.test",
         createdAt,
         updatedAt: createdAt,

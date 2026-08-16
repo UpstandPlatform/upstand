@@ -541,12 +541,12 @@ describe("dependency injection tokens", () => {
   });
 
   test("runtime code never reconstructs tokens or casts resolved services", async () => {
-    const legacyTokenFactory = ["Symbol", "for("].join(".");
+    const globalTokenFactory = ["Symbol", "for("].join(".");
     const violations = (await workspaceSources).flatMap(
       ({ relativePath, source }) => {
         if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(relativePath)) return [];
         const reasons: string[] = [];
-        if (source.includes(legacyTokenFactory)) reasons.push("Symbol.for");
+        if (source.includes(globalTokenFactory)) reasons.push("Symbol.for");
         if (/\.resolve\([^\r\n)]*\)\s+as\s+/.test(source)) {
           reasons.push("resolve cast");
         }

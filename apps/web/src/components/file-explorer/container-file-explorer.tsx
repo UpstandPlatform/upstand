@@ -60,6 +60,7 @@ import { trpc } from "@/utils/trpc";
 interface ContainerFileExplorerProps {
   resourceId: string;
   initialContainerId?: string;
+  initialMountPath?: string;
   initialPath?: string;
   title?: string;
   compact?: boolean;
@@ -91,6 +92,7 @@ function base64ToArrayBuffer(value: string): ArrayBuffer {
 export function ContainerFileExplorer({
   resourceId,
   initialContainerId,
+  initialMountPath,
   initialPath = "/",
   title = "Container Volume Explorer",
   compact = false,
@@ -100,7 +102,12 @@ export function ContainerFileExplorer({
   const [selectedContainer, setSelectedContainer] = useState<
     string | undefined
   >(initialContainerId);
+  const [selectedMountPath, setSelectedMountPath] = useState<
+    string | undefined
+  >(initialMountPath);
   const hasActiveContainer = Boolean(selectedContainer);
+  const hasActiveMount = Boolean(selectedMountPath);
+  const hasActiveTarget = hasActiveContainer && hasActiveMount;
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
@@ -144,48 +151,34 @@ export function ContainerFileExplorer({
     trpc.resource.getContainers.queryOptions({ id: resourceId }),
   );
 
-  // Auto-sync selected container if stale or dead
-  useEffect(() => {
-    if (containersData.length === 0) {
-      if (selectedContainer !== undefined) {
-        setSelectedContainer(undefined);
-      }
-      return;
-    }
+  const { data: mountsData = [] } = useQuery({
+    ...trpc.containerFileManager.listMounts.queryOptions({
+      resourceId,
+      containerId: selectedContainer ?? "",
+    }),
+    enabled: hasActiveContainer,
+  });
 
-    if (containersData.length > 0) {
-      const initialContainerExists = initialContainerId
-        ? containersData.some(
-            (c: { id: string; name: string }) =>
-              c.id === initialContainerId ||
-              c.id.startsWith(initialContainerId) ||
-              initialContainerId.startsWith(c.id) ||
-              c.name === initialContainerId,
-          )
-        : false;
-      const exists = containersData.some(
-        (c: { id: string; name: string }) =>
-          c.id === selectedContainer ||
-          c.id.startsWith(selectedContainer || "___") ||
-          selectedContainer?.startsWith(c.id) ||
-          c.name === selectedContainer,
-      );
-      if (initialContainerExists) {
-        const matchingContainer = containersData.find(
-          (c: { id: string; name: string }) =>
-            c.id === initialContainerId ||
-            c.id.startsWith(initialContainerId ?? "___") ||
-            initialContainerId?.startsWith(c.id) ||
-            c.name === initialContainerId,
-        );
-        if (matchingContainer && selectedContainer !== matchingContainer.id) {
-          setSelectedContainer(matchingContainer.id);
-        }
-      } else if (!exists && containersData[0]) {
-        setSelectedContainer(containersData[0].id);
-      }
+  // Keep selections exact and explicit. A stale selection is cleared rather than
+  // silently redirected to another container or mount.
+  useEffect(() => {
+    if (
+      selectedContainer &&
+      !containersData.some((container) => container.id === selectedContainer)
+    ) {
+      setSelectedContainer(undefined);
+      setSelectedMountPath(undefined);
     }
-  }, [containersData, initialContainerId, selectedContainer]);
+  }, [containersData, selectedContainer]);
+
+  useEffect(() => {
+    if (
+      selectedMountPath &&
+      !mountsData.some((mount) => mount.mountPath === selectedMountPath)
+    ) {
+      setSelectedMountPath(undefined);
+    }
+  }, [mountsData, selectedMountPath]);
 
   useEffect(() => {
     const timeout = window.setTimeout(
@@ -201,7 +194,7 @@ export function ContainerFileExplorer({
     setSelectedFilePath(null);
     setSearchQuery("");
     setDebouncedSearchQuery("");
-  }, [initialPath, selectedContainer]);
+  }, [initialPath, selectedContainer, selectedMountPath]);
 
   // Fetch file list
   const {
@@ -214,9 +207,10 @@ export function ContainerFileExplorer({
     ...trpc.containerFileManager.listFiles.queryOptions({
       resourceId,
       path: currentPath,
-      containerId: selectedContainer,
+      containerId: selectedContainer ?? "",
+      mountPath: selectedMountPath ?? "",
     }),
-    enabled: hasActiveContainer,
+    enabled: hasActiveTarget,
   });
 
   // Search files query (active when search query > 1 char)
@@ -225,9 +219,10 @@ export function ContainerFileExplorer({
       resourceId,
       query: debouncedSearchQuery,
       path: currentPath,
-      containerId: selectedContainer,
+      containerId: selectedContainer ?? "",
+      mountPath: selectedMountPath ?? "",
     }),
-    enabled: hasActiveContainer && debouncedSearchQuery.length > 1,
+    enabled: hasActiveTarget && debouncedSearchQuery.length > 1,
   });
 
   // Read file query
@@ -240,9 +235,10 @@ export function ContainerFileExplorer({
     ...trpc.containerFileManager.readFile.queryOptions({
       resourceId,
       path: selectedFilePath ?? "",
-      containerId: selectedContainer,
+      containerId: selectedContainer ?? "",
+      mountPath: selectedMountPath ?? "",
     }),
-    enabled: Boolean(selectedFilePath),
+    enabled: Boolean(selectedFilePath && hasActiveTarget),
   });
 
   useEffect(() => {
@@ -355,7 +351,8 @@ export function ContainerFileExplorer({
       resourceId,
       path: selectedFilePath,
       content: editingFileContent,
-      containerId: selectedContainer,
+      containerId: selectedContainer ?? "",
+      mountPath: selectedMountPath ?? "",
     });
   }, [
     selectedFilePath,
@@ -363,6 +360,7 @@ export function ContainerFileExplorer({
     selectedContainer,
     resourceId,
     writeFileMutation,
+    selectedMountPath,
   ]);
 
   // Keyboard shortcut listener for Save (Ctrl+S / Cmd+S)
@@ -386,7 +384,8 @@ export function ContainerFileExplorer({
         trpc.containerFileManager.readFile.queryOptions({
           resourceId,
           path,
-          containerId: selectedContainer,
+          containerId: selectedContainer ?? "",
+          mountPath: selectedMountPath ?? "",
           encoding: "base64",
         }),
       );
@@ -438,7 +437,8 @@ export function ContainerFileExplorer({
           path: destPath,
           content: base64Content,
           isBase64: true,
-          containerId: selectedContainer,
+          containerId: selectedContainer ?? "",
+          mountPath: selectedMountPath ?? "",
         },
         {
           onSuccess: () => {
@@ -512,38 +512,58 @@ export function ContainerFileExplorer({
             </span>
           </div>
 
-          {/* Container Selector Filter */}
+          {/* Explicit container and named-volume selectors */}
           {containersData.length > 0 && (
             <Select
-              items={[
-                { value: "all", label: "All Containers / Default Volume" },
-                ...containersData.map((c) => ({
-                  value: c.id || c.name,
-                  label: `🐳 ${c.name} (${c.id ? c.id.slice(0, 8) : "container"})`,
-                })),
-              ]}
-              value={selectedContainer || "all"}
+              items={containersData.map((c) => ({
+                value: c.id || c.name,
+                label: `🐳 ${c.name} (${c.id ? c.id.slice(0, 8) : "container"})`,
+              }))}
+              value={selectedContainer}
               onValueChange={(val) =>
-                checkUnsavedAndRun(() =>
-                  setSelectedContainer(
-                    val === "all" || val === null ? undefined : val,
-                  ),
-                )
+                checkUnsavedAndRun(() => {
+                  setSelectedContainer(val ?? undefined);
+                  setSelectedMountPath(undefined);
+                })
               }
             >
               <SelectTrigger
                 size="sm"
                 className="h-8 border-input bg-background font-medium text-foreground text-xs"
               >
-                <SelectValue placeholder="All Containers / Default Volume" />
+                <SelectValue placeholder="Select container" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">
-                  All Containers / Default Volume
-                </SelectItem>
                 {containersData.map((c) => (
                   <SelectItem key={c.id || c.name} value={c.id || c.name}>
                     🐳 {c.name} ({c.id ? c.id.slice(0, 8) : "container"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {selectedContainer && (
+            <Select
+              items={mountsData.map((mount) => ({
+                value: mount.mountPath,
+                label: `${mount.name}${mount.readOnly ? " (read-only)" : ""} → ${mount.mountPath}`,
+              }))}
+              value={selectedMountPath}
+              onValueChange={(val) =>
+                checkUnsavedAndRun(() => setSelectedMountPath(val ?? undefined))
+              }
+            >
+              <SelectTrigger
+                size="sm"
+                className="h-8 max-w-64 border-input bg-background font-medium text-foreground text-xs"
+              >
+                <SelectValue placeholder="Select named volume" />
+              </SelectTrigger>
+              <SelectContent>
+                {mountsData.map((mount) => (
+                  <SelectItem key={mount.mountPath} value={mount.mountPath}>
+                    {mount.name} {mount.readOnly ? "(read-only)" : ""} →{" "}
+                    {mount.mountPath}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -563,7 +583,7 @@ export function ContainerFileExplorer({
                     setNewItemParentPath(currentPath);
                     setNewItemModal("file");
                   }}
-                  disabled={!hasActiveContainer}
+                  disabled={!hasActiveTarget}
                   className="h-8 font-medium text-xs"
                 >
                   <HugeiconsIcon
@@ -588,7 +608,7 @@ export function ContainerFileExplorer({
                     setNewItemParentPath(currentPath);
                     setNewItemModal("directory");
                   }}
-                  disabled={!hasActiveContainer}
+                  disabled={!hasActiveTarget}
                   className="h-8 font-medium text-xs"
                 >
                   <HugeiconsIcon
@@ -610,7 +630,7 @@ export function ContainerFileExplorer({
                   size="xs"
                   variant="outline"
                   onClick={() => handleFileUploadSelect(currentPath)}
-                  disabled={!hasActiveContainer}
+                  disabled={!hasActiveTarget}
                   className="h-8 font-medium text-xs"
                 >
                   <HugeiconsIcon
@@ -632,7 +652,7 @@ export function ContainerFileExplorer({
                   size="xs"
                   variant="ghost"
                   onClick={() => refetch()}
-                  disabled={!hasActiveContainer || isRefetching}
+                  disabled={!hasActiveTarget || isRefetching}
                   className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
                   aria-label="Refresh directory"
                 >
@@ -760,7 +780,7 @@ export function ContainerFileExplorer({
 
           {/* Directory File List */}
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {!hasActiveContainer ? (
+            {!hasActiveTarget ? (
               <div
                 className="flex h-48 flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground text-xs"
                 role="status"
@@ -1226,7 +1246,8 @@ export function ContainerFileExplorer({
                   parentPath: newItemParentPath,
                   name: newItemName.trim(),
                   type: newItemModal,
-                  containerId: selectedContainer,
+                  containerId: selectedContainer ?? "",
+                  mountPath: selectedMountPath ?? "",
                 });
               }}
               disabled={createItemMutation.isPending || !newItemName.trim()}
@@ -1284,7 +1305,8 @@ export function ContainerFileExplorer({
                   resourceId,
                   oldPath: renameModalItem.path,
                   newPath: newRenamePath.trim(),
-                  containerId: selectedContainer,
+                  containerId: selectedContainer ?? "",
+                  mountPath: selectedMountPath ?? "",
                 });
               }}
               disabled={renameItemMutation.isPending || !newRenamePath.trim()}
@@ -1329,7 +1351,8 @@ export function ContainerFileExplorer({
                 deleteItemMutation.mutate({
                   resourceId,
                   path: deleteConfirmItem.path,
-                  containerId: selectedContainer,
+                  containerId: selectedContainer ?? "",
+                  mountPath: selectedMountPath ?? "",
                 });
               }}
               disabled={deleteItemMutation.isPending}
@@ -1470,7 +1493,8 @@ export function ContainerFileExplorer({
                 if (!chmodModalItem) return;
                 changePermissionsMutation.mutate({
                   resourceId,
-                  containerId: selectedContainer,
+                  containerId: selectedContainer ?? "",
+                  mountPath: selectedMountPath ?? "",
                   path: chmodModalItem.path,
                   mode: chmodMode,
                 });

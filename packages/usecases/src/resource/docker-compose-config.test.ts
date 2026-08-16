@@ -8,9 +8,12 @@ import {
   applyComposeIngressNetwork,
   applyComposeResourceConfig,
 } from "./docker-compose-config";
+import { serializeResourceEnvironmentVariables } from "./resource-environment";
 
 const resource = {
-  envVars: JSON.stringify({ DATABASE_URL: "postgres://db" }),
+  envVars: serializeResourceEnvironmentVariables({
+    DATABASE_URL: "postgres://db",
+  }),
 } as Resource;
 
 describe("Docker Compose configuration", () => {

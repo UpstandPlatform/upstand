@@ -1,7 +1,6 @@
 export interface BuildRegistryReference {
   registryUrl?: string | null;
   imagePrefix?: string | null;
-  username?: string | null;
 }
 
 function trimProtocolAndSlashes(value: string): string {
@@ -57,7 +56,7 @@ export function buildRegistryImageTag(
   deploymentId?: string | null,
 ): string {
   const host = trimProtocolAndSlashes(registry.registryUrl || "");
-  const prefix = trimSlashes(registry.imagePrefix || registry.username || "");
+  const prefix = trimSlashes(registry.imagePrefix || "");
   const normalizedServiceName = serviceName
     .trim()
     .toLowerCase()

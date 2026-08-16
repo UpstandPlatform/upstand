@@ -6,6 +6,7 @@ import type {
   UpdateEnvironmentDTO,
 } from "@upstand/domain";
 import { ValidationError } from "@upstand/domain";
+import { serializeResourceEnvironmentVariables } from "../resource/resource-environment";
 import { mockUnitOfWork } from "../testing/mock-unit-of-work";
 import { CreateEnvironmentUseCase } from "./create-environment.usecase";
 import { DeleteEnvironmentUseCase } from "./delete-environment.usecase";
@@ -193,7 +194,9 @@ describe("Environment Usecases", () => {
       isDefault: false,
       isProtected: false,
       resourceCount: 0,
-      envVars: JSON.stringify({ PARENT: "parent-value" }),
+      envVars: serializeResourceEnvironmentVariables({
+        PARENT: "parent-value",
+      }),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -208,7 +211,7 @@ describe("Environment Usecases", () => {
       isDefault: false,
       isProtected: false,
       resourceCount: 0,
-      envVars: JSON.stringify({ CHILD: "child-value" }),
+      envVars: serializeResourceEnvironmentVariables({ CHILD: "child-value" }),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -223,7 +226,9 @@ describe("Environment Usecases", () => {
       isDefault: false,
       isProtected: false,
       resourceCount: 0,
-      envVars: JSON.stringify({ GRANDCHILD: "grandchild-value" }),
+      envVars: serializeResourceEnvironmentVariables({
+        GRANDCHILD: "grandchild-value",
+      }),
       createdAt: new Date(),
       updatedAt: new Date(),
     };

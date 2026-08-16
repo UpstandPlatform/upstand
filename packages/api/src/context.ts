@@ -58,7 +58,7 @@ export async function createContext({ context }: CreateContextOptions) {
   }
 
   // Existing application procedures consume session.user.id for audit and
-  // ownership. This compatibility principal is deliberately not a Better
+  // ownership. This API-key principal is deliberately not a Better
   // Auth session and is only created after API-key verification. Session-only
   // procedures reject it in twoFactorVerifiedProcedure.
   const session =

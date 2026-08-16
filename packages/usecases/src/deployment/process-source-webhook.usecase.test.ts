@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
+import { serializeResourceCredentials } from "../resource/resource-credentials";
 import {
   ProcessSourceWebhookUseCase,
   type WebhookDeliveryStore,
 } from "./process-source-webhook.usecase";
+
+function storedCredentials(value: Record<string, unknown>): string {
+  return serializeResourceCredentials(JSON.stringify(value)) ?? "";
+}
 
 function resource(
   id: string,
@@ -18,7 +23,7 @@ function resource(
     status: "idle",
     provider: "github",
     appName: id,
-    credentials: JSON.stringify({
+    credentials: storedCredentials({
       autoDeploy: true,
       githubAccount: "provider-1",
       repository: "acme/example",
@@ -175,7 +180,7 @@ describe("source webhook processing", () => {
     const service = resource("api", "org-1", {
       triggerType: "tag",
       watchPaths: JSON.stringify(["packages/api/**"]),
-      credentials: JSON.stringify({
+      credentials: storedCredentials({
         autoDeploy: true,
         githubAccount: "provider-1",
         repository: "acme/example",
@@ -284,7 +289,7 @@ describe("source webhook processing", () => {
     const service = resource("image", "org-1", {
       provider: "docker-registry",
       dockerImage: "acme/api:stable",
-      credentials: JSON.stringify({
+      credentials: storedCredentials({
         autoDeploy: true,
         dockerImage: "acme/api:stable",
       }),
@@ -337,7 +342,7 @@ describe("source webhook processing", () => {
       return resource("api", "org-1", {
         triggerType: "tag",
         tagPattern: null,
-        credentials: JSON.stringify({
+        credentials: storedCredentials({
           autoDeploy: true,
           githubAccount: "provider-1",
           repository: "acme/example",

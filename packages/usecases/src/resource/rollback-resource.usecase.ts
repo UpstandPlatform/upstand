@@ -4,7 +4,6 @@ import {
   type Resource,
   ValidationError,
 } from "@upstand/domain";
-import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { z } from "zod";
 import type { DockerRegistryAuth } from "../ports/docker";
 import type { DockerResourceControlService as DockerService } from "./docker-client";
@@ -66,21 +65,9 @@ export class RollbackResourceUseCase {
           );
         }
 
-        let password = "";
-        if (registry.password) {
-          try {
-            const payload = JSON.parse(registry.password);
-            password =
-              payload.ciphertext && payload.iv && payload.authTag
-                ? decryptSecret(payload)
-                : registry.password;
-          } catch {
-            password = registry.password;
-          }
-        }
         registryAuth = {
           username: registry.username || undefined,
-          password,
+          password: registry.password || undefined,
           serveraddress: (registry.registryUrl || "").replace(
             /^https?:\/\//,
             "",

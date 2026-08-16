@@ -19,14 +19,6 @@ grep -Fq 'write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION' "$ROOT_DIR/i
   echo "installer must persist the explicit unobserved-production acknowledgement" >&2
   exit 1
 }
-grep -Fq 'write_env_assignment UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS' "$ROOT_DIR/install.sh" || {
-  echo "installer must persist the explicit legacy-artifact acknowledgement" >&2
-  exit 1
-}
-grep -Fq 'set UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS=true only after reviewing' "$ROOT_DIR/install.sh" || {
-  echo "installer must fail closed on legacy release artifacts by default" >&2
-  exit 1
-}
 grep -Fq 'verify_release_deployment_artifacts \' "$ROOT_DIR/install.sh" || {
   echo "installer must verify the downloaded Compose file against the release manifest" >&2
   exit 1
@@ -64,7 +56,7 @@ grep -Fq '"$INSTALL_DIR/production-acceptance-cluster.sh"' "$ROOT_DIR/install.sh
   exit 1
 }
 grep -Fq 'release_manifest_has_artifact_hashes' "$ROOT_DIR/install.sh" || {
-  echo "installer must handle legacy release manifests explicitly" >&2
+  echo "installer must require release artifact hashes" >&2
   exit 1
 }
 grep -Fq 'verify_release_deployment_artifacts' "$ROOT_DIR/install.sh" || {
@@ -248,26 +240,19 @@ eval "$serialized_assignment"
 
 RELEASE_MANIFEST_CONTENT='{"schemaVersion":1,"version":"v0.1.8","images":[]}'
 if release_manifest_has_artifact_hashes; then
-  echo "legacy release manifest unexpectedly reported artifact hashes" >&2
+  echo "release manifest without artifact hashes unexpectedly passed" >&2
   exit 1
 fi
 if (
   RELEASE_MANIFEST_CONTENT='{"schemaVersion":1,"version":"v0.1.8","images":[]}'
   UPSTAND_VERSION=v0.1.8
-  UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS=false
   verify_release_deployment_artifacts /missing/compose.yml /missing/acceptance.sh
 ); then
-  echo "legacy release deployment artifacts unexpectedly bypassed fail-closed verification" >&2
+  echo "release deployment artifacts without hashes unexpectedly bypassed verification" >&2
   exit 1
 fi
-(
-  RELEASE_MANIFEST_CONTENT='{"schemaVersion":1,"version":"v0.1.8","images":[]}'
-  UPSTAND_VERSION=v0.1.8
-  UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS=true
-  verify_release_deployment_artifacts /missing/compose.yml /missing/acceptance.sh
-)
-legacy_hash="$(printf 'a%.0s' {1..64})"
-RELEASE_MANIFEST_CONTENT="$(printf '{\n  "artifacts": {\n    "dockerComposeProdSha256": "%s",\n    "productionAcceptanceSha256": "%s",\n    "productionEvidenceCollectSha256": "%s",\n    "productionAcceptanceClusterSha256": "%s"\n  }\n}\n' "$legacy_hash" "$legacy_hash" "$legacy_hash" "$legacy_hash")"
+artifact_hash="$(printf 'a%.0s' {1..64})"
+RELEASE_MANIFEST_CONTENT="$(printf '{\n  "artifacts": {\n    "dockerComposeProdSha256": "%s",\n    "productionAcceptanceSha256": "%s",\n    "productionEvidenceCollectSha256": "%s",\n    "productionAcceptanceClusterSha256": "%s"\n  }\n}\n' "$artifact_hash" "$artifact_hash" "$artifact_hash" "$artifact_hash")"
 release_manifest_has_artifact_hashes || {
   echo "release manifest with artifact hashes was not recognized" >&2
   exit 1

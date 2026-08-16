@@ -41,7 +41,6 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `BETTER_AUTH_URL` | Production | Canonical auth API URL. |
 | `CORS_ORIGIN` | Production | Allowed dashboard origin. |
 | `UPSTAND_ALLOW_INSECURE_BOOTSTRAP` | No | Explicit isolated-host exception for HTTP origins during first-boot troubleshooting; keep `false` for production. |
-| `UPSTAND_ALLOW_LEGACY_RELEASE_ARTIFACTS` | No | Explicitly permits installing a release whose manifest predates Compose/acceptance artifact hashes; keep `false` for production. |
 | `ENCRYPTION_KEY_V1` | Production | Master 256-bit encryption key for stored database secrets and provider credentials. |
 | `REDIS_URL` | No | Redis connection URL; defaults to `redis://localhost:6379`. |
 | `UPSTAND_DATABASE_URL` | No | Installer alias for an external PostgreSQL connection URL; stored as a Docker secret. |

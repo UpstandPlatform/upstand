@@ -104,6 +104,7 @@ const STARTUP_TOKENS: readonly Token[] = [
   dependencies.DockerContainerControllerToken,
   dependencies.DockerInventoryReaderToken,
   dependencies.DockerPruneToken,
+  dependencies.ContainerFileSystemToken,
   dependencies.DockerExecToken,
   dependencies.DockerResourceControllerToken,
   dependencies.GenerateSshKeyUseCaseToken,

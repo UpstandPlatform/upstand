@@ -29,11 +29,7 @@ export function matchesContainerIdentifier(
   requestedId: string,
   actualId: string,
 ): boolean {
-  return (
-    requestedId === actualId ||
-    requestedId.startsWith(actualId) ||
-    actualId.startsWith(requestedId)
-  );
+  return requestedId === actualId;
 }
 
 /**
@@ -54,7 +50,7 @@ export function containerBelongsToResource(
   const labels = containerLabels(container.labels || []);
   const expectedName = resourceName(resource);
 
-  const upstandResourceId = labels.get("upstand.resource.id");
+  const upstandResourceId = labels.get("com.upstand.resource-id");
   if (upstandResourceId) return upstandResourceId === resource.id;
 
   if (resource.type === "compose") {
