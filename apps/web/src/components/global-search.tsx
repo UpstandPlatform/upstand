@@ -9,6 +9,7 @@ import {
   JobSearchIcon,
   Rocket01Icon,
   Search01Icon,
+  Settings01Icon,
   Shield01Icon,
   UserIcon,
 } from "@hugeicons/core-free-icons";
@@ -65,6 +66,12 @@ const QUICK_NAVIGATION = [
     description: "System health and metrics",
     href: "/monitoring",
     icon: AnalyticsUpIcon,
+  },
+  {
+    label: "Settings",
+    description: "Workspace and control-plane settings",
+    href: "/settings",
+    icon: Settings01Icon,
   },
 ] as const;
 

@@ -7,6 +7,7 @@ import {
   JobSearchIcon,
   Moon02Icon,
   Rocket01Icon,
+  Settings01Icon,
   Sun03Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -70,6 +71,10 @@ const navigationGroups: ReadonlyArray<{
         icon: Rocket01Icon,
       },
     ],
+  },
+  {
+    label: "Settings",
+    items: [{ label: "Settings", href: "/settings", icon: Settings01Icon }],
   },
   {
     label: "Infrastructure",
