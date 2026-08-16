@@ -3,6 +3,7 @@ import type { IUnitOfWork } from "@upstand/domain";
 import type * as UseCases from "./index";
 import type { NotificationTransport } from "./notification/notification-transport.port";
 import type { CaddyServicePort } from "./ports/caddy";
+import type { ContainerFileSystemPort } from "./ports/container-file-system";
 import type { DatabaseHealthPort } from "./ports/database-health";
 import type {
   DockerArchiveTransferPort,
@@ -99,6 +100,9 @@ export const DockerResourceControllerToken =
   createToken<DockerResourceControllerPort>("DockerResourceController");
 export const DockerPruneToken = createToken<DockerPrunePort>("DockerPrune");
 export const DockerExecToken = createToken<DockerExecPort>("DockerExec");
+export const ContainerFileSystemToken = createToken<ContainerFileSystemPort>(
+  "ContainerFileSystem",
+);
 export const DockerArchiveTransferToken =
   createToken<DockerArchiveTransferPort>("DockerArchiveTransfer");
 export const PublishNotificationUseCaseToken =

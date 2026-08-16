@@ -20,7 +20,7 @@ test("recognizes only the pinned Caddy image digest", () => {
 });
 
 describe("Caddy domain configuration", () => {
-  test("normalizes legacy mappings and creates an Automatic HTTPS site", () => {
+  test("normalizes validated mappings and creates an Automatic HTTPS site", () => {
     const mappings = parseDomainMappings(
       JSON.stringify([{ host: "APP.Example.com.", port: 3000 }]),
     );
@@ -99,24 +99,6 @@ describe("Caddy domain configuration", () => {
 
     expect(caddyfile).not.toContain("disabled.example.com");
     expect(caddyfile).toContain("active.example.com");
-  });
-
-  test("ignores empty optional auth and redirect values from older generated routes", () => {
-    const mappings = parseDomainMappings(
-      JSON.stringify([
-        {
-          host: "generated.example.com",
-          port: 80,
-          redirectTo: "",
-          forwardAuth: { address: "", uri: "/verify", copyHeaders: [] },
-          basicAuth: { username: "", passwordHash: "" },
-        },
-      ]),
-    );
-
-    expect(mappings[0]).not.toHaveProperty("redirectTo");
-    expect(mappings[0]).not.toHaveProperty("forwardAuth");
-    expect(mappings[0]).not.toHaveProperty("basicAuth");
   });
 
   test("preserves route order and compiles rewrites, Caddy snippets, and path stripping", () => {
@@ -254,11 +236,11 @@ describe("Caddy domain configuration", () => {
         },
         {
           id: "resource-2",
-          name: "Legacy HTTP",
+          name: "HTTP route",
           type: "application",
-          appName: "legacy-http",
+          appName: "http-route",
           domains: JSON.stringify([
-            { host: "example.com", path: "/legacy", https: false },
+            { host: "example.com", path: "/http", https: false },
           ]),
         },
       ]),
@@ -429,7 +411,7 @@ describe("Caddy domain configuration", () => {
         composeType: null,
         domains: JSON.stringify([
           {
-            host: "legacy.example.com",
+            host: "http.example.com",
             path: "/old",
             port: 80,
             https: true,

@@ -90,9 +90,6 @@ export type UpdateAIProviderConfig = {
   } | null;
 };
 
-/** @deprecated Use CreateAIProviderConfig / UpdateAIProviderConfig instead. */
-export type SaveAIProviderConfig = CreateAIProviderConfig;
-
 export type AIFeatureAssignmentRecord = {
   id: string;
   organizationId: string;

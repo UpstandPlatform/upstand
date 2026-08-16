@@ -475,10 +475,10 @@ function BreadcrumbTitle({
 
 export function DashboardLayout({
   children,
-  variant = "legacy",
+  variant = "sidebar",
 }: {
   children: React.ReactNode;
-  variant?: "legacy" | "workspace";
+  variant?: "sidebar" | "workspace";
 }) {
   const pathname = usePathname();
   const router = useRouter();

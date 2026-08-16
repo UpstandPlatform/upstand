@@ -39,7 +39,6 @@ const modeProfiles: Record<
     fumadocsCacheVolume: "upstand-fumadocs-next-cache-cloud",
   },
 };
-const legacyComposeProjects = ["upstand-local"];
 
 function fail(message: string): never {
   console.error(`\nSetup failed: ${message}`);
@@ -395,11 +394,7 @@ async function main(): Promise<void> {
 
   console.log("🐘 Ensuring local PostgreSQL and Redis services are active...");
   // Stop full application containers if running in Docker so host ports (3000, 3001, 3002, 4000) are freed
-  for (const project of [
-    ...legacyComposeProjects,
-    "upstand-local-self-hosted",
-    "upstand-local-cloud",
-  ]) {
+  for (const project of ["upstand-local-self-hosted", "upstand-local-cloud"]) {
     run(
       "docker",
       [

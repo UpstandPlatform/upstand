@@ -11,7 +11,7 @@ import {
 } from "../../openapi";
 import type { AppEnv } from "../types";
 
-/** Mounts tRPC and the generated REST compatibility transport. */
+/** Mounts tRPC and the generated REST transport. */
 export function registerApiTransports(app: Hono<AppEnv>): void {
   app.get("/api/openapi.json", (c) => c.json(openApiDocument));
   app.get("/api/docs", (c) => c.redirect("/api/docs/", 308));
@@ -21,7 +21,7 @@ export function registerApiTransports(app: Hono<AppEnv>): void {
     return (await serveSwaggerUiAsset(asset)) ?? c.notFound();
   });
 
-  // Dedicated Hono routes are registered before this compatibility fallback.
+  // Dedicated Hono routes are registered before the generated REST handler.
   app.all("/api/*", async (c) => {
     const openApiUrl = new URL(c.req.url);
     openApiUrl.hostname = "openapi.invalid";

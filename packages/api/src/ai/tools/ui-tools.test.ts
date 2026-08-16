@@ -90,7 +90,7 @@ describe("UpGal UI action schemas", () => {
     ]);
   });
 
-  test("resolves legacy SSH field references from the global catalog", () => {
+  test("resolves SSH field references from the global catalog", () => {
     const normalized = normalizeUpGalUiSteps(
       [
         {

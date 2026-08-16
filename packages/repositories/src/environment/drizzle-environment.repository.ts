@@ -6,10 +6,9 @@ import type {
   IEnvironmentRepository,
   UpdateEnvironmentDTO,
 } from "@upstand/domain";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { DrizzleSecretVersionRepository } from "../secret/drizzle-secret-version.repository";
 import { BaseRepository } from "../shared/base.repository";
-import { normalizeStoredSecret } from "../shared/secret-normalization";
 import type { Executor } from "../shared/types";
 
 const MAX_ENVIRONMENT_READS = 10_000;
@@ -37,21 +36,6 @@ export class DrizzleEnvironmentRepository
       .select()
       .from(environmentSecret)
       .where(inArray(environmentSecret.environmentId, ids));
-    await Promise.all(
-      secretRows.map(async (secret) => {
-        const envVars = normalizeStoredSecret(secret.envVars);
-        if (envVars === secret.envVars) return;
-        await this.executor
-          .update(environmentSecret)
-          .set({ envVars })
-          .where(
-            and(
-              eq(environmentSecret.environmentId, secret.environmentId),
-              eq(environmentSecret.envVars, secret.envVars),
-            ),
-          );
-      }),
-    );
     const secretsById = new Map(secretRows.map((s) => [s.environmentId, s]));
     return rows.map((row) => {
       const secret = secretsById.get(row.id);

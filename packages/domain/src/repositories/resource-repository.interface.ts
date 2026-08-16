@@ -73,7 +73,7 @@ export interface IResourceRepository {
     id: string,
     patch: Partial<CreateResourceDTO>,
   ): Promise<Resource | null>;
-  updateByIdIfUpdatedAt?(
+  updateByIdIfUpdatedAt(
     id: string,
     expectedUpdatedAt: Date,
     patch: Partial<CreateResourceDTO>,

@@ -4,6 +4,57 @@ import { DockerCleanupService } from "./docker-cleanup.service";
 import { DockerReadOnlyService } from "./docker-readonly.service";
 
 describe("Docker explorer image controls", () => {
+  test("returns only named-volume mount metadata from local inspection", async () => {
+    const service = new DockerReadOnlyService({
+      getContainer: () => ({
+        inspect: mock(() =>
+          Promise.resolve({
+            Mounts: [
+              {
+                Type: "volume",
+                Name: "app-data",
+                Destination: "/var/lib/app",
+                RW: true,
+              },
+              {
+                Type: "bind",
+                Source: "/host/etc",
+                Destination: "/etc/app",
+                RW: true,
+              },
+              {
+                Type: "volume",
+                Name: "readonly-data",
+                Destination: "/var/lib/readonly",
+                RW: false,
+              },
+            ],
+          }),
+        ),
+      }),
+    } as never);
+
+    await expect(
+      service.getContainerMounts(
+        { kind: "local", name: "test" },
+        "container-1",
+      ),
+    ).resolves.toEqual([
+      {
+        type: "volume",
+        name: "app-data",
+        destination: "/var/lib/app",
+        readOnly: false,
+      },
+      {
+        type: "volume",
+        name: "readonly-data",
+        destination: "/var/lib/readonly",
+        readOnly: true,
+      },
+    ]);
+  });
+
   test("filters local container logs by text and level", async () => {
     const service = new DockerReadOnlyService({
       getContainer: () => ({

@@ -43,7 +43,7 @@ describe("managed database credentials", () => {
     });
   });
 
-  test("fails closed when a legacy resource has no managed authentication", () => {
+  test("fails closed when a resource has no managed authentication", () => {
     expect(() => assertManagedDatabaseCredentials("postgres", {})).toThrow(
       ValidationError,
     );

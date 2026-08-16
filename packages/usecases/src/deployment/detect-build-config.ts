@@ -569,15 +569,3 @@ export function detectBuildConfig(
     "No supported build evidence was found. Configure build.type and buildPath in upstand.json.",
   ]);
 }
-
-/** Backwards-compatible adapter for existing build callers. */
-export function detectApplicationBuildConfig(
-  workspacePath: string,
-  relativeBuildPath = ".",
-): ApplicationBuildConfig {
-  const result = detectBuildConfig(workspacePath, relativeBuildPath);
-  if (result.status !== "detected" || !result.config) {
-    throw new BuildDetectionError(result);
-  }
-  return result.config;
-}

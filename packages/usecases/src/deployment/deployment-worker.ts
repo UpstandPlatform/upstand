@@ -937,20 +937,6 @@ export class DeploymentWorker {
               "Selected build registry belongs to another organization",
             );
           }
-          let decryptedPassword = "";
-          if (registry.password) {
-            try {
-              const payload = JSON.parse(registry.password);
-              if (payload.ciphertext && payload.iv && payload.authTag) {
-                decryptedPassword = decryptSecret(payload);
-              } else {
-                decryptedPassword = registry.password;
-              }
-            } catch {
-              decryptedPassword = registry.password;
-            }
-          }
-
           const cleanUrl = (registry.registryUrl || "")
             .replace(/https?:\/\//, "")
             .replace(/\/+$/, "");
@@ -966,7 +952,7 @@ export class DeploymentWorker {
           registryInfo = {
             url: cleanUrl,
             username: registry.username ?? undefined,
-            password: decryptedPassword ?? undefined,
+            password: registry.password ?? undefined,
             imageTag,
           };
         } else {
@@ -1143,21 +1129,9 @@ export class DeploymentWorker {
                 "Selected Docker registry belongs to another organization",
               );
             }
-            let password = "";
-            if (registry.password) {
-              try {
-                const payload = JSON.parse(registry.password);
-                password =
-                  payload.ciphertext && payload.iv && payload.authTag
-                    ? decryptSecret(payload)
-                    : registry.password;
-              } catch {
-                password = registry.password;
-              }
-            }
             imageRegistryAuth = {
               username: registry.username || undefined,
-              password,
+              password: registry.password ?? undefined,
               serveraddress: (registry.registryUrl || "").replace(
                 /^https?:\/\//,
                 "",

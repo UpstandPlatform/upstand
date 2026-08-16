@@ -5,6 +5,11 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import type {
+  ContainerFileItem,
+  ContainerFileSystemPort,
+  ContainerVolumeMount,
+} from "@upstand/usecases/ports/container-file-system";
+import type {
   DockerContainer,
   DockerContainerCommand,
   DockerContainerStats,
@@ -37,11 +42,41 @@ const MAX_DOCKER_COMMAND_OUTPUT_BYTES = 50 * 1024 * 1024;
 const MAX_REMOTE_DOCKER_ERROR_BYTES = 512 * 1024;
 
 const identifierPattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
+const containerPathPattern = /^\/[^\\]*$/;
+
+function hasUnsupportedControlCharacters(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
+}
 
 function assertIdentifier(value: string, label: string): void {
   if (!identifierPattern.test(value)) {
     throw new Error(`${label} contains unsupported characters.`);
   }
+}
+
+function assertContainerPath(value: string, label: string): void {
+  if (
+    !containerPathPattern.test(value) ||
+    hasUnsupportedControlCharacters(value) ||
+    value.includes("//") ||
+    value.split("/").some((part) => part === "." || part === "..")
+  ) {
+    throw new Error(`${label} must be a canonical absolute POSIX path.`);
+  }
+}
+
+function assertMutableContainerPath(value: string, label: string): void {
+  assertContainerPath(value, label);
+  if (value === "/") {
+    throw new Error(`${label} cannot target the mount root.`);
+  }
+}
+
+function decodeBase64(value: string): string {
+  return Buffer.from(value, "base64").toString("utf8");
 }
 
 function shellQuote(value: string): string {
@@ -104,8 +139,320 @@ function dockerInfo(raw: unknown): DockerInfo {
   };
 }
 
-export class DockerReadOnlyService implements DockerExecPort {
+function mountRecords(value: unknown): ContainerVolumeMount[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const mount = asRecord(entry);
+    const type = asString(mount.Type, "").toLowerCase();
+    const name = asString(mount.Name, "");
+    const destination = asString(mount.Destination, "");
+    if (type !== "volume" || !name || !destination) return [];
+    try {
+      assertContainerPath(destination, "Docker mount destination");
+    } catch {
+      return [];
+    }
+    return [
+      {
+        type: "volume" as const,
+        name,
+        destination,
+        readOnly: mount.RW === false || asString(mount.Mode, "").includes("ro"),
+      },
+    ];
+  });
+}
+
+function fileContext(mountPath: string, filePath: string): string {
+  assertContainerPath(mountPath, "Mount path");
+  assertContainerPath(filePath, "File path");
+  const relative = filePath === "/" ? "" : filePath.slice(1);
+  return [
+    "set -eu",
+    `root=${shellQuote(mountPath)}`,
+    `relative=${shellQuote(relative)}`,
+    'test -d "$root"',
+    'root=$(cd -- "$root" && pwd -P)',
+    'target="$root"',
+    '[ -z "$relative" ] || target="$root/$relative"',
+    'case "$target" in "$root"|"$root"/*) ;; *) echo "path escapes mount" >&2; exit 1 ;; esac',
+  ].join("; ");
+}
+
+function existingFileGuard(): string {
+  return [
+    '[ -e "$target" ] || [ -L "$target" ]',
+    '[ ! -L "$target" ] || { echo "symlink paths are not supported" >&2; exit 1; }',
+    'resolved=$(readlink -f -- "$target")',
+    '[ "$resolved" = "$target" ] || { echo "symlink paths are not supported" >&2; exit 1; }',
+  ].join("; ");
+}
+
+function parentFileGuard(): string {
+  return [
+    String.raw`parent="\${target%/*}"`,
+    'test -d "$parent"',
+    'parent_resolved=$(readlink -f -- "$parent")',
+    '[ "$parent_resolved" = "$parent" ] || { echo "symlink paths are not supported" >&2; exit 1; }',
+    '[ ! -e "$target" ] || [ ! -L "$target" ] || { echo "symlink paths are not supported" >&2; exit 1; }',
+  ].join("; ");
+}
+
+export class DockerReadOnlyService
+  implements DockerExecPort, ContainerFileSystemPort
+{
   constructor(private readonly docker: Docker = getDockerInstance()) {}
+
+  async getContainerMounts(
+    target: DockerInspectionTarget,
+    containerId: string,
+  ): Promise<ContainerVolumeMount[]> {
+    assertIdentifier(containerId, "Container");
+    if (target.kind === "local") {
+      const inspected = await this.docker.getContainer(containerId).inspect();
+      return mountRecords(inspected.Mounts);
+    }
+    const output = await this.executeRemote(
+      target,
+      `docker inspect --type container --format '{{json .Mounts}}' ${shellQuote(containerId)}`,
+    );
+    try {
+      return mountRecords(JSON.parse(output));
+    } catch {
+      throw new Error("Docker returned invalid container mount metadata.");
+    }
+  }
+
+  async listFiles(
+    target: DockerInspectionTarget,
+    containerId: string,
+    mountPath: string,
+    filePath: string,
+  ): Promise<ContainerFileItem[]> {
+    const command = [
+      fileContext(mountPath, filePath),
+      'test -d "$target"',
+      'for entry in "$target"/* "$target"/.[!.]* "$target"/..?*; do',
+      '  [ -e "$entry" ] || [ -L "$entry" ] || continue',
+      String.raw`  name=\${entry##*/}`,
+      '  if [ -L "$entry" ]; then type=symlink; elif [ -d "$entry" ]; then type=directory; elif [ -f "$entry" ]; then type=file; else type=other; fi',
+      "  size=0; mode=000; updated=0",
+      '  stat_out=$(stat -c "%s|%a|%Y" -- "$entry" 2>/dev/null || true)',
+      '  [ -z "$stat_out" ] || IFS="|" read -r size mode updated <<EOF\n$stat_out\nEOF',
+      '  encoded=$(printf "%s" "$name" | base64 | tr -d "\\n")',
+      '  printf "%s|%s|%s|%s|%s\\n" "$type" "$size" "$mode" "$updated" "$encoded"',
+      "done",
+    ].join("\n");
+    const result = await this.execFileSystemCommand(
+      target,
+      containerId,
+      command,
+    );
+    return result
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        const [type, rawSize, rawMode, rawUpdated, encodedName] =
+          line.split("|");
+        if (!encodedName || !type) return [];
+        const name = decodeBase64(encodedName);
+        const parent = filePath === "/" ? "" : filePath;
+        return [
+          {
+            name,
+            path: `${parent}/${name}`.replace(/^\/(.*)\/$/, "/$1"),
+            type: (["file", "directory", "symlink", "other"] as const).includes(
+              type as ContainerFileItem["type"],
+            )
+              ? (type as ContainerFileItem["type"])
+              : "other",
+            sizeBytes: Number.parseInt(rawSize || "0", 10) || 0,
+            permissions: rawMode || "000",
+            updatedAt: new Date(
+              (Number.parseInt(rawUpdated || "0", 10) || 0) * 1000,
+            ).toISOString(),
+          },
+        ];
+      });
+  }
+
+  async readFile(
+    target: DockerInspectionTarget,
+    containerId: string,
+    mountPath: string,
+    filePath: string,
+    _encoding: "text" | "base64",
+  ): Promise<{ content: string }> {
+    const command = [
+      fileContext(mountPath, filePath),
+      existingFileGuard(),
+      'test -f "$target" || { echo "path is not a regular file" >&2; exit 1; }',
+      'bytes=$(wc -c < "$target")',
+      '[ "$bytes" -le 10485760 ] || { echo "file exceeds the 10 MB size limit" >&2; exit 1; }',
+      'base64 "$target" | tr -d "\\n"',
+    ].join("\n");
+    return {
+      content: await this.execFileSystemCommand(target, containerId, command),
+    };
+  }
+
+  async writeFile(
+    target: DockerInspectionTarget,
+    containerId: string,
+    mountPath: string,
+    filePath: string,
+    contentBase64: string,
+  ): Promise<void> {
+    assertMutableContainerPath(filePath, "File path");
+    const command = [
+      fileContext(mountPath, filePath),
+      parentFileGuard(),
+      'tmp=$(mktemp "$target.upstand.XXXXXX")',
+      'cleanup() { rm -f -- "$tmp"; }',
+      "trap cleanup EXIT",
+      'base64 -d > "$tmp"',
+      'bytes=$(wc -c < "$tmp")',
+      '[ "$bytes" -le 10485760 ] || { echo "file exceeds the 10 MB size limit" >&2; exit 1; }',
+      'if [ -e "$target" ]; then chmod --reference="$target" "$tmp" 2>/dev/null || true; fi',
+      'mv -f -- "$tmp" "$target"',
+      "trap - EXIT",
+    ].join("; ");
+    await this.execFileSystemInput(target, containerId, command, contentBase64);
+  }
+
+  async createItem(
+    target: DockerInspectionTarget,
+    containerId: string,
+    mountPath: string,
+    filePath: string,
+    type: "file" | "directory",
+  ): Promise<void> {
+    assertMutableContainerPath(filePath, "File path");
+    const command = [
+      fileContext(mountPath, filePath),
+      parentFileGuard(),
+      '[ ! -e "$target" ] && [ ! -L "$target" ]',
+      type === "directory" ? 'mkdir -- "$target"' : ': > "$target"',
+    ].join("; ");
+    await this.execFileSystemCommand(target, containerId, command);
+  }
+
+  async renameItem(
+    target: DockerInspectionTarget,
+    containerId: string,
+    mountPath: string,
+    oldPath: string,
+    newPath: string,
+  ): Promise<void> {
+    assertMutableContainerPath(oldPath, "Original path");
+    assertMutableContainerPath(newPath, "New path");
+    const oldContext = fileContext(mountPath, oldPath);
+    const newRelative = newPath === "/" ? "" : newPath.slice(1);
+    assertContainerPath(newPath, "New path");
+    const command = [
+      oldContext,
+      `new_relative=${shellQuote(newRelative)}`,
+      'new_target="$root"',
+      '[ -z "$new_relative" ] || new_target="$root/$new_relative"',
+      'case "$new_target" in "$root"|"$root"/*) ;; *) echo "path escapes mount" >&2; exit 1 ;; esac',
+      existingFileGuard(),
+      'target="$new_target"',
+      parentFileGuard(),
+      '[ ! -e "$target" ] && [ ! -L "$target" ]',
+      'target="$root/$relative"',
+      'mv -- "$target" "$new_target"',
+    ].join("; ");
+    await this.execFileSystemCommand(target, containerId, command);
+  }
+
+  async deleteItem(
+    target: DockerInspectionTarget,
+    containerId: string,
+    mountPath: string,
+    filePath: string,
+  ): Promise<void> {
+    assertMutableContainerPath(filePath, "Delete path");
+    const command = [
+      fileContext(mountPath, filePath),
+      existingFileGuard(),
+      'rm -rf -- "$target"',
+    ].join("; ");
+    await this.execFileSystemCommand(target, containerId, command);
+  }
+
+  async changePermissions(
+    target: DockerInspectionTarget,
+    containerId: string,
+    mountPath: string,
+    filePath: string,
+    mode: string,
+  ): Promise<void> {
+    assertMutableContainerPath(filePath, "File path");
+    if (!/^[0-7]{3,4}$/.test(mode)) {
+      throw new Error("Permission mode must be an octal string.");
+    }
+    const command = [
+      fileContext(mountPath, filePath),
+      existingFileGuard(),
+      `chmod -- ${shellQuote(mode)} "$target"`,
+    ].join("; ");
+    await this.execFileSystemCommand(target, containerId, command);
+  }
+
+  async searchFiles(
+    target: DockerInspectionTarget,
+    containerId: string,
+    mountPath: string,
+    filePath: string,
+    query: string,
+  ): Promise<ContainerFileItem[]> {
+    if (hasUnsupportedControlCharacters(query)) {
+      throw new Error("Search query contains unsupported control characters.");
+    }
+    const command = [
+      fileContext(mountPath, filePath),
+      'test -d "$target"',
+      `query=${shellQuote(query)}`,
+      'find -P "$target" -mindepth 1 -maxdepth 4 -print 2>/dev/null | while IFS= read -r entry; do',
+      String.raw`  name=\${entry##*/}`,
+      '  case "$name" in *"$query"*) ;; *) continue ;; esac',
+      '  if [ -L "$entry" ]; then type=symlink; elif [ -d "$entry" ]; then type=directory; elif [ -f "$entry" ]; then type=file; else type=other; fi',
+      "  size=0; mode=000; updated=0",
+      '  stat_out=$(stat -c "%s|%a|%Y" -- "$entry" 2>/dev/null || true)',
+      '  [ -z "$stat_out" ] || IFS="|" read -r size mode updated <<EOF\n$stat_out\nEOF',
+      String.raw`  relative=\${entry#"$root"}; encoded=$(printf "%s" "$relative" | base64 | tr -d "\\n")`,
+      '  printf "%s|%s|%s|%s|%s\\n" "$type" "$size" "$mode" "$updated" "$encoded"',
+      "done",
+    ].join("\n");
+    return (await this.execFileSystemCommand(target, containerId, command))
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        const [type, rawSize, rawMode, rawUpdated, encodedPath] =
+          line.split("|");
+        if (!encodedPath) return [];
+        const path = decodeBase64(encodedPath);
+        const name = path.split("/").pop() || path;
+        return [
+          {
+            name,
+            path,
+            type: (["file", "directory", "symlink", "other"] as const).includes(
+              type as ContainerFileItem["type"],
+            )
+              ? (type as ContainerFileItem["type"])
+              : "other",
+            sizeBytes: Number.parseInt(rawSize || "0", 10) || 0,
+            permissions: rawMode || "000",
+            updatedAt: new Date(
+              (Number.parseInt(rawUpdated || "0", 10) || 0) * 1000,
+            ).toISOString(),
+          },
+        ];
+      });
+  }
 
   async controlContainer(
     target: DockerInspectionTarget,
@@ -299,6 +646,98 @@ export class DockerReadOnlyService implements DockerExecPort {
       options.onLog(output);
     }
     return { output, exitCode: 0 };
+  }
+
+  private async execFileSystemCommand(
+    target: DockerInspectionTarget,
+    containerId: string,
+    command: string,
+  ): Promise<string> {
+    const result = await this.execContainerCommand(
+      target,
+      containerId,
+      command,
+      {
+        timeoutSeconds: 30,
+      },
+    );
+    if (result.exitCode !== undefined && result.exitCode !== 0) {
+      throw new Error(
+        result.output.trim() || "Container file operation failed.",
+      );
+    }
+    return result.output;
+  }
+
+  private async execFileSystemInput(
+    target: DockerInspectionTarget,
+    containerId: string,
+    command: string,
+    input: string,
+  ): Promise<void> {
+    assertIdentifier(containerId, "Container");
+    if (target.kind === "remote") {
+      await this.executeRemoteWithInput(
+        target,
+        `docker exec -i ${shellQuote(containerId)} sh -c ${shellQuote(command)}`,
+        input,
+      );
+      return;
+    }
+
+    const exec = await this.docker.getContainer(containerId).exec({
+      Cmd: ["sh", "-c", command],
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+    });
+    const stream = await exec.start({ Detach: false, hijack: true });
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        stream.destroy?.();
+        reject(new Error("Container file write timed out after 30s."));
+      }, 30_000);
+      stream.on("data", (chunk: Buffer | string) => {
+        const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+        chunks.push(buffer);
+        if (
+          Buffer.concat(chunks).byteLength > MAX_DOCKER_COMMAND_OUTPUT_BYTES
+        ) {
+          settled = true;
+          clearTimeout(timer);
+          stream.destroy?.();
+          reject(
+            new Error("Container file operation output exceeded its limit."),
+          );
+        }
+      });
+      stream.on("error", (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      });
+      stream.on("end", () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      });
+      stream.write(Buffer.from(input, "utf8"));
+      stream.end();
+    });
+    const inspected = await exec.inspect();
+    if ((inspected.ExitCode ?? 0) !== 0) {
+      throw new Error(
+        this.cleanDockerLogs(Buffer.concat(chunks)).trim() ||
+          "Container file write failed.",
+      );
+    }
   }
 
   async execServerTerminalCommand(
@@ -957,8 +1396,86 @@ export class DockerReadOnlyService implements DockerExecPort {
                 );
                 return;
               }
-              resolve(stdout.slice(0, 512_000));
+              resolve(stdout);
             });
+          });
+        })
+        .on("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        })
+        .connect({
+          host: target.host,
+          port: target.port,
+          username: target.username,
+          privateKey: target.privateKey,
+          password: target.password,
+          readyTimeout: 20_000,
+        });
+    });
+  }
+
+  private executeRemoteWithInput(
+    target: Extract<DockerInspectionTarget, { kind: "remote" }>,
+    command: string,
+    input: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const connection = new Client();
+      const timer = setTimeout(() => {
+        connection.end();
+        reject(
+          new Error(`Remote Docker file write timed out on ${target.name}.`),
+        );
+      }, 30_000);
+      connection
+        .on("ready", () => {
+          connection.exec(command, (error, stream) => {
+            if (error) {
+              clearTimeout(timer);
+              connection.end();
+              reject(error);
+              return;
+            }
+            let stderr = "";
+            let settled = false;
+            const fail = (failure: unknown) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              connection.end();
+              reject(
+                failure instanceof Error ? failure : new Error(String(failure)),
+              );
+            };
+            stream.stderr.on("data", (data: Buffer | string) => {
+              stderr += data.toString();
+              if (stderr.length > MAX_REMOTE_DOCKER_ERROR_BYTES) {
+                stream.destroy();
+                fail(
+                  new Error(
+                    "Remote Docker file operation error exceeded its limit.",
+                  ),
+                );
+              }
+            });
+            stream.on("error", fail);
+            stream.on("close", (code: number | null) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              connection.end();
+              if (code !== 0) {
+                reject(
+                  new Error(
+                    stderr.trim() || "Remote Docker file write failed.",
+                  ),
+                );
+              } else {
+                resolve();
+              }
+            });
+            stream.end(Buffer.from(input, "utf8"));
           });
         })
         .on("error", (error) => {

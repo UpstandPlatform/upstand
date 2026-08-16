@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import {
   parseResourceCredentials,
   parseResourceCredentialsStrict,
@@ -28,16 +27,9 @@ describe("resource credential storage", () => {
     expect(resourceCredentialsJson({ credentials: stored })).toBe(plaintext);
   });
 
-  test("keeps legacy plaintext and database-only envelopes readable", () => {
+  test("rejects unencrypted credential documents", () => {
     const plaintext = JSON.stringify({ composeFile: "services: {}" });
-    const legacyDatabaseEnvelope = JSON.stringify(encryptSecret(plaintext));
-
-    expect(parseResourceCredentials(plaintext)).toEqual({
-      composeFile: "services: {}",
-    });
-    expect(parseResourceCredentials(legacyDatabaseEnvelope)).toEqual({
-      composeFile: "services: {}",
-    });
+    expect(parseResourceCredentials(plaintext)).toEqual({});
   });
 
   test("does not re-encrypt an already encrypted document", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   resolveResourceEnvironmentVariables,
+  serializeResourceEnvironmentVariables,
   substituteProjectEnvVars,
 } from "./resource-environment";
 
@@ -90,17 +91,21 @@ describe("resolveResourceEnvironmentVariables", () => {
   });
 
   test("returns parsed resource vars when no project vars set", () => {
-    const resourceJson = JSON.stringify({ PORT: "3000" });
+    const resourceJson = serializeResourceEnvironmentVariables({
+      PORT: "3000",
+    });
     const result = resolveResourceEnvironmentVariables(resourceJson, null);
     expect(result).toEqual({ PORT: "3000" });
   });
 
-  test("substitutes project vars when both are plain JSON (legacy format)", () => {
-    const resourceJson = JSON.stringify({
+  test("substitutes project vars when both documents are encrypted", () => {
+    const resourceJson = serializeResourceEnvironmentVariables({
       DB: projectRef("DATABASE_URL"),
       APP: "myapp",
     });
-    const projectJson = JSON.stringify({ DATABASE_URL: "pg://db/prod" });
+    const projectJson = serializeResourceEnvironmentVariables({
+      DATABASE_URL: "pg://db/prod",
+    });
     const result = resolveResourceEnvironmentVariables(
       resourceJson,
       projectJson,
@@ -109,8 +114,10 @@ describe("resolveResourceEnvironmentVariables", () => {
   });
 
   test("unresolvable project references resolve to empty string", () => {
-    const resourceJson = JSON.stringify({ KEY: projectRef("NOPE") });
-    const result = resolveResourceEnvironmentVariables(resourceJson, "{}");
+    const resourceJson = serializeResourceEnvironmentVariables({
+      KEY: projectRef("NOPE"),
+    });
+    const result = resolveResourceEnvironmentVariables(resourceJson, null);
     expect(result).toEqual({ KEY: "" });
   });
 });
