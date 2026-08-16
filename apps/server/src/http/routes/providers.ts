@@ -178,6 +178,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
 
         const data = await readResponseJsonLimited<{
           name: string;
+          slug: string;
           html_url: string;
           id: number;
           client_id: string;
@@ -188,6 +189,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
 
         const configObj = {
           githubAppId: data.id,
+          githubAppSlug: data.slug,
           githubClientId: data.client_id,
           githubClientSecret: data.client_secret,
           githubWebhookSecret: data.webhook_secret,
