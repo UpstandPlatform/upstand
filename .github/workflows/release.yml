@@ -452,7 +452,7 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
-      ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || github.ref }}
+      ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || inputs.release_ref || github.ref }}
       ACCEPTANCE_PROFILE: ${{ inputs.acceptance_profile || 'smoke' }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
@@ -494,8 +494,8 @@ jobs:
           release_version="${RELEASE_REF##*/}"
           repo="${GH_REPO,,}"
           source_ref="${ATTESTATION_SOURCE_REF}"
-          if [[ "$source_ref" =~ ^refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            source_ref="${BASH_REMATCH[1]}"
+          if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            source_ref="refs/tags/${source_ref}"
           fi
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
@@ -527,15 +527,15 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
-          ATTESTATION_SOURCE_REF: ${{ github.ref }}
+          ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || inputs.release_ref || github.ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           release_version="${RELEASE_REF##*/}"
           repo="${GH_REPO,,}"
           source_ref="${ATTESTATION_SOURCE_REF}"
-          if [[ "$source_ref" =~ ^refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            source_ref="${BASH_REMATCH[1]}"
+          if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            source_ref="refs/tags/${source_ref}"
           fi
           for name in server schedules web fumadocs monitoring; do
             image="ghcr.io/${repo}-${name}:${release_version}"
