@@ -28,6 +28,9 @@ describe("GitHub App URLs", () => {
       "https://api.upstand.dev/api/providers/github/setup?state=state-token",
     );
     expect("setup_on_install" in manifest).toBe(false);
+    expect(manifest.default_events).not.toContain("project");
+    expect(manifest.default_events).not.toContain("project_card");
+    expect(manifest.default_events).not.toContain("project_column");
   });
 
   test("keeps manifest state in the GitHub registration URL", () => {
