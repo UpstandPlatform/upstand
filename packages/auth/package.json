@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@better-auth/api-key": "catalog:",
-    "@better-auth/sso": "1.6.25",
+    "@better-auth/sso": "1.6.29",
     "@upstand/domain": "workspace:*",
     "better-auth": "catalog:"
   },
