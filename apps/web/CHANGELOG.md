@@ -1,5 +1,11 @@
 # web
 
+## 0.2.3
+
+### Patch Changes
+
+- [#303](https://github.com/UpstandPlatform/upstand/pull/303) [`75f34c6`](https://github.com/UpstandPlatform/upstand/commit/75f34c644236f3d316e0fbac097f56a0b854a844) Thanks [@mhbdev](https://github.com/mhbdev)! - Polish the Projects dashboard for clearer project scanning, quieter card actions, and an accurate no-results search state.
+
 ## 0.2.2
 
 ### Patch Changes
