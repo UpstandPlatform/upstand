@@ -452,7 +452,7 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
-      ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || inputs.release_ref || github.ref }}
+      ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || github.ref }}
       ACCEPTANCE_PROFILE: ${{ inputs.acceptance_profile || 'smoke' }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
@@ -527,7 +527,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
-          ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || inputs.release_ref || github.ref }}
+          ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || github.ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail

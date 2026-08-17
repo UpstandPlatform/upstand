@@ -124,7 +124,7 @@ require_workflow_text 'ACCEPTANCE_PROFILE: ${{ inputs.acceptance_profile || '\''
 require_workflow_text 'Release acceptance profile: smoke (backup/recovery/load rehearsals run only in the full profile)'
 require_workflow_text 'if [[ "$ACCEPTANCE_PROFILE" == "full" ]]; then'
 require_workflow_text 'Unsupported release acceptance profile: $ACCEPTANCE_PROFILE'
-require_workflow_text "ATTESTATION_SOURCE_REF: \${{ inputs.attestation_source_ref || inputs.release_ref || github.ref }}"
+require_workflow_text "ATTESTATION_SOURCE_REF: \${{ inputs.attestation_source_ref || github.ref }}"
 require_workflow_text 'if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then'
 require_workflow_text 'source_ref="refs/tags/${source_ref}"'
 require_file_text "$RECOVERY_WORKFLOW" "build_images: false"
