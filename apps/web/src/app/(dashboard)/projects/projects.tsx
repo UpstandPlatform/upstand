@@ -1,19 +1,10 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { inferRouterOutputs } from "@trpc/server";
 import { getUpGalTargetDefinition } from "@upstand/api/ai/upgal-ui-targets";
 import type { AppRouter } from "@upstand/api/router";
-import { Badge } from "@upstand/ui/components/badge";
 import { Button } from "@upstand/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@upstand/ui/components/card";
 import {
   Dialog,
   DialogContent,
@@ -24,17 +15,9 @@ import {
 } from "@upstand/ui/components/dialog";
 import { Field, FieldGroup, FieldLabel } from "@upstand/ui/components/field";
 import { Input } from "@upstand/ui/components/input";
-import { Separator } from "@upstand/ui/components/separator";
 import { Spinner } from "@upstand/ui/components/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@upstand/ui/components/tooltip";
 import { cn } from "@upstand/ui/lib/utils";
-import type { Route } from "next";
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   DashboardPage,
@@ -43,17 +26,15 @@ import {
 import { PageEmpty } from "@/components/dashboard/page-empty";
 import { CardGridSkeleton } from "@/components/dashboard/page-skeleton";
 import { PageToolbar } from "@/components/dashboard/page-toolbar";
-import { EditableEntityIcon } from "@/components/editable-entity-icon";
 import {
   AlertTriangleIcon,
   ArchiveRestore,
-  CopyIcon,
   FolderIcon,
-  Pencil,
   PlusIcon,
-  Trash2Icon,
+  SearchIcon,
 } from "@/components/huge-icons";
 import { UpGalTarget } from "@/components/upgal-target";
+import { ProjectCard } from "@/features/projects/components/project-card";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
 import type { authClient } from "@/lib/auth-client";
 import { trpc } from "@/utils/trpc";
@@ -64,215 +45,7 @@ const createProjectSubmitTarget = getUpGalTargetDefinition(
   "create-project-submit",
 );
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
-
-type Project = inferRouterOutputs<AppRouter>["project"]["list"][number];
 type Environment = inferRouterOutputs<AppRouter>["environment"]["list"][number];
-
-function ProjectCard({
-  project,
-  onEdit,
-  onDelete,
-  onDuplicate,
-}: {
-  project: Project;
-  onEdit: () => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const updateMutation = useMutation({
-    ...trpc.project.update.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: trpc.project.list.queryKey(),
-      });
-    },
-  });
-
-  const { data: envs } = useQuery({
-    ...trpc.environment.list.queryOptions({ projectId: project.id }),
-    enabled: !!project.id,
-  });
-
-  const { envCount, totalResources } = useMemo(() => {
-    return {
-      envCount: envs?.length ?? 0,
-      totalResources:
-        envs?.reduce((acc, curr) => acc + curr.resourceCount, 0) ?? 0,
-    };
-  }, [envs]);
-
-  const formattedDate = useMemo(
-    () => dateFormatter.format(new Date(project.createdAt)),
-    [project.createdAt],
-  );
-
-  const handleEdit = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onEdit();
-  };
-
-  const handleDuplicate = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onDuplicate();
-  };
-
-  const handleDelete = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onDelete();
-  };
-
-  return (
-    <Card size="sm" className="flex flex-col justify-between">
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <EditableEntityIcon
-            icon={project.icon}
-            defaultIcon={
-              <FolderIcon className="size-4 text-primary" aria-hidden="true" />
-            }
-            entityName={project.name}
-            entityType="project"
-            sizeClassName="size-9 rounded-2xl"
-            bgClassName="bg-primary/10 text-primary"
-            onSaveIcon={async (newIcon) => {
-              await updateMutation.mutateAsync({
-                id: project.id,
-                icon: newIcon,
-              });
-            }}
-          />
-          <div className="min-w-0">
-            <CardTitle className="truncate text-base">
-              <Link
-                href={`/projects/${project.id}` as Route}
-                className="hover:underline"
-              >
-                {project.name}
-              </Link>
-            </CardTitle>
-            <CardDescription>
-              <div className="flex gap-4 text-muted-foreground text-xs">
-                <div>
-                  <span className="font-semibold text-foreground">
-                    {envCount}
-                  </span>{" "}
-                  {envCount === 1 ? "environment" : "environments"}
-                </div>
-                <div>
-                  <span className="font-semibold text-foreground">
-                    {totalResources}
-                  </span>{" "}
-                  {totalResources === 1 ? "resource" : "resources"}
-                </div>
-              </div>
-            </CardDescription>
-          </div>
-        </div>
-        <Badge variant={project.archivedAt ? "secondary" : "success"}>
-          {project.archivedAt ? "Archived" : "Active"}
-        </Badge>
-      </CardHeader>
-
-      {project.description && (
-        <CardContent className="line-clamp-2 pt-0 pb-3 text-muted-foreground text-xs">
-          {project.description}
-        </CardContent>
-      )}
-
-      <Separator />
-
-      <CardFooter className="flex items-center justify-between">
-        <span className="text-muted-foreground text-xs">
-          Created <span className="font-semibold">{formattedDate}</span>
-        </span>
-
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={updateMutation.isPending}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    updateMutation.mutate({
-                      id: project.id,
-                      archived: !project.archivedAt,
-                    });
-                  }}
-                  aria-label={`${project.archivedAt ? "Restore" : "Archive"} project ${project.name}`}
-                >
-                  <ArchiveRestore aria-hidden="true" />
-                </Button>
-              }
-            />
-            <TooltipContent>
-              {project.archivedAt ? "Restore" : "Archive"}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={handleEdit}
-                  aria-label={`Edit project ${project.name}`}
-                >
-                  <Pencil aria-hidden="true" />
-                </Button>
-              }
-            />
-            <TooltipContent>Edit</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={handleDuplicate}
-                  aria-label={`Duplicate project ${project.name}`}
-                >
-                  <CopyIcon aria-hidden="true" />
-                </Button>
-              }
-            />
-            <TooltipContent>Duplicate</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="destructive"
-                  size="icon-sm"
-                  onClick={handleDelete}
-                  aria-label={`Delete project ${project.name}`}
-                >
-                  <Trash2Icon aria-hidden="true" />
-                </Button>
-              }
-            />
-            <TooltipContent>Delete</TooltipContent>
-          </Tooltip>
-        </div>
-      </CardFooter>
-    </Card>
-  );
-}
 
 function DuplicateProjectDialog({
   open,
@@ -392,6 +165,21 @@ function EmptyProjects({
             {hasOrganization ? "Create Project" : "Create Organization"}
           </Button>
         </UpGalTarget>
+      }
+    />
+  );
+}
+
+function NoProjectsFound({ onClear }: { onClear: () => void }) {
+  return (
+    <PageEmpty
+      icon={SearchIcon}
+      title="No matching projects"
+      description="Try a different name or clear the search to see all projects."
+      action={
+        <Button variant="outline" size="sm" onClick={onClear}>
+          Clear search
+        </Button>
       }
     />
   );
@@ -778,6 +566,7 @@ export default function Projects(_props: {
     projects?.filter((project) =>
       project.name.toLowerCase().includes(searchQuery.toLowerCase()),
     ) ?? [];
+  const hasProjects = (projects?.length ?? 0) > 0;
 
   return (
     <DashboardPage>
@@ -803,7 +592,7 @@ export default function Projects(_props: {
               <ArchiveRestore data-icon="inline-start" />
               {showArchived ? "Hide archived" : "Show archived"}
             </Button>
-            {(filteredProjects.length > 0 || showArchived) && (
+            {(hasProjects || showArchived || Boolean(organizationId)) && (
               <UpGalTarget definition={createProjectTarget}>
                 <Button
                   onClick={() => setCreateProjectOpen(true)}
@@ -819,7 +608,7 @@ export default function Projects(_props: {
         }
       />
 
-      {filteredProjects.length > 0 && (
+      {hasProjects && (
         <PageToolbar
           search={searchQuery}
           searchPlaceholder="Search projects…"
@@ -853,6 +642,8 @@ export default function Projects(_props: {
             />
           ))}
         </div>
+      ) : hasProjects ? (
+        <NoProjectsFound onClear={() => setSearchQuery("")} />
       ) : (
         <EmptyProjects
           hasOrganization={organizationState.status === "ready"}

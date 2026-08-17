@@ -1,115 +1,28 @@
 # web
 
-## 0.2.20
-
-### Patch Changes
-
-- [#299](https://github.com/UpstandPlatform/upstand/pull/299) [`0fe6d5f`](https://github.com/UpstandPlatform/upstand/commit/0fe6d5f7428814f3577b1c25f0eb3d0b94fa2bf2) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix GitHub App manifest creation by removing unsupported classic Projects webhook events.
-
-## 0.2.19
-
-### Patch Changes
-
-- [#297](https://github.com/UpstandPlatform/upstand/pull/297) [`a3a4917`](https://github.com/UpstandPlatform/upstand/commit/a3a4917a1256365d14cd73fe3caa17e55f297a31) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix GitHub App manifest registration by removing the unsupported `setup_on_install` field.
-
-## 0.2.18
-
-### Patch Changes
-
-- [#295](https://github.com/UpstandPlatform/upstand/pull/295) [`947d467`](https://github.com/UpstandPlatform/upstand/commit/947d467f2be5d19f73d9c761806b7351b3457f20) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the GitHub App manifest form to submit to GitHub while keeping the production Content Security Policy strict for scripts.
-
-## 0.2.17
-
-### Patch Changes
-
-- [#290](https://github.com/UpstandPlatform/upstand/pull/290) [`13dc591`](https://github.com/UpstandPlatform/upstand/commit/13dc591ad4d1161e462d6d32cc318e0525b9426c) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden container file management around explicitly selected full container IDs and named Docker volumes. File operations are now mount-scoped, symlink-safe, bounded, binary-safe, atomic for writes, and reject read-only or non-canonical targets. The release also removes runtime compatibility paths that accepted legacy labels, plaintext secret documents, abbreviated container IDs, legacy installer artifacts, and non-paginated backup adapters.
-
-## 0.2.16
-
-### Patch Changes
-
-- [#288](https://github.com/UpstandPlatform/upstand/pull/288) [`55789af`](https://github.com/UpstandPlatform/upstand/commit/55789af2e7633c5655820af24b5f0c67a3d139b7) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix mobile provider dialogs and make GitHub App manifest installation callbacks
-  reliable across cloud and self-hosted runtimes.
-
-## 0.2.15
-
-### Patch Changes
-
-- [#286](https://github.com/UpstandPlatform/upstand/pull/286) [`ea7d678`](https://github.com/UpstandPlatform/upstand/commit/ea7d678185fceb73efcdb0eda5498e042471d6a1) Thanks [@mhbdev](https://github.com/mhbdev)! - Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
-
-## 0.2.14
-
-## 0.2.13
-
-### Patch Changes
-
-- [#277](https://github.com/UpstandPlatform/upstand/pull/277) [`62ee7eb`](https://github.com/UpstandPlatform/upstand/commit/62ee7eb89ed977985ad3fd61d4b26435c4a7eeba) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix CLI browser sign-in to open the default browser on Windows and complete
-  device authorization for both already-authenticated and newly-authenticated
-  users.
-
-## 0.2.12
-
-## 0.2.11
-
-### Patch Changes
-
-- [#271](https://github.com/UpstandPlatform/upstand/pull/271) [`43ac1da`](https://github.com/UpstandPlatform/upstand/commit/43ac1dacbbb421a3ac8eb358ef5f8e113d3b8a74) Thanks [@mhbdev](https://github.com/mhbdev)! - Prevent transient control-plane session failures from crashing dashboard Server Component renders by retrying temporary responses and degrading to the normal session guard.
-
-## 0.2.10
-
-## 0.2.9
-
-### Patch Changes
-
-- [#267](https://github.com/UpstandPlatform/upstand/pull/267) [`113086f`](https://github.com/UpstandPlatform/upstand/commit/113086f79b8768b083dc16fa38cf42cc53db03d6) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the cloud instance owner to inspect and trigger managed control-plane updates from the panel while keeping the update surface unavailable to regular cloud users.
-
-## 0.2.8
-
-### Patch Changes
-
-- [#265](https://github.com/UpstandPlatform/upstand/pull/265) [`c000108`](https://github.com/UpstandPlatform/upstand/commit/c000108342fdd1fde23d1c77849627841a417ad1) Thanks [@mhbdev](https://github.com/mhbdev)! - Make direct IP recovery access resolve to the same-host API, expose complete local topology only to the cloud instance owner, prevent cloud and desktop bare runtimes from reaching local Docker surfaces, and make Desktop default to Upstand Cloud with an explicit local bare-mode opt-in.
-
-## 0.2.7
-
-### Patch Changes
-
-- [#262](https://github.com/UpstandPlatform/upstand/pull/262) [`95c8817`](https://github.com/UpstandPlatform/upstand/commit/95c88178badb0a60ad004787723638f5a3d0828e) Thanks [@mhbdev](https://github.com/mhbdev)! - Hide unavailable Google sign-in, support password setup and passwordless 2FA
-  for social accounts, preserve CLI device-login URLs on Windows, and refresh
-  authentication, runtime-channel, release, and self-hosting documentation.
-
-- [#262](https://github.com/UpstandPlatform/upstand/pull/262) [`95c8817`](https://github.com/UpstandPlatform/upstand/commit/95c88178badb0a60ad004787723638f5a3d0828e) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix cloud and prefixed self-hosted web runtimes resolving API and documentation links to the wrong origin.
-
-## 0.2.6
-
-## 0.2.5
-
-### Patch Changes
-
-- [#258](https://github.com/UpstandPlatform/upstand/pull/258) [`0d22592`](https://github.com/UpstandPlatform/upstand/commit/0d22592404ce98b4875617fb811f73a4d5fd87cc) Thanks [@mhbdev](https://github.com/mhbdev)! - Restrict cloud control-plane topology, Docker inventory, request logs, local monitoring, control-plane transfer, and local build/deployment settings to their supported runtimes, promote the first cloud account to instance-owner access, and stabilize GitHub manifest setup.
-
 ## 0.2.4
 
 ### Patch Changes
 
-- [#256](https://github.com/UpstandPlatform/upstand/pull/256) [`491fb73`](https://github.com/UpstandPlatform/upstand/commit/491fb739772d617358642116c17e3247747e4899) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix Desktop startup fallback and runtime origin probing, and apply the Upstand icon to Windows installers, shortcuts, and windows.
+- [#305](https://github.com/UpstandPlatform/upstand/pull/305) [`a689d39`](https://github.com/UpstandPlatform/upstand/commit/a689d39462f089854cf4253d2e2d2b45e0f9a5e9) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep the Active Sessions settings tab available throughout a valid authenticated session.
 
 ## 0.2.3
 
 ### Patch Changes
 
-- [#254](https://github.com/UpstandPlatform/upstand/pull/254) [`cb16eeb`](https://github.com/UpstandPlatform/upstand/commit/cb16eeb1ad24a95b051a0d061447e0d0a958d16d) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix packaged Desktop assets and branding, add runtime and connection switching, and keep authentication requests on the active Cloud or self-hosted control plane.
+- [#303](https://github.com/UpstandPlatform/upstand/pull/303) [`75f34c6`](https://github.com/UpstandPlatform/upstand/commit/75f34c644236f3d316e0fbac097f56a0b854a844) Thanks [@mhbdev](https://github.com/mhbdev)! - Polish the Projects dashboard for clearer project scanning, quieter card actions, and an accurate no-results search state.
 
 ## 0.2.2
 
 ### Patch Changes
 
-- [#251](https://github.com/UpstandPlatform/upstand/pull/251) [`94014dd`](https://github.com/UpstandPlatform/upstand/commit/94014dd6ce86dccea401d807dc44cc3aaac932de) Thanks [@mhbdev](https://github.com/mhbdev)! - Resolve the header documentation link from the browser runtime so immutable images do not render localhost documentation URLs.
+- [#290](https://github.com/UpstandPlatform/upstand/pull/290) [`13dc591`](https://github.com/UpstandPlatform/upstand/commit/13dc591ad4d1161e462d6d32cc318e0525b9426c) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden container file management around explicitly selected full container IDs and named Docker volumes. File operations are now mount-scoped, symlink-safe, bounded, binary-safe, atomic for writes, and reject read-only or non-canonical targets. The release also removes runtime compatibility paths that accepted legacy labels, plaintext secret documents, abbreviated container IDs, legacy installer artifacts, and non-paginated backup adapters.
 
 ## 0.2.1
 
 ### Patch Changes
 
-- [#249](https://github.com/UpstandPlatform/upstand/pull/249) [`3c07cca`](https://github.com/UpstandPlatform/upstand/commit/3c07ccae10562de62fc583120fba446901579bce) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix cloud and prefixed self-hosted web runtimes resolving API and documentation links to the wrong origin.
+- [#283](https://github.com/UpstandPlatform/upstand/pull/283) [`820f037`](https://github.com/UpstandPlatform/upstand/commit/820f03737641f485f06318eefb1ec7ef096fa79e) Thanks [@mhbdev](https://github.com/mhbdev)! - Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
 
 ## 0.2.0
 

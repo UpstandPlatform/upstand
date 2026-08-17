@@ -1,52 +1,20 @@
 # schedules
 
-## 0.2.20
-
-## 0.2.19
-
-## 0.2.18
-
-## 0.2.17
-
-### Patch Changes
-
-- [#290](https://github.com/UpstandPlatform/upstand/pull/290) [`13dc591`](https://github.com/UpstandPlatform/upstand/commit/13dc591ad4d1161e462d6d32cc318e0525b9426c) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden container file management around explicitly selected full container IDs and named Docker volumes. File operations are now mount-scoped, symlink-safe, bounded, binary-safe, atomic for writes, and reject read-only or non-canonical targets. The release also removes runtime compatibility paths that accepted legacy labels, plaintext secret documents, abbreviated container IDs, legacy installer artifacts, and non-paginated backup adapters.
-
-## 0.2.16
-
-## 0.2.15
-
-### Patch Changes
-
-- [#286](https://github.com/UpstandPlatform/upstand/pull/286) [`ea7d678`](https://github.com/UpstandPlatform/upstand/commit/ea7d678185fceb73efcdb0eda5498e042471d6a1) Thanks [@mhbdev](https://github.com/mhbdev)! - Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
-
-## 0.2.14
-
-## 0.2.13
-
-## 0.2.12
-
-## 0.2.11
-
-## 0.2.10
-
-## 0.2.9
-
-## 0.2.8
-
-## 0.2.7
-
-## 0.2.6
-
-## 0.2.5
-
 ## 0.2.4
 
 ## 0.2.3
 
 ## 0.2.2
 
+### Patch Changes
+
+- [#290](https://github.com/UpstandPlatform/upstand/pull/290) [`13dc591`](https://github.com/UpstandPlatform/upstand/commit/13dc591ad4d1161e462d6d32cc318e0525b9426c) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden container file management around explicitly selected full container IDs and named Docker volumes. File operations are now mount-scoped, symlink-safe, bounded, binary-safe, atomic for writes, and reject read-only or non-canonical targets. The release also removes runtime compatibility paths that accepted legacy labels, plaintext secret documents, abbreviated container IDs, legacy installer artifacts, and non-paginated backup adapters.
+
 ## 0.2.1
+
+### Patch Changes
+
+- [#283](https://github.com/UpstandPlatform/upstand/pull/283) [`820f037`](https://github.com/UpstandPlatform/upstand/commit/820f03737641f485f06318eefb1ec7ef096fa79e) Thanks [@mhbdev](https://github.com/mhbdev)! - Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
 
 ## 0.2.0
 

@@ -186,6 +186,11 @@ export function createAuth(options: {
       // boundary. Database persistence provides recovery if Redis is rebuilt.
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,
+      // Session settings are available throughout the valid session lifetime.
+      // Better Auth's list-sessions endpoint uses the fresh-session middleware;
+      // leaving its default one-day freshness window makes the settings tab
+      // return 403 for otherwise valid seven-day cloud sessions.
+      freshAge: 0,
       storeSessionInDatabase: true,
     },
     advanced: {
