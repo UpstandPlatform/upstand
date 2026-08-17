@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.20 - 2026-08-17
+
+Fix GitHub App manifest creation by removing unsupported classic Projects webhook events.
+
 ## 0.2.19 - 2026-08-16
 
 Fix GitHub App manifest registration by removing the unsupported `setup_on_install` field.
