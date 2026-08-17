@@ -1,5 +1,11 @@
 # web
 
+## 0.2.4
+
+### Patch Changes
+
+- [#305](https://github.com/UpstandPlatform/upstand/pull/305) [`a689d39`](https://github.com/UpstandPlatform/upstand/commit/a689d39462f089854cf4253d2e2d2b45e0f9a5e9) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep the Active Sessions settings tab available throughout a valid authenticated session.
+
 ## 0.2.3
 
 ### Patch Changes
