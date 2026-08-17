@@ -1,5 +1,11 @@
 # web
 
+## 0.2.20
+
+### Patch Changes
+
+- [#299](https://github.com/UpstandPlatform/upstand/pull/299) [`0fe6d5f`](https://github.com/UpstandPlatform/upstand/commit/0fe6d5f7428814f3577b1c25f0eb3d0b94fa2bf2) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix GitHub App manifest creation by removing unsupported classic Projects webhook events.
+
 ## 0.2.19
 
 ### Patch Changes
