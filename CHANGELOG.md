@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.4 - 2026-08-17
+
+Keep the Active Sessions settings tab available throughout a valid authenticated session.
+
 ## 0.2.3 - 2026-08-17
 
 Polish the Projects dashboard for clearer project scanning, quieter card actions, and an accurate no-results search state.
