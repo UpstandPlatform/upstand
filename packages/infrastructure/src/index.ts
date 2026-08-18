@@ -5,6 +5,7 @@ export {
   closeRemoteDockerProxies,
   createDockerInfrastructureResolver,
   getDockerInstance,
+  resolveCaddyServiceForServer,
 } from "./docker/docker-client";
 export { DockerReadOnlyService } from "./docker/docker-readonly.service";
 export { GitHubDiagnosticsHttpClient } from "./git-provider/github-diagnostics.http-client";

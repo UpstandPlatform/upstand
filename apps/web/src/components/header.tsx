@@ -21,6 +21,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { getDocsUrl } from "@/lib/server-url";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "./auth/user/user-avatar";
@@ -34,7 +35,11 @@ const NAV_LINKS = [
 
 export default function Header() {
   const pathname = usePathname();
-  const docsUrl = getDocsUrl();
+  const [docsUrl, setDocsUrl] = useState<string>();
+
+  useEffect(() => {
+    setDocsUrl(getDocsUrl());
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full border-border/40 border-b bg-background/70 backdrop-blur-md supports-backdrop-filter:bg-background/60">

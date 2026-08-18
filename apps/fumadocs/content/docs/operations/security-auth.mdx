@@ -17,8 +17,20 @@ Upstand prioritizes multi-tenant security, standardizing authentication on **Bet
 
 ## 2. Multi-Factor Authentication (2FA)
 
-Administrators can enforce two-factor authentication (2FA) for organization members. 
-- **Protected Actions**: Critical tasks such as viewing Swarm join tokens, rebuilding databases, uploading files to volumes, and restoring backups require a verified second-factor TOTP token.
+Users can enable TOTP from **Settings → Security**. Credential accounts
+confirm the current password during enrollment and disabling; users who signed
+in with Google or another passwordless provider can enroll without a password
+because Upstand enables Better Auth's passwordless 2FA mode. The UI also
+offers those users a **Create Password** action, implemented server-side, so
+they can later use email/password sign-in and password-confirmed operations.
+
+- **Protected Actions**: Critical tasks such as viewing Swarm join tokens,
+  rebuilding databases, uploading files to volumes, and restoring backups
+  require a verified second-factor TOTP token.
+
+Google sign-in is shown only when both `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` are configured. Missing or partial Google
+configuration disables the option instead of exposing a button that must fail.
 
 ---
 

@@ -122,7 +122,13 @@ async function loginWithBrowser(
     if (result.response.status === 200 && result.data.status === "approved") {
       if (!result.data.accessToken)
         throw new Error("CLI authorization returned no access token.");
-      await saveToken(result.data.accessToken, context.options.apiUrl);
+      if (!result.data.organizationId)
+        throw new Error("CLI authorization returned no organization.");
+      await saveToken(
+        result.data.accessToken,
+        context.options.apiUrl,
+        result.data.organizationId,
+      );
       await output.message(
         "Signed in successfully. Token saved securely.",
         "success",
@@ -138,13 +144,19 @@ async function loginWithBrowser(
   throw new Error("CLI authorization expired. Run upstand login again.");
 }
 
+export function browserCommand(
+  url: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return platform === "win32"
+    ? ["rundll32.exe", "url.dll,FileProtocolHandler", url]
+    : platform === "darwin"
+      ? ["open", url]
+      : ["xdg-open", url];
+}
+
 async function openBrowser(url: string): Promise<void> {
-  const command =
-    process.platform === "win32"
-      ? ["cmd", "/c", "start", "", url]
-      : process.platform === "darwin"
-        ? ["open", url]
-        : ["xdg-open", url];
+  const command = browserCommand(url);
   try {
     const child = Bun.spawn(command, {
       stdin: "ignore",
@@ -169,46 +181,9 @@ async function link(
   output: Output,
   client: UpstandClient,
 ): Promise<number> {
-  const organizationId =
-    context.options.organizationId ||
-    (context.options.output === "human"
-      ? await promptText("Organization ID")
-      : undefined);
-  if (!organizationId) throw new Error("link requires --organization.");
-
-  let projectId = context.options.projectId;
-  if (!projectId) {
-    const projects = await client.query<Array<{ id: string; name: string }>>(
-      "project.list",
-      { organizationId },
-    );
-    projectId = await selectOrPrompt(
-      context,
-      "Project",
-      projects.data.map((project) => ({
-        label: project.name,
-        value: project.id,
-      })),
-    );
-  }
-
-  let environmentId = context.options.environmentId;
-  if (!environmentId) {
-    const environments = await client.query<
-      Array<{ id: string; name: string }>
-    >("environment.list", { projectId });
-    environmentId = await selectOrPrompt(
-      context,
-      "Environment",
-      environments.data.map((environment) => ({
-        label: environment.name,
-        value: environment.id,
-      })),
-    );
-  }
-  if (!projectId || !environmentId) {
-    throw new Error("link requires a project and environment.");
-  }
+  const organizationId = await resolveOrganizationId(context);
+  const projectId = await resolveProjectId(context, client, organizationId);
+  const environmentId = await resolveEnvironmentId(context, client, projectId);
   const result = await client.query("environment.get", { id: environmentId });
   await writeProjectLink({
     apiUrl: context.options.apiUrl,
@@ -345,13 +320,7 @@ async function projectCommand(
   action: string,
 ): Promise<number> {
   if (action === "list" || action === "ls") {
-    const organizationId =
-      context.options.organizationId ||
-      (context.options.output === "human"
-        ? await promptText("Organization ID")
-        : undefined);
-    if (!organizationId)
-      throw new Error("project list requires --organization.");
+    const organizationId = await resolveOrganizationId(context);
     const result = await client.query("project.list", {
       organizationId,
       includeArchived: context.flags.has("include-archived"),
@@ -376,13 +345,8 @@ async function environmentCommand(
   action: string,
 ): Promise<number> {
   if (action === "list" || action === "ls") {
-    const projectId =
-      context.options.projectId ||
-      flag(context, "project") ||
-      (context.options.output === "human"
-        ? await promptText("Project ID")
-        : undefined);
-    if (!projectId) throw new Error("environment list requires --project.");
+    const organizationId = await resolveOrganizationId(context);
+    const projectId = await resolveProjectId(context, client, organizationId);
     const result = await client.query("environment.list", { projectId });
     await output.value(result.data);
     return 0;
@@ -397,16 +361,13 @@ async function resourceCommand(
   action: string,
 ): Promise<number> {
   if (action === "list" || action === "ls") {
-    const link = await readProjectLink();
-    const environmentId =
-      context.options.environmentId ||
-      flag(context, "environment") ||
-      link?.environmentId ||
-      (context.options.output === "human"
-        ? await promptText("Environment ID")
-        : undefined);
-    if (!environmentId)
-      throw new Error("resource list requires --environment.");
+    const organizationId = await resolveOrganizationId(context);
+    const projectId = await resolveProjectId(context, client, organizationId);
+    const environmentId = await resolveEnvironmentId(
+      context,
+      client,
+      projectId,
+    );
     const result = await client.query("resource.list", { environmentId });
     await output.value(result.data);
     return 0;
@@ -433,13 +394,7 @@ async function deploymentCommand(
   action: string,
 ): Promise<number> {
   if (action === "list" || action === "ls") {
-    const organizationId =
-      context.options.organizationId ||
-      (context.options.output === "human"
-        ? await promptText("Organization ID")
-        : undefined);
-    if (!organizationId)
-      throw new Error("deployment list requires --organization.");
+    const organizationId = await resolveOrganizationId(context);
     const result = await client.query("deployment.getDeployments", {
       organizationId,
     });
@@ -524,10 +479,7 @@ async function serverCommand(
   client: UpstandClient,
   action: string,
 ): Promise<number> {
-  const organizationId = context.options.organizationId;
-  if (!organizationId) {
-    throw new Error("server migration commands require --organization.");
-  }
+  const organizationId = await resolveOrganizationId(context);
 
   if (action === "migrate") {
     const resourceId = context.positionals[2] || flag(context, "resource");
@@ -615,6 +567,64 @@ async function selectOrPrompt(
     return promptSelect(`Select ${title}`, options);
   }
   return promptText(`${title} ID`);
+}
+
+async function resolveOrganizationId(context: CommandContext): Promise<string> {
+  if (context.options.organizationId) return context.options.organizationId;
+  const link = await readProjectLink();
+  if (link?.organizationId) return link.organizationId;
+  throw new Error(
+    "No organization is selected. Run 'upstand login' to choose one in the browser, or pass --organization for automation.",
+  );
+}
+
+async function resolveProjectId(
+  context: CommandContext,
+  client: UpstandClient,
+  organizationId: string,
+): Promise<string> {
+  const link = await readProjectLink();
+  const projectId =
+    context.options.projectId ||
+    flag(context, "project") ||
+    (link?.organizationId === organizationId ? link.projectId : undefined);
+  if (projectId) return projectId;
+  const projects = await client.query<Array<{ id: string; name: string }>>(
+    "project.list",
+    { organizationId },
+  );
+  return selectOrPrompt(
+    context,
+    "Project",
+    projects.data.map((project) => ({
+      label: project.name,
+      value: project.id,
+    })),
+  );
+}
+
+async function resolveEnvironmentId(
+  context: CommandContext,
+  client: UpstandClient,
+  projectId: string,
+): Promise<string> {
+  const environmentId =
+    context.options.environmentId || flag(context, "environment");
+  if (environmentId) return environmentId;
+  const link = await readProjectLink();
+  if (link?.projectId === projectId) return link.environmentId;
+  const environments = await client.query<Array<{ id: string; name: string }>>(
+    "environment.list",
+    { projectId },
+  );
+  return selectOrPrompt(
+    context,
+    "Environment",
+    environments.data.map((environment) => ({
+      label: environment.name,
+      value: environment.id,
+    })),
+  );
 }
 
 async function controlPlaneCommand(
@@ -709,12 +719,12 @@ async function diagnosticsCommand(
   if (action !== "github") {
     throw new Error("Supported diagnostics commands: github.");
   }
-  const organizationId = context.options.organizationId;
+  const organizationId = await resolveOrganizationId(context);
   const gitProviderId = flag(context, "provider");
   const repository = context.positionals[2] || flag(context, "repository");
-  if (!organizationId || !gitProviderId || !repository) {
+  if (!gitProviderId || !repository) {
     throw new Error(
-      "diagnostics github requires owner/repository, --organization, and --provider.",
+      "diagnostics github requires owner/repository and --provider.",
     );
   }
   const result = await client.mutate<{

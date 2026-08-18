@@ -25,7 +25,11 @@ const skipValidation =
 const validatedEnv = createEnv({
   server: {
     DATABASE_URL:
-      isTest || process.env.UPSTAND_PLATFORM === "desktop"
+      isTest ||
+      (process.env.UPSTAND_PLATFORM === "desktop" &&
+        !["1", "true"].includes(
+          process.env.IS_CLOUD?.trim().toLowerCase() ?? "",
+        ))
         ? z.string().optional()
         : z.string().min(1),
     UPSTAND_DATABASE_POOL_MAX: z.coerce
@@ -287,7 +291,7 @@ if (!skipValidation) {
   assertSecureProductionOrigins({
     nodeEnv: env.NODE_ENV,
     allowInsecureBootstrap: env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP,
-    platform: env.UPSTAND_PLATFORM,
+    platform: env.IS_CLOUD ? "cloud" : env.UPSTAND_PLATFORM,
     betterAuthUrl: env.BETTER_AUTH_URL,
     corsOrigin: env.CORS_ORIGIN,
   });

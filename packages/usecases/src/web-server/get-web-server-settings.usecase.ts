@@ -53,6 +53,16 @@ type ControlPlaneUpstreams = {
   fumadocs: string;
 };
 
+export function applyConfiguredDashboardHost(
+  settings: WebServerSettings,
+  dashboardHost?: string,
+): WebServerSettings {
+  const configured = dashboardHost?.trim();
+  return configured && !settings.serverDomain
+    ? { ...settings, serverDomain: configured }
+    : settings;
+}
+
 function controlPlaneProxy(upstream: string): string {
   return `	reverse_proxy ${upstream} {
 		lb_try_duration 30s
@@ -218,6 +228,10 @@ export class GetWebServerSettingsUseCase {
         certificates,
       );
     }
+    settings = applyConfiguredDashboardHost(
+      settings,
+      env.UPSTAND_DASHBOARD_HOST,
+    );
     const status = await this.caddyService.getStatus();
     return { settings, status };
   }

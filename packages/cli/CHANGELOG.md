@@ -1,5 +1,33 @@
 # @upstand/cli
 
+## 0.2.6
+
+### Patch Changes
+
+- [#278](https://github.com/UpstandPlatform/upstand/pull/278) [`f028b92`](https://github.com/UpstandPlatform/upstand/commit/f028b92b6b0c7b29fee35bcfc4e385f77e06aa06) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the native Windows URL handler for browser-based CLI login so verification URLs open in the user's default browser. Persist the organization selected during browser approval and use interactive project and environment selectors for human CLI workflows.
+
+## 0.2.5
+
+### Patch Changes
+
+- [#277](https://github.com/UpstandPlatform/upstand/pull/277) [`62ee7eb`](https://github.com/UpstandPlatform/upstand/commit/62ee7eb89ed977985ad3fd61d4b26435c4a7eeba) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix CLI browser sign-in to open the default browser on Windows and complete
+  device authorization for both already-authenticated and newly-authenticated
+  users.
+
+## 0.2.4
+
+### Patch Changes
+
+- [#265](https://github.com/UpstandPlatform/upstand/pull/265) [`c000108`](https://github.com/UpstandPlatform/upstand/commit/c000108342fdd1fde23d1c77849627841a417ad1) Thanks [@mhbdev](https://github.com/mhbdev)! - Make direct IP recovery access resolve to the same-host API, expose complete local topology only to the cloud instance owner, prevent cloud and desktop bare runtimes from reaching local Docker surfaces, and make Desktop default to Upstand Cloud with an explicit local bare-mode opt-in.
+
+## 0.2.3
+
+### Patch Changes
+
+- [#262](https://github.com/UpstandPlatform/upstand/pull/262) [`95c8817`](https://github.com/UpstandPlatform/upstand/commit/95c88178badb0a60ad004787723638f5a3d0828e) Thanks [@mhbdev](https://github.com/mhbdev)! - Hide unavailable Google sign-in, support password setup and passwordless 2FA
+  for social accounts, preserve CLI device-login URLs on Windows, and refresh
+  authentication, runtime-channel, release, and self-hosting documentation.
+
 ## 0.2.2
 
 ### Patch Changes

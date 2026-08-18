@@ -209,6 +209,14 @@ if (isPackageBuild) {
     ".next",
     "standalone",
   );
+  const dashboardStatic = resolve(
+    workspaceRoot,
+    "apps",
+    "web",
+    ".next",
+    "static",
+  );
+  const dashboardPublic = resolve(workspaceRoot, "apps", "web", "public");
   const dashboardNodeModules = resolve(
     dashboardStandalone,
     "node_modules",
@@ -224,6 +232,11 @@ if (isPackageBuild) {
   );
   for (const [source, destination] of [
     [dashboardStandalone, resolve(localRoot, "dashboard")],
+    [
+      dashboardStatic,
+      resolve(localRoot, "dashboard", "apps", "web", ".next", "static"),
+    ],
+    [dashboardPublic, resolve(localRoot, "dashboard", "apps", "web", "public")],
     [migrations, resolve(localRoot, "migrations")],
   ] as const) {
     try {

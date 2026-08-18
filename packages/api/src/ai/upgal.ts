@@ -83,7 +83,7 @@ import { createEvlogIntegration } from "evlog/ai";
 import { z } from "zod";
 import type { RequestLog } from "../context";
 import { requireInstanceOwner } from "../instance-access";
-import { checkPermission } from "../permissions";
+import { getSessionCapabilities } from "../permissions";
 import { connectUpGalMCPApps } from "./mcp-apps";
 import { listUpGalModelCatalog } from "./model-catalog";
 import { getUpGalProvider, type UpGalProviderOverrides } from "./provider";
@@ -112,6 +112,7 @@ import {
 export { buildUpGalInstructions } from "./upgal-instructions";
 
 type UpGalBaseContext = UpGalInstructionContext & {
+  actorKind: "session" | "api-key";
   conversationId: string;
   runId: string;
   scope: ServiceScope;
@@ -121,6 +122,15 @@ type UpGalBaseContext = UpGalInstructionContext & {
 export type UpGalContext = UpGalBaseContext & {
   allowedToolNames?: readonly UpGalToolName[];
 };
+
+async function requireInteractiveInstanceOwner(
+  context: Pick<UpGalBaseContext, "actorKind" | "userId">,
+): Promise<void> {
+  if (context.actorKind !== "session") {
+    throw new Error("Instance operations require an interactive owner session");
+  }
+  await requireInstanceOwner(context.userId, context.actorKind);
+}
 
 function redactResource(
   resource: Resource,
@@ -1210,7 +1220,7 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       input.serverId === "local" ||
       input.serverId === "manager"
     ) {
-      await requireInstanceOwner(context.userId, "session");
+      await requireInteractiveInstanceOwner(context);
     }
     return run(GetDockerInventoryUseCaseToken).execute({
       organizationId: context.organizationId,
@@ -1360,11 +1370,15 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     get_monitoring_status: readTool(
       "Read monitoring-agent health and collection status for a server.",
       serverIdSchema,
-      async ({ serverId }) =>
-        run(GetServerMonitoringStatusUseCaseToken).execute({
+      async ({ serverId }) => {
+        if (serverId === "local") {
+          await requireInteractiveInstanceOwner(context);
+        }
+        return run(GetServerMonitoringStatusUseCaseToken).execute({
           organizationId: context.organizationId,
           serverId,
-        }),
+        });
+      },
       z.object({
         serverId: z.string(),
         reachable: z.boolean(),
@@ -1376,11 +1390,15 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     get_monitoring_metrics: readTool(
       "Read historical monitoring metrics for a host or its containers.",
       monitoringMetricsSchema,
-      async (input) =>
-        run(GetServerHistoricalMetricsUseCaseToken).execute({
+      async (input) => {
+        if (input.serverId === "local") {
+          await requireInteractiveInstanceOwner(context);
+        }
+        return run(GetServerHistoricalMetricsUseCaseToken).execute({
           organizationId: context.organizationId,
           ...input,
-        }),
+        });
+      },
       z.unknown(),
     ),
     list_deployments: readTool(
@@ -1454,7 +1472,7 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
           input.serverId === "local" ||
           input.serverId === "manager"
         ) {
-          await requireInstanceOwner(context.userId, "session");
+          await requireInteractiveInstanceOwner(context);
         }
         return run(GetDockerInventoryUseCaseToken).execute({
           organizationId: context.organizationId,
@@ -1581,7 +1599,7 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       "Read local Docker Swarm health and manager state.",
       emptySchema,
       async () => {
-        await requireInstanceOwner(context.userId, "session");
+        await requireInteractiveInstanceOwner(context);
         return run(GetSwarmInfoUseCaseToken).execute();
       },
       z.unknown(),
@@ -1590,7 +1608,7 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       "Read Docker Swarm node health and availability.",
       emptySchema,
       async () => {
-        await requireInstanceOwner(context.userId, "session");
+        await requireInteractiveInstanceOwner(context);
         return run(GetSwarmNodesUseCaseToken).execute();
       },
       z.unknown(),
@@ -1599,7 +1617,7 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       "Read Docker Swarm task and service health.",
       emptySchema,
       async () => {
-        await requireInstanceOwner(context.userId, "session");
+        await requireInteractiveInstanceOwner(context);
         return run(GetSwarmContainersUseCaseToken).execute();
       },
       z.unknown(),
@@ -1608,7 +1626,7 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       "Read recent Upstand web-server logs.",
       webServerLogsSchema,
       async ({ tail }) => {
-        await requireInstanceOwner(context.userId, "session");
+        await requireInteractiveInstanceOwner(context);
         const logs = await run(GetWebServerLogsUseCaseToken).execute(tail);
         return truncateOutput(logs);
       },
@@ -1716,11 +1734,15 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
     prune_docker_resources: mutationTool(
       "Prune unused Docker resources (unused images, unattached volumes, builder, system, or all). This requires approval.",
       pruneDockerSchema,
-      async (input) =>
-        run(PruneDockerResourcesUseCaseToken).execute({
+      async (input) => {
+        if (!input.serverId || ["local", "manager"].includes(input.serverId)) {
+          await requireInteractiveInstanceOwner(context);
+        }
+        return run(PruneDockerResourcesUseCaseToken).execute({
           organizationId: context.organizationId,
           ...input,
-        }),
+        });
+      },
       pruneDockerOutputSchema,
     ),
     exec_container_command: mutationTool(
@@ -1728,7 +1750,9 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
       execContainerCommandSchema,
       async (input) => {
         await assertResource(context, input.resourceId);
-        if (input.serverId && input.serverId !== "local") {
+        if (!input.serverId || ["local", "manager"].includes(input.serverId)) {
+          await requireInteractiveInstanceOwner(context);
+        } else {
           await assertServer(context, input.serverId);
         }
         const res = await run(ExecContainerCommandUseCaseToken).execute({
@@ -1748,7 +1772,7 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
           input.serverId === "local" ||
           input.serverId === "manager"
         ) {
-          await requireInstanceOwner(context.userId, "session");
+          await requireInteractiveInstanceOwner(context);
         } else {
           await assertServer(context, input.serverId);
         }
@@ -1852,30 +1876,39 @@ export async function getUpGalToolNamesForUser(
   userId: string,
   organizationId: string,
 ): Promise<UpGalToolName[]> {
-  const allowed: UpGalToolName[] = [];
-  for (const [name] of UPGAL_TOOL_METADATA) {
+  let capabilities: Set<Capability>;
+  try {
+    capabilities = await getSessionCapabilities(userId, organizationId);
+  } catch {
+    return [];
+  }
+
+  const instanceTools = new Set<UpGalToolName>([
+    "get_web_server_logs",
+    "get_swarm_info",
+    "get_swarm_nodes",
+    "get_swarm_containers",
+  ]);
+  const hasAllowedInstanceTool = UPGAL_TOOL_METADATA.some(
+    ([name]) =>
+      instanceTools.has(name) &&
+      capabilities.has(UPGAL_TOOL_CAPABILITIES[name]),
+  );
+  let instanceOwner = false;
+  if (hasAllowedInstanceTool) {
     try {
-      await checkPermission(
-        userId,
-        organizationId,
-        UPGAL_TOOL_CAPABILITIES[name],
-      );
-      if (name === "get_web_server_logs") {
-        await requireInstanceOwner(userId, "session");
-      }
-      if (
-        name === "get_swarm_info" ||
-        name === "get_swarm_nodes" ||
-        name === "get_swarm_containers"
-      ) {
-        await requireInstanceOwner(userId, "session");
-      }
-      allowed.push(name);
+      await requireInstanceOwner(userId, "session");
+      instanceOwner = true;
     } catch {
-      // A missing capability removes only this tool from the agent surface.
+      // Instance-wide tools remain hidden from non-owner sessions.
     }
   }
-  return allowed;
+
+  return UPGAL_TOOL_METADATA.filter(
+    ([name]) =>
+      capabilities.has(UPGAL_TOOL_CAPABILITIES[name]) &&
+      (!instanceTools.has(name) || instanceOwner),
+  ).map(([name]) => name);
 }
 
 export function upGalToolNeedsApproval(value: string): boolean {

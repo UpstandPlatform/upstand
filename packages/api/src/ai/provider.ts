@@ -13,6 +13,7 @@ import type {
 import { env } from "@upstand/env/server";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { isBlockedAddress } from "@upstand/platform/network/outbound";
+import { getConfiguredControlPlaneMode } from "@upstand/usecases";
 import type { LanguageModel } from "ai";
 import { UpGalError } from "./upgal-errors";
 
@@ -61,7 +62,11 @@ export async function assertSafeProviderBaseUrl(
 
   const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   const official = OFFICIAL_PROVIDER_HOSTS[provider]?.has(hostname) ?? false;
-  if (!official && (!env.UPGAL_ALLOW_CUSTOM_BASE_URL || env.IS_CLOUD)) {
+  if (
+    !official &&
+    (!env.UPGAL_ALLOW_CUSTOM_BASE_URL ||
+      getConfiguredControlPlaneMode() === "cloud")
+  ) {
     throw new UpGalError(
       "validation",
       "Custom AI provider endpoints are disabled. Use an official provider endpoint or explicitly enable custom endpoints on a self-hosted instance.",

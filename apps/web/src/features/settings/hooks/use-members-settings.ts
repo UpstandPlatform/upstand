@@ -5,6 +5,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
+import { getUserFacingError } from "@/lib/error-message";
 import { trpc } from "@/utils/trpc";
 
 export function useMembersSettings(organizationId: string) {
@@ -37,7 +38,8 @@ export function useMembersSettings(organizationId: string) {
       toast.success("Member created");
       refresh();
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error) =>
+      toast.error(getUserFacingError(error, "Unable to create member")),
   });
 
   const inviteMutation = useMutation({
@@ -46,7 +48,8 @@ export function useMembersSettings(organizationId: string) {
       toast.success("Invitation sent");
       void refetchInvites();
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error) =>
+      toast.error(getUserFacingError(error, "Unable to send invitation")),
   });
 
   const updateMutation = useMutation({
@@ -55,7 +58,8 @@ export function useMembersSettings(organizationId: string) {
       toast.success("Member permissions saved");
       refresh();
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error) =>
+      toast.error(getUserFacingError(error, "Unable to update member")),
   });
 
   const removeMutation = useMutation({
@@ -64,7 +68,8 @@ export function useMembersSettings(organizationId: string) {
       toast.success("Member removed");
       refresh();
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error) =>
+      toast.error(getUserFacingError(error, "Unable to remove member")),
   });
 
   const { mutate: cancelInvitation } = useCancelInvitation(authClient, {

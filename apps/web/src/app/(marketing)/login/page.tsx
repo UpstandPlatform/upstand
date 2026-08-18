@@ -15,6 +15,10 @@ import SignInForm from "@/components/sign-in-form";
 import SignUpForm from "@/components/sign-up-form";
 import { SsoSignInForm } from "@/components/sso-sign-in-form";
 import { authClient } from "@/lib/auth-client";
+import {
+  cliAuthorizationPath,
+  cliUserCodeFromSearchParams,
+} from "@/lib/cli-authorization";
 import { getServerApiUrl } from "@/lib/server-url";
 
 const GoogleIcon = () => (
@@ -41,19 +45,15 @@ const GoogleIcon = () => (
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const cliUserCode =
-    searchParams.get("cli") === "upstand"
-      ? searchParams.get("user_code")
-      : null;
-  const cliPath = cliUserCode
-    ? `/login?cli=upstand&user_code=${encodeURIComponent(cliUserCode)}`
-    : "/login";
+  const cliUserCode = cliUserCodeFromSearchParams(searchParams);
+  const cliPath = cliUserCode ? cliAuthorizationPath(cliUserCode) : "/login";
   const [loading, setLoading] = useState(false);
   const [needsOwnerSetup, setNeedsOwnerSetup] = useState<boolean | null>(null);
   const [setupError, setSetupError] = useState(false);
   const [setupAttempt, setSetupAttempt] = useState(0);
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [isCloud, setIsCloud] = useState<boolean>(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
   const {
     data: session,
@@ -85,6 +85,7 @@ function LoginPageContent() {
         return (await response.json()) as {
           needsOwnerSetup: boolean;
           isCloud?: boolean;
+          googleEnabled?: boolean;
         };
       })
       .then((status) => {
@@ -93,6 +94,7 @@ function LoginPageContent() {
         if (typeof status.isCloud === "boolean") {
           setIsCloud(status.isCloud);
         }
+        setGoogleEnabled(status.googleEnabled === true);
       })
       .catch(() => {
         if (active) {
@@ -276,21 +278,23 @@ function LoginPageContent() {
                   />
                 )}
 
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={handleGoogleSignIn}
-                  disabled={loading || needsOwnerSetup}
-                  className="w-full gap-3 border-border bg-muted/40 font-semibold text-foreground hover:bg-accent hover:text-accent-foreground"
-                >
-                  {loading ? (
-                    <Spinner />
-                  ) : (
-                    <>
-                      <GoogleIcon /> Continue with Google
-                    </>
-                  )}
-                </Button>
+                {googleEnabled && (
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={handleGoogleSignIn}
+                    disabled={loading || needsOwnerSetup}
+                    className="w-full gap-3 border-border bg-muted/40 font-semibold text-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {loading ? (
+                      <Spinner />
+                    ) : (
+                      <>
+                        <GoogleIcon /> Continue with Google
+                      </>
+                    )}
+                  </Button>
+                )}
                 {!isSignUp && <SsoSignInForm successPath={cliPath} />}
               </div>
             </>

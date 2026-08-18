@@ -1,9 +1,11 @@
 import { getRateLimiterHealth } from "@upstand/api";
+import { auth } from "@upstand/api/auth";
+import { isInstanceOwner } from "@upstand/api/permissions";
 import { env } from "@upstand/env/server";
 import { pingRedis, redis } from "@upstand/redis";
 import {
+  getConfiguredControlPlaneMode,
   getPlatformCapabilities,
-  resolveControlPlaneMode,
 } from "@upstand/usecases";
 import type { DatabaseHealthPort } from "@upstand/usecases/ports/database-health";
 import {
@@ -60,14 +62,19 @@ export function registerSetupStatusRoute(app: Hono<AppEnv>): void {
       .get("scope")
       .resolve(GetSetupStatusUseCaseToken)
       .execute();
-    const platformMode = resolveControlPlaneMode({
-      platform: env.UPSTAND_PLATFORM,
-      isCloud: env.IS_CLOUD,
-    });
+    const platformMode = getConfiguredControlPlaneMode();
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const instanceOwner = session
+      ? await isInstanceOwner({ userId: session.user.id, kind: "session" })
+      : false;
     return c.json({
       ...status,
       isCloud: platformMode === "cloud",
+      googleEnabled: Boolean(
+        env.GOOGLE_CLIENT_ID?.trim() && env.GOOGLE_CLIENT_SECRET?.trim(),
+      ),
       platformMode,
+      isInstanceOwner: instanceOwner,
       capabilities: getPlatformCapabilities(platformMode),
     });
   });
@@ -81,10 +88,7 @@ export function registerSystemRoutes(
   app.get("/health/live", (c) => c.json({ status: "alive" }));
 
   app.get("/health/ready", async (c) => {
-    const platformMode = resolveControlPlaneMode({
-      platform: env.UPSTAND_PLATFORM,
-      isCloud: env.IS_CLOUD,
-    });
+    const platformMode = getConfiguredControlPlaneMode();
     const redisReady =
       platformMode === "desktop" ? true : await pingRedis(redis);
     const rateLimiterHealth = getRateLimiterHealth();

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -15,12 +15,16 @@ import {
 import squirrelStartup from "electron-squirrel-startup";
 import {
   type DesktopConnection,
+  type DesktopRuntime,
+  getApiOriginForDashboardOrigin,
+  getDocsOriginForDashboardOrigin,
   isAllowedNavigation,
   normalizeUpstandOrigin,
 } from "../shared/connection";
 import type { ConnectionMode } from "./connection-profiles";
 import {
   addConnectionProfile,
+  clearActiveConnectionProfile,
   getActiveProfile,
   listConnectionProfiles,
   removeConnectionProfile,
@@ -38,9 +42,16 @@ import {
 // data and connection settings. Squirrel uninstall deliberately leaves this
 // per-user data intact.
 app.setPath("userData", join(app.getPath("appData"), "desktop"));
+app.setAppUserModelId("dev.upstand.desktop");
 
 let mainWindow: BrowserWindow | null = null;
 let connection: DesktopConnection | null = null;
+let activeMode: DesktopRuntime["mode"] = "desktop";
+let activeApiOrigin = "";
+let activeDocsOrigin = "";
+
+const OFFICIAL_CLOUD_ORIGIN = "https://upstand.dev";
+const OFFICIAL_DOCS_ORIGIN = "https://docs.upstand.dev";
 
 interface WindowConfig {
   windowBounds?: { x: number; y: number; width: number; height: number };
@@ -72,6 +83,135 @@ function saveWindowConfig(config: WindowConfig): void {
 
 function connectionFile(): string {
   return join(app.getPath("userData"), "connection.json");
+}
+
+function inferConnectionMode(origin: string): DesktopRuntime["mode"] {
+  try {
+    const hostname = new URL(origin).hostname;
+    if (isLoopbackOrigin(origin)) return "desktop";
+    return hostname === "upstand.dev" || hostname.endsWith(".upstand.dev")
+      ? "cloud"
+      : "self-hosted";
+  } catch {
+    return "self-hosted";
+  }
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function isApiOrigin(origin: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      new URL("/api/setup/status", `${origin}/`).toString(),
+      { signal: AbortSignal.timeout(2_500) },
+    );
+    if (!response.ok) return false;
+    const payload = (await response.json()) as unknown;
+    return Boolean(
+      payload &&
+        typeof payload === "object" &&
+        "needsOwnerSetup" in payload &&
+        typeof payload.needsOwnerSetup === "boolean",
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function isDocsOrigin(origin: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/docs/", `${origin}/`), {
+      signal: AbortSignal.timeout(2_500),
+    });
+    return (
+      response.ok && !response.headers.get("content-type")?.includes("json")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function resolveRuntimeOrigins(
+  dashboardOrigin: string,
+  mode: DesktopRuntime["mode"],
+): Promise<{ apiOrigin: string; docsOrigin: string }> {
+  if (mode === "desktop" || isLoopbackOrigin(dashboardOrigin)) {
+    return {
+      apiOrigin: getLocalApiOrigin(),
+      docsOrigin: OFFICIAL_DOCS_ORIGIN,
+    };
+  }
+
+  const apiCandidates = [
+    ...(mode === "cloud" ? [] : [dashboardOrigin]),
+    getApiOriginForDashboardOrigin(dashboardOrigin),
+  ].filter((origin, index, origins) => origins.indexOf(origin) === index);
+  let apiOrigin = apiCandidates[apiCandidates.length - 1] ?? dashboardOrigin;
+  for (const candidate of apiCandidates) {
+    if (await isApiOrigin(candidate)) {
+      apiOrigin = candidate;
+      break;
+    }
+  }
+
+  const docsCandidates = [
+    ...(mode === "cloud" ? [] : [dashboardOrigin]),
+    getDocsOriginForDashboardOrigin(dashboardOrigin),
+    OFFICIAL_DOCS_ORIGIN,
+  ].filter((origin, index, origins) => origins.indexOf(origin) === index);
+  let docsOrigin = OFFICIAL_DOCS_ORIGIN;
+  for (const candidate of docsCandidates) {
+    if (await isDocsOrigin(candidate)) {
+      docsOrigin = candidate;
+      break;
+    }
+  }
+
+  return { apiOrigin, docsOrigin };
+}
+
+function getDesktopRuntime(): DesktopRuntime {
+  const dashboardOrigin = connection?.origin ?? getLocalDashboardOrigin();
+  if (!dashboardOrigin) {
+    return {
+      mode: activeMode,
+      dashboardOrigin: "",
+      apiOrigin: "",
+      docsOrigin: OFFICIAL_DOCS_ORIGIN,
+    };
+  }
+
+  try {
+    new URL(dashboardOrigin);
+    return {
+      mode: activeMode,
+      dashboardOrigin,
+      apiOrigin:
+        activeApiOrigin ||
+        (activeMode === "desktop" || isLoopbackOrigin(dashboardOrigin)
+          ? getLocalApiOrigin()
+          : getApiOriginForDashboardOrigin(dashboardOrigin)),
+      docsOrigin: activeDocsOrigin || OFFICIAL_DOCS_ORIGIN,
+    };
+  } catch {
+    return {
+      mode: activeMode,
+      dashboardOrigin: "",
+      apiOrigin: "",
+      docsOrigin: OFFICIAL_DOCS_ORIGIN,
+    };
+  }
 }
 
 async function readConnection(): Promise<DesktopConnection | null> {
@@ -265,9 +405,23 @@ async function loadCurrentView(): Promise<void> {
   if (origin) {
     try {
       const normalizedOrigin = normalizeUpstandOrigin(origin);
-      if (!connection) {
+      const localDashboardOrigin = getLocalDashboardOrigin();
+      const isLocalDashboard =
+        localDashboardOrigin === normalizedOrigin ||
+        (isLoopbackOrigin(normalizedOrigin) && !connection);
+      if (isLocalDashboard) {
+        // If a saved remote profile is unavailable, the local fallback must
+        // become the active runtime too; otherwise the local page calls the
+        // unreachable remote API and renders the generic fetch error screen.
         connection = { origin: normalizedOrigin };
+        activeMode = "desktop";
+      } else if (!connection) {
+        connection = { origin: normalizedOrigin };
+        activeMode = inferConnectionMode(normalizedOrigin);
       }
+      const origins = await resolveRuntimeOrigins(normalizedOrigin, activeMode);
+      activeApiOrigin = origins.apiOrigin;
+      activeDocsOrigin = origins.docsOrigin;
       await mainWindow.loadURL(new URL(origin).toString());
       return;
     } catch {
@@ -288,15 +442,50 @@ async function loadCurrentView(): Promise<void> {
  * renderer can show a real error, and must never persist a connection that
  * didn't actually load.
  */
-async function setConnection(origin: string): Promise<DesktopConnection> {
+async function setConnection(
+  origin: string,
+  options?: { name?: string; mode?: DesktopRuntime["mode"] },
+): Promise<DesktopConnection> {
   const normalized = normalizeUpstandOrigin(origin);
   if (!mainWindow) {
     throw new Error("Window is not ready yet.");
   }
-  await mainWindow.loadURL(new URL(normalized).toString());
+  const previousConnection = connection;
+  const previousMode = activeMode;
+  const previousApiOrigin = activeApiOrigin;
+  const previousDocsOrigin = activeDocsOrigin;
   connection = { origin: normalized };
+  activeMode = options?.mode ?? inferConnectionMode(normalized);
+  try {
+    const origins = await resolveRuntimeOrigins(normalized, activeMode);
+    activeApiOrigin = origins.apiOrigin;
+    activeDocsOrigin = origins.docsOrigin;
+    await mainWindow.loadURL(new URL(normalized).toString());
+  } catch (error) {
+    connection = previousConnection;
+    activeMode = previousMode;
+    activeApiOrigin = previousApiOrigin;
+    activeDocsOrigin = previousDocsOrigin;
+    throw error;
+  }
   await saveConnection(connection);
+  if (options?.mode) {
+    await addConnectionProfile({
+      name: options.name?.trim() || normalized,
+      mode: options.mode,
+      origin: normalized,
+      setActive: true,
+    });
+  }
   return connection;
+}
+
+async function openConnectionPicker(): Promise<void> {
+  if (!mainWindow) return;
+  connection = null;
+  activeApiOrigin = "";
+  activeDocsOrigin = "";
+  await mainWindow.loadFile(rendererPath());
 }
 
 async function openExternalWebUrl(value: string): Promise<void> {
@@ -335,6 +524,7 @@ function createWindow(): BrowserWindow {
       : { center: true }),
     show: false,
     title: "Upstand",
+    icon: resolve(app.getAppPath(), "assets", "icon.png"),
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#09090b" : "#ffffff",
     ...(process.platform === "darwin"
       ? {
@@ -419,12 +609,7 @@ function installMenu(): void {
                 type: "question",
               });
               if (response.response === 0) {
-                connection = null;
-                await saveConnection(null);
-                if (getLocalDashboardOrigin()) {
-                  connection = { origin: getLocalDashboardOrigin() };
-                }
-                await loadCurrentView();
+                await openConnectionPicker();
               }
             },
           },
@@ -463,17 +648,33 @@ function registerIpcHandlers(): void {
     validateIpcSender(event);
     return connection;
   });
-  ipcMain.handle("connection:set", (event, origin: string) => {
-    validateIpcSender(event);
-    return setConnection(origin);
-  });
+  ipcMain.handle(
+    "connection:set",
+    (
+      event,
+      origin: string,
+      options?: { name?: string; mode?: DesktopRuntime["mode"] },
+    ) => {
+      validateIpcSender(event);
+      return setConnection(origin, options);
+    },
+  );
   ipcMain.handle("connection:clear", async (event) => {
     validateIpcSender(event);
+    await clearActiveConnectionProfile();
     await saveConnection(null);
-    connection = getLocalDashboardOrigin()
-      ? { origin: getLocalDashboardOrigin() }
-      : null;
+    activeMode = "desktop";
+    activeApiOrigin = "";
+    activeDocsOrigin = "";
+    const localDashboardOrigin = app.isPackaged
+      ? (await startLocalServices()).dashboardOrigin
+      : getLocalDashboardOrigin();
+    connection = localDashboardOrigin ? { origin: localDashboardOrigin } : null;
     await loadCurrentView();
+  });
+  ipcMain.handle("connection:picker:open", async (event) => {
+    validateIpcSender(event);
+    await openConnectionPicker();
   });
 
   // ------------------------------------------------------------------
@@ -498,7 +699,10 @@ function registerIpcHandlers(): void {
       const profile = await addConnectionProfile(opts);
       if (opts.setActive) {
         // Also switch the active connection window
-        await setConnection(profile.origin);
+        await setConnection(profile.origin, {
+          mode: profile.mode,
+          name: profile.name,
+        });
       }
       return profile;
     },
@@ -513,7 +717,10 @@ function registerIpcHandlers(): void {
       validateIpcSender(event);
       const profile = await setActiveConnectionProfile(id);
       if (profile) {
-        await setConnection(profile.origin);
+        await setConnection(profile.origin, {
+          mode: profile.mode,
+          name: profile.name,
+        });
       }
       return profile;
     },
@@ -521,8 +728,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle("connection:mode:get", async (event) => {
     validateIpcSender(event);
     const profile = await getActiveProfile();
-    // Fall back to "desktop" when there is no profile (local embedded mode)
-    return profile?.mode ?? "desktop";
+    return profile?.mode ?? "cloud";
+  });
+
+  ipcMain.on("connection:runtime:get-sync", (event) => {
+    event.returnValue = getDesktopRuntime();
   });
 
   ipcMain.handle("local-api:get", (event) => {
@@ -604,7 +814,17 @@ if (squirrelStartup) {
   });
 
   app.whenReady().then(async () => {
-    connection = await readConnection();
+    const activeProfile = await getActiveProfile();
+    if (activeProfile) {
+      connection = { origin: activeProfile.origin };
+      activeMode = activeProfile.mode;
+    } else {
+      connection = await readConnection();
+      activeMode = connection
+        ? inferConnectionMode(connection.origin)
+        : "cloud";
+      if (!connection) connection = { origin: OFFICIAL_CLOUD_ORIGIN };
+    }
 
     ipcMain.on("local-api:get-sync", (event) => {
       event.returnValue = getLocalApiOrigin();
@@ -618,7 +838,7 @@ if (squirrelStartup) {
     registerIpcHandlers();
     await showLoadingScreen();
 
-    if (app.isPackaged) {
+    if (app.isPackaged && activeMode === "desktop") {
       try {
         const local = await startLocalServices();
         if (!connection) connection = { origin: local.dashboardOrigin };

@@ -6,6 +6,7 @@ import { QueueDeploymentUseCase } from "@upstand/usecases/deployment/queue-deplo
 import { resolveDockerServiceForServer } from "@upstand/usecases/resource/docker-client";
 import { parseResourceEnvironmentVariables } from "@upstand/usecases/resource/resource-environment";
 import { UnitOfWorkToken } from "@upstand/usecases/tokens";
+import { getErrorMessage } from "../errors";
 import * as dependencies from "./dependencies";
 
 type ServiceCollection = InstanceType<typeof dependencies.ServiceCollection>;
@@ -20,10 +21,6 @@ type ResourceSecretRepository = {
 type TransactionWithResourceSecrets = IUnitOfWork & {
   resourceSecretRepository?: ResourceSecretRepository;
 };
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
 
 export function registerBackups(
   services: ServiceCollection,

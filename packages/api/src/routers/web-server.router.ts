@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import type { IUnitOfWork } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import {
@@ -6,6 +7,7 @@ import {
   aggregateAccessLogStats,
   getDockerInstance,
   queryAccessLogEntries,
+  resolveCaddyServiceForServer,
   TriggerUpdateInputSchema,
   UpdateWebServerSettingsInputSchema,
 } from "@upstand/usecases";
@@ -23,6 +25,7 @@ import { z } from "zod";
 import { getErrorMessage, handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
 import { requireInstanceOwnerContext } from "../instance-access";
+import { checkPermission } from "../permissions";
 import { webServerMaintenanceProcedures } from "./web-server/maintenance";
 import {
   cleanDockerLogs,
@@ -207,6 +210,68 @@ export const webServerRouter = router({
       return aggregateAccessLogStats(content, input.from, input.to);
     }),
 
+  remoteAccessLogs: twoFactorVerifiedProcedure
+    .input(
+      AccessLogQuerySchema.extend({
+        organizationId: z.string().min(1),
+        serverId: z.string().min(1),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      const server = await uow.serverRepository.findById(input.serverId);
+      if (!server || server.organizationId !== input.organizationId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Server not found" });
+      }
+      const { caddyService, cleanup } = await resolveCaddyServiceForServer(
+        input.serverId,
+        uow,
+      );
+      try {
+        const content = await caddyService.getAccessLogs();
+        return { ...queryAccessLogEntries(content, input), page: input.page };
+      } finally {
+        cleanup();
+      }
+    }),
+
+  remoteAccessLogStats: twoFactorVerifiedProcedure
+    .input(
+      z.object({
+        organizationId: z.string().min(1),
+        serverId: z.string().min(1),
+        from: z.coerce.date(),
+        to: z.coerce.date(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      const server = await uow.serverRepository.findById(input.serverId);
+      if (!server || server.organizationId !== input.organizationId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Server not found" });
+      }
+      const { caddyService, cleanup } = await resolveCaddyServiceForServer(
+        input.serverId,
+        uow,
+      );
+      try {
+        const content = await caddyService.getAccessLogs();
+        return aggregateAccessLogStats(content, input.from, input.to);
+      } finally {
+        cleanup();
+      }
+    }),
+
   getLogs: twoFactorVerifiedProcedure
     .input(
       z.object({
@@ -272,7 +337,7 @@ export const webServerRouter = router({
     await requireWebServerOwner(ctx);
     const useCase = ctx.scope.resolve(GetUpdateStatusUseCaseToken);
     try {
-      return await useCase.execute();
+      return await useCase.execute({ allowManagedUpdates: true });
     } catch (error) {
       handleUseCaseError(error, ctx.log);
     }
@@ -282,7 +347,10 @@ export const webServerRouter = router({
     await requireWebServerOwner(ctx);
     const useCase = ctx.scope.resolve(GetUpdateStatusUseCaseToken);
     try {
-      return await useCase.execute({ forceRefresh: true });
+      return await useCase.execute({
+        forceRefresh: true,
+        allowManagedUpdates: true,
+      });
     } catch (error) {
       handleUseCaseError(error, ctx.log);
     }
@@ -294,7 +362,7 @@ export const webServerRouter = router({
       await requireWebServerOwner(ctx);
       const useCase = ctx.scope.resolve(TriggerUpdateUseCaseToken);
       try {
-        return await useCase.execute(input);
+        return await useCase.execute(input, { allowManagedUpdate: true });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

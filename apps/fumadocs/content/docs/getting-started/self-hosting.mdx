@@ -105,7 +105,7 @@ The Upstand installer supports two compilation strategies:
     Execute the bootstrap command to download and run the installer:
     
     ```bash
-    export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+    export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
     curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
     ```
 
@@ -180,13 +180,13 @@ ip -4 route get 1.1.1.1
 If you have multiple network interfaces, run behind a firewall/NAT, or want to specify a manual IP, set the `SWARM_ADVERTISE_ADDR` environment variable before running the installer:
 ```bash
 export SWARM_ADVERTISE_ADDR=192.168.1.50
-export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
 Alternatively, run the installer with the `--interactive` flag to be prompted for the IP address interactively:
 ```bash
-export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash -s -- --interactive
 ```
 
@@ -263,7 +263,7 @@ EOF
 ### 5. Deploy the Stack
 Fetch the `docker-compose.prod.yml` and deploy it as a Docker Stack:
 ```bash
-export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
 sudo curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/docker-compose.prod.yml" -o /etc/upstand/docker-compose.yml
 sudo chmod 600 /etc/upstand/docker-compose.yml
 

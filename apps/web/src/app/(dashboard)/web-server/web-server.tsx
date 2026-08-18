@@ -668,13 +668,13 @@ export default function WebServerDashboard(_props: {
     setPortsModalOpen(false);
   };
 
-  const { isCloud, platformMode } = useSystemConfig();
+  const { isCloud, isInstanceOwner, platformMode } = useSystemConfig();
   const isDesktop = platformMode === "desktop";
   const isSaving = updateSettingsMutation.isPending;
 
-  if (isCloud) {
+  if (isCloud && !isInstanceOwner) {
     return (
-      <DashboardPage className="gap-6">
+      <DashboardPage className="min-w-0 gap-4 sm:gap-6">
         <DashboardPageHeader
           title="Web Server"
           description="Control-plane reverse proxy and web server management."
@@ -708,7 +708,7 @@ export default function WebServerDashboard(_props: {
   }
 
   return (
-    <DashboardPage>
+    <DashboardPage className="min-w-0 gap-4 sm:gap-6">
       {/* Page Header */}
       <DashboardPageHeader
         title="Web Server"
@@ -1002,7 +1002,7 @@ export default function WebServerDashboard(_props: {
             </CardHeader>
             <CardContent className="space-y-6 border-border/10 border-t">
               {/* Dropdowns Row */}
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {/* Server Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -1288,7 +1288,7 @@ export default function WebServerDashboard(_props: {
             </CardContent>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-3">
             {/* Uptime and stats */}
             <div className="space-y-6 lg:col-span-1">
               <Card className="border border-border/40 bg-card/20 shadow-sm">

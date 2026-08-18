@@ -73,7 +73,7 @@ export function ServerDomainCard({
 }: ServerDomainCardProps) {
   return (
     <form onSubmit={onSave}>
-      <Card className="border border-border/40 bg-card/20 shadow-sm transition-all duration-200 hover:border-border/60">
+      <Card className="min-w-0 border border-border/40 bg-card/20 shadow-sm transition-all duration-200 hover:border-border/60">
         <CardHeader>
           <CardTitle className="flex items-center gap-2.5 font-semibold text-lg tracking-tight">
             <GlobeIcon className="size-5 text-primary" />
@@ -209,7 +209,7 @@ export function ServerDomainCard({
             </div>
           )}
 
-          <div className="flex items-center justify-between border-border/40 border-t pt-4">
+          <div className="flex flex-col gap-4 border-border/40 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
               <Label
                 htmlFor="ip-access-toggle"

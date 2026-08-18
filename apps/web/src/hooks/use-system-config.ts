@@ -1,28 +1,35 @@
 import { useQuery } from "@tanstack/react-query";
+import { authClient } from "@/lib/auth-client";
 import { getServerApiUrl } from "@/lib/server-url";
+
+export type SystemCapabilities = {
+  mode: "desktop" | "self-hosted" | "cloud";
+  localRuntime: boolean;
+  remoteServers: boolean;
+  scheduler: boolean;
+  redis: boolean;
+  cloudConnection: boolean;
+  jobs: boolean;
+  acmeCertificates?: boolean;
+  localGitCli?: boolean;
+  localDockerSocket?: boolean;
+  swarmManagement?: boolean;
+  localFileSystemBackups?: boolean;
+  embeddedMonitoring?: boolean;
+  desktopNativeNotifications?: boolean;
+  enterpriseScimSso?: boolean;
+  serverMigration?: boolean;
+  controlPlaneTransfer?: boolean;
+};
 
 type SystemConfig = {
   isCloud: boolean;
+  isInstanceOwner: boolean;
   platformMode: "desktop" | "self-hosted" | "cloud";
-  capabilities: {
-    mode: "desktop" | "self-hosted" | "cloud";
-    localRuntime: boolean;
-    remoteServers: boolean;
-    scheduler: boolean;
-    redis: boolean;
-    cloudConnection: boolean;
-    jobs: boolean;
-    acmeCertificates?: boolean;
-    localGitCli?: boolean;
-    localDockerSocket?: boolean;
-    swarmManagement?: boolean;
-    localFileSystemBackups?: boolean;
-    embeddedMonitoring?: boolean;
-    desktopNativeNotifications?: boolean;
-    enterpriseScimSso?: boolean;
-    serverMigration?: boolean;
-  };
+  capabilities: SystemCapabilities;
 };
+
+export const SYSTEM_CONFIG_QUERY_KEY = ["system-config"] as const;
 
 async function fetchSystemConfig(): Promise<SystemConfig> {
   const response = await fetch(getServerApiUrl("/api/setup/status"), {
@@ -36,6 +43,7 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
 
   const payload = (await response.json()) as {
     isCloud?: unknown;
+    isInstanceOwner?: unknown;
     platformMode?: unknown;
     capabilities?: SystemConfig["capabilities"];
   };
@@ -49,41 +57,48 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
         : "self-hosted";
   return {
     isCloud: platformMode === "cloud",
+    isInstanceOwner: payload.isInstanceOwner === true,
     platformMode,
     capabilities: payload.capabilities ?? {
       mode: platformMode,
-      localRuntime: platformMode !== "cloud",
+      localRuntime: platformMode === "self-hosted",
       remoteServers: true,
-      scheduler: true,
+      scheduler: platformMode !== "desktop",
       redis: platformMode !== "desktop",
       cloudConnection: platformMode !== "cloud",
-      jobs: true,
+      jobs: platformMode !== "desktop",
       acmeCertificates: platformMode !== "desktop",
-      localGitCli: platformMode === "desktop",
-      localDockerSocket: platformMode !== "cloud",
+      localGitCli: false,
+      localDockerSocket: platformMode === "self-hosted",
       swarmManagement: platformMode === "self-hosted",
-      localFileSystemBackups: platformMode !== "cloud",
-      embeddedMonitoring: platformMode !== "cloud",
+      localFileSystemBackups: platformMode === "self-hosted",
+      embeddedMonitoring: platformMode === "self-hosted",
       desktopNativeNotifications: platformMode === "desktop",
       enterpriseScimSso: platformMode !== "desktop",
       serverMigration: true,
+      controlPlaneTransfer: platformMode !== "cloud",
     },
   };
 }
 
 /** Reads deployment mode from the server so the web image is deployment-agnostic. */
 export function useSystemConfig() {
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const sessionKey = session?.user.id ?? "anonymous";
   const query = useQuery({
-    queryKey: ["system-config"],
+    queryKey: [...SYSTEM_CONFIG_QUERY_KEY, sessionKey],
     queryFn: fetchSystemConfig,
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY,
     retry: 1,
+    enabled: !sessionPending,
   });
 
   return {
     ...query,
+    sessionPending,
     isCloud: query.data?.isCloud === true,
+    isInstanceOwner: query.data?.isInstanceOwner === true,
     platformMode: query.data?.platformMode ?? "self-hosted",
     capabilities: query.data?.capabilities,
   };

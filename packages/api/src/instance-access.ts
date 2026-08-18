@@ -12,6 +12,16 @@ export async function requireInstanceOwner(
   await authorizationService.authorizeInstance({ userId, kind: actorKind });
 }
 
+export async function isInstanceOwnerContext(ctx: {
+  session: { user: { id: string } };
+  actor?: { kind: string } | null;
+}): Promise<boolean> {
+  return authorizationService.isInstanceOwner({
+    userId: ctx.session.user.id,
+    kind: ctx.actor?.kind,
+  });
+}
+
 export async function requireInstanceOwnerContext(ctx: {
   session: { user: { id: string } };
   actor?: { kind: string } | null;

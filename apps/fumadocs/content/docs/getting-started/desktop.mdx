@@ -6,15 +6,22 @@ description: Run Upstand in a secure native desktop shell.
 Upstand Desktop is an Electron shell around an existing Upstand control plane.
 It provides a native application window while retaining the same dashboard,
 authentication, permissions, deployment history, and audit trail as the web
-client. It is intended for cloud and self-hosted installations; Docker Swarm,
-PostgreSQL, Redis, and deployment workers continue to run on the control plane.
+client. A new installation opens **Upstand Cloud** by default. The desktop-local
+option is a deliberately small **bare control plane** with an embedded database;
+it does not run Docker, Swarm, Caddy, Redis, or local workload containers.
+Deploy local-desktop workloads to a connected remote server or Cloud instead.
 
 ## Connect
 
-On its first launch, the app asks for the control-plane origin. Use the public
-HTTPS origin for a deployed instance, or `http://localhost:3001` while running
-the local development stack. The client accepts HTTP only for loopback
-addresses; remote instances must use HTTPS.
+On its first launch, the app opens `https://upstand.dev`. Choose **Use this
+computer** when you want the embedded bare control plane, **Use Upstand Cloud**
+to return to Cloud, or enter the HTTPS origin of a self-hosted control plane.
+The client accepts HTTP only for loopback addresses; remote instances must use
+HTTPS.
+
+The local bare control plane is not a local deployment target. Add a remote
+server from the dashboard when workloads should be built, deployed, or
+monitored from Desktop.
 
 The selected origin is persisted in the desktop application-data directory. Use
 **Upstand → Change connection…** in the native menu to select another instance.

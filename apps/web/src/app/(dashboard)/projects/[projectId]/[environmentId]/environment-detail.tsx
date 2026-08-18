@@ -16,16 +16,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@upstand/api/router";
 import { DATABASE_IMAGE_OPTIONS, type DatabaseType } from "@upstand/domain";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@upstand/ui/components/alert-dialog";
 import { Button } from "@upstand/ui/components/button";
 import {
   Card,
@@ -91,17 +81,13 @@ import {
   keyValuePairsToRecord,
   recordToKeyValuePairs,
 } from "@/components/shared/key-value-editor";
+import { EnvironmentWorkflowsCard } from "@/features/environments";
 import { useSystemConfig } from "@/hooks/use-system-config";
 import type { authClient } from "@/lib/auth-client";
 import { trpc } from "@/utils/trpc";
 
 type Resource = inferRouterOutputs<AppRouter>["resource"]["list"][number];
 type Server = inferRouterOutputs<AppRouter>["server"]["list"][number];
-type EnvironmentDiff = inferRouterOutputs<AppRouter>["environment"]["diff"];
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unexpected error";
-}
 
 // ─── Icons Map ────────────────────────────────────────────────────────────────
 
@@ -1363,20 +1349,11 @@ export default function EnvironmentDetail({
     name: string;
   } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [targetEnvironmentId, setTargetEnvironmentId] = useState("");
   const [secretSyncOpen, setSecretSyncOpen] = useState(false);
   const [secretRotationOpen, setSecretRotationOpen] = useState(false);
   const [secretHistoryOpen, setSecretHistoryOpen] = useState(false);
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
   const [cloneNameInput, setCloneNameInput] = useState("");
-  const [diffDialogOpen, setDiffDialogOpen] = useState(false);
-  const [diffResult, setDiffResult] = useState<{
-    variablesCount: number;
-    resourcesCount: number;
-  } | null>(null);
-  const [loadingDiff, setLoadingDiff] = useState(false);
-  const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
-  const [includeSecretsInPromote, setIncludeSecretsInPromote] = useState(false);
 
   // Fetch project
   const { data: project } = useQuery({
@@ -1447,12 +1424,6 @@ export default function EnvironmentDetail({
       router.push(`/projects/${projectId}/${created.id}` as Route);
     },
     onError: (err) => toast.error(err.message || "Failed to clone environment"),
-  });
-  const promoteEnvironmentMutation = useMutation({
-    ...trpc.environment.promote.mutationOptions(),
-    onSuccess: () => toast.success("Environment promoted successfully"),
-    onError: (err) =>
-      toast.error(err.message || "Failed to promote environment"),
   });
 
   useEffect(() => {
@@ -1768,106 +1739,19 @@ export default function EnvironmentDetail({
 
         <TabsContent value="settings" className="outline-none">
           <div className="max-w-2xl space-y-6">
-            <Card className="border border-border/40 bg-card/20">
-              <CardHeader>
-                <CardTitle className="font-semibold text-lg">
-                  Environment workflows
-                </CardTitle>
-                <CardDescription className="text-muted-foreground">
-                  Inherit shared variables, compare environments, or promote a
-                  tested configuration.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 border-border/20">
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      updateEnvMutation.mutate({
-                        id: environmentId,
-                        inheritsVariables: !env.inheritsVariables,
-                      })
-                    }
-                    disabled={updateEnvMutation.isPending}
-                  >
-                    {env.inheritsVariables
-                      ? "Disable variable inheritance"
-                      : "Enable variable inheritance"}
-                  </Button>
-                  <span className="text-muted-foreground text-xs">
-                    {env.inheritsVariables
-                      ? "Inherited variables are resolved during deployment."
-                      : "This environment uses only its own variables."}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Select
-                    value={targetEnvironmentId}
-                    onValueChange={(value) =>
-                      setTargetEnvironmentId(value ?? "")
-                    }
-                  >
-                    <SelectTrigger className="sm:w-64">
-                      <SelectValue placeholder="Target environment" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {environments
-                        .filter((candidate) => candidate.id !== environmentId)
-                        .map((candidate) => (
-                          <SelectItem key={candidate.id} value={candidate.id}>
-                            {candidate.name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="outline"
-                    disabled={!targetEnvironmentId || loadingDiff}
-                    onClick={async () => {
-                      setLoadingDiff(true);
-                      try {
-                        const diff = await queryClient.fetchQuery(
-                          trpc.environment.diff.queryOptions({
-                            sourceEnvironmentId: environmentId,
-                            targetEnvironmentId,
-                          }),
-                        );
-                        setDiffResult({
-                          variablesCount: diff.variables.length,
-                          resourcesCount: diff.resources.filter(
-                            (entry: EnvironmentDiff["resources"][number]) =>
-                              entry.changed,
-                          ).length,
-                        });
-                        setDiffDialogOpen(true);
-                      } catch (error: unknown) {
-                        toast.error(
-                          errorMessage(error) ||
-                            "Failed to compare environments",
-                        );
-                      } finally {
-                        setLoadingDiff(false);
-                      }
-                    }}
-                  >
-                    {loadingDiff && <Spinner data-icon="inline-start" />}
-                    Compare
-                  </Button>
-                  <Button
-                    disabled={
-                      !targetEnvironmentId ||
-                      promoteEnvironmentMutation.isPending
-                    }
-                    onClick={() => {
-                      setIncludeSecretsInPromote(false);
-                      setPromoteDialogOpen(true);
-                    }}
-                  >
-                    Promote
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <EnvironmentWorkflowsCard
+              environmentId={environmentId}
+              environmentName={env.name}
+              environments={environments}
+              inheritsVariables={env.inheritsVariables}
+              isUpdatingInheritance={updateEnvMutation.isPending}
+              onToggleInheritance={() =>
+                updateEnvMutation.mutate({
+                  id: environmentId,
+                  inheritsVariables: !env.inheritsVariables,
+                })
+              }
+            />
             <DangerZoneCard
               title="Delete Environment"
               description="Permanently delete this environment. This will stop and delete all services running under this environment."
@@ -2042,102 +1926,6 @@ export default function EnvironmentDetail({
               </DialogFooter>
             </DialogContent>
           </Dialog>
-
-          {/* Environment Comparison Summary Dialog */}
-          <Dialog open={diffDialogOpen} onOpenChange={setDiffDialogOpen}>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Environment Comparison</DialogTitle>
-                <DialogDescription>
-                  Summary of differences between <strong>{env?.name}</strong>{" "}
-                  and the target environment.
-                </DialogDescription>
-              </DialogHeader>
-              {diffResult && (
-                <div className="grid grid-cols-2 gap-3 py-3">
-                  <div className="rounded-lg border bg-card p-3 text-card-foreground shadow-xs">
-                    <p className="font-medium text-muted-foreground text-xs">
-                      Variables Changed
-                    </p>
-                    <p className="font-bold text-2xl">
-                      {diffResult.variablesCount}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border bg-card p-3 text-card-foreground shadow-xs">
-                    <p className="font-medium text-muted-foreground text-xs">
-                      Resources Changed
-                    </p>
-                    <p className="font-bold text-2xl">
-                      {diffResult.resourcesCount}
-                    </p>
-                  </div>
-                </div>
-              )}
-              <DialogFooter>
-                <Button onClick={() => setDiffDialogOpen(false)}>Close</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          {/* Promote Environment Confirmation Modal */}
-          <AlertDialog
-            open={promoteDialogOpen}
-            onOpenChange={setPromoteDialogOpen}
-          >
-            <AlertDialogContent className="sm:max-w-md">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Promote Environment?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to promote <strong>{env?.name}</strong>{" "}
-                  to the selected environment?
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <div className="py-2">
-                <label className="flex cursor-pointer items-center gap-2 font-medium text-sm">
-                  <Checkbox
-                    checked={includeSecretsInPromote}
-                    onCheckedChange={(c) =>
-                      setIncludeSecretsInPromote(Boolean(c))
-                    }
-                  />
-                  <span>
-                    Include environment and resource secrets in this promotion
-                  </span>
-                </label>
-                <p className="mt-1 ml-6 text-muted-foreground text-xs">
-                  Uncheck to promote environment configuration only.
-                </p>
-              </div>
-              <AlertDialogFooter>
-                <AlertDialogCancel
-                  disabled={promoteEnvironmentMutation.isPending}
-                >
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  disabled={promoteEnvironmentMutation.isPending}
-                  onClick={() => {
-                    promoteEnvironmentMutation.mutate(
-                      {
-                        sourceEnvironmentId: environmentId,
-                        targetEnvironmentId,
-                        includeResources: true,
-                        includeSecrets: includeSecretsInPromote,
-                      },
-                      {
-                        onSuccess: () => setPromoteDialogOpen(false),
-                      },
-                    );
-                  }}
-                >
-                  {promoteEnvironmentMutation.isPending && (
-                    <Spinner data-icon="inline-start" />
-                  )}
-                  Promote Environment
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </>
       )}
     </div>

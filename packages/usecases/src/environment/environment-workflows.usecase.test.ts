@@ -195,8 +195,53 @@ describe("environment workflows", () => {
         key: "web",
         source: "present",
         target: "present",
+        action: "update",
         changed: true,
         secretsChanged: true,
+      },
+    ]);
+  });
+
+  test("reports missing and target-only resources without treating them as applied", async () => {
+    const source = environment("source");
+    const target = environment("target");
+    const sourceOnly = resource("source-only", source.id, { name: "API" });
+    const targetOnly = resource("target-only", target.id, { name: "Worker" });
+    const uow = {
+      environmentRepository: {
+        findById: async (id: string) =>
+          id === source.id ? source : id === target.id ? target : null,
+        findAncestors: async (id: string) => [
+          id === source.id ? source : target,
+        ],
+      },
+      resourceRepository: {
+        findByEnvironmentId: async (id: string) =>
+          id === source.id ? [sourceOnly] : [targetOnly],
+      },
+    };
+
+    const diff = await new DiffEnvironmentsUseCase(uow as never).execute({
+      sourceEnvironmentId: source.id,
+      targetEnvironmentId: target.id,
+    });
+
+    expect(diff.resources).toEqual([
+      {
+        key: "api",
+        source: "present",
+        target: "absent",
+        action: "add",
+        changed: true,
+        secretsChanged: false,
+      },
+      {
+        key: "worker",
+        source: "absent",
+        target: "present",
+        action: "remove",
+        changed: true,
+        secretsChanged: false,
       },
     ]);
   });

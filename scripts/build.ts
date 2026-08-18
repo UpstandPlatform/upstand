@@ -14,5 +14,12 @@ async function run(command: string[], cwd = workspaceRoot): Promise<void> {
 
 // Desktop stages the server and web production payloads into its installer.
 // Build those producers first so Turbo cannot start the copy step concurrently.
-await run(["bunx", "turbo", "run", "build", "--filter=!desktop"]);
+await run([
+  "bunx",
+  "turbo",
+  "run",
+  "build",
+  "--concurrency=1",
+  "--filter=!desktop",
+]);
 await run(["bun", "run", "build"], resolve(workspaceRoot, "apps", "desktop"));

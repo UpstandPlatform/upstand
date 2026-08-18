@@ -24,7 +24,7 @@ export type MigrateResourceInput = z.infer<typeof MigrateResourceInputSchema>;
 export type MigrateResourceResult = {
   resource: Resource;
   sourceServerId: string;
-  targetServer: Server;
+  targetServer: Server | null;
   migration: WorkloadMigration;
   status: "queued";
 };
@@ -39,6 +39,11 @@ export class MigrateResourceUseCase {
     if (!capabilities.serverMigration) {
       throw new Error(
         `Server-to-server migration is not enabled for control plane mode '${mode}'`,
+      );
+    }
+    if (input.targetServerId === "local" && !capabilities.localRuntime) {
+      throw new Error(
+        `Migration to the local control plane is not enabled for control plane mode '${mode}'`,
       );
     }
 
@@ -57,12 +62,13 @@ export class MigrateResourceUseCase {
         throw new Error("Resource not found");
       }
 
-      const targetServer = await tx.serverRepository.findById(
-        input.targetServerId,
-      );
+      const targetServer =
+        input.targetServerId === "local"
+          ? null
+          : await tx.serverRepository.findById(input.targetServerId);
       if (
-        !targetServer ||
-        targetServer.organizationId !== input.organizationId
+        input.targetServerId !== "local" &&
+        (!targetServer || targetServer.organizationId !== input.organizationId)
       ) {
         throw new Error("Target server not found");
       }
@@ -78,7 +84,7 @@ export class MigrateResourceUseCase {
         }
       }
 
-      if (targetServer.status !== "ready") {
+      if (targetServer && targetServer.status !== "ready") {
         throw new Error(
           `Target server '${targetServer.name}' is not ready (status: ${targetServer.status})`,
         );
@@ -103,10 +109,10 @@ export class MigrateResourceUseCase {
       // placement. Placement moves only after shadow validation and cutover.
       const deployment = await tx.deploymentRepository.create({
         resourceId: resource.id,
-        title: `Migrate from ${sourceServerId} to ${targetServer.name}`,
+        title: `Migrate from ${sourceServerId} to ${targetServer?.name ?? "local control plane"}`,
         status: "queued",
-        sourceRevision: `migrate:${sourceServerId}->${targetServer.id}`,
-        logs: `Initiating migration pipeline for resource '${resource.name}' (${resource.id})\nSource: ${sourceServerId}\nTarget: ${targetServer.id}\n`,
+        sourceRevision: `migrate:${sourceServerId}->${targetServer?.id ?? "local"}`,
+        logs: `Initiating migration pipeline for resource '${resource.name}' (${resource.id})\nSource: ${sourceServerId}\nTarget: ${targetServer?.id ?? "local"}\n`,
       });
 
       const migration = await tx.workloadMigrationRepository.create({
@@ -115,7 +121,7 @@ export class MigrateResourceUseCase {
         resourceId: resource.id,
         deploymentId: deployment.id,
         sourceServerId,
-        targetServerId: targetServer.id,
+        targetServerId: input.targetServerId,
         status: "queued",
         progress: 0,
       });
@@ -133,7 +139,7 @@ export class MigrateResourceUseCase {
           deploymentId: deployment.id,
           resourceId: resource.id,
           sourceServerId,
-          targetServerId: targetServer.id,
+          targetServerId: input.targetServerId,
         },
         organizationId: input.organizationId,
       });

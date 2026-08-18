@@ -125,6 +125,8 @@ require_workflow_text 'Release acceptance profile: smoke (backup/recovery/load r
 require_workflow_text 'if [[ "$ACCEPTANCE_PROFILE" == "full" ]]; then'
 require_workflow_text 'Unsupported release acceptance profile: $ACCEPTANCE_PROFILE'
 require_workflow_text "ATTESTATION_SOURCE_REF: \${{ inputs.attestation_source_ref || github.ref }}"
+require_workflow_text 'if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then'
+require_workflow_text 'source_ref="refs/tags/${source_ref}"'
 require_file_text "$RECOVERY_WORKFLOW" "build_images: false"
 require_workflow_text "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > \"\$UPSTAND_SECRETS_DIR/encryption_key\""
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"

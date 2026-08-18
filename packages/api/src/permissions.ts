@@ -5,6 +5,7 @@ import {
   CAPABILITY_ACTIONS,
   CAPABILITY_CATALOG,
   type Capability,
+  CUSTOM_ROLE_CAPABILITY_ACTIONS,
   capabilitiesForRole,
   hasApiKeyPermission,
   hasMcpPermission,
@@ -54,10 +55,22 @@ export type InstanceAuthorizationActor = {
   kind: string | undefined;
 };
 
+type OrganizationAccessResolver = typeof ensureOrganizationAccess;
+
 /** The application policy decision point used by session-backed routes. */
 export class AuthorizationService {
+  constructor(
+    private readonly resolveOrganizationAccess: OrganizationAccessResolver = ensureOrganizationAccess,
+  ) {}
+
   async authorize(request: AuthorizationRequest) {
     const definition = CAPABILITY_CATALOG[request.capability];
+    if (!definition) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Unknown capability.",
+      });
+    }
     if (request.organizationId !== request.principal.organizationId) {
       throw new TRPCError({
         code: "FORBIDDEN",
@@ -66,6 +79,19 @@ export class AuthorizationService {
     }
 
     if (request.principal.kind === "api-key") {
+      if (
+        !request.principal.userId ||
+        request.principal.userId.startsWith("api-key:")
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "This API key has no auditable organization user.",
+        });
+      }
+      await this.resolveOrganizationAccess(
+        request.principal.userId,
+        request.organizationId,
+      );
       if (!definition.apiKey) {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -95,9 +121,12 @@ export class AuthorizationService {
     organizationId: string,
     capability: PermissionAction,
   ) {
-    const membership = await ensureOrganizationAccess(userId, organizationId);
+    const membership = await this.resolveOrganizationAccess(
+      userId,
+      organizationId,
+    );
     const permissions = membership.permissions
-      ? parseStoredPermissions(membership.permissions)
+      ? parseStoredPermissions(membership.permissions, membership.role)
       : ROLE_PERMISSIONS[membership.role as OrganizationRole] || [];
 
     if (!permissions.includes(capability)) {
@@ -108,6 +137,20 @@ export class AuthorizationService {
     }
 
     return membership;
+  }
+
+  async getSessionCapabilities(
+    userId: string,
+    organizationId: string,
+  ): Promise<Set<PermissionAction>> {
+    const membership = await this.resolveOrganizationAccess(
+      userId,
+      organizationId,
+    );
+    const permissions = membership.permissions
+      ? parseStoredPermissions(membership.permissions, membership.role)
+      : ROLE_PERMISSIONS[membership.role as OrganizationRole] || [];
+    return new Set(permissions);
   }
 
   async authorizeMcpTool(
@@ -125,10 +168,9 @@ export class AuthorizationService {
 
     if (
       toolName === "get_web_server_logs" ||
-      (env.IS_CLOUD &&
-        (toolName === "get_swarm_info" ||
-          toolName === "get_swarm_nodes" ||
-          toolName === "get_swarm_containers"))
+      toolName === "get_swarm_info" ||
+      toolName === "get_swarm_nodes" ||
+      toolName === "get_swarm_containers"
     ) {
       throw new TRPCError({
         code: "FORBIDDEN",
@@ -144,23 +186,14 @@ export class AuthorizationService {
     });
   }
 
-  async authorizeInstance(actor: InstanceAuthorizationActor): Promise<void> {
+  async isInstanceOwner(actor: InstanceAuthorizationActor): Promise<boolean> {
     if (actor.kind !== "session") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Instance operations require an interactive owner session",
-      });
+      return false;
     }
 
     const configuredOwnerId = env.UPSTAND_INSTANCE_OWNER_USER_ID?.trim();
     if (configuredOwnerId) {
-      if (configuredOwnerId !== actor.userId) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Instance owner permission required",
-        });
-      }
-      return;
+      return configuredOwnerId === actor.userId;
     }
 
     const configuredOwnerEmail =
@@ -173,16 +206,9 @@ export class AuthorizationService {
         .limit(1)
         .then((rows) => rows[0]);
 
-      if (
-        !currentUser ||
-        currentUser.email.toLowerCase() !== configuredOwnerEmail
-      ) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Instance owner permission required",
-        });
-      }
-      return;
+      return Boolean(
+        currentUser && currentUser.email.toLowerCase() === configuredOwnerEmail,
+      );
     }
 
     const firstUser = await db
@@ -191,7 +217,18 @@ export class AuthorizationService {
       .orderBy(asc(user.createdAt), asc(user.id))
       .limit(1)
       .then((rows) => rows[0]);
-    if (!firstUser || firstUser.id !== actor.userId) {
+    return Boolean(firstUser && firstUser.id === actor.userId);
+  }
+
+  async authorizeInstance(actor: InstanceAuthorizationActor): Promise<void> {
+    if (actor.kind !== "session") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Instance operations require an interactive owner session",
+      });
+    }
+
+    if (!(await this.isInstanceOwner(actor))) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Instance owner permission required",
@@ -200,9 +237,19 @@ export class AuthorizationService {
   }
 }
 
-function parseStoredPermissions(value: string): PermissionAction[] {
+function parseStoredPermissions(
+  value: string,
+  role: string,
+): PermissionAction[] {
   try {
-    return parseCapabilities(JSON.parse(value));
+    const allowed = new Set<PermissionAction>(
+      role.startsWith("custom:")
+        ? CUSTOM_ROLE_CAPABILITY_ACTIONS
+        : capabilitiesForRole(role),
+    );
+    return parseCapabilities(JSON.parse(value)).filter((permission) =>
+      allowed.has(permission),
+    );
   } catch {
     return [];
   }
@@ -222,6 +269,13 @@ export async function checkPermission(
   return authorizationService.authorizeSession(userId, organizationId, action);
 }
 
+export function getSessionCapabilities(
+  userId: string,
+  organizationId: string,
+): Promise<Set<PermissionAction>> {
+  return authorizationService.getSessionCapabilities(userId, organizationId);
+}
+
 export function authorizeApiKeyCapability(
   principal: ApiKeyPrincipal,
   organizationId: string,
@@ -237,6 +291,12 @@ export function authorizeMcpTool(
   toolName: string,
 ): Promise<void> {
   return authorizationService.authorizeMcpTool(principal, toolName);
+}
+
+export function isInstanceOwner(
+  actor: InstanceAuthorizationActor,
+): Promise<boolean> {
+  return authorizationService.isInstanceOwner(actor);
 }
 
 export function authorizeContextCapability(

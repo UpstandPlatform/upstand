@@ -7,7 +7,10 @@ import type { GetServersUseCase } from "./get-servers.usecase";
 import { GetTopologyGraphUseCase } from "./get-topology-graph.usecase";
 
 function makeUseCase(
-  inventory: (input: { serverId?: string; kind: string }) => unknown,
+  inventory: (
+    input: { serverId?: string; kind: string },
+    options?: { allowLocalInCloud?: boolean },
+  ) => unknown,
 ) {
   return new GetTopologyGraphUseCase(
     {
@@ -21,7 +24,10 @@ function makeUseCase(
       ],
     } as unknown as GetServersUseCase,
     {
-      execute: async (input: GetDockerInventoryInput) => inventory(input),
+      execute: async (
+        input: GetDockerInventoryInput,
+        options?: { allowLocalInCloud?: boolean },
+      ) => inventory(input, options),
     } as unknown as GetDockerInventoryUseCase,
   );
 }
@@ -148,5 +154,32 @@ describe("GetTopologyGraphUseCase", () => {
         (node) => node.serverId === "remote-1" && node.type !== "server",
       ),
     ).toBe(false);
+  });
+
+  test("can omit the local control-plane topology", async () => {
+    const useCase = makeUseCase(() => []);
+
+    const graph = await useCase.execute(
+      { organizationId: "org-1" },
+      { includeLocal: false },
+    );
+
+    expect(graph.nodes.map((node) => node.id)).toEqual(["server:remote-1"]);
+  });
+
+  test("passes the explicit cloud-owner local inspection allowance", async () => {
+    const allowances: boolean[] = [];
+    const useCase = makeUseCase((_input, options) => {
+      allowances.push(options?.allowLocalInCloud === true);
+      return [];
+    });
+
+    await useCase.execute(
+      { organizationId: "org-1" },
+      { allowLocalInCloud: true },
+    );
+
+    expect(allowances.length).toBeGreaterThan(0);
+    expect(allowances.every(Boolean)).toBe(true);
   });
 });

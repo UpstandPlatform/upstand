@@ -12,6 +12,7 @@ import {
   GetServerMonitoringStatusInputSchema,
   GetServerRuntimeStatsInputSchema,
   GetServersInputSchema,
+  getConfiguredControlPlaneMode,
   MigrateResourceInputSchema,
   ResourceWorkloadMigrationInputSchema,
   ScanServerHostKeyInputSchema,
@@ -58,6 +59,12 @@ async function requireLocalDockerOwner(
   serverId: string | undefined,
 ): Promise<void> {
   if (!serverId || serverId === "local" || serverId === "manager") {
+    if (getConfiguredControlPlaneMode() === "desktop") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Desktop bare mode does not expose local Docker operations",
+      });
+    }
     await requireInstanceOwnerContext(ctx);
   }
 }
@@ -214,6 +221,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
 
       const uow = ctx.scope.resolve(UnitOfWorkToken);
       if (input.serverId !== "local") {
@@ -407,6 +415,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:update",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
       try {
         return await ctx.scope
           .resolve(UpdateMonitoringSettingsUseCaseToken)
@@ -424,6 +433,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
 
       const useCase = ctx.scope.resolve(GetServerHistoricalMetricsUseCaseToken);
       try {
@@ -441,6 +451,7 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
+      await requireLocalDockerOwner(ctx, input.serverId);
       try {
         return await ctx.scope
           .resolve(GetServerMonitoringStatusUseCaseToken)

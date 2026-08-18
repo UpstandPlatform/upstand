@@ -31,18 +31,40 @@ describe("packaged Desktop server runtime", () => {
     expect(services).toContain("false,");
   });
 
+  test("uses Upstand Windows application metadata and icon assets", () => {
+    expect(forgeConfig).toContain('appBundleId: "dev.upstand.desktop"');
+    expect(forgeConfig).toContain(
+      'setupIcon: resolve(__dirname, "assets", "icon.ico")',
+    );
+    expect(mainProcess).toContain(
+      'app.setAppUserModelId("dev.upstand.desktop")',
+    );
+  });
+
   test("uses Next's nested standalone dashboard entrypoint", () => {
     expect(services).toContain('"dashboard", "apps", "web", "server.js"');
     expect(desktopBuild).toContain('resolve(localRoot, "dashboard")');
+    expect(desktopBuild).toContain(
+      'resolve(localRoot, "dashboard", "apps", "web", ".next", "static")',
+    );
+    expect(desktopBuild).toContain(
+      'resolve(localRoot, "dashboard", "apps", "web", "public")',
+    );
     expect(desktopBuild).toContain("dashboardNodeModules");
     expect(desktopBuild).toContain("stagedDashboardModules");
   });
 
   test("declares Upstand as the installed product and handles Squirrel lifecycle commands", () => {
     expect(desktopManifest).toContain('"productName": "Upstand"');
+    expect(forgeConfig).toContain('assets", "icon.ico"');
+    expect(forgeConfig).toContain("setupIcon");
+    expect(forgeConfig).toContain(
+      "raw.githubusercontent.com/UpstandPlatform/upstand",
+    );
     expect(mainProcess).toContain('from "electron-squirrel-startup"');
     expect(mainProcess).toContain("if (squirrelStartup)");
     expect(mainProcess).toContain('app.setPath("userData"');
+    expect(mainProcess).toContain('assets", "icon.png"');
     expect(forgeConfig).toContain("preMake");
     expect(forgeConfig).toContain('"squirrel.windows"');
   });

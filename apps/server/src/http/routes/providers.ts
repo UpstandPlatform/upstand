@@ -29,8 +29,9 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
     const code = c.req.query("code");
     const state = c.req.query("state");
     const installationId = c.req.query("installation_id");
+    const oauthState = typeof state === "string" ? state : "";
 
-    if ((!code && !installationId) || !state) {
+    if ((!code && !installationId) || !oauthState) {
       return c.json({ error: "Missing GitHub callback parameters" }, 400);
     }
 
@@ -41,9 +42,19 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
     // manifest conversion state has been consumed. Resolve the provider via
     // the durable manifest webhook binding, then bind the installation.
     if (!code && installationId) {
-      const providerId = await withRedisTimeout(
-        redis.get(gitProviderOAuthManifestWebhookKey(state)),
+      const manifestState = parseGitProviderOAuthState(oauthState);
+      if (manifestState?.purpose !== "github-init") {
+        return c.json({ error: "GitHub app setup state is invalid" }, 400);
+      }
+      const providerIdResult = await withRedisTimeout(
+        redis.eval(
+          "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
+          1,
+          gitProviderOAuthManifestWebhookKey(oauthState),
+        ),
       );
+      const providerId =
+        typeof providerIdResult === "string" ? providerIdResult : null;
       if (!providerId) {
         return c.json({ error: "GitHub app setup state is invalid" }, 400);
       }
@@ -55,8 +66,14 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
         const uow = scope.resolve(UnitOfWorkToken);
         const provider = await uow.gitProviderRepository.findById(providerId);
         if (!provider) return c.text("Git Provider not found", 404);
-        if (!callbackSession) {
+        if (
+          !callbackSession ||
+          callbackSession.user.id !== manifestState.userId
+        ) {
           return c.json({ error: "OAuth state actor is no longer valid" }, 403);
+        }
+        if (provider.organizationId !== manifestState.organizationId) {
+          return c.json({ error: "OAuth state organization mismatch" }, 403);
         }
         await checkPermission(
           callbackSession.user.id,
@@ -82,7 +99,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       }
     }
 
-    const parsedState = parseGitProviderOAuthState(state || "");
+    const parsedState = parseGitProviderOAuthState(oauthState);
     if (!parsedState) {
       return c.json({ error: "Invalid or expired GitHub OAuth state" }, 400);
     }
@@ -90,7 +107,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       redis.eval(
         "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
         1,
-        gitProviderOAuthStateKey(state || ""),
+        gitProviderOAuthStateKey(oauthState),
       ),
     );
     if (storedStateSubject !== parsedState.providerId) {
@@ -161,6 +178,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
 
         const data = await readResponseJsonLimited<{
           name: string;
+          slug: string;
           html_url: string;
           id: number;
           client_id: string;
@@ -171,6 +189,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
 
         const configObj = {
           githubAppId: data.id,
+          githubAppSlug: data.slug,
           githubClientId: data.client_id,
           githubClientSecret: data.client_secret,
           githubWebhookSecret: data.webhook_secret,
@@ -188,7 +207,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
         createdProviderId = provider.id;
         await withRedisTimeout(
           redis.set(
-            gitProviderOAuthManifestWebhookKey(state || ""),
+            gitProviderOAuthManifestWebhookKey(oauthState),
             provider.id,
             "EX",
             GITHUB_MANIFEST_WEBHOOK_TTL_SECONDS,
@@ -196,7 +215,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
         );
       } catch (err) {
         await withRedisTimeout(
-          redis.del(gitProviderOAuthManifestWebhookKey(state || "")),
+          redis.del(gitProviderOAuthManifestWebhookKey(oauthState)),
         ).catch(() => undefined);
         if (createdProviderId) {
           await scope
