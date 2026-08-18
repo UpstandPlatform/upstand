@@ -37,7 +37,7 @@
     },
     "apps/fumadocs": {
       "name": "fumadocs",
-      "version": "0.2.21",
+      "version": "0.2.22",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@openrouter/ai-sdk-provider": "^3.0.0",
@@ -82,7 +82,7 @@
     },
     "apps/schedules": {
       "name": "schedules",
-      "version": "0.2.21",
+      "version": "0.2.22",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@upstand/api": "workspace:*",
@@ -106,7 +106,7 @@
     },
     "apps/server": {
       "name": "server",
-      "version": "0.2.21",
+      "version": "0.2.22",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@hono/trpc-server": "^0.4.2",
@@ -139,7 +139,7 @@
     },
     "apps/web": {
       "name": "web",
-      "version": "0.2.21",
+      "version": "0.2.22",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@better-auth-ui/core": "catalog:",

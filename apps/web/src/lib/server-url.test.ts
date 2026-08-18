@@ -82,6 +82,17 @@ describe("runtime URL resolution", () => {
     );
   });
 
+  test("resolves direct IP browser access to the local API port", () => {
+    setBrowserLocation("http://85.155.230.19:3001/login?return_to=%2Fprojects");
+
+    expect(getServerUrl("https://api.upstand.dev")).toBe(
+      "http://85.155.230.19:3000",
+    );
+    expect(getServerApiUrl("/api/setup/status")).toBe(
+      "http://85.155.230.19:3000/api/setup/status",
+    );
+  });
+
   test("resolves direct IP documentation to the local docs port", () => {
     setBrowserLocation("http://85.155.230.19:3001/");
 

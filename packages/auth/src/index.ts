@@ -92,6 +92,23 @@ export function resolveSharedCookieDomain(
   return dashboardHost === apiHost ? undefined : configuredDomain;
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    hostname.startsWith("127.")
+  );
+}
+
+function isDirectHost(hostname: string): boolean {
+  return (
+    isLoopbackHost(hostname) ||
+    /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname) ||
+    (hostname.startsWith("[") && hostname.endsWith("]"))
+  );
+}
+
 export function resolveTrustedOrigins(
   configuration: Pick<
     AuthConfiguration,
@@ -140,11 +157,25 @@ export function createAuth(options: {
     [configuration.betterAuthUrl, configuration.corsOrigin].every((origin) =>
       origin?.startsWith("https://"),
     );
-  const trustedOrigins = resolveTrustedOrigins(configuration);
 
   const auth = betterAuth({
     database,
-    trustedOrigins,
+    trustedOrigins: async (request?: Request) => {
+      const origins = resolveTrustedOrigins(configuration);
+      if (request?.headers) {
+        const origin =
+          request.headers.get("origin") || request.headers.get("referer");
+        if (origin) {
+          try {
+            const parsed = new URL(origin);
+            if (isDirectHost(parsed.hostname)) {
+              origins.push(parsed.origin);
+            }
+          } catch {}
+        }
+      }
+      return Array.from(new Set(origins));
+    },
     emailAndPassword: {
       enabled: true,
       // The dashboard's local bootstrap and normal sign-up flow expect the

@@ -94,9 +94,10 @@ export function registerHttpMiddleware(
     [
       env.CORS_ORIGIN,
       env.BETTER_AUTH_URL,
-      ...(env.NODE_ENV === "production"
-        ? []
-        : ["http://localhost:3001", "http://127.0.0.1:3001"]),
+      "http://localhost:3001",
+      "http://127.0.0.1:3001",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
     ]
       .filter((origin): origin is string => Boolean(origin))
       .map((origin) => {
@@ -108,14 +109,22 @@ export function registerHttpMiddleware(
       }),
   );
 
+  const isLoopbackHost = (hostname: string): boolean =>
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    hostname.startsWith("127.");
+
+  const isDirectHost = (hostname: string): boolean =>
+    isLoopbackHost(hostname) ||
+    /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname) ||
+    (hostname.startsWith("[") && hostname.endsWith("]"));
+
   const isTrustedOrigin = (origin: string): boolean => {
     try {
       const parsed = new URL(origin);
       if (trustedOrigins.has(parsed.origin)) return true;
-      return (
-        env.NODE_ENV !== "production" &&
-        ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname)
-      );
+      return isDirectHost(parsed.hostname);
     } catch {
       return false;
     }
