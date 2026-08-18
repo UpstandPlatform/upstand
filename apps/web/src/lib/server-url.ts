@@ -12,7 +12,11 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 function isDirectHost(hostname: string): boolean {
-  return isLoopbackHost(hostname) || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+  return (
+    isLoopbackHost(hostname) ||
+    /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname) ||
+    (hostname.startsWith("[") && hostname.endsWith("]"))
+  );
 }
 
 function parseConfiguredUrl(configured: string | undefined): URL | null {
@@ -103,21 +107,34 @@ export function getServerUrl(configured = env.NEXT_PUBLIC_SERVER_URL): string {
   if (desktopApiOrigin) return desktopApiOrigin;
   const configuredUrl = parseConfiguredUrl(configured);
 
-  if (
-    isConfiguredOrigin(configuredUrl) &&
-    (typeof window === "undefined" ||
-      !isDirectOrigin(configuredUrl) ||
-      configuredUrl.hostname === window.location.hostname)
-  ) {
-    return configuredUrl.origin;
+  if (typeof window !== "undefined") {
+    try {
+      const windowUrl = new URL(window.location.href);
+      if (
+        isConfiguredOrigin(configuredUrl) &&
+        (isDirectOrigin(windowUrl)
+          ? isDirectOrigin(configuredUrl) &&
+            configuredUrl.hostname === windowUrl.hostname
+          : !isDirectOrigin(configuredUrl))
+      ) {
+        return configuredUrl.origin;
+      }
+      return inferApiOrigin(
+        windowUrl.protocol,
+        windowUrl.hostname,
+        windowUrl.port,
+      );
+    } catch {
+      return inferApiOrigin(
+        window.location.protocol,
+        window.location.hostname,
+        window.location.port,
+      );
+    }
   }
 
-  if (typeof window !== "undefined") {
-    return inferApiOrigin(
-      window.location.protocol,
-      window.location.hostname,
-      window.location.port,
-    );
+  if (isConfiguredOrigin(configuredUrl)) {
+    return configuredUrl.origin;
   }
 
   return "http://localhost:3000";

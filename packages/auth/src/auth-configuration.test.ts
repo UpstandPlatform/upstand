@@ -43,4 +43,25 @@ describe("authentication origin configuration", () => {
       ),
     ).toThrow("dashboard hostname");
   });
+
+  test("dynamically includes direct host request origins in trustedOrigins", async () => {
+    const { createAuth } = await import("./index");
+    const auth = createAuth({
+      database: { db: {} } as never,
+      secondaryStorage: {} as never,
+      callbacks: {} as never,
+      stepUp: {} as never,
+      configuration: configuration({ nodeEnv: "production" }),
+    });
+    const resolver = auth.options.trustedOrigins as (
+      request?: Request,
+    ) => Promise<string[]>;
+    const resolved = await resolver(
+      new Request("http://localhost:3000", {
+        headers: { origin: "http://85.155.230.19:3001" },
+      }),
+    );
+    expect(resolved).toContain("http://85.155.230.19:3001");
+    expect(resolved).toContain("https://dashboard.example.com");
+  });
 });

@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.22 - 2026-08-18
+
+Fix direct IP and port runtime URL resolution and trust direct host IP origins for CORS and session authentication on cloud and self-hosted runtimes.
+
 ## 0.2.21 - 2026-08-18
 
 Keep Active Sessions settings tab available throughout a valid authenticated session, polish the Projects dashboard for clearer scanning, quieter card actions, and responsive no-results state, and preserve release tag references during workflow attestations.
