@@ -134,6 +134,45 @@ describe("HTTP middleware request limits", () => {
     );
 
     expect(response.status).toBe(200);
+
+    const directIpResponse = await app.request(
+      "http://localhost/trpc/resource.update",
+      {
+        method: "POST",
+        headers: { Origin: "http://85.155.230.19:3001" },
+      },
+    );
+
+    expect(directIpResponse.status).toBe(200);
+  });
+
+  test("allows direct IP origins on CORS requests with credentials", async () => {
+    const app = new Hono();
+    app.use(evlog({ drain: () => undefined }));
+    registerHttpMiddleware(app as never, {
+      getServiceProvider: () =>
+        ({
+          createScope: () => ({ dispose: async () => undefined }),
+        }) as never,
+      identifyUser: async () => false,
+    });
+    app.get("/api/setup/status", (c) => c.json({ ok: true }));
+
+    const response = await app.request("http://localhost/api/setup/status", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://85.155.230.19:3001",
+        "Access-Control-Request-Method": "GET",
+      },
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "http://85.155.230.19:3001",
+    );
+    expect(response.headers.get("access-control-allow-credentials")).toBe(
+      "true",
+    );
   });
 
   test("propagates safe request IDs and replaces unsafe values", async () => {

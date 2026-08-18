@@ -1,5 +1,11 @@
 # server
 
+## 0.2.22
+
+### Patch Changes
+
+- Fix direct IP and port runtime URL resolution and trust direct host IP origins for CORS and session authentication on cloud and self-hosted runtimes.
+
 ## 0.2.21
 
 ## 0.2.20
