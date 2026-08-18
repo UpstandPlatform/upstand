@@ -22,15 +22,43 @@ import { Field, FieldError, FieldLabel } from "@upstand/ui/components/field";
 import { Input } from "@upstand/ui/components/input";
 import { Separator } from "@upstand/ui/components/separator";
 import { Spinner } from "@upstand/ui/components/spinner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import z from "zod";
 import { authClient } from "@/lib/auth-client";
+import { getServerApiUrl } from "@/lib/server-url";
 import { useSecuritySettings } from "../hooks/use-security-settings";
 
 export function SecurityPanel() {
   const { data: session } = authClient.useSession();
   const [regenBackupConfirmOpen, setRegenBackupConfirmOpen] = useState(false);
   const [disableConfirmOpen, setDisableConfirmOpen] = useState(false);
+  const [hasCredentialAccount, setHasCredentialAccount] = useState<
+    boolean | null
+  >(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(getServerApiUrl("/api/auth/security/status"), {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to load account security");
+        return (await response.json()) as {
+          hasCredentialAccount?: boolean;
+        };
+      })
+      .then((status) => {
+        if (active)
+          setHasCredentialAccount(status.hasCredentialAccount === true);
+      })
+      .catch(() => {
+        if (active) setHasCredentialAccount(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const codeForm = useForm({
     defaultValues: {
@@ -74,7 +102,7 @@ export function SecurityPanel() {
     },
     validators: {
       onSubmit: z.object({
-        password: z.string().min(1, "Current password is required"),
+        password: z.string(),
       }),
     },
   });
@@ -88,7 +116,12 @@ export function SecurityPanel() {
     },
     validators: {
       onSubmit: z.object({
-        password: z.string().min(1, "Current password is required"),
+        password: z
+          .string()
+          .refine(
+            (value) => hasCredentialAccount === false || Boolean(value),
+            "Current password is required",
+          ),
       }),
     },
   });
@@ -158,25 +191,27 @@ export function SecurityPanel() {
                     disableForm.handleSubmit();
                   }}
                 >
-                  <disableForm.Field name="password">
-                    {(field) => (
-                      <Field>
-                        <FieldLabel htmlFor={field.name}>
-                          Current password to disable 2FA
-                        </FieldLabel>
-                        <Input
-                          id={field.name}
-                          name={field.name}
-                          type="password"
-                          autoComplete="current-password"
-                          value={field.state.value}
-                          onBlur={field.handleBlur}
-                          onChange={(e) => field.handleChange(e.target.value)}
-                        />
-                        <FieldError errors={field.state.meta.errors} />
-                      </Field>
-                    )}
-                  </disableForm.Field>
+                  {hasCredentialAccount !== false && (
+                    <disableForm.Field name="password">
+                      {(field) => (
+                        <Field>
+                          <FieldLabel htmlFor={field.name}>
+                            Current password to disable 2FA
+                          </FieldLabel>
+                          <Input
+                            id={field.name}
+                            name={field.name}
+                            type="password"
+                            autoComplete="current-password"
+                            value={field.state.value}
+                            onBlur={field.handleBlur}
+                            onChange={(e) => field.handleChange(e.target.value)}
+                          />
+                          <FieldError errors={field.state.meta.errors} />
+                        </Field>
+                      )}
+                    </disableForm.Field>
+                  )}
                   <div className="flex justify-end">
                     <disableForm.Subscribe
                       selector={(state) => ({
@@ -189,7 +224,12 @@ export function SecurityPanel() {
                           type="submit"
                           variant="destructive"
                           size="sm"
-                          disabled={loading || !canSubmit || !password}
+                          disabled={
+                            loading ||
+                            !canSubmit ||
+                            hasCredentialAccount === null ||
+                            (hasCredentialAccount !== false && !password)
+                          }
                         >
                           {loading && <Spinner data-icon="inline-start" />}
                           Disable 2FA
@@ -299,27 +339,32 @@ export function SecurityPanel() {
             >
               <p className="text-muted-foreground text-sm">
                 Protect your account with a time-based one-time password from
-                your phone.
+                your phone.{" "}
+                {hasCredentialAccount === false
+                  ? "Because this account uses Google or another passwordless provider, no password is required."
+                  : ""}
               </p>
-              <enableForm.Field name="password">
-                {(field) => (
-                  <Field>
-                    <FieldLabel htmlFor={field.name}>
-                      Current password
-                    </FieldLabel>
-                    <Input
-                      id={field.name}
-                      name={field.name}
-                      type="password"
-                      autoComplete="current-password"
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                    />
-                    <FieldError errors={field.state.meta.errors} />
-                  </Field>
-                )}
-              </enableForm.Field>
+              {hasCredentialAccount !== false && (
+                <enableForm.Field name="password">
+                  {(field) => (
+                    <Field>
+                      <FieldLabel htmlFor={field.name}>
+                        Current password
+                      </FieldLabel>
+                      <Input
+                        id={field.name}
+                        name={field.name}
+                        type="password"
+                        autoComplete="current-password"
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                      />
+                      <FieldError errors={field.state.meta.errors} />
+                    </Field>
+                  )}
+                </enableForm.Field>
+              )}
               <div className="flex justify-end">
                 <enableForm.Subscribe
                   selector={(state) => ({
@@ -331,7 +376,12 @@ export function SecurityPanel() {
                     <Button
                       type="submit"
                       size="sm"
-                      disabled={loading || !canSubmit || !password}
+                      disabled={
+                        loading ||
+                        !canSubmit ||
+                        hasCredentialAccount === null ||
+                        (hasCredentialAccount !== false && !password)
+                      }
                     >
                       {loading && <Spinner data-icon="inline-start" />}
                       Set Up Authenticator

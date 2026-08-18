@@ -137,6 +137,11 @@ export class ExportControlPlaneTransferService {
     const prepared = await this.source.prepare({
       includeSecrets: input.includeSecrets,
     });
+    if (prepared.manifest.sourceOwnership === "cloud-control-plane") {
+      throw new Error(
+        "Cloud-owned data must use the cloud gateway bring-home operation",
+      );
+    }
     let secretBundle: PortableSecretBundle | null = null;
     if (input.includeSecrets) {
       if (!input.passphrase) {
@@ -225,6 +230,9 @@ export class ImportControlPlaneTransferService {
         }
         if (!manifest.secretBundle) {
           throw new Error("Unexpected secret bundle");
+        }
+        if (secretReceived) {
+          throw new Error("Transfer stream contains multiple secret bundles");
         }
         if (!input.passphrase) {
           throw new Error("A passphrase is required to import secrets");

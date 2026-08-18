@@ -104,4 +104,49 @@ describe("UpdateConcurrencyUseCase", () => {
       concurrency: 3,
     });
   });
+
+  test("rejects local build concurrency when local runtime is unavailable", async () => {
+    const useCase = new UpdateConcurrencyUseCase(
+      mockUnitOfWork(),
+      noSwarmNodes,
+      mockRedisPublisher,
+    );
+
+    await expect(
+      useCase.execute({
+        organizationId: "active-org",
+        serverId: "local",
+        concurrency: 2,
+        allowLocal: false,
+      }),
+    ).rejects.toThrow("only configure concurrency for remote build servers");
+  });
+
+  test("rejects local swarm nodes when local runtime is unavailable", async () => {
+    const useCase = new UpdateConcurrencyUseCase(
+      mockUnitOfWork({
+        serverRepository: { findById: async () => undefined },
+      }),
+      {
+        listSwarmNodes: async () => [
+          {
+            id: "local-swarm-node",
+            hostname: "cloud-manager",
+            ip: "127.0.0.1",
+            isLeader: true,
+          },
+        ],
+      },
+      mockRedisPublisher,
+    );
+
+    await expect(
+      useCase.execute({
+        organizationId: "active-org",
+        serverId: "local-swarm-node",
+        concurrency: 2,
+        allowLocal: false,
+      }),
+    ).rejects.toThrow("only configure concurrency for remote build servers");
+  });
 });

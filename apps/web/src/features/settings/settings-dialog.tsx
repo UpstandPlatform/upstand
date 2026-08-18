@@ -51,6 +51,7 @@ import {
 } from "@upstand/ui/components/sidebar";
 import { cn } from "@upstand/ui/lib/utils";
 import { useEffect, useState } from "react";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
 import { ApiKeysPanel } from "./components/api-keys-panel";
 import { AppInfoPanel } from "./components/app-info-panel";
@@ -91,6 +92,7 @@ export function SettingsDialog() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const { data: activeOrg } = authClient.useActiveOrganization();
+  const { capabilities, isCloud, isInstanceOwner } = useSystemConfig();
 
   useEffect(() => {
     const handleOpen = (e: Event) => {
@@ -128,8 +130,11 @@ export function SettingsDialog() {
     {
       id: "system",
       label: "System",
+      visible: !isCloud || isInstanceOwner,
       items: [
-        { name: "transfer", label: "Transfer", icon: Database01Icon },
+        ...(isCloud || capabilities?.controlPlaneTransfer === false
+          ? []
+          : [{ name: "transfer", label: "Transfer", icon: Database01Icon }]),
         { name: "app", label: "About", icon: InformationCircleIcon },
       ],
     },
@@ -286,7 +291,9 @@ export function SettingsDialog() {
                 {activeTab === "security" && <SecurityPanel />}
                 {activeTab === "upgal" && <UpGalSettingsPanel />}
                 {activeTab === "transfer" && <ControlPlaneTransferPanel />}
-                {activeTab === "app" && <AppInfoPanel />}
+                {activeTab === "app" && (!isCloud || isInstanceOwner) && (
+                  <AppInfoPanel />
+                )}
               </div>
             </main>
           </SidebarProvider>

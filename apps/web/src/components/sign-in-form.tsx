@@ -1,11 +1,14 @@
 import { useForm } from "@tanstack/react-form";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@upstand/ui/components/button";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import z from "zod";
-
+import { SYSTEM_CONFIG_QUERY_KEY } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
+import { getUserFacingError } from "@/lib/error-message";
+import { bootstrapInitialOrganization } from "@/lib/organization-bootstrap";
 import { AuthFormField } from "./auth/auth-form-field";
 
 export default function SignInForm({
@@ -16,6 +19,7 @@ export default function SignInForm({
   successPath?: string;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { refetch: refetchSession } = authClient.useSession();
 
   const form = useForm({
@@ -38,37 +42,28 @@ export default function SignInForm({
             // A stale anonymous request can finish just after sign-in and
             // overwrite the shared atom. Retry briefly until the new cookie is
             // visible to the API instead of navigating with a null snapshot.
-            for (const delay of [0, 150, 400]) {
-              if (delay > 0) {
-                await new Promise((resolve) => setTimeout(resolve, delay));
-              }
-              await refetchSession();
-              break;
-            }
+            await refetchSession();
+
+            // Setup status includes the signed-in instance-owner surface. The
+            // anonymous login page may have populated this query already, so
+            // invalidate it before mounting the dashboard.
+            await queryClient.invalidateQueries({
+              queryKey: SYSTEM_CONFIG_QUERY_KEY,
+            });
 
             // Imperatively select the active organization before navigating so
             // the dashboard layout sees it immediately without a reload.
-            try {
-              const { data: orgs } = await authClient.organization.list();
-              if (orgs && orgs.length > 0) {
-                const personal = orgs.find(
-                  (o) =>
-                    (o.metadata as { isPersonal?: boolean } | null)
-                      ?.isPersonal || o.name.toLowerCase() === "personal",
-                );
-                const target = personal || orgs[0];
-                await authClient.organization.setActive({
-                  organizationId: target.id,
-                });
-              }
-            } catch {
-              // Non-fatal: dashboard layout will handle org selection as fallback
-            }
+            await bootstrapInitialOrganization();
             router.push(successPath as Route);
             toast.success("Sign in successful");
           },
           onError: (error) => {
-            toast.error(error.error.message || error.error.statusText);
+            toast.error(
+              getUserFacingError(
+                error.error.message || error.error.statusText,
+                "Unable to sign in",
+              ),
+            );
           },
         },
       );

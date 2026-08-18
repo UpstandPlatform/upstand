@@ -95,6 +95,8 @@ export const SESSION_ONLY_PROCEDURES = [
   "webServer.accessLogStats",
   "webServer.accessLogStatus",
   "webServer.accessLogs",
+  "webServer.remoteAccessLogStats",
+  "webServer.remoteAccessLogs",
   "webServer.checkForUpdates",
   "webServer.checkGpuStatus",
   "webServer.cleanAll",

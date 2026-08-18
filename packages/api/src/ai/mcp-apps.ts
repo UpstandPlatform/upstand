@@ -10,6 +10,7 @@ import {
   isBlockedAddress,
   resolveAllAddresses,
 } from "@upstand/platform/network/outbound";
+import { getConfiguredControlPlaneMode } from "@upstand/usecases";
 import type { Tool } from "ai";
 import { z } from "zod";
 import type { RequestLog } from "../context";
@@ -120,7 +121,7 @@ async function configuredServers(
     return [];
   }
 
-  if (env.IS_CLOUD) {
+  if (getConfiguredControlPlaneMode() === "cloud") {
     logger.warn("Global MCP integrations are disabled in cloud mode");
     return [];
   }

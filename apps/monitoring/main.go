@@ -53,7 +53,7 @@ func main() {
 	})
 
 	app.Get("/health", func(c *fiber.Ctx) error {
-		status, lastCollectedAt, collectionError := monitoring.Health()
+		status, lastCollectedAt, _ := monitoring.Health()
 		statusCode := fiber.StatusOK
 		if status != "ok" {
 			statusCode = fiber.StatusServiceUnavailable
@@ -61,7 +61,6 @@ func main() {
 		return c.Status(statusCode).JSON(fiber.Map{
 			"status":          status,
 			"lastCollectedAt": lastCollectedAt,
-			"collectionError": collectionError,
 		})
 	})
 

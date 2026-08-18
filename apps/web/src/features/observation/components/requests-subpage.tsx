@@ -53,6 +53,7 @@ import { PageEmpty } from "@/components/dashboard/page-empty";
 import { PagePagination } from "@/components/dashboard/page-pagination";
 import { Activity, Copy, Download, Eye } from "@/components/huge-icons";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { copyText, downloadJson } from "@/lib/browser";
 import { trpc } from "@/utils/trpc";
 
@@ -81,7 +82,11 @@ function toRange(from: string, to: string) {
   return { from: start, to: end };
 }
 
-function useAccessLogs(enabled: boolean) {
+function useAccessLogs(
+  enabled: boolean,
+  organizationId: string,
+  remoteServerId?: string,
+) {
   const [from, setFrom] = useState(dateInput(3));
   const [to, setTo] = useState(dateInput(0));
   const [page, setPage] = useState(1);
@@ -93,22 +98,49 @@ function useAccessLogs(enabled: boolean) {
 
   const range = useMemo(() => toRange(from, to), [from, to]);
 
-  const query = useQuery({
-    ...trpc.webServer.accessLogs.queryOptions({
-      ...range,
-      page,
-      pageSize: 25,
-      statusGroup,
-      sortBy,
-      sortDirection,
-    }),
-    enabled,
-  });
+  const query = useQuery(
+    remoteServerId
+      ? {
+          ...trpc.webServer.remoteAccessLogs.queryOptions({
+            ...range,
+            organizationId,
+            serverId: remoteServerId,
+            page,
+            pageSize: 25,
+            statusGroup,
+            sortBy,
+            sortDirection,
+          }),
+          enabled,
+        }
+      : {
+          ...trpc.webServer.accessLogs.queryOptions({
+            ...range,
+            page,
+            pageSize: 25,
+            statusGroup,
+            sortBy,
+            sortDirection,
+          }),
+          enabled,
+        },
+  );
 
-  const stats = useQuery({
-    ...trpc.webServer.accessLogStats.queryOptions(range),
-    enabled,
-  });
+  const stats = useQuery(
+    remoteServerId
+      ? {
+          ...trpc.webServer.remoteAccessLogStats.queryOptions({
+            ...range,
+            organizationId,
+            serverId: remoteServerId,
+          }),
+          enabled,
+        }
+      : {
+          ...trpc.webServer.accessLogStats.queryOptions(range),
+          enabled,
+        },
+  );
 
   return {
     ...query,
@@ -368,11 +400,35 @@ function RequestsTable({
 
 export function RequestsSubpage() {
   const organizationState = useRequiredActiveOrganization();
+  const { isCloud, isInstanceOwner } = useSystemConfig();
+  const canViewLocalLogs = !isCloud || isInstanceOwner;
+  const remoteOnly = isCloud && !isInstanceOwner;
   const organizationId = organizationState.organizationId as string;
-  const logs = useAccessLogs(Boolean(organizationId));
+  const remoteServersQuery = useQuery({
+    ...trpc.server.list.queryOptions({ organizationId }),
+    enabled: remoteOnly && Boolean(organizationId),
+  });
+  const remoteServers = (remoteServersQuery.data ?? []).filter(
+    (server) => server.status === "ready",
+  );
+  const [selectedServerId, setSelectedServerId] = useState("");
+  useEffect(() => {
+    if (
+      remoteOnly &&
+      remoteServers.length > 0 &&
+      !remoteServers.some((server) => server.id === selectedServerId)
+    ) {
+      setSelectedServerId(remoteServers[0].id);
+    }
+  }, [remoteOnly, remoteServers, selectedServerId]);
+  const logs = useAccessLogs(
+    Boolean(organizationId) && (canViewLocalLogs || Boolean(selectedServerId)),
+    organizationId,
+    remoteOnly ? selectedServerId : undefined,
+  );
   const status = useQuery({
     ...trpc.webServer.accessLogStatus.queryOptions(),
-    enabled: Boolean(organizationId),
+    enabled: Boolean(organizationId) && canViewLocalLogs,
   });
 
   const toggleMutation = useMutation({
@@ -389,8 +445,32 @@ export function RequestsSubpage() {
     if (status.data?.cleanupCron) setCleanupCron(status.data.cleanupCron);
   }, [status.data?.cleanupCron]);
 
+  if (remoteOnly && remoteServersQuery.isPending) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (remoteOnly && remoteServers.length === 0) {
+    return (
+      <Card className="border-border/60 p-6">
+        <CardHeader className="p-0 pb-2">
+          <CardTitle>No remote servers available</CardTitle>
+          <CardDescription>
+            Connect a ready remote server to view its Caddy request logs. Cloud
+            control-plane logs are never exposed to regular platform users.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   const pending = toggleMutation.isPending;
-  const active = Boolean(status.data?.enabled);
+  const active = remoteOnly
+    ? Boolean(selectedServerId)
+    : Boolean(status.data?.enabled);
 
   const toggle = async () => {
     const wasEnabled = Boolean(status.data?.enabled);
@@ -411,7 +491,7 @@ export function RequestsSubpage() {
     }
   };
 
-  if (status.isPending) {
+  if (!remoteOnly && status.isPending) {
     return (
       <div className="flex h-32 items-center justify-center">
         <Spinner />
@@ -421,78 +501,110 @@ export function RequestsSubpage() {
 
   return (
     <div className="space-y-6">
-      <Card className="border-border/60">
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="rounded-full bg-primary/10 p-2 text-primary">
-                <Activity className="size-5" />
-              </div>
-              <div>
-                <h2 className="font-semibold text-base">Caddy access logs</h2>
-                <p className="max-w-2xl text-muted-foreground text-sm">
-                  Store structured request logs in a managed Docker volume.
-                  Enabling this configures Caddy access logging and manages log
-                  rotation.
-                </p>
-              </div>
+      {remoteOnly ? (
+        <Card className="border-border/60">
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-semibold text-base">
+                Remote server requests
+              </h2>
+              <p className="text-muted-foreground text-sm">
+                Read-only Caddy request logs for a server in this workspace.
+              </p>
             </div>
-            <Switch
-              checked={active}
-              onCheckedChange={toggle}
-              disabled={pending}
-            />
-          </div>
+            <Select
+              value={selectedServerId}
+              onValueChange={(value) => value && setSelectedServerId(value)}
+            >
+              <SelectTrigger className="w-full sm:w-64">
+                <SelectValue placeholder="Select a remote server" />
+              </SelectTrigger>
+              <SelectContent>
+                {remoteServers.map((server) => (
+                  <SelectItem key={server.id} value={server.id}>
+                    {server.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-border/60">
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-primary/10 p-2 text-primary">
+                  <Activity className="size-5" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-base">Caddy access logs</h2>
+                  <p className="max-w-2xl text-muted-foreground text-sm">
+                    Store structured request logs in a managed Docker volume.
+                    Enabling this configures Caddy access logging and manages
+                    log rotation.
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={active}
+                onCheckedChange={toggle}
+                disabled={pending}
+              />
+            </div>
 
-          {active && (
-            <div className="flex flex-col gap-2">
-              <Separator />
-              <div className="mt-4">
-                <Label htmlFor="access-log-cleanup">Log cleanup schedule</Label>
-                <p className="mt-1 text-muted-foreground text-xs">
-                  Cron schedule for rotating old access-log files.
-                </p>
+            {active && (
+              <div className="flex flex-col gap-2">
+                <Separator />
+                <div className="mt-4">
+                  <Label htmlFor="access-log-cleanup">
+                    Log cleanup schedule
+                  </Label>
+                  <p className="mt-1 text-muted-foreground text-xs">
+                    Cron schedule for rotating old access-log files.
+                  </p>
+                </div>
+                <div className="flex w-full gap-2 sm:max-w-sm">
+                  <Input
+                    id="access-log-cleanup"
+                    value={cleanupCron}
+                    onChange={(event) => setCleanupCron(event.target.value)}
+                    placeholder="0 3 * * *"
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={cleanupMutation.isPending || !cleanupCron.trim()}
+                    onClick={async () => {
+                      try {
+                        await cleanupMutation.mutateAsync({
+                          cron: cleanupCron.trim(),
+                        });
+                        await status.refetch();
+                        toast.success("Cleanup schedule updated");
+                      } catch (error) {
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : "Unable to update cleanup schedule",
+                        );
+                      }
+                    }}
+                  >
+                    {cleanupMutation.isPending ? (
+                      <>
+                        <Spinner data-icon="inline-start" />
+                        Saving…
+                      </>
+                    ) : (
+                      "Save"
+                    )}
+                  </Button>
+                </div>
               </div>
-              <div className="flex w-full gap-2 sm:max-w-sm">
-                <Input
-                  id="access-log-cleanup"
-                  value={cleanupCron}
-                  onChange={(event) => setCleanupCron(event.target.value)}
-                  placeholder="0 3 * * *"
-                />
-                <Button
-                  variant="outline"
-                  disabled={cleanupMutation.isPending || !cleanupCron.trim()}
-                  onClick={async () => {
-                    try {
-                      await cleanupMutation.mutateAsync({
-                        cron: cleanupCron.trim(),
-                      });
-                      await status.refetch();
-                      toast.success("Cleanup schedule updated");
-                    } catch (error) {
-                      toast.error(
-                        error instanceof Error
-                          ? error.message
-                          : "Unable to update cleanup schedule",
-                      );
-                    }
-                  }}
-                >
-                  {cleanupMutation.isPending ? (
-                    <>
-                      <Spinner data-icon="inline-start" />
-                      Saving…
-                    </>
-                  ) : (
-                    "Save"
-                  )}
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {active ? (
         <>
@@ -603,18 +715,24 @@ export function RequestsSubpage() {
         <PageEmpty
           icon={Activity01FreeIcons}
           title="Request monitoring is off"
-          description="Enable Caddy access logs to start collecting request distribution and detailed HTTP entries."
+          description={
+            remoteOnly
+              ? "Select a ready remote server to view its Caddy request logs."
+              : "Enable Caddy access logs to start collecting request distribution and detailed HTTP entries."
+          }
           action={
-            <Button onClick={toggle} disabled={pending}>
-              {pending ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  Enabling…
-                </>
-              ) : (
-                "Enable Monitoring"
-              )}
-            </Button>
+            remoteOnly ? undefined : (
+              <Button onClick={toggle} disabled={pending}>
+                {pending ? (
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    Enabling…
+                  </>
+                ) : (
+                  "Enable Monitoring"
+                )}
+              </Button>
+            )
           }
         />
       )}

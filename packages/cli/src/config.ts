@@ -14,7 +14,11 @@ const LinkSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
-type UserConfig = { apiUrl?: string; token?: string };
+type UserConfig = {
+  apiUrl?: string;
+  token?: string;
+  organizationId?: string;
+};
 
 function configDirectory(): string {
   const explicit = process.env.UPSTAND_CONFIG_DIR?.trim();
@@ -67,16 +71,22 @@ export async function readUserConfig(): Promise<UserConfig> {
   return (await readJson<UserConfig>(configPath())) ?? {};
 }
 
-export async function saveToken(token: string, apiUrl: string): Promise<void> {
+export async function saveToken(
+  token: string,
+  apiUrl: string,
+  organizationId?: string,
+): Promise<void> {
   await writePrivateJson(configPath(), {
     token,
     apiUrl: apiUrl.replace(/\/$/, ""),
+    ...(organizationId ? { organizationId } : {}),
   });
 }
 
 export async function clearToken(): Promise<void> {
   const config = await readUserConfig();
   delete config.token;
+  delete config.organizationId;
   await writePrivateJson(configPath(), config);
 }
 

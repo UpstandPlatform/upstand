@@ -3,7 +3,6 @@ import { stepUp } from "@upstand/api/auth";
 import { createContext } from "@upstand/api/context";
 import { requireInstanceOwner } from "@upstand/api/instance-access";
 import { auditLog, db, organization } from "@upstand/db";
-import { env } from "@upstand/env/server";
 import {
   DrizzleControlPlaneExportSource,
   DrizzleControlPlaneImportDestination,
@@ -12,6 +11,8 @@ import {
 } from "@upstand/repositories";
 import {
   ExportControlPlaneTransferService,
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
   ImportControlPlaneTransferService,
 } from "@upstand/usecases";
 import { log } from "evlog";
@@ -20,6 +21,7 @@ import { stream } from "hono/streaming";
 import type { AppEnv } from "../types";
 
 const TRANSFER_CONTENT_TYPE = "application/vnd.upstand.transfer+ndjson";
+const MAX_TRANSFER_REQUEST_BYTES = 512 * 1024 * 1024;
 
 async function requireTransferOwner(c: Parameters<Hono<AppEnv>["fetch"]>[0]) {
   const context = await createContext({ context: c as never });
@@ -95,11 +97,17 @@ async function* requestContent(
   body: ReadableStream<Uint8Array>,
 ): AsyncIterable<Uint8Array> {
   const reader = body.getReader();
+  let totalBytes = 0;
   try {
     while (true) {
       const value = await reader.read();
       if (value.done) return;
-      if (value.value.byteLength > 0) yield value.value;
+      if (value.value.byteLength === 0) continue;
+      totalBytes += value.value.byteLength;
+      if (totalBytes > MAX_TRANSFER_REQUEST_BYTES) {
+        throw new Error("Control-plane transfer exceeds the 512 MiB limit");
+      }
+      yield value.value;
     }
   } finally {
     reader.releaseLock();
@@ -108,7 +116,10 @@ async function* requestContent(
 
 export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
   app.post("/api/control-plane-transfer/export", async (c) => {
-    if (env.IS_CLOUD) {
+    if (
+      !getPlatformCapabilities(getConfiguredControlPlaneMode())
+        .controlPlaneTransfer
+    ) {
       return c.json(
         {
           error:
@@ -138,7 +149,9 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
     try {
       const source = new DrizzleControlPlaneExportSource(db, {
         sourceEngine:
-          env.UPSTAND_PLATFORM === "desktop" ? "pglite" : "postgresql",
+          getConfiguredControlPlaneMode() === "desktop"
+            ? "pglite"
+            : "postgresql",
         sourceInstanceId: await getOrCreateControlPlaneInstanceId(db),
       });
       const content = await new ExportControlPlaneTransferService(
@@ -193,7 +206,10 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/api/control-plane-transfer/import", async (c) => {
-    if (env.IS_CLOUD) {
+    if (
+      !getPlatformCapabilities(getConfiguredControlPlaneMode())
+        .controlPlaneTransfer
+    ) {
       return c.json(
         {
           error:

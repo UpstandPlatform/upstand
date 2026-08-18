@@ -146,7 +146,7 @@ describe("MigrateResourceUseCase", () => {
 
     expect(result).toBeDefined();
     expect(result.sourceServerId).toBe("server-source");
-    expect(result.targetServer.id).toBe("server-target");
+    expect(result.targetServer?.id).toBe("server-target");
     expect(resources.get("res-1")?.serverId).toBe("server-source");
     expect(result.migration.targetServerId).toBe("server-target");
     expect(deployments.size).toBe(1);
@@ -155,6 +155,22 @@ describe("MigrateResourceUseCase", () => {
     const event = [...outbox.values()][0];
     expect(event?.organizationId).toBe("org-1");
     expect(event?.payload).toMatchObject({ migrationId: result.migration.id });
+  });
+
+  test("queues migration back to the local control plane", async () => {
+    const { uow, deployments, migrations, outbox } = createMigrateTestUow();
+
+    const result = await new MigrateResourceUseCase(uow).execute({
+      organizationId: "org-1",
+      resourceId: "res-1",
+      targetServerId: "local",
+    });
+
+    expect(result.targetServer).toBeNull();
+    expect(result.migration.targetServerId).toBe("local");
+    expect(deployments.size).toBe(1);
+    expect(migrations.size).toBe(1);
+    expect(outbox.size).toBe(1);
   });
 
   test("rejects a second active migration for the same resource", async () => {

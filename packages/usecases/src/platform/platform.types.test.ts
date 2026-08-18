@@ -11,10 +11,10 @@ import {
 } from "./platform.types";
 
 describe("platform types", () => {
-  test("resolves explicit platform modes before environment defaults", () => {
+  test("cloud deployment identity takes precedence over conflicting platform input", () => {
     expect(
       resolveControlPlaneMode({ platform: "desktop", isCloud: true }),
-    ).toBe("desktop");
+    ).toBe("cloud");
     expect(
       resolveControlPlaneMode({ platform: undefined, isCloud: true }),
     ).toBe("cloud");
@@ -31,19 +31,29 @@ describe("platform types", () => {
     expect(capabilities.localGitCli).toBe(false);
     expect(capabilities.swarmManagement).toBe(false);
     expect(capabilities.enterpriseScimSso).toBe(true);
+    expect(capabilities.controlPlaneTransfer).toBe(false);
     expect(capabilities.dataOwnership).toBe("cloud-control-plane");
   });
 
   test("defines desktop control plane capabilities", () => {
     const capabilities = getPlatformCapabilities("desktop");
-    expect(capabilities.localRuntime).toBe(true);
+    expect(capabilities.localRuntime).toBe(false);
+    expect(capabilities.scheduler).toBe(false);
+    expect(capabilities.jobs).toBe(false);
     expect(capabilities.acmeCertificates).toBe(false);
-    expect(capabilities.localGitCli).toBe(true);
-    expect(capabilities.localDockerSocket).toBe(true);
+    expect(capabilities.localGitCli).toBe(false);
+    expect(capabilities.localDockerSocket).toBe(false);
+    expect(capabilities.embeddedMonitoring).toBe(false);
     expect(capabilities.swarmManagement).toBe(false);
     expect(capabilities.desktopNativeNotifications).toBe(true);
     expect(capabilities.enterpriseScimSso).toBe(false);
     expect(capabilities.dataOwnership).toBe("local-control-plane");
+    expect(capabilities.controlPlaneTransfer).toBe(true);
+    expect(
+      capabilities.runtimeMatrix.find(
+        (entry) => entry.target === "local" && entry.runtime === "docker",
+      ),
+    ).toMatchObject({ supported: false, buildLocations: [] });
   });
 
   test("defines self-hosted control plane capabilities", () => {
@@ -52,6 +62,7 @@ describe("platform types", () => {
     expect(capabilities.acmeCertificates).toBe(true);
     expect(capabilities.swarmManagement).toBe(true);
     expect(capabilities.enterpriseScimSso).toBe(true);
+    expect(capabilities.controlPlaneTransfer).toBe(true);
   });
 
   test("validates deployment placement as a discriminated union", () => {

@@ -7,6 +7,14 @@ module.exports = {
     asar: true,
     name: "upstand",
     executableName: "upstand",
+    appBundleId: "dev.upstand.desktop",
+    win32metadata: {
+      CompanyName: "Upstand",
+      ProductName: "Upstand",
+      FileDescription: "Upstand Desktop",
+      OriginalFilename: "upstand.exe",
+    },
+    icon: resolve(__dirname, "assets", "icon.ico"),
     // Allows an air-gapped verification host to provide a pre-verified Electron
     // archive while CI continues to use Electron Packager's normal download.
     electronZipDir: process.env.UPSTAND_ELECTRON_ZIP_DIR,
@@ -32,7 +40,13 @@ module.exports = {
   makers: [
     {
       name: "@electron-forge/maker-squirrel",
-      config: { name: "upstand", title: "Upstand" },
+      config: {
+        name: "upstand",
+        title: "Upstand",
+        setupIcon: resolve(__dirname, "assets", "icon.ico"),
+        iconUrl:
+          "https://raw.githubusercontent.com/UpstandPlatform/upstand/master/apps/desktop/assets/icon.ico",
+      },
     },
     { name: "@electron-forge/maker-zip", platforms: ["darwin", "linux"] },
     { name: "@electron-forge/maker-dmg" },

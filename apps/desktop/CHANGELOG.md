@@ -1,5 +1,24 @@
 # desktop
 
+## 0.2.29
+
+### Patch Changes
+
+- Harden desktop packaging dependency resolution and stop the monitoring health
+  endpoint from returning internal collection error details.
+
+## 0.2.28
+
+### Patch Changes
+
+- [#256](https://github.com/UpstandPlatform/upstand/pull/256) [`491fb73`](https://github.com/UpstandPlatform/upstand/commit/491fb739772d617358642116c17e3247747e4899) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix Desktop startup fallback and runtime origin probing, and apply the Upstand icon to Windows installers, shortcuts, and windows.
+
+## 0.2.27
+
+### Patch Changes
+
+- [#254](https://github.com/UpstandPlatform/upstand/pull/254) [`cb16eeb`](https://github.com/UpstandPlatform/upstand/commit/cb16eeb1ad24a95b051a0d061447e0d0a958d16d) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix packaged Desktop assets and branding, add runtime and connection switching, and keep authentication requests on the active Cloud or self-hosted control plane.
+
 ## 0.2.26
 
 ### Patch Changes

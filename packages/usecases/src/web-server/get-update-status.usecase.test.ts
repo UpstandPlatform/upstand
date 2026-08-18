@@ -76,6 +76,37 @@ describe("GetUpdateStatusUseCase", () => {
     }
   });
 
+  test("lets the cloud instance owner inspect and update the managed channel", async () => {
+    const originalCloud = process.env.IS_CLOUD;
+    const originalVersion = process.env.UPSTAND_VERSION;
+    const originalImage = process.env.UPSTAND_SERVER_IMAGE;
+    process.env.IS_CLOUD = "true";
+    process.env.UPSTAND_VERSION = "v0.1.40";
+    process.env.UPSTAND_SERVER_IMAGE =
+      "ghcr.io/upstandplatform/upstand-server:v0.1.40";
+    const fetcher = mockGitHub(release(), manifest()) as typeof fetch;
+
+    try {
+      await expect(
+        new GetUpdateStatusUseCase().execute({
+          forceRefresh: true,
+          allowManagedUpdates: true,
+          fetcher,
+          repository: "upstandplatform/upstand",
+        }),
+      ).resolves.toMatchObject({
+        channel: "managed",
+        latestVersion: "v0.1.41",
+        updateAvailable: true,
+        canUpdate: true,
+      });
+    } finally {
+      process.env.IS_CLOUD = originalCloud;
+      process.env.UPSTAND_VERSION = originalVersion;
+      process.env.UPSTAND_SERVER_IMAGE = originalImage;
+    }
+  });
+
   test("only reports an update when the release manifest contains every image", async () => {
     const originalVersion = process.env.UPSTAND_VERSION;
     const originalImage = process.env.UPSTAND_SERVER_IMAGE;

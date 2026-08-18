@@ -89,7 +89,7 @@ export function OrganizationSwitcher({
             {isPending ? (
               <OrganizationView isPending hideRole hideSlug />
             ) : activeOrg ? (
-              <OrganizationView hideRole hideSlug />
+              <OrganizationView hideRole hideSlug organization={activeOrg} />
             ) : session ? (
               <UserView hideSubtitle />
             ) : (

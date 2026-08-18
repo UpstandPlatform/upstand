@@ -26,11 +26,13 @@ import {
 import { FlowCanvas } from "@/features/topology/components/flow-canvas";
 import { useTopology } from "@/features/topology/hooks/use-topology";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { trpc } from "@/utils/trpc";
 
 export default function InfrastructureTopologyPage() {
   const organizationState = useRequiredActiveOrganization();
   const organizationId = organizationState.organizationId as string;
+  const { isCloud, isInstanceOwner } = useSystemConfig();
 
   const [selectedServerId, setSelectedServerId] = useState<string>("all");
   const [isLive, setIsLive] = useState<boolean>(true);
@@ -71,7 +73,11 @@ export default function InfrastructureTopologyPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Infrastructure</SelectItem>
-                <SelectItem value="local">Local Server (127.0.0.1)</SelectItem>
+                {(!isCloud || isInstanceOwner) && (
+                  <SelectItem value="local">
+                    Local Server (127.0.0.1)
+                  </SelectItem>
+                )}
                 {servers.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name} ({s.ipAddress ?? "Remote"})

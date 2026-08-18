@@ -19,6 +19,11 @@ export const GetTopologyGraphInputSchema = z.object({
 
 export type GetTopologyGraphInput = z.infer<typeof GetTopologyGraphInputSchema>;
 
+export type GetTopologyGraphOptions = {
+  includeLocal?: boolean;
+  allowLocalInCloud?: boolean;
+};
+
 export type TopologyNodeScope = "managed" | "platform" | "external";
 export type TopologyNodePlacement = "local" | "remote-server";
 
@@ -204,20 +209,28 @@ export class GetTopologyGraphUseCase {
     private readonly getDockerInventory: GetDockerInventoryUseCase,
   ) {}
 
-  async execute(input: GetTopologyGraphInput): Promise<TopologyGraphResponse> {
+  async execute(
+    input: GetTopologyGraphInput,
+    options: GetTopologyGraphOptions = {},
+  ): Promise<TopologyGraphResponse> {
     const mode = getConfiguredControlPlaneMode();
     const capabilities = getPlatformCapabilities(mode);
+    const includeLocal = options.includeLocal !== false;
 
     const configuredServers = await this.getServers.execute({
       organizationId: input.organizationId,
     });
     const allServers: TopologyServer[] = [
-      {
-        id: "local",
-        name: "Local Server",
-        ipAddress: "127.0.0.1",
-        status: "ready",
-      },
+      ...(includeLocal
+        ? [
+            {
+              id: "local",
+              name: "Local Server",
+              ipAddress: "127.0.0.1",
+              status: "ready",
+            } satisfies TopologyServer,
+          ]
+        : []),
       ...configuredServers,
     ];
     const selectedServers =
@@ -257,28 +270,37 @@ export class GetTopologyGraphUseCase {
 
         const fetches: Promise<PromiseSettledResult<unknown>>[] = [
           settleOne(
-            this.getDockerInventory.execute({
-              organizationId: input.organizationId,
-              serverId: server.id,
-              kind: "containers",
-              tail: 1000,
-            }),
+            this.getDockerInventory.execute(
+              {
+                organizationId: input.organizationId,
+                serverId: server.id,
+                kind: "containers",
+                tail: 1000,
+              },
+              { allowLocalInCloud: options.allowLocalInCloud },
+            ),
           ),
           settleOne(
-            this.getDockerInventory.execute({
-              organizationId: input.organizationId,
-              serverId: server.id,
-              kind: "networks",
-              tail: 1000,
-            }),
+            this.getDockerInventory.execute(
+              {
+                organizationId: input.organizationId,
+                serverId: server.id,
+                kind: "networks",
+                tail: 1000,
+              },
+              { allowLocalInCloud: options.allowLocalInCloud },
+            ),
           ),
           settleOne(
-            this.getDockerInventory.execute({
-              organizationId: input.organizationId,
-              serverId: server.id,
-              kind: "volumes",
-              tail: 1000,
-            }),
+            this.getDockerInventory.execute(
+              {
+                organizationId: input.organizationId,
+                serverId: server.id,
+                kind: "volumes",
+                tail: 1000,
+              },
+              { allowLocalInCloud: options.allowLocalInCloud },
+            ),
           ),
         ];
 
@@ -286,12 +308,15 @@ export class GetTopologyGraphUseCase {
         if (capabilities.swarmManagement) {
           fetches.push(
             settleOne(
-              this.getDockerInventory.execute({
-                organizationId: input.organizationId,
-                serverId: server.id,
-                kind: "swarm_nodes",
-                tail: 1000,
-              }),
+              this.getDockerInventory.execute(
+                {
+                  organizationId: input.organizationId,
+                  serverId: server.id,
+                  kind: "swarm_nodes",
+                  tail: 1000,
+                },
+                { allowLocalInCloud: options.allowLocalInCloud },
+              ),
             ),
           );
         }

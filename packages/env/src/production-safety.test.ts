@@ -60,4 +60,15 @@ describe("production origin safety", () => {
       }),
     ).toThrow("BETTER_AUTH_URL must use an HTTPS origin");
   });
+
+  test("does not treat cloud origins as desktop loopback origins", () => {
+    expect(() =>
+      assertSecureProductionOrigins({
+        ...secureOrigins,
+        platform: "cloud",
+        betterAuthUrl: "http://127.0.0.1:54319",
+        corsOrigin: "http://127.0.0.1:3000",
+      }),
+    ).toThrow("BETTER_AUTH_URL must use an HTTPS origin");
+  });
 });

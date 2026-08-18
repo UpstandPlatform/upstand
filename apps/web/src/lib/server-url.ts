@@ -11,6 +11,10 @@ function isLoopbackHost(hostname: string): boolean {
   );
 }
 
+function isDirectHost(hostname: string): boolean {
+  return isLoopbackHost(hostname) || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+}
+
 function parseConfiguredUrl(configured: string | undefined): URL | null {
   if (!configured) return null;
   try {
@@ -26,10 +30,7 @@ function isConfiguredOrigin(url: URL | null): url is URL {
 
 function isDirectOrigin(url: URL): boolean {
   return (
-    isLoopbackHost(url.hostname) ||
-    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname) ||
-    url.port === "3000" ||
-    url.port === "3001"
+    isDirectHost(url.hostname) || url.port === "3000" || url.port === "3001"
   );
 }
 
@@ -37,25 +38,63 @@ function getDesktopApiOrigin(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const desktop = (
     window as Window & {
-      upstandDesktop?: { local?: { apiOrigin?: unknown } };
+      upstandDesktop?: {
+        runtime?: { apiOrigin?: unknown; docsOrigin?: unknown };
+        local?: { apiOrigin?: unknown };
+      };
     }
   ).upstandDesktop;
-  // The preload API is asynchronous, so the current origin is injected by the
-  // desktop shell before navigation. This synchronous hook is reserved for a
-  // future cached value; normal browser requests continue through inference.
-  const value = desktop?.local?.apiOrigin;
+  // The desktop shell exposes the active profile's API origin synchronously so
+  // auth and API clients never accidentally use the embedded API when the
+  // window is connected to Cloud or another self-hosted control plane.
+  const value = desktop?.runtime?.apiOrigin ?? desktop?.local?.apiOrigin;
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function getDesktopDocsOrigin(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const desktop = (
+    window as Window & {
+      upstandDesktop?: { runtime?: { docsOrigin?: unknown } };
+    }
+  ).upstandDesktop;
+  const value = desktop?.runtime?.docsOrigin;
   return typeof value === "string" && value ? value : undefined;
 }
 
 function inferApiOrigin(protocol: string, hostname: string, port = ""): string {
-  const apiHostname = hostname.startsWith("app.")
-    ? `api.${hostname.slice("app.".length)}`
-    : hostname;
+  const apiHostname = isDirectHost(hostname)
+    ? hostname
+    : inferSiblingHostname(hostname, "api");
   const apiPort =
     port === "3001" ? "3000" : isLoopbackHost(hostname) ? "3000" : port;
   const portSuffix = apiPort ? `:${apiPort}` : "";
 
   return new URL(`${protocol}//${apiHostname}${portSuffix}`).origin;
+}
+
+function inferSiblingHostname(hostname: string, sibling: "api" | "docs") {
+  if (hostname === "localhost" || isLoopbackHost(hostname)) {
+    return hostname;
+  }
+
+  if (hostname.startsWith(`${sibling}.`)) {
+    return hostname;
+  }
+
+  for (const prefix of ["api.", "docs."]) {
+    if (hostname.startsWith(prefix)) {
+      return `${sibling}.${hostname.slice(prefix.length)}`;
+    }
+  }
+
+  for (const prefix of ["app.", "dashboard.", "console.", "www."]) {
+    if (hostname.startsWith(prefix)) {
+      return `${sibling}.${hostname.slice(prefix.length)}`;
+    }
+  }
+
+  return `${sibling}.${hostname}`;
 }
 
 /** Resolve the API origin at runtime for immutable self-hosted web images. */
@@ -90,8 +129,6 @@ export function getServerUrlFromHeaders(
   configured = env.NEXT_PUBLIC_SERVER_URL,
 ): string {
   const internalUrl = parseConfiguredUrl(env.UPSTAND_SERVER_INTERNAL_URL);
-  if (internalUrl) return internalUrl.origin;
-
   const configuredUrl = parseConfiguredUrl(configured);
   const forwardedHost = requestHeaders.get("x-forwarded-host");
   const host = (forwardedHost || requestHeaders.get("host") || "localhost:3001")
@@ -101,19 +138,27 @@ export function getServerUrlFromHeaders(
     .get("x-forwarded-proto")
     ?.split(",")[0]
     .trim();
-  const protocol =
-    forwardedProtocol === "http" || forwardedProtocol === "https"
-      ? `${forwardedProtocol}:`
-      : isLoopbackHost(host)
-        ? "http:"
-        : "https:";
-
   try {
+    const hostUrl = new URL(`http://${host}`);
+    // A direct IP request is the user's explicit recovery path. Resolve the
+    // sibling API on that same host instead of sending SSR back to a service
+    // name that is only reachable inside the container network.
+    if (internalUrl && !isDirectHost(hostUrl.hostname)) {
+      return internalUrl.origin;
+    }
+    const protocol =
+      forwardedProtocol === "http" || forwardedProtocol === "https"
+        ? `${forwardedProtocol}:`
+        : isDirectHost(hostUrl.hostname)
+          ? "http:"
+          : "https:";
     const requestUrl = new URL(`${protocol}//${host}`);
     if (
       isConfiguredOrigin(configuredUrl) &&
-      (!isDirectOrigin(configuredUrl) ||
-        configuredUrl.hostname === requestUrl.hostname)
+      (isDirectOrigin(requestUrl)
+        ? isDirectOrigin(configuredUrl) &&
+          configuredUrl.hostname === requestUrl.hostname
+        : !isDirectOrigin(configuredUrl))
     ) {
       return configuredUrl.origin;
     }
@@ -140,12 +185,17 @@ export function getDocsUrl(path = ""): string {
     ? normalizedPath
     : `/docs${normalizedPath}`;
 
+  const desktopDocsOrigin = getDesktopDocsOrigin();
+  if (desktopDocsOrigin) {
+    return `${desktopDocsOrigin}${docsPath}`;
+  }
+
   if (typeof window !== "undefined") {
     const { protocol, hostname, port } = window.location;
-    if (isLoopbackHost(hostname) && (port === "3001" || port === "3000")) {
+    if (isDirectHost(hostname) && (port === "3001" || port === "3000")) {
       return `http://${hostname}:4000${docsPath}`;
     }
-    return `${protocol}//${hostname}${port ? `:${port}` : ""}${docsPath}`;
+    return `${protocol}//${inferSiblingHostname(hostname, "docs")}${docsPath}`;
   }
 
   const configuredServerUrl = parseConfiguredUrl(env.NEXT_PUBLIC_SERVER_URL);
@@ -154,7 +204,10 @@ export function getDocsUrl(path = ""): string {
       return `${configuredServerUrl.protocol}//${configuredServerUrl.hostname}:4000${docsPath}`;
     }
 
-    const docsHostname = `docs.${configuredServerUrl.hostname}`;
+    const docsHostname = inferSiblingHostname(
+      configuredServerUrl.hostname,
+      "docs",
+    );
     return `${configuredServerUrl.protocol}//${docsHostname}${docsPath}`;
   }
 

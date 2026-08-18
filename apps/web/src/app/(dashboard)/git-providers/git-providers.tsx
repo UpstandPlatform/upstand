@@ -55,6 +55,11 @@ import {
 import { UpGalTarget } from "@/components/upgal-target";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
 import type { authClient } from "@/lib/auth-client";
+import {
+  buildGithubAppManifest,
+  getGithubAppInstallationUrl,
+  getGithubAppManifestCreationUrl,
+} from "@/lib/github-app";
 import { safeExternalUrl } from "@/lib/safe-external-url";
 import { getServerApiUrl, getServerUrl } from "@/lib/server-url";
 import { trpc } from "@/utils/trpc";
@@ -161,7 +166,7 @@ export default function GitProviders({
     },
   });
 
-  const createGithubManifestStateMutation = useMutation(
+  const { mutateAsync: createGithubManifestState } = useMutation(
     trpc.gitProvider.createGithubManifestState.mutationOptions(),
   );
 
@@ -169,77 +174,22 @@ export default function GitProviders({
   const fetchManifestOptions = useCallback(async () => {
     if (!orgId) return;
     try {
-      const state = await createGithubManifestStateMutation.mutateAsync({
+      const state = await createGithubManifestState({
         organizationId: orgId,
       });
       setGithubManifestState(state.state);
 
       const serverUrl = getServerUrl();
-      const callback = `${serverUrl}/api/providers/github/setup`;
-      const setupCallback = `${serverUrl}/api/providers/github/setup`;
-
-      const manifestData = {
-        name: `Upstand Deploy (${orgId.substring(0, 6)})`,
-        url: serverUrl,
-        hook_attributes: {
-          url: `${serverUrl}/api/webhooks/github/manifest/${encodeURIComponent(state.state)}`,
-          active: true,
-        },
-        redirect_url: callback,
-        setup_url: setupCallback,
-        setup_on_install: true,
+      const manifestData = buildGithubAppManifest({
+        organizationId: orgId,
+        serverUrl,
         state: state.state,
-        public: false,
-        default_permissions: {
-          actions: "read",
-          administration: "read",
-          checks: "read",
-          contents: "read",
-          deployments: "write",
-          environments: "write",
-          issues: "read",
-          metadata: "read",
-          packages: "read",
-          pages: "read",
-          pull_requests: "read",
-          repository_hooks: "write",
-          statuses: "read",
-          vulnerability_alerts: "read",
-          workflows: "write",
-        },
-        default_events: [
-          "create",
-          "delete",
-          "deployment",
-          "deployment_status",
-          "fork",
-          "gollum",
-          "issue_comment",
-          "issues",
-          "label",
-          "milestone",
-          "member",
-          "project",
-          "project_card",
-          "project_column",
-          "public",
-          "pull_request",
-          "pull_request_review",
-          "pull_request_review_comment",
-          "push",
-          "release",
-          "repository",
-          "status",
-          "watch",
-          "workflow_dispatch",
-          "workflow_run",
-        ],
-      };
+      });
       setManifest(JSON.stringify(manifestData));
     } catch {
       toast.error("Failed to compile manifest setup details");
     }
-  }, [createGithubManifestStateMutation, orgId]);
+  }, [createGithubManifestState, orgId]);
 
   useEffect(() => {
     if (addProviderOpen && providerType === "github") {
@@ -248,10 +198,10 @@ export default function GitProviders({
   }, [addProviderOpen, providerType, fetchManifestOptions]);
 
   const getGithubAppCreationUrl = () => {
-    const safeOrg = encodeURIComponent(orgName.trim());
-    return isOrganization && safeOrg
-      ? `https://github.com/organizations/${safeOrg}/settings/apps/new`
-      : "https://github.com/settings/apps/new";
+    return getGithubAppManifestCreationUrl(
+      isOrganization ? orgName : undefined,
+      githubManifestState,
+    );
   };
 
   const handleCreateNonGithub = (e: React.SyntheticEvent) => {
@@ -365,11 +315,7 @@ export default function GitProviders({
         <div className="grid gap-4 md:grid-cols-2">
           {providers.map((provider) => {
             const config = JSON.parse(provider.config);
-            const githubInstallUrl = safeExternalUrl(
-              typeof config.githubAppName === "string"
-                ? `${config.githubAppName}/installations/new`
-                : undefined,
-            );
+            const githubInstallUrl = getGithubAppInstallationUrl(config);
             let isInstalled = false;
 
             if (provider.provider === "github") {
@@ -458,14 +404,7 @@ export default function GitProviders({
                         githubInstallUrl ? (
                           <a
                             href={githubInstallUrl}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              window.open(
-                                githubInstallUrl,
-                                "_blank",
-                                "noopener,noreferrer",
-                              );
-                            }}
+                            target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 text-primary text-xs hover:underline"
                           >
@@ -534,7 +473,7 @@ export default function GitProviders({
 
       {/* Add Provider Dialog */}
       <Dialog open={addProviderOpen} onOpenChange={setAddProviderOpen}>
-        <DialogContent className="max-h-[92svh] w-[calc(100vw-1rem)] max-w-[min(96vw,720px)] overflow-y-auto sm:min-w-[36rem]">
+        <DialogContent className="max-h-[92svh] w-[calc(100vw-1rem)] max-w-[min(96vw,720px)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Git Provider</DialogTitle>
             <DialogDescription>

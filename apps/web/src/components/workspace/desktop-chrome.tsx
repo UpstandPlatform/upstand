@@ -27,6 +27,8 @@ type NavState = { canGoBack: boolean; canGoForward: boolean };
 type DesktopBridge = {
   isDesktop?: boolean;
   app?: { platform?: string };
+  runtime?: { mode?: "desktop" | "self-hosted" | "cloud" };
+  connection?: { openPicker: () => Promise<void> };
   window?: {
     minimize: () => Promise<unknown>;
     toggleMaximize: () => Promise<unknown>;
@@ -52,7 +54,8 @@ const getBridge = (): DesktopBridge | undefined => {
 
 function RuntimeStatus() {
   const { capabilities, isPending } = useSystemConfig();
-  const mode = capabilities?.mode ?? "self-hosted";
+  const mode =
+    capabilities?.mode ?? getBridge()?.runtime?.mode ?? "self-hosted";
   const label =
     mode === "desktop"
       ? "Local Desktop"
@@ -206,6 +209,12 @@ export function DesktopChrome() {
               >
                 <HugeiconsIcon icon={RefreshIcon} className="mr-2 size-4" />
                 Reload
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => void getBridge()?.connection?.openPicker()}
+              >
+                <HugeiconsIcon icon={GearsFreeIcons} className="mr-2 size-4" />
+                Switch runtime or connection
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => void getBridge()?.window?.toggleDevTools?.()}

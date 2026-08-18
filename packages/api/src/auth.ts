@@ -9,7 +9,10 @@ import { NotificationChannelSchema } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { NotificationTransportRegistry } from "@upstand/infrastructure";
 import { redis, withRedisTimeout } from "@upstand/redis";
-import { decryptNotificationConfiguration } from "@upstand/usecases";
+import {
+  decryptNotificationConfiguration,
+  getConfiguredControlPlaneMode,
+} from "@upstand/usecases";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { and, count, eq, gt, sql } from "drizzle-orm";
 
@@ -69,7 +72,7 @@ const callbacks: AuthCallbacks = {
   },
 
   async canCreateInitialAccount() {
-    if (env.IS_CLOUD) {
+    if (getConfiguredControlPlaneMode() === "cloud") {
       return true;
     }
     const result = await db.select({ value: count() }).from(authSchema.user);
@@ -251,8 +254,24 @@ export const auth = createAuth({
     sharedCookieDomain: env.AUTH_COOKIE_DOMAIN,
     googleClientId: env.GOOGLE_CLIENT_ID,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET,
-    isCloud: env.IS_CLOUD,
+    isCloud: getConfiguredControlPlaneMode() === "cloud",
   },
 });
+
+/** Returns only whether a user has a local credential account. Never expose
+ * password hashes or account tokens to the browser. */
+export async function hasCredentialAccount(userId: string): Promise<boolean> {
+  const account = await db
+    .select({ id: authSchema.account.id })
+    .from(authSchema.account)
+    .where(
+      and(
+        eq(authSchema.account.userId, userId),
+        eq(authSchema.account.providerId, "credential"),
+      ),
+    )
+    .limit(1);
+  return account.length > 0;
+}
 
 export { stepUp };

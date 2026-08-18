@@ -47,7 +47,7 @@ const foreignKeyChecks = [
 export async function validateMigrationPreconditions(
   client: Pick<Pool, "query">,
 ): Promise<void> {
-  if (env.UPSTAND_PLATFORM === "desktop") return;
+  if (env.UPSTAND_PLATFORM === "desktop" && !env.IS_CLOUD) return;
 
   for (const check of duplicateChecks) {
     const relation = await client.query<{ relation: string | null }>(

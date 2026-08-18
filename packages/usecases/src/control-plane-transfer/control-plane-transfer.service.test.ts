@@ -155,4 +155,62 @@ describe("control-plane transfer services", () => {
       }),
     ).rejects.toThrow("cloud gateway bring-home");
   });
+
+  test("refuses to export cloud-owned canonical data", async () => {
+    const { manifest } = fixture();
+    const exporter = new ExportControlPlaneTransferService({
+      prepare: async () => ({
+        manifest: { ...manifest, sourceOwnership: "cloud-control-plane" },
+        records: {
+          async *[Symbol.asyncIterator]() {},
+        },
+      }),
+    });
+    await expect(exporter.execute({ includeSecrets: false })).rejects.toThrow(
+      "cloud gateway bring-home",
+    );
+  });
+
+  test("rejects a second encrypted secret bundle", async () => {
+    const { manifest, record } = fixture();
+    const exporter = new ExportControlPlaneTransferService({
+      prepare: async () => ({
+        manifest,
+        records: {
+          async *[Symbol.asyncIterator]() {
+            yield record;
+          },
+        },
+      }),
+      exportSecrets: async () => ({ credential: "secret" }),
+    });
+    const chunks = await collect(
+      await exporter.execute({
+        includeSecrets: true,
+        passphrase: "correct horse battery staple",
+      }),
+    );
+    const duplicateSecretStream = {
+      async *[Symbol.asyncIterator]() {
+        for (const chunk of chunks.slice(0, -1)) yield chunk;
+        yield chunks.at(-1) as Uint8Array;
+        yield chunks.at(-1) as Uint8Array;
+      },
+    };
+    const importer = new ImportControlPlaneTransferService({
+      begin: async () => ({
+        stageRecord: async () => {},
+        stageSecrets: async () => {},
+        commit: async () => ({ imported: 0, conflicts: [] }),
+        rollback: async () => {},
+      }),
+    });
+    await expect(
+      importer.execute({
+        content: duplicateSecretStream,
+        mode: "merge",
+        passphrase: "correct horse battery staple",
+      }),
+    ).rejects.toThrow("multiple secret bundles");
+  });
 });

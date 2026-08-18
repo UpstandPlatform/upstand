@@ -34,6 +34,7 @@ import {
 import { PageSkeleton } from "@/components/dashboard/page-skeleton";
 import { type Activity, Database } from "@/components/huge-icons";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { trpc } from "@/utils/trpc";
 
 type RangeKey = "1h" | "6h" | "24h" | "7d";
@@ -350,13 +351,17 @@ function DockerDiskUsagePieChart({
 
 export function MonitoringSubpage() {
   const organizationState = useRequiredActiveOrganization();
+  const systemConfig = useSystemConfig();
+  const { isCloud, isInstanceOwner } = systemConfig;
+  const systemConfigPending = systemConfig.isPending;
+  const canInspectLocal = !isCloud || isInstanceOwner;
   const activeOrganization =
     organizationState.status === "ready"
       ? organizationState.organization
       : null;
 
   const organizationId = organizationState.organizationId as string;
-  const [selectedServerId, setSelectedServerId] = useState("local");
+  const [selectedServerId, setSelectedServerId] = useState("");
   const [rangeKey, setRangeKey] = useState<RangeKey>("24h");
   const [cpuThreshold, setCpuThreshold] = useState(90);
   const [memoryThreshold, setMemoryThreshold] = useState(90);
@@ -378,12 +383,34 @@ export function MonitoringSubpage() {
     enabled: organizationState.status === "ready",
   });
 
+  useEffect(() => {
+    if (systemConfigPending || serversQuery.isPending) return;
+    if (canInspectLocal) {
+      if (!selectedServerId) setSelectedServerId("local");
+      return;
+    }
+    if (selectedServerId === "local" || !selectedServerId) {
+      setSelectedServerId(serversQuery.data?.[0]?.id ?? "");
+    }
+  }, [
+    canInspectLocal,
+    selectedServerId,
+    serversQuery.data,
+    serversQuery.isPending,
+    systemConfigPending,
+  ]);
+
+  const canQueryMonitoring =
+    !systemConfigPending &&
+    organizationState.status === "ready" &&
+    Boolean(selectedServerId);
+
   const monitoringSettingsQuery = useQuery({
     ...trpc.server.monitoringSettings.queryOptions({
       organizationId,
       serverId: selectedServerId,
     }),
-    enabled: organizationState.status === "ready",
+    enabled: canQueryMonitoring,
   });
 
   const monitoringStatusQuery = useQuery({
@@ -391,7 +418,7 @@ export function MonitoringSubpage() {
       organizationId,
       serverId: selectedServerId,
     }),
-    enabled: organizationState.status === "ready",
+    enabled: canQueryMonitoring,
     refetchInterval: 30_000,
   });
 
@@ -403,7 +430,7 @@ export function MonitoringSubpage() {
       limit: range.limit,
     }),
     enabled:
-      organizationState.status === "ready" &&
+      canQueryMonitoring &&
       monitoringSettingsQuery.data?.isConfigured === true &&
       monitoringStatusQuery.data?.reachable !== false,
     refetchInterval: 30_000,
@@ -418,7 +445,7 @@ export function MonitoringSubpage() {
       limit: "1000",
     }),
     enabled:
-      organizationState.status === "ready" &&
+      canQueryMonitoring &&
       monitoringSettingsQuery.data?.isConfigured === true &&
       historicalQuery.isSuccess,
     refetchInterval: 30_000,
@@ -429,7 +456,7 @@ export function MonitoringSubpage() {
       organizationId,
       serverId: selectedServerId === "local" ? undefined : selectedServerId,
     }),
-    enabled: organizationState.status === "ready",
+    enabled: canQueryMonitoring,
     refetchInterval: 10_000,
   });
 
@@ -487,6 +514,20 @@ export function MonitoringSubpage() {
   const latest = history.at(-1);
   const stats = runtimeQuery.data;
 
+  if (!selectedServerId && !serversQuery.isPending) {
+    return (
+      <Card className="border-border/60 p-6">
+        <CardHeader className="p-0 pb-2">
+          <CardTitle>Remote server monitoring</CardTitle>
+          <CardDescription>
+            Cloud members can monitor connected remote servers. Local cloud
+            control-plane telemetry is restricted to the instance owner.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   if (runtimeQuery.isPending && !stats) {
     return <PageSkeleton />;
   }
@@ -504,7 +545,9 @@ export function MonitoringSubpage() {
               <SelectValue placeholder="Select server" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="local">Local Server</SelectItem>
+              {canInspectLocal && (
+                <SelectItem value="local">Local Server</SelectItem>
+              )}
               {serversQuery.data
                 ?.filter((server) => server.status === "ready")
                 .map((server) => (

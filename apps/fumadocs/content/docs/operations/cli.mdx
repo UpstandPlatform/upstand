@@ -27,9 +27,16 @@ upstand deployment list --organization <organization-id>
 ```
 
 In an interactive terminal, `upstand login` starts a browser-based device
-login. It opens the Upstand sign-in page, asks you to approve an organization
-and permission level, and saves the resulting API key locally. Use
-`upstand login --token upk_...` for an explicitly supplied key or CI.
+login. The CLI prints one exact verification URL and one one-time code, opens
+that same URL, and waits for approval. Choose the organization and least
+privilege permission preset in the browser; the resulting API key is saved
+locally. Use `upstand login --token upk_...` for an explicitly supplied key
+or CI.
+
+The default API origin is `https://api.upstand.dev`. Override it with
+`--url https://api.example.com` or `UPSTAND_URL`; the URL must be the
+control-plane API origin, not the documentation origin. `upstand login
+--json` prints the verification URL and code without opening a browser.
 
 Link a repository directory to an Upstand environment and deploy a resource:
 
@@ -62,7 +69,9 @@ upstand diagnostics github owner/repository --organization <org-id> --provider <
 
 Control-plane export/import requires `UPSTAND_SESSION_COOKIE` for an
 instance-owner session with recent 2FA. Put an optional transfer passphrase in
-`UPSTAND_TRANSFER_PASSPHRASE`, never in a command argument.
+`UPSTAND_TRANSFER_PASSPHRASE`, never in a command argument. The public CLI
+does not create a session cookie; it uses an organization-scoped API key for
+ordinary API operations.
 
 Upstand ships with an administrative command-line interface (`cli.mjs`) bundled inside the control-plane container. Operators can use the CLI for emergency account recovery and maintenance directly from host terminals.
 

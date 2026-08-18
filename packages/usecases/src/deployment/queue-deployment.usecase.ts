@@ -9,6 +9,10 @@ import {
   type DeployOutboxPayload,
   OUTBOX_COMMAND_TYPES,
 } from "../outbox/outbox-commands";
+import {
+  type ControlPlaneMode,
+  getConfiguredControlPlaneMode,
+} from "../platform/platform.types";
 import { parseResourceCredentials } from "../resource/resource-credentials";
 
 const GIT_SOURCE_PROVIDERS = new Set([
@@ -166,6 +170,7 @@ export class QueueDeploymentUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
     private readonly localTargetResolver: LocalDeploymentTargetResolver = defaultLocalDeploymentTarget,
+    private readonly controlPlaneMode: ControlPlaneMode = getConfiguredControlPlaneMode(),
   ) {}
 
   async execute(input: QueueDeploymentInput): Promise<Resource> {
@@ -173,6 +178,17 @@ export class QueueDeploymentUseCase {
       const resource = await tx.resourceRepository.findById(input.resourceId);
       if (!resource) {
         throw new ValidationError("Resource not found");
+      }
+      if (
+        this.controlPlaneMode === "cloud" &&
+        (!resource.serverId ||
+          ["local", "manager"].includes(resource.serverId) ||
+          (resource.buildServerId != null &&
+            ["local", "manager"].includes(resource.buildServerId)))
+      ) {
+        throw new ValidationError(
+          "Cloud control planes require a remote server for every deployment",
+        );
       }
       await validateDeploymentSource(tx, resource);
       const environment = await tx.environmentRepository.findById(

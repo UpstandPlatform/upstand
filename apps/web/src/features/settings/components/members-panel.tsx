@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import z from "zod";
 import { ConfirmActionDialog } from "@/components/dashboard/confirm-action-dialog";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { getUserFacingError } from "@/lib/error-message";
 import { trpc } from "@/utils/trpc";
 import { useMembersSettings } from "../hooks/use-members-settings";
 
@@ -51,6 +52,9 @@ const MEMBER_CAPABILITIES: Array<[Capability, string]> =
 const DEFAULT_MEMBER_CAPABILITIES: Capability[] = [
   ...capabilitiesForRole("member"),
 ];
+const ADMIN_MEMBER_CAPABILITIES: Capability[] = capabilitiesForRole(
+  "admin",
+).filter((capability) => MEMBER_SCOPE_ACTIONS.includes(capability));
 
 export function MembersPanel() {
   const organizationState = useRequiredActiveOrganization();
@@ -70,7 +74,8 @@ export function MembersPanel() {
       void customRolesQuery.refetch();
       toast.success("Custom role deleted");
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error) =>
+      toast.error(getUserFacingError(error, "Unable to delete custom role")),
   });
 
   const {
@@ -134,7 +139,7 @@ export function MembersPanel() {
           customRoleId = newRole.id;
         } catch (error: unknown) {
           toast.error(
-            `Failed to create custom role: ${error instanceof Error ? error.message : String(error)}`,
+            getUserFacingError(error, "Unable to create custom role"),
           );
           return;
         }
@@ -197,7 +202,7 @@ export function MembersPanel() {
       form.setFieldValue(
         "permissions",
         roleVal === "admin"
-          ? MEMBER_CAPABILITIES.map(([key]) => key)
+          ? ADMIN_MEMBER_CAPABILITIES
           : DEFAULT_MEMBER_CAPABILITIES,
       );
     } else {
