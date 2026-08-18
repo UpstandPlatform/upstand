@@ -4,21 +4,102 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
-## 0.2.4 - 2026-08-17
+## 0.2.21 - 2026-08-18
 
-Keep the Active Sessions settings tab available throughout a valid authenticated session.
+Keep Active Sessions settings tab available throughout a valid authenticated session, polish the Projects dashboard for clearer scanning, quieter card actions, and responsive no-results state, and preserve release tag references during workflow attestations.
 
-## 0.2.3 - 2026-08-17
+## 0.2.20 - 2026-08-17
 
-Polish the Projects dashboard for clearer project scanning, quieter card actions, and an accurate no-results search state.
+Fix GitHub App manifest creation by removing unsupported classic Projects webhook events.
 
-## 0.2.2 - 2026-08-16
+## 0.2.19 - 2026-08-16
+
+Fix GitHub App manifest registration by removing the unsupported `setup_on_install` field.
+
+## 0.2.18 - 2026-08-16
+
+Allow the GitHub App manifest form to submit to GitHub while keeping the production Content Security Policy strict for scripts.
+
+## 0.2.17 - 2026-08-16
 
 Harden container file management around explicitly selected full container IDs and named Docker volumes. File operations are now mount-scoped, symlink-safe, bounded, binary-safe, atomic for writes, and reject read-only or non-canonical targets. The release also removes runtime compatibility paths that accepted legacy labels, plaintext secret documents, abbreviated container IDs, legacy installer artifacts, and non-paginated backup adapters.
 
-## 0.2.1 - 2026-08-15
+## 0.2.16 - 2026-08-16
+
+Fix mobile provider dialogs and make GitHub App manifest installation callbacks
+reliable across cloud and self-hosted runtimes.
+
+## 0.2.15 - 2026-08-15
 
 Make local self-hosted and cloud development runtimes safely switchable with isolated persistent state, and add a disposable Multipass remote-server lab for end-to-end provisioning tests.
+
+## 0.2.14 - 2026-08-15
+
+Publish the CLI browser-login and interactive resource-selection fixes in the next Upstand patch release.
+
+## 0.2.13 - 2026-08-14
+
+Fix CLI browser sign-in to open the default browser on Windows and complete
+device authorization for both already-authenticated and newly-authenticated
+users.
+
+Remove a duplicate internal error-message helper, make the signed-in dashboard
+resolve its capability surface before rendering navigation, improve environment
+comparison and promotion workflows, enforce server-side dashboard session
+checks before protected pages render, and remove redundant local Docker script
+aliases plus repository-local agent skills.
+
+## 0.2.12 - 2026-08-14
+
+Harden release packaging and keep internal monitoring collection failures out of the public health response.
+
+## 0.2.11 - 2026-08-14
+
+Prevent transient control-plane session failures from crashing dashboard Server Component renders by retrying temporary responses and degrading to the normal session guard.
+
+## 0.2.10 - 2026-08-14
+
+Keep long-running control-plane services recoverable after transient Docker Swarm node or agent interruptions by removing finite restart-attempt limits from the production stack.
+
+## 0.2.9 - 2026-08-12
+
+Allow the cloud instance owner to inspect and trigger managed control-plane updates from the panel while keeping the update surface unavailable to regular cloud users.
+
+## 0.2.8 - 2026-08-12
+
+Make direct IP recovery access resolve to the same-host API, expose complete local topology only to the cloud instance owner, prevent cloud and desktop bare runtimes from reaching local Docker surfaces, and make Desktop default to Upstand Cloud with an explicit local bare-mode opt-in.
+
+## 0.2.7 - 2026-08-12
+
+Hide unavailable Google sign-in, support password setup and passwordless 2FA
+for social accounts, preserve CLI device-login URLs on Windows, and refresh
+authentication, runtime-channel, release, and self-hosting documentation.
+
+Fix cloud and prefixed self-hosted web runtimes resolving API and documentation links to the wrong origin.
+
+## 0.2.6 - 2026-08-12
+
+Harden runtime-aware authorization across cloud, desktop, and self-hosted control planes. Stored membership permissions are now constrained to their role scope, instance-only operations require interactive owner sessions, cloud-mode policy is resolved consistently, and control-plane transfer requests are bounded. Cloud users can view request observations from their authorized remote servers without exposing control-plane logs, the first workspace is selected reliably after authentication, member role updates use the shared permission catalog, and the web-server settings surface handles configured cloud domains responsively.
+
+## 0.2.5 - 2026-08-11
+
+Restrict cloud control-plane topology, Docker inventory, request logs, local monitoring, control-plane transfer, and local build/deployment settings to their supported runtimes, promote the first cloud account to instance-owner access, and stabilize GitHub manifest setup.
+
+## 0.2.4 - 2026-08-11
+
+Fix Desktop startup fallback and runtime origin probing, and apply the Upstand icon to Windows installers, shortcuts, and windows.
+
+## 0.2.3 - 2026-08-11
+
+Fix packaged Desktop assets and branding, add runtime and connection switching, and keep authentication requests on the active Cloud or self-hosted control plane.
+
+## 0.2.2 - 2026-08-11
+
+Resolve the header documentation link from the browser runtime so immutable images do not render localhost documentation URLs.
+
+## 0.2.1 - 2026-08-11
+
+Fix cloud and prefixed self-hosted web runtimes resolving API and documentation links to the wrong origin.
 
 ## 0.2.0 - 2026-08-09
 
