@@ -48,7 +48,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Create or update release PR
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d
+        uses: changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a
         with:
           version: bun run changeset:version
           commit: "chore: prepare release"
