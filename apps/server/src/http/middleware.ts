@@ -115,9 +115,20 @@ export function registerHttpMiddleware(
     hostname === "[::1]" ||
     hostname.startsWith("127.");
 
+  const isIpv4Host = (hostname: string): boolean => {
+    const octets = hostname.split(".");
+    return (
+      octets.length === 4 &&
+      octets.every((octet) => {
+        if (!/^(?:0|[1-9]\d{0,2})$/.test(octet)) return false;
+        return Number(octet) <= 255;
+      })
+    );
+  };
+
   const isDirectHost = (hostname: string): boolean =>
     isLoopbackHost(hostname) ||
-    /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname) ||
+    isIpv4Host(hostname) ||
     (hostname.startsWith("[") && hostname.endsWith("]"));
 
   const isTrustedOrigin = (origin: string): boolean => {
