@@ -11,10 +11,21 @@ function isLoopbackHost(hostname: string): boolean {
   );
 }
 
+function isIpv4Host(hostname: string): boolean {
+  const octets = hostname.split(".");
+  return (
+    octets.length === 4 &&
+    octets.every((octet) => {
+      if (!/^(?:0|[1-9]\d{0,2})$/.test(octet)) return false;
+      return Number(octet) <= 255;
+    })
+  );
+}
+
 function isDirectHost(hostname: string): boolean {
   return (
     isLoopbackHost(hostname) ||
-    /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname) ||
+    isIpv4Host(hostname) ||
     (hostname.startsWith("[") && hostname.endsWith("]"))
   );
 }
@@ -33,9 +44,17 @@ function isConfiguredOrigin(url: URL | null): url is URL {
 }
 
 function isDirectOrigin(url: URL): boolean {
-  return (
-    isDirectHost(url.hostname) || url.port === "3000" || url.port === "3001"
-  );
+  return isDirectHost(url.hostname);
+}
+
+function resolveConfiguredApiOrigin(url: URL): string {
+  // A dashboard URL is a common value during direct-IP bootstrap. Keep the
+  // API client on the sibling API port even when the public variable points at
+  // the dashboard port.
+  if (isDirectHost(url.hostname) && url.port === "3001") {
+    return inferApiOrigin(url.protocol, url.hostname, url.port);
+  }
+  return url.origin;
 }
 
 function getDesktopApiOrigin(): string | undefined {
@@ -117,7 +136,7 @@ export function getServerUrl(configured = env.NEXT_PUBLIC_SERVER_URL): string {
             configuredUrl.hostname === windowUrl.hostname
           : !isDirectOrigin(configuredUrl))
       ) {
-        return configuredUrl.origin;
+        return resolveConfiguredApiOrigin(configuredUrl);
       }
       return inferApiOrigin(
         windowUrl.protocol,
@@ -134,7 +153,7 @@ export function getServerUrl(configured = env.NEXT_PUBLIC_SERVER_URL): string {
   }
 
   if (isConfiguredOrigin(configuredUrl)) {
-    return configuredUrl.origin;
+    return resolveConfiguredApiOrigin(configuredUrl);
   }
 
   return "http://localhost:3000";
@@ -177,7 +196,7 @@ export function getServerUrlFromHeaders(
           configuredUrl.hostname === requestUrl.hostname
         : !isDirectOrigin(configuredUrl))
     ) {
-      return configuredUrl.origin;
+      return resolveConfiguredApiOrigin(configuredUrl);
     }
     return inferApiOrigin(
       requestUrl.protocol,

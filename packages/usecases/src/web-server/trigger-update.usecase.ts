@@ -23,10 +23,40 @@ export type TriggerUpdateInput = z.infer<typeof TriggerUpdateInputSchema>;
 export const SELF_UPDATE_LOCK_KEY = "upstand:control-plane:self-update";
 export const SELF_UPDATE_LOCK_TTL_MS = 30 * 60 * 1_000;
 
+export type UpdateArtifactCleanup = {
+  run(action: "images" | "builder"): Promise<unknown>;
+};
+
+export async function cleanupUpdateArtifacts(
+  cleanup: UpdateArtifactCleanup | undefined,
+  version: string,
+): Promise<void> {
+  if (!cleanup) return;
+
+  for (const action of ["images", "builder"] as const) {
+    try {
+      await cleanup.run(action);
+      log.info({
+        message: `Cleaned unused Docker ${action} artifacts before self-update to ${version}`,
+        metadata: { action, version },
+      });
+    } catch (error) {
+      log.warn({
+        message: `Unable to clean Docker ${action} artifacts before self-update; continuing with update`,
+        err: error instanceof Error ? error.message : error,
+        metadata: { action, version },
+      });
+    }
+  }
+}
+
 export class TriggerUpdateUseCase {
   private readonly docker = getDockerInstance();
 
-  constructor(private readonly notificationPublisher?: NotificationPublisher) {}
+  constructor(
+    private readonly notificationPublisher?: NotificationPublisher,
+    private readonly dockerCleanup?: UpdateArtifactCleanup,
+  ) {}
 
   async execute(
     input: TriggerUpdateInput,
@@ -96,6 +126,12 @@ export class TriggerUpdateUseCase {
               );
             }
           }
+
+          // Reclaim artifacts left by previous releases before pulling the next
+          // set of immutable images. Volumes are intentionally excluded because
+          // they contain application data and are not build artifacts.
+          await cleanupUpdateArtifacts(this.dockerCleanup, version);
+
           let updatedCount = 0;
 
           for (const s of services) {

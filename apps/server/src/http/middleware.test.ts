@@ -173,6 +173,21 @@ describe("HTTP middleware request limits", () => {
     expect(response.headers.get("access-control-allow-credentials")).toBe(
       "true",
     );
+
+    const invalidIpResponse = await app.request(
+      "http://localhost/api/setup/status",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "http://999.999.999.999:3001",
+          "Access-Control-Request-Method": "GET",
+        },
+      },
+    );
+
+    expect(invalidIpResponse.headers.get("access-control-allow-origin")).toBe(
+      process.env.CORS_ORIGIN ?? "http://localhost:3001",
+    );
   });
 
   test("propagates safe request IDs and replaces unsafe values", async () => {

@@ -63,5 +63,12 @@ describe("authentication origin configuration", () => {
     );
     expect(resolved).toContain("http://85.155.230.19:3001");
     expect(resolved).toContain("https://dashboard.example.com");
+
+    const invalidIpResolved = await resolver(
+      new Request("http://localhost:3000", {
+        headers: { origin: "http://999.999.999.999:3001" },
+      }),
+    );
+    expect(invalidIpResolved).not.toContain("http://999.999.999.999:3001");
   });
 });
