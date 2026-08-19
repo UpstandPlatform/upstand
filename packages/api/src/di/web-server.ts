@@ -43,6 +43,7 @@ export function registerWebServer(services: ServiceCollection) {
     (c) =>
       new dependencies.TriggerUpdateUseCase(
         c.resolve(dependencies.PublishNotificationUseCaseToken),
+        new dependencies.DockerCleanupService(),
       ),
   );
 }

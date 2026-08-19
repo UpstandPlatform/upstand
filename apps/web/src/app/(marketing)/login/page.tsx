@@ -1,6 +1,10 @@
 "use client";
 
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowRight01Icon,
+  InformationCircleIcon,
+  RefreshIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { Button } from "@upstand/ui/components/button";
@@ -55,6 +59,8 @@ function LoginPageContent() {
   const [isCloud, setIsCloud] = useState<boolean>(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
+  const [sessionRetrying, setSessionRetrying] = useState(false);
+  const [setupRetrying, setSetupRetrying] = useState(false);
   const {
     data: session,
     isPending: sessionPending,
@@ -74,6 +80,7 @@ function LoginPageContent() {
   useEffect(() => {
     let active = true;
     void setupAttempt;
+    setSetupRetrying(true);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8_000);
     fetch(getServerApiUrl("/api/setup/status"), {
@@ -101,6 +108,9 @@ function LoginPageContent() {
           setSetupError(true);
           toast.error("Unable to check instance setup. Try again.");
         }
+      })
+      .finally(() => {
+        if (active) setSetupRetrying(false);
       });
     return () => {
       active = false;
@@ -117,7 +127,8 @@ function LoginPageContent() {
 
   const retrySession = () => {
     setSessionTimedOut(false);
-    void refetch();
+    setSessionRetrying(true);
+    void refetch().finally(() => setSessionRetrying(false));
   };
 
   const handleGoogleSignIn = async () => {
@@ -155,20 +166,52 @@ function LoginPageContent() {
       <Card className="mx-auto my-auto w-full max-w-md rounded-3xl border-border/70 bg-card/70 p-7 shadow-2xl shadow-primary/5 backdrop-blur-md sm:p-8">
         <CardContent className="space-y-8 p-0">
           {sessionError || sessionTimedOut ? (
-            <div className="space-y-5 py-8 text-center">
+            <div className="space-y-5 py-6 text-center" aria-live="polite">
+              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-destructive/20 bg-destructive/10 text-destructive">
+                <HugeiconsIcon
+                  icon={InformationCircleIcon}
+                  className="size-6"
+                  aria-hidden="true"
+                />
+              </div>
               <div className="space-y-2">
-                <h1 className="font-bold text-xl">Unable to reach Upstand</h1>
-                <p className="text-muted-foreground text-sm">
-                  We couldn’t check your session. Check the server connection
-                  and try again.
+                <h1 className="font-bold text-xl">
+                  Upstand is temporarily unavailable
+                </h1>
+                <p className="text-muted-foreground text-sm leading-6">
+                  The dashboard loaded, but the control plane did not answer.
+                  Retry the connection or check the instance status before
+                  signing in.
                 </p>
               </div>
-              <Button className="w-full" onClick={retrySession}>
-                Try again
-              </Button>
-              <Button variant="outline" className="w-full" onClick={retrySetup}>
-                Check instance setup
-              </Button>
+              <div className="space-y-3">
+                <Button
+                  className="w-full"
+                  onClick={retrySession}
+                  disabled={sessionRetrying}
+                >
+                  {sessionRetrying ? (
+                    <>
+                      <HugeiconsIcon
+                        icon={RefreshIcon}
+                        className="mr-2 size-4 animate-spin"
+                        aria-hidden="true"
+                      />
+                      Retrying…
+                    </>
+                  ) : (
+                    "Retry connection"
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={retrySetup}
+                  disabled={setupRetrying}
+                >
+                  Check instance status
+                </Button>
+              </div>
             </div>
           ) : sessionPending ? (
             <div className="flex flex-col items-center justify-center space-y-4 py-12">
@@ -182,8 +225,7 @@ function LoginPageContent() {
           ) : session ? (
             <div className="space-y-6">
               <div className="space-y-2 text-center">
-                {/* Fixed: added bg-clip-text */}
-                <h1 className="bg-gradient-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text font-extrabold text-3xl text-transparent tracking-tight">
+                <h1 className="font-extrabold text-3xl tracking-tight">
                   Already signed in
                 </h1>
                 <p className="text-muted-foreground text-sm">
@@ -220,16 +262,29 @@ function LoginPageContent() {
               </div>
             </div>
           ) : setupError ? (
-            <div className="space-y-5 py-8 text-center">
+            <div className="space-y-5 py-6 text-center" aria-live="polite">
+              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-warning/25 bg-warning/10 text-warning-foreground">
+                <HugeiconsIcon
+                  icon={InformationCircleIcon}
+                  className="size-6"
+                  aria-hidden="true"
+                />
+              </div>
               <div className="space-y-2">
-                <h1 className="font-bold text-xl">Setup status unavailable</h1>
-                <p className="text-muted-foreground text-sm">
-                  The sign-in service is reachable, but instance setup could not
-                  be checked.
+                <h1 className="font-bold text-xl">
+                  Instance status is unavailable
+                </h1>
+                <p className="text-muted-foreground text-sm leading-6">
+                  Upstand did not return the setup details needed to continue.
+                  Retry in a moment.
                 </p>
               </div>
-              <Button className="w-full" onClick={retrySetup}>
-                Try again
+              <Button
+                className="w-full"
+                onClick={retrySetup}
+                disabled={setupRetrying}
+              >
+                {setupRetrying ? "Checking status…" : "Retry status check"}
               </Button>
             </div>
           ) : needsOwnerSetup === null ? (
@@ -242,8 +297,7 @@ function LoginPageContent() {
           ) : (
             <>
               <div className="space-y-2 text-center">
-                {/* Fixed: added bg-clip-text */}
-                <h1 className="bg-linear-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text font-extrabold text-3xl text-transparent tracking-tight">
+                <h1 className="font-extrabold text-3xl tracking-tight">
                   {needsOwnerSetup
                     ? "Set up Upstand"
                     : isSignUp

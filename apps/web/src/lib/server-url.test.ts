@@ -48,6 +48,14 @@ describe("runtime URL resolution", () => {
     );
   });
 
+  test("does not treat a domain port as direct-IP access", () => {
+    setBrowserLocation("https://dashboard.example.com:3001/");
+
+    expect(getServerUrl("https://api.example.com")).toBe(
+      "https://api.example.com",
+    );
+  });
+
   test("keeps desktop loopback services on their local ports", () => {
     setBrowserLocation("http://127.0.0.1:3001/");
 
@@ -90,6 +98,14 @@ describe("runtime URL resolution", () => {
     );
     expect(getServerApiUrl("/api/setup/status")).toBe(
       "http://85.155.230.19:3000/api/setup/status",
+    );
+  });
+
+  test("normalizes a direct dashboard URL to the local API port", () => {
+    setBrowserLocation("http://85.155.230.19:3001/");
+
+    expect(getServerUrl("http://85.155.230.19:3001")).toBe(
+      "http://85.155.230.19:3000",
     );
   });
 

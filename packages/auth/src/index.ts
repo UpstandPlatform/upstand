@@ -101,10 +101,21 @@ function isLoopbackHost(hostname: string): boolean {
   );
 }
 
+function isIpv4Host(hostname: string): boolean {
+  const octets = hostname.split(".");
+  return (
+    octets.length === 4 &&
+    octets.every((octet) => {
+      if (!/^(?:0|[1-9]\d{0,2})$/.test(octet)) return false;
+      return Number(octet) <= 255;
+    })
+  );
+}
+
 function isDirectHost(hostname: string): boolean {
   return (
     isLoopbackHost(hostname) ||
-    /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname) ||
+    isIpv4Host(hostname) ||
     (hostname.startsWith("[") && hostname.endsWith("]"))
   );
 }
