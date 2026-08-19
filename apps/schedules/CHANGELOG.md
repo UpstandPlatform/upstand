@@ -1,5 +1,11 @@
 # schedules
 
+## 0.2.23
+
+### Patch Changes
+
+- [#316](https://github.com/UpstandPlatform/upstand/pull/316) [`853224c`](https://github.com/UpstandPlatform/upstand/commit/853224c8cf8f1d2f29d3c76d0e17f89645dccdbb) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden direct-IP runtime origin detection so domain deployments using non-standard ports keep their configured cloud API, while direct dashboard URLs continue to resolve to the local API port. Improve the login recovery state with clearer outage guidance, retry feedback, and accessible status messaging. Reclaim unused Docker images and builder artifacts before managed self-updates while preserving named volumes and rollback images.
+
 ## 0.2.22
 
 ## 0.2.21
