@@ -186,7 +186,7 @@ describe("HTTP middleware request limits", () => {
     );
 
     expect(invalidIpResponse.headers.get("access-control-allow-origin")).toBe(
-      "http://localhost:3001",
+      process.env.CORS_ORIGIN ?? "http://localhost:3001",
     );
   });
 
