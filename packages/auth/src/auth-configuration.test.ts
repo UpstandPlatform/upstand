@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AuthConfiguration,
+  normalizeDirectIpAuthRequest,
+  normalizeDirectIpAuthResponse,
   resolveSharedCookieDomain,
   resolveTrustedOrigins,
 } from "./index";
@@ -70,5 +72,54 @@ describe("authentication origin configuration", () => {
       }),
     );
     expect(invalidIpResolved).not.toContain("http://999.999.999.999:3001");
+  });
+
+  test("normalizes auth cookies for direct HTTP access", () => {
+    const response = normalizeDirectIpAuthResponse(
+      new Request("http://85.155.230.19:3000/api/auth/sign-in/email"),
+      new Response("ok", {
+        headers: {
+          "set-cookie":
+            "__Secure-better-auth.session_token=token; Path=/; Secure; HttpOnly; Domain=.upstand.dev; SameSite=Lax",
+        },
+      }),
+    );
+
+    const cookie = response.headers.get("set-cookie");
+    expect(cookie).toContain("better-auth.session_token=token");
+    expect(cookie).not.toMatch(/(?:^|;)\s*secure(?:;|$)/i);
+    expect(cookie).not.toMatch(/(?:^|;)\s*domain=/i);
+  });
+
+  test("does not change cookies for configured HTTPS access", () => {
+    const response = new Response("ok", {
+      headers: {
+        "set-cookie": "session=token; Path=/; Secure; Domain=.example.com",
+      },
+    });
+
+    const normalized = normalizeDirectIpAuthResponse(
+      new Request("https://dashboard.example.com/api/auth/sign-in/email"),
+      response,
+    );
+
+    expect(normalized).toBe(response);
+  });
+
+  test("aliases direct-IP cookies for secure Better Auth configurations", () => {
+    const request = normalizeDirectIpAuthRequest(
+      new Request("http://85.155.230.19:3000/api/trpc", {
+        headers: {
+          cookie: "better-auth.session_token=signed-token",
+        },
+      }),
+    );
+
+    expect(request.headers.get("cookie")).toContain(
+      "better-auth.session_token=signed-token",
+    );
+    expect(request.headers.get("cookie")).toContain(
+      "__Secure-better-auth.session_token=signed-token",
+    );
   });
 });

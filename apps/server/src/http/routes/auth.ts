@@ -1,4 +1,8 @@
 import { auth, hasCredentialAccount, stepUp } from "@upstand/api/auth";
+import {
+  normalizeDirectIpAuthRequest,
+  normalizeDirectIpAuthResponse,
+} from "@upstand/auth";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../types";
@@ -9,21 +13,27 @@ export function registerAuthRoutes(app: Hono<AppEnv>): void {
   // Better Auth's /api/auth/* namespace. The wildcard handler below otherwise
   // turns this OpenAPI route into a Better Auth 404.
   app.get("/api/auth/isSession2faVerified", async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ message: "Authentication required" }, 401);
     return c.json({
       verified: await stepUp.isStepUpAuthenticationSatisfied(session),
     });
   });
   app.get("/api/auth/security/status", async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     return c.json({
       hasCredentialAccount: await hasCredentialAccount(session.user.id),
     });
   });
   app.post("/api/auth/security/set-password", async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     const body = z
       .object({ newPassword: z.string().min(8).max(128) })
@@ -50,5 +60,8 @@ export function registerAuthRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: "Unable to set the password" }, 400);
     }
   });
-  app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+  app.on(["POST", "GET"], "/api/auth/*", async (c) => {
+    const request = normalizeDirectIpAuthRequest(c.req.raw);
+    return normalizeDirectIpAuthResponse(request, await auth.handler(request));
+  });
 }

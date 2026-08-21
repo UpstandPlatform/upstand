@@ -26,7 +26,10 @@ export class ExecContainerCommandUseCase {
     private readonly dockerInventory: DockerInventoryReaderPort,
   ) {}
 
-  async execute(input: z.infer<typeof ExecContainerCommandInputSchema>) {
+  async execute(
+    input: z.infer<typeof ExecContainerCommandInputSchema>,
+    options: { allowLocalInCloud?: boolean } = {},
+  ) {
     const resource = await this.uow.resourceRepository.findById(
       input.resourceId,
     );
@@ -57,7 +60,10 @@ export class ExecContainerCommandUseCase {
         organizationId: input.organizationId,
         serverId: resourceServerId,
       },
-      { localServerIds: ["local", "manager"] },
+      {
+        localServerIds: ["local", "manager"],
+        allowLocalInCloud: options.allowLocalInCloud,
+      },
     );
     const containers = await this.dockerInventory.listContainers(target);
     const ownedContainers = containers.filter((container) =>

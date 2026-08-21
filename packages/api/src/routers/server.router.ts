@@ -57,7 +57,7 @@ import { authorizeServerAccess } from "../trpc/server-authorization.helper";
 async function requireLocalDockerOwner(
   ctx: Parameters<typeof requireInstanceOwnerContext>[0],
   serverId: string | undefined,
-): Promise<void> {
+): Promise<boolean> {
   if (!serverId || serverId === "local" || serverId === "manager") {
     if (getConfiguredControlPlaneMode() === "desktop") {
       throw new TRPCError({
@@ -66,7 +66,9 @@ async function requireLocalDockerOwner(
       });
     }
     await requireInstanceOwnerContext(ctx);
+    return true;
   }
+  return false;
 }
 
 export const serverRouter = router({
@@ -98,10 +100,13 @@ export const serverRouter = router({
     .input(ControlDockerContainerInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeServerAccess(ctx, input.organizationId, "server:update");
-      await requireLocalDockerOwner(ctx, input.serverId);
+      const allowLocalInCloud = await requireLocalDockerOwner(
+        ctx,
+        input.serverId,
+      );
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
-        return await useCase.controlContainer(input);
+        return await useCase.controlContainer(input, { allowLocalInCloud });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -111,10 +116,13 @@ export const serverRouter = router({
     .input(ControlDockerResourceInputSchema)
     .mutation(async ({ ctx, input }) => {
       await authorizeServerAccess(ctx, input.organizationId, "server:update");
-      await requireLocalDockerOwner(ctx, input.serverId);
+      const allowLocalInCloud = await requireLocalDockerOwner(
+        ctx,
+        input.serverId,
+      );
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
-        return await useCase.controlResource(input);
+        return await useCase.controlResource(input, { allowLocalInCloud });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -135,15 +143,21 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
-      await requireLocalDockerOwner(ctx, input.serverId);
+      const allowLocalInCloud = await requireLocalDockerOwner(
+        ctx,
+        input.serverId,
+      );
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
-        return await useCase.execute({
-          organizationId: input.organizationId,
-          serverId: input.serverId,
-          kind: "info",
-          tail: 150,
-        });
+        return await useCase.execute(
+          {
+            organizationId: input.organizationId,
+            serverId: input.serverId,
+            kind: "info",
+            tail: 150,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -164,10 +178,13 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
-      await requireLocalDockerOwner(ctx, input.serverId);
+      const allowLocalInCloud = await requireLocalDockerOwner(
+        ctx,
+        input.serverId,
+      );
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
-        return await useCase.getHostTime(input);
+        return await useCase.getHostTime(input, { allowLocalInCloud });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -181,10 +198,13 @@ export const serverRouter = router({
         input.organizationId,
         "server:view",
       );
-      await requireLocalDockerOwner(ctx, input.serverId);
+      const allowLocalInCloud = await requireLocalDockerOwner(
+        ctx,
+        input.serverId,
+      );
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
-        return await useCase.execute(input);
+        return await useCase.execute(input, { allowLocalInCloud });
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

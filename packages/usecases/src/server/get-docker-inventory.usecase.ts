@@ -167,8 +167,13 @@ export class GetDockerInventoryUseCase {
 
   async controlContainer(
     input: z.infer<typeof ControlDockerContainerInputSchema>,
+    options: DockerInventoryExecutionOptions = {},
   ) {
-    const target = await resolveDockerInspectionTarget(this.uow, input);
+    const target = await resolveDockerInspectionTarget(
+      this.uow,
+      input,
+      options,
+    );
     return this.containerController.controlContainer(
       target,
       input.containerId,
@@ -178,8 +183,13 @@ export class GetDockerInventoryUseCase {
 
   async controlResource(
     input: z.infer<typeof ControlDockerResourceInputSchema>,
+    options: DockerInventoryExecutionOptions = {},
   ) {
-    const target = await resolveDockerInspectionTarget(this.uow, input);
+    const target = await resolveDockerInspectionTarget(
+      this.uow,
+      input,
+      options,
+    );
     return this.resourceController.controlResource(
       target,
       input.resourceId,
@@ -187,16 +197,28 @@ export class GetDockerInventoryUseCase {
     );
   }
 
-  async getHostTime(input: { organizationId: string; serverId?: string }) {
-    const target = await resolveDockerInspectionTarget(this.uow, input);
+  async getHostTime(
+    input: { organizationId: string; serverId?: string },
+    options: DockerInventoryExecutionOptions = {},
+  ) {
+    const target = await resolveDockerInspectionTarget(
+      this.uow,
+      input,
+      options,
+    );
     return this.inventory.getHostTime(target);
   }
 
   async uploadVolume(
     input: z.infer<typeof UploadDockerVolumeInputSchema>,
     archive: Buffer,
+    options: DockerInventoryExecutionOptions = {},
   ) {
-    const target = await resolveDockerInspectionTarget(this.uow, input);
+    const target = await resolveDockerInspectionTarget(
+      this.uow,
+      input,
+      options,
+    );
     return this.archiveTransfer.uploadArchiveToVolume(
       target,
       input.volumeName,
@@ -208,6 +230,7 @@ export class GetDockerInventoryUseCase {
   async uploadContainer(
     input: z.infer<typeof UploadDockerContainerInputSchema>,
     archive: Buffer,
+    options: DockerInventoryExecutionOptions = {},
   ) {
     const resource = await this.uow.resourceRepository.findById(
       input.resourceId,
@@ -226,6 +249,7 @@ export class GetDockerInventoryUseCase {
     assertResourceDockerTarget(resource.serverId, input.serverId);
     const target = await resolveDockerInspectionTarget(this.uow, input, {
       localServerIds: ["local", "manager"],
+      allowLocalInCloud: options.allowLocalInCloud,
     });
     const containers = await this.inventory.listContainers(target);
     const container = containers.find(

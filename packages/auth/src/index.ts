@@ -120,6 +120,109 @@ function isDirectHost(hostname: string): boolean {
   );
 }
 
+function isDirectHttpRequest(request: Request): boolean {
+  try {
+    const url = new URL(request.url);
+    return url.protocol === "http:" && isDirectHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function getSetCookieHeaders(headers: Headers): string[] {
+  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] })
+    .getSetCookie;
+  if (typeof getSetCookie === "function") {
+    return getSetCookie.call(headers);
+  }
+
+  const value = headers.get("set-cookie");
+  return value ? [value] : [];
+}
+
+function normalizeDirectIpCookieName(name: string): string {
+  if (name.startsWith("__Secure-")) return name.slice("__Secure-".length);
+  if (name.startsWith("__Host-")) return name.slice("__Host-".length);
+  return name;
+}
+
+function addSecureCookieAliases(cookieHeader: string): string {
+  const cookies = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const normalized = [...cookies];
+  for (const cookie of cookies) {
+    const separator = cookie.indexOf("=");
+    if (separator <= 0) continue;
+    const name = cookie.slice(0, separator).trim();
+    if (
+      name.startsWith("__Secure-") ||
+      name.startsWith("__Host-") ||
+      (!name.startsWith("better-auth.") && !name.startsWith("better-auth-"))
+    ) {
+      continue;
+    }
+    normalized.push(`__Secure-${cookie}`);
+  }
+  return normalized.join("; ");
+}
+
+/**
+ * Makes direct-IP HTTP cookies readable by Better Auth when the deployment's
+ * normal HTTPS configuration uses the __Secure- cookie prefix. The original
+ * cookie is retained for self-hosted configurations that do not use it.
+ */
+export function normalizeDirectIpAuthRequest(request: Request): Request {
+  if (!isDirectHttpRequest(request)) return request;
+  const cookie = request.headers.get("cookie");
+  if (!cookie) return request;
+
+  const headers = new Headers(request.headers);
+  headers.set("cookie", addSecureCookieAliases(cookie));
+  return new Request(request, { headers });
+}
+
+/**
+ * Direct-IP bootstrap is intentionally available over HTTP so operators can
+ * recover a host before DNS and TLS are configured. Cookies issued by a cloud
+ * HTTPS configuration otherwise keep `Secure` and the shared domain, which
+ * makes the browser discard them on an IP origin.
+ */
+export function normalizeDirectIpAuthResponse(
+  request: Request,
+  response: Response,
+): Response {
+  if (!isDirectHttpRequest(request)) return response;
+
+  const cookies = getSetCookieHeaders(response.headers);
+  if (cookies.length === 0) return response;
+
+  const headers = new Headers(response.headers);
+  headers.delete("set-cookie");
+  for (const cookie of cookies) {
+    const separator = cookie.indexOf("=");
+    const name =
+      separator > 0
+        ? normalizeDirectIpCookieName(cookie.slice(0, separator).trim())
+        : null;
+    const normalizedCookie =
+      name && separator > 0 ? `${name}${cookie.slice(separator)}` : cookie;
+    headers.append(
+      "set-cookie",
+      normalizedCookie
+        .replace(/;\s*secure(?=;|$)/gi, "")
+        .replace(/;\s*domain=[^;]*/gi, ""),
+    );
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export function resolveTrustedOrigins(
   configuration: Pick<
     AuthConfiguration,
@@ -311,7 +414,7 @@ export function createAuth(options: {
             const session =
               ctx.context.newSession ??
               (await auth.api.getSession({
-                headers: ctx.request.headers,
+                headers: normalizeDirectIpAuthRequest(ctx.request).headers,
               }));
             if (session) {
               await stepUp.recordStepUpVerification(session);
@@ -324,7 +427,9 @@ export function createAuth(options: {
           ctx.path.endsWith("/two-factor/generate-backup-codes")
         ) {
           const session = ctx.request
-            ? await auth.api.getSession({ headers: ctx.request.headers })
+            ? await auth.api.getSession({
+                headers: normalizeDirectIpAuthRequest(ctx.request).headers,
+              })
             : null;
           if (session) await stepUp.clearStepUpVerification(session.session.id);
         }

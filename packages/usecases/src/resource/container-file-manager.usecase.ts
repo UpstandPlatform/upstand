@@ -171,6 +171,10 @@ export const SearchContainerFilesInputSchema = z.object({
   query: z.string().min(1).max(100),
 });
 
+export type ContainerFileExecutionOptions = {
+  allowLocalInCloud?: boolean;
+};
+
 export class ContainerFileManagerUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
@@ -182,6 +186,7 @@ export class ContainerFileManagerUseCase {
     organizationId: string,
     resourceId: string,
     containerId: string,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<{
     target: DockerInspectionTarget;
     containerId: string;
@@ -202,7 +207,10 @@ export class ContainerFileManagerUseCase {
     const target = await resolveDockerInspectionTarget(
       this.uow,
       { organizationId, serverId: resource.serverId || "local" },
-      { localServerIds: ["local", "manager"] },
+      {
+        localServerIds: ["local", "manager"],
+        allowLocalInCloud: options.allowLocalInCloud,
+      },
     );
     const containers = await this.dockerInventory.listContainers(target);
     const selected = containers.find(
@@ -243,11 +251,13 @@ export class ContainerFileManagerUseCase {
 
   async listMounts(
     input: z.infer<typeof ListContainerMountsInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<Array<{ name: string; mountPath: string; readOnly: boolean }>> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     return this.fileSystem
       .getContainerMounts(target, containerId)
@@ -262,11 +272,13 @@ export class ContainerFileManagerUseCase {
 
   async listFiles(
     input: z.infer<typeof ListContainerFilesInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<FileExplorerItem[]> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     const mountPath = await this.resolveMount(
       target,
@@ -284,11 +296,13 @@ export class ContainerFileManagerUseCase {
 
   async readFile(
     input: z.infer<typeof ReadContainerFileInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<{ content: string; path: string; encoding: "text" | "base64" }> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     const path = assertFilePath(input.path, "File path");
     const mountPath = await this.resolveMount(
@@ -313,11 +327,13 @@ export class ContainerFileManagerUseCase {
 
   async writeFile(
     input: z.infer<typeof WriteContainerFileInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<{ success: true }> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     const path = assertMutationPath(input.path, "File path");
     const mountPath = await this.resolveMount(
@@ -338,11 +354,13 @@ export class ContainerFileManagerUseCase {
 
   async createItem(
     input: z.infer<typeof CreateContainerItemInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<{ success: true }> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     const parentPath = assertFilePath(input.parentPath, "Parent path");
     const mountPath = await this.resolveMount(
@@ -365,11 +383,13 @@ export class ContainerFileManagerUseCase {
 
   async renameItem(
     input: z.infer<typeof RenameContainerItemInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<{ success: true }> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     const oldPath = assertMutationPath(input.oldPath, "Original path");
     const newPath = assertMutationPath(input.newPath, "New path");
@@ -391,11 +411,13 @@ export class ContainerFileManagerUseCase {
 
   async deleteItem(
     input: z.infer<typeof DeleteContainerItemInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<{ success: true }> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     const path = assertMutationPath(input.path, "Delete path");
     const mountPath = await this.resolveMount(
@@ -410,11 +432,13 @@ export class ContainerFileManagerUseCase {
 
   async changePermissions(
     input: z.infer<typeof ChangeContainerItemPermissionsInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<{ success: true }> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     const path = assertMutationPath(input.path, "File path");
     const mountPath = await this.resolveMount(
@@ -435,11 +459,13 @@ export class ContainerFileManagerUseCase {
 
   async searchFiles(
     input: z.infer<typeof SearchContainerFilesInputSchema>,
+    options: ContainerFileExecutionOptions = {},
   ): Promise<FileExplorerItem[]> {
     const { target, containerId } = await this.resolveTargetContainer(
       input.organizationId,
       input.resourceId,
       input.containerId,
+      options,
     );
     assertNoControlCharacters(input.query, "Search query");
     const mountPath = await this.resolveMount(

@@ -74,8 +74,18 @@ ${tlsDirective ? `${tlsDirective}\n` : ""}\treverse_proxy /api/* ${serverUpstrea
 export function syncServerDomainInCaddySnippets(
   existingSnippets: string,
   settings: Partial<WebServerSettings>,
+  options: { reservedDomains?: readonly string[] } = {},
 ): string {
-  const snippet = buildServerDomainCaddySnippet(settings);
+  const domain = settings.serverDomain?.trim().toLowerCase().replace(/\.$/, "");
+  const reservedDomains = new Set(
+    (options.reservedDomains ?? []).map((value) =>
+      value.trim().toLowerCase().replace(/\.$/, ""),
+    ),
+  );
+  const snippet =
+    domain && reservedDomains.has(domain)
+      ? ""
+      : buildServerDomainCaddySnippet(settings);
   const block = snippet
     ? `${SERVER_DOMAIN_MARKER_START}\n${snippet}\n${SERVER_DOMAIN_MARKER_END}`
     : "";
