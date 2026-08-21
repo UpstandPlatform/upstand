@@ -15,9 +15,13 @@ export class ExecServerTerminalCommandUseCase {
     private readonly docker: DockerExecPort,
   ) {}
 
-  async execute(input: z.infer<typeof ExecServerTerminalCommandInputSchema>) {
+  async execute(
+    input: z.infer<typeof ExecServerTerminalCommandInputSchema>,
+    options: { allowLocalInCloud?: boolean } = {},
+  ) {
     const target = await resolveDockerInspectionTarget(this.uow, input, {
       localName: "Local Server",
+      allowLocalInCloud: options.allowLocalInCloud,
     });
     return this.docker.execServerTerminalCommand(target, input.command);
   }

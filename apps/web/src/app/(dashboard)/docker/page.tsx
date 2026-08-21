@@ -329,14 +329,20 @@ type PendingRemoval =
     };
 
 export default function DockerInventoryPage() {
-  const { isCloud, isInstanceOwner } = useSystemConfig();
-  const canInspectLocal = !isCloud || isInstanceOwner;
+  const {
+    isCloud,
+    isInstanceOwner,
+    isLoading: systemConfigLoading,
+    isError: systemConfigError,
+  } = useSystemConfig();
+  const systemConfigReady = !systemConfigLoading && !systemConfigError;
+  const canInspectLocal = systemConfigReady && (!isCloud || isInstanceOwner);
   const organizationState = useRequiredActiveOrganization();
   const organizationId =
     organizationState.status === "ready"
       ? organizationState.organizationId
       : "";
-  const [serverId, setServerId] = useState(canInspectLocal ? "local" : "");
+  const [serverId, setServerId] = useState("");
   const [kind, setKind] = useState<(typeof kinds)[number]["id"]>("info");
 
   // Filtering & controls states
@@ -368,6 +374,10 @@ export default function DockerInventoryPage() {
   });
 
   useEffect(() => {
+    if (!systemConfigReady) {
+      if (serverId) setServerId("");
+      return;
+    }
     if (canInspectLocal && !serverId) {
       setServerId("local");
       return;
@@ -380,7 +390,7 @@ export default function DockerInventoryPage() {
         setServerId(firstRemote);
       }
     }
-  }, [canInspectLocal, serverId, serversQuery.data]);
+  }, [canInspectLocal, serverId, serversQuery.data, systemConfigReady]);
 
   // Query all containers on the server to populate logs/stats selects
   const containersQuery = useQuery({
@@ -596,15 +606,32 @@ export default function DockerInventoryPage() {
         }
       />
 
-      {isCloud && !serverId ? (
+      {!systemConfigReady ? (
         <Card className="p-6">
           <CardHeader className="p-0 pb-3">
             <CardTitle className="font-semibold text-base">
-              Select a Remote Server
+              Loading Docker access
             </CardTitle>
             <CardDescription className="text-xs">
-              In Cloud mode, Docker Inventory inspects containers, images,
-              volumes, and services on your connected remote servers.
+              Checking the available Docker targets for this instance.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Skeleton className="h-4 w-72" />
+          </CardContent>
+        </Card>
+      ) : isCloud && !serverId ? (
+        <Card className="p-6">
+          <CardHeader className="p-0 pb-3">
+            <CardTitle className="font-semibold text-base">
+              {isInstanceOwner
+                ? "Select a Remote Server"
+                : "Remote Docker access only"}
+            </CardTitle>
+            <CardDescription className="text-xs">
+              {isInstanceOwner
+                ? "In Cloud mode, Docker Inventory inspects containers, images, volumes, and services on your connected remote servers."
+                : "Local Docker belongs to the cloud control plane and is restricted to the instance owner. Select a connected remote server to continue."}
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0 text-muted-foreground text-xs">

@@ -4,6 +4,7 @@ import {
   serializeCaddyMiddlewares,
   type WebServerSettings,
 } from "@upstand/domain";
+import { env } from "@upstand/env/server";
 import { Cron } from "croner";
 import { z } from "zod";
 import type { CaddyService } from "./caddy.service";
@@ -129,10 +130,20 @@ export class UpdateWebServerSettingsUseCase {
       patch.accessLogCleanupCron = input.accessLogCleanupCron;
 
     const baseSnippets = patch.caddySnippets ?? settings.caddySnippets;
-    patch.caddySnippets = syncServerDomainInCaddySnippets(baseSnippets, {
-      ...settings,
-      ...patch,
-    });
+    patch.caddySnippets = syncServerDomainInCaddySnippets(
+      baseSnippets,
+      {
+        ...settings,
+        ...patch,
+      },
+      {
+        reservedDomains: [
+          env.UPSTAND_DASHBOARD_HOST,
+          env.UPSTAND_API_HOST,
+          env.UPSTAND_DOCS_HOST,
+        ].filter((value): value is string => Boolean(value)),
+      },
+    );
 
     const candidate = { ...settings, ...patch };
     const ipAccessChanged =

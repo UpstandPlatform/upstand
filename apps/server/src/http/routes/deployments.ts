@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { auth } from "@upstand/api/auth";
 import { requireInstanceOwner } from "@upstand/api/instance-access";
 import { checkPermission } from "@upstand/api/permissions";
+import { normalizeDirectIpAuthRequest } from "@upstand/auth";
 import { redis, withRedisTimeout } from "@upstand/redis";
 import {
   hashWebhookToken,
@@ -219,7 +220,9 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
 
   app.post("/api/resources/:resourceId/upload", uploadBodyLimit, async (c) => {
     const requestLog = c.get("log");
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     if (!(await isStepUpAuthenticationSatisfied(session))) {
       return c.json({ error: "2FA verification required" }, 403);
@@ -340,8 +343,80 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     "/api/docker/volumes/:volumeName/upload",
     uploadBodyLimit,
     async (c) => {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const session = await auth.api.getSession({
+        headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+      });
       if (!session) return c.json({ error: "Authentication required" }, 401);
+
+      const organizationId = c.req.query("organizationId");
+      if (!organizationId) {
+        return c.json({ error: "organizationId is required" }, 400);
+      }
+      try {
+        await checkPermission(session.user.id, organizationId, "server:update");
+      } catch {
+        return c.json({ error: "Docker volume upload is not permitted" }, 403);
+      }
+      if (!(await isStepUpAuthenticationSatisfied(session))) {
+        return c.json({ error: "2FA verification required" }, 403);
+      }
+      const serverId = c.req.query("serverId") || undefined;
+      if (!serverId || serverId === "local" || serverId === "manager") {
+        try {
+          await requireInstanceOwner(session.user.id, "session");
+        } catch {
+          return c.json(
+            { error: "Local Docker volume upload requires instance ownership" },
+            403,
+          );
+        }
+      }
+
+      const body = await c.req.parseBody();
+      const file = body.file;
+      if (!file || typeof file === "string") {
+        return c.json({ error: "Upload payload ('file') is required" }, 400);
+      }
+      if (!file.name.toLowerCase().endsWith(".tar")) {
+        return c.json(
+          { error: "Only uncompressed .tar archives are supported" },
+          400,
+        );
+      }
+
+      const buffer = Buffer.from(await file.arrayBuffer());
+      if (buffer.byteLength > MAX_UPLOAD_BYTES) {
+        return c.json({ error: "Volume archives must not exceed 50 MB" }, 413);
+      }
+
+      const archiveError = await validateSafeTarArchive(buffer, "volume");
+      if (archiveError) return c.json({ error: archiveError }, 400);
+
+      const parsed = UploadDockerVolumeInputSchema.parse({
+        organizationId,
+        serverId,
+        volumeName: c.req.param("volumeName"),
+        destination: c.req.query("destination") || "/",
+      });
+      const result = await c
+        .get("scope")
+        .resolve(GetDockerInventoryUseCaseToken)
+        .uploadVolume(parsed, buffer, { allowLocalInCloud: true });
+      return c.json(result, 201);
+    },
+  );
+
+  app.post(
+    "/api/resources/:resourceId/containers/:containerId/upload",
+    uploadBodyLimit,
+    async (c) => {
+      const session = await auth.api.getSession({
+        headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+      });
+      if (!session) return c.json({ error: "Authentication required" }, 401);
+      if (!(await isStepUpAuthenticationSatisfied(session))) {
+        return c.json({ error: "2FA verification required" }, 403);
+      }
 
       const organizationId = c.req.query("organizationId");
       if (!organizationId) {
@@ -478,10 +553,29 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
         containerId: c.req.param("containerId"),
         destination: c.req.query("destination") || "/",
       });
+      const resourceIsLocal =
+        !resource.serverId ||
+        resource.serverId === "local" ||
+        resource.serverId === "manager";
+      if (resourceIsLocal) {
+        try {
+          await requireInstanceOwner(session.user.id, "session");
+        } catch {
+          return c.json(
+            {
+              error:
+                "Local Docker container upload requires instance ownership",
+            },
+            403,
+          );
+        }
+      }
       const result = await c
         .get("scope")
         .resolve(GetDockerInventoryUseCaseToken)
-        .uploadContainer(parsed, buffer);
+        .uploadContainer(parsed, buffer, {
+          allowLocalInCloud: resourceIsLocal,
+        });
       return c.json(result, 201);
     },
   );

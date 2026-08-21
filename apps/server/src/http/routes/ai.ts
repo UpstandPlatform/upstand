@@ -20,6 +20,7 @@ import {
 } from "@upstand/api/api-key-auth";
 import { auth } from "@upstand/api/auth";
 import { authorizeMcpTool, checkPermission } from "@upstand/api/permissions";
+import { normalizeDirectIpAuthRequest } from "@upstand/auth";
 import { isJsonObject } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { redis } from "@upstand/redis";
@@ -66,7 +67,7 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
       onRejected: (c, message) => c.json({ error: message }, 429),
       resolveIdentity: async (c, ip) => {
         const session = await auth.api.getSession({
-          headers: c.req.raw.headers,
+          headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
         });
         return {
           identifier: session ? `user:${session.user.id}` : `ip:${ip}`,
@@ -80,7 +81,9 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
 
   app.post("/api/ai/chat", async (c) => {
     const requestLog = c.get("log");
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     const contentLength = Number(c.req.header("content-length") ?? 0);
     if (contentLength > MAX_AI_REQUEST_BYTES) {

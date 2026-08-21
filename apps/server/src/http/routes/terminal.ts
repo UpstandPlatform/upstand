@@ -1,6 +1,7 @@
 import { auth } from "@upstand/api/auth";
 import { requireInstanceOwner } from "@upstand/api/instance-access";
 import { checkPermission } from "@upstand/api/permissions";
+import { normalizeDirectIpAuthRequest } from "@upstand/auth";
 import { env } from "@upstand/env/server";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import {
@@ -36,7 +37,9 @@ async function createTerminalToken(
 
 export function registerTerminalRoutes(app: Hono<AppEnv>): void {
   app.post("/api/terminal/session", async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     if (!(await isStepUpAuthenticationSatisfied(session))) {
       return c.json({ error: "2FA verification required" }, 403);
@@ -243,7 +246,9 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
   }
 
   app.post("/api/container-terminal/session", async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     if (!(await isStepUpAuthenticationSatisfied(session))) {
       return c.json({ error: "2FA verification required" }, 403);
@@ -426,7 +431,9 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/api/docker/terminal/session", async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     if (!(await isStepUpAuthenticationSatisfied(session))) {
       return c.json({ error: "2FA verification required" }, 403);
@@ -649,7 +656,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
           wsRef = ws;
           try {
             const currentSession = await auth.api.getSession({
-              headers: c.req.raw.headers,
+              headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
             });
             if (!currentSession) {
               closeSocket(1008, "Authentication required");
@@ -695,7 +702,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
               }
               try {
                 const currentSession = await auth.api.getSession({
-                  headers: c.req.raw.headers,
+                  headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
                 });
                 if (!currentSession) {
                   closeSocket(1008, "Authentication required");
@@ -714,7 +721,7 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
                   (message) => closeSocket(1000, message),
                   async (identity) => {
                     const refreshedSession = await auth.api.getSession({
-                      headers: c.req.raw.headers,
+                      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
                     });
                     if (!refreshedSession) return false;
                     if (
