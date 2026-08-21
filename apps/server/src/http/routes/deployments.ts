@@ -420,6 +420,74 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
 
       const organizationId = c.req.query("organizationId");
       if (!organizationId) {
+        return c.json({ error: "organizationId is required" }, 400);
+      }
+      try {
+        await checkPermission(session.user.id, organizationId, "server:update");
+      } catch {
+        return c.json({ error: "Docker volume upload is not permitted" }, 403);
+      }
+      if (!(await isStepUpAuthenticationSatisfied(session))) {
+        return c.json({ error: "2FA verification required" }, 403);
+      }
+      const serverId = c.req.query("serverId") || undefined;
+      if (!serverId || serverId === "local" || serverId === "manager") {
+        try {
+          await requireInstanceOwner(session.user.id, "session");
+        } catch {
+          return c.json(
+            { error: "Local Docker volume upload requires instance ownership" },
+            403,
+          );
+        }
+      }
+
+      const body = await c.req.parseBody();
+      const file = body.file;
+      if (!file || typeof file === "string") {
+        return c.json({ error: "Upload payload ('file') is required" }, 400);
+      }
+      if (!file.name.toLowerCase().endsWith(".tar")) {
+        return c.json(
+          { error: "Only uncompressed .tar archives are supported" },
+          400,
+        );
+      }
+
+      const buffer = Buffer.from(await file.arrayBuffer());
+      if (buffer.byteLength > MAX_UPLOAD_BYTES) {
+        return c.json({ error: "Volume archives must not exceed 50 MB" }, 413);
+      }
+
+      const archiveError = await validateSafeTarArchive(buffer, "volume");
+      if (archiveError) return c.json({ error: archiveError }, 400);
+
+      const parsed = UploadDockerVolumeInputSchema.parse({
+        organizationId,
+        serverId,
+        volumeName: c.req.param("volumeName"),
+        destination: c.req.query("destination") || "/",
+      });
+      const result = await c
+        .get("scope")
+        .resolve(GetDockerInventoryUseCaseToken)
+        .uploadVolume(parsed, buffer);
+      return c.json(result, 201);
+    },
+  );
+
+  app.post(
+    "/api/resources/:resourceId/containers/:containerId/upload",
+    uploadBodyLimit,
+    async (c) => {
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      if (!session) return c.json({ error: "Authentication required" }, 401);
+      if (!(await isStepUpAuthenticationSatisfied(session))) {
+        return c.json({ error: "2FA verification required" }, 403);
+      }
+
+      const organizationId = c.req.query("organizationId");
+      if (!organizationId) {
         return c.json({ error: "Organization ID is required" }, 400);
       }
       const resourceId = c.req.param("resourceId");
