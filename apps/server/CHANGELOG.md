@@ -1,5 +1,11 @@
 # server
 
+## 0.2.24
+
+### Patch Changes
+
+- [#321](https://github.com/UpstandPlatform/upstand/pull/321) [`284ea2b`](https://github.com/UpstandPlatform/upstand/commit/284ea2bcc6806e9c6c527cd8557702a4370b3e5f) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix direct-IP cloud login recovery, prevent managed Caddy domains from being emitted twice, and allow the cloud instance owner to inspect and manage the control-plane Docker target while keeping local Docker restricted for other users. Add clearer Docker target loading and access guidance.
+
 ## 0.2.23
 
 ### Patch Changes
