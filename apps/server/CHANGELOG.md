@@ -1,5 +1,13 @@
 # server
 
+## 0.2.23
+
+### Patch Changes
+
+- [#321](https://github.com/UpstandPlatform/upstand/pull/321) [`284ea2b`](https://github.com/UpstandPlatform/upstand/commit/284ea2bcc6806e9c6c527cd8557702a4370b3e5f) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix direct-IP cloud login recovery, prevent managed Caddy domains from being emitted twice, and allow the cloud instance owner to inspect and manage the control-plane Docker target while keeping local Docker restricted for other users. Add clearer Docker target loading and access guidance.
+
+- [#319](https://github.com/UpstandPlatform/upstand/pull/319) [`53f33f6`](https://github.com/UpstandPlatform/upstand/commit/53f33f68c619702dd7cd2e92e74293481261b87f) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden direct-IP runtime origin detection so domain deployments using non-standard ports keep their configured cloud API, while direct dashboard URLs continue to resolve to the local API port. Improve the login recovery state with clearer outage guidance, retry feedback, and accessible status messaging. Reclaim unused Docker images and builder artifacts before managed self-updates while preserving named volumes and rollback images.
+
 ## 0.2.22
 
 ### Patch Changes
