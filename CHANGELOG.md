@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.23 - 2026-08-19
+
+Harden direct-IP runtime origin detection so domain deployments using non-standard ports keep their configured cloud API, while direct dashboard URLs continue to resolve to the local API port. Improve the login recovery state with clearer outage guidance, retry feedback, and accessible status messaging. Reclaim unused Docker images and builder artifacts before managed self-updates while preserving named volumes and rollback images.
+
 ## 0.2.22 - 2026-08-18
 
 Fix direct IP and port runtime URL resolution and trust direct host IP origins for CORS and session authentication on cloud and self-hosted runtimes.
