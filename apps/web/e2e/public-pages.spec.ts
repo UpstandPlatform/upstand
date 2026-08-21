@@ -44,6 +44,9 @@ test.describe("public web production surface", () => {
     expect(contentSecurityPolicy).toContain(
       "form-action 'self' https://github.com",
     );
+    expect(contentSecurityPolicy).toContain(
+      "connect-src 'self' http: https: ws: wss:",
+    );
     expect(contentSecurityPolicy).not.toContain(
       "script-src 'self' 'unsafe-eval'",
     );
@@ -53,16 +56,12 @@ test.describe("public web production surface", () => {
     await expect(page.locator("body")).toContainText("Upstand");
     await assertAccessible(page);
 
-    // The Windows local preview infers the API on http://127.0.0.1:3000,
-    // which the production CSP intentionally rejects. CI builds with the
-    // reserved HTTPS origin and intercepts these same endpoints above. Firefox
-    // also reports Next's vendor-chunk eval diagnostic as a CSP console error;
-    // the response header remains asserted above and the production policy is
-    // intentionally not weakened for this browser diagnostic.
+    // Firefox can report Next's vendor-chunk eval diagnostic as a CSP console
+    // error even when the response header is correct. The direct-IP HTTP API
+    // requests should no longer be present here: they are a supported
+    // self-hosted recovery path and are allowed by the production policy.
     const unexpectedConsoleErrors = consoleErrors.filter(
       (message) =>
-        !message.includes("http://127.0.0.1:3000/api/setup/status") &&
-        !message.includes("http://127.0.0.1:3000/api/auth/get-session") &&
         !message.includes("Content-Security-Policy") &&
         !message.includes("blocked a JavaScript eval"),
     );

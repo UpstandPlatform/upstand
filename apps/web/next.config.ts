@@ -61,9 +61,12 @@ const nextConfig: NextConfig = {
     const scriptSrc = isDev
       ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
       : "script-src 'self' 'unsafe-inline'";
-    const connectSrc = isDev
-      ? "connect-src 'self' http: https: ws: wss:"
-      : "connect-src 'self' https: wss:";
+    // Self-hosted instances may be reached through an HTTP IP:port recovery
+    // URL when their configured domain is unavailable. The browser must be
+    // able to reach the sibling API and websocket ports in that mode; CORS,
+    // authentication, and server-side origin checks remain the enforcement
+    // boundaries for those requests.
+    const connectSrc = "connect-src 'self' http: https: ws: wss:";
 
     return [
       {
