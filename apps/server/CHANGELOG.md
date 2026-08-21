@@ -1,5 +1,11 @@
 # server
 
+## 0.2.25
+
+### Patch Changes
+
+- [#328](https://github.com/UpstandPlatform/upstand/pull/328) [`705a983`](https://github.com/UpstandPlatform/upstand/commit/705a98380fe5b65a7573b48b333630425060705b) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production dashboard to reach the control plane over HTTP and WebSocket IP:port recovery URLs when a configured host is unavailable.
+
 ## 0.2.24
 
 ### Patch Changes
