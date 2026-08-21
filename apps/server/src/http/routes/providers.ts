@@ -1,5 +1,6 @@
 import { auth } from "@upstand/api/auth";
 import { checkPermission } from "@upstand/api/permissions";
+import { normalizeDirectIpAuthRequest } from "@upstand/auth";
 import { env } from "@upstand/env/server";
 import {
   readResponseJsonLimited,
@@ -61,7 +62,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
 
       try {
         const callbackSession = await auth.api.getSession({
-          headers: c.req.raw.headers,
+          headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
         });
         const uow = scope.resolve(UnitOfWorkToken);
         const provider = await uow.gitProviderRepository.findById(providerId);
@@ -117,7 +118,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       );
     }
     const callbackSession = await auth.api.getSession({
-      headers: c.req.raw.headers,
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
     });
     if (!callbackSession || callbackSession.user.id !== parsedState.userId) {
       return c.json({ error: "OAuth state actor is no longer valid" }, 403);
@@ -316,7 +317,7 @@ export function registerProviderRoutes(app: Hono<AppEnv>): void {
       return { response: c.text("Git Provider not found", 404) };
     }
     const session = await auth.api.getSession({
-      headers: c.req.raw.headers,
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
     });
     if (
       provider.organizationId !== parsedState.organizationId ||

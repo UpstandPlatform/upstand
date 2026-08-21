@@ -9,6 +9,7 @@ import {
   createCliDeviceAuthorization,
 } from "@upstand/api/cli-device-auth";
 import { checkPermission } from "@upstand/api/permissions";
+import { normalizeDirectIpAuthRequest } from "@upstand/auth";
 import { ApiKeyPresetSchema } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { redis } from "@upstand/redis";
@@ -122,7 +123,9 @@ export function registerCliDeviceAuthRoutes(app: Hono<AppEnv>): void {
     ) {
       return c.json({ error: "Too many approval attempts" }, 429);
     }
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     if (!(await stepUp.isStepUpAuthenticationSatisfied(session))) {
       return c.json({ error: "2FA verification required" }, 403);
@@ -189,7 +192,9 @@ export function registerCliDeviceAuthRoutes(app: Hono<AppEnv>): void {
     ) {
       return c.json({ error: "Too many denial attempts" }, 429);
     }
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     const denied = await store.deny(cliDeviceUserCode(input.userCode));
     if (!denied)

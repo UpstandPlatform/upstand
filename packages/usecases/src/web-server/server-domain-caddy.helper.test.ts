@@ -121,4 +121,16 @@ describe("server-domain-caddy.helper", () => {
     expect(synced).not.toContain("old.example.com {");
     expect(synced).toContain("custom_snippet {}");
   });
+
+  test("does not duplicate a managed control-plane domain", () => {
+    const existing = `${SERVER_DOMAIN_MARKER_START}\nold.example.com {}\n${SERVER_DOMAIN_MARKER_END}\n\nupstand.dev {\n\treverse_proxy upstand_web:3001\n}`;
+    const synced = syncServerDomainInCaddySnippets(
+      existing,
+      { serverDomain: "UPSTAND.DEV." },
+      { reservedDomains: ["upstand.dev"] },
+    );
+
+    expect(synced).not.toContain(SERVER_DOMAIN_MARKER_START);
+    expect(synced.match(/upstand\.dev \{/g)).toHaveLength(1);
+  });
 });

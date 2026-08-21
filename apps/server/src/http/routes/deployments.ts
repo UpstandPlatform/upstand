@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { auth } from "@upstand/api/auth";
 import { requireInstanceOwner } from "@upstand/api/instance-access";
 import { checkPermission } from "@upstand/api/permissions";
+import { normalizeDirectIpAuthRequest } from "@upstand/auth";
 import { redis, withRedisTimeout } from "@upstand/redis";
 import {
   hashWebhookToken,
@@ -219,7 +220,9 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
 
   app.post("/api/resources/:resourceId/upload", uploadBodyLimit, async (c) => {
     const requestLog = c.get("log");
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await auth.api.getSession({
+      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+    });
     if (!session) return c.json({ error: "Authentication required" }, 401);
     if (!(await isStepUpAuthenticationSatisfied(session))) {
       return c.json({ error: "2FA verification required" }, 403);
@@ -340,7 +343,9 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     "/api/docker/volumes/:volumeName/upload",
     uploadBodyLimit,
     async (c) => {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const session = await auth.api.getSession({
+        headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+      });
       if (!session) return c.json({ error: "Authentication required" }, 401);
 
       const organizationId = c.req.query("organizationId");
@@ -396,7 +401,7 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
       const result = await c
         .get("scope")
         .resolve(GetDockerInventoryUseCaseToken)
-        .uploadVolume(parsed, buffer);
+        .uploadVolume(parsed, buffer, { allowLocalInCloud: true });
       return c.json(result, 201);
     },
   );
@@ -405,7 +410,9 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
     "/api/resources/:resourceId/containers/:containerId/upload",
     uploadBodyLimit,
     async (c) => {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const session = await auth.api.getSession({
+        headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+      });
       if (!session) return c.json({ error: "Authentication required" }, 401);
       if (!(await isStepUpAuthenticationSatisfied(session))) {
         return c.json({ error: "2FA verification required" }, 403);
@@ -478,10 +485,29 @@ export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
         containerId: c.req.param("containerId"),
         destination: c.req.query("destination") || "/",
       });
+      const resourceIsLocal =
+        !resource.serverId ||
+        resource.serverId === "local" ||
+        resource.serverId === "manager";
+      if (resourceIsLocal) {
+        try {
+          await requireInstanceOwner(session.user.id, "session");
+        } catch {
+          return c.json(
+            {
+              error:
+                "Local Docker container upload requires instance ownership",
+            },
+            403,
+          );
+        }
+      }
       const result = await c
         .get("scope")
         .resolve(GetDockerInventoryUseCaseToken)
-        .uploadContainer(parsed, buffer);
+        .uploadContainer(parsed, buffer, {
+          allowLocalInCloud: resourceIsLocal,
+        });
       return c.json(result, 201);
     },
   );

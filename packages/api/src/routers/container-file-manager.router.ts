@@ -19,12 +19,13 @@ import {
 import type { AuthenticatedContext } from "../context";
 import { handleUseCaseError } from "../errors";
 import { router, twoFactorVerifiedProcedure } from "../index";
+import { requireInstanceOwnerContext } from "../instance-access";
 import { checkPermission } from "../permissions";
 
-async function resolveResourceOrgId(
+async function resolveResourceContext(
   ctx: AuthenticatedContext,
   resourceId: string,
-): Promise<string> {
+): Promise<{ organizationId: string; allowLocalInCloud: boolean }> {
   const getResource = ctx.scope.resolve(GetResourceUseCaseToken);
   const resource = await getResource.execute({ id: resourceId });
   if (!resource) {
@@ -37,7 +38,18 @@ async function resolveResourceOrgId(
   if (!project) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   }
-  return project.organizationId;
+  const allowLocalInCloud =
+    !resource.serverId ||
+    resource.serverId === "local" ||
+    resource.serverId === "manager";
+  return { organizationId: project.organizationId, allowLocalInCloud };
+}
+
+async function requireLocalResourceOwner(
+  ctx: AuthenticatedContext,
+  allowLocalInCloud: boolean,
+): Promise<void> {
+  if (allowLocalInCloud) await requireInstanceOwnerContext(ctx);
 }
 
 export const containerFileManagerRouter = router({
@@ -45,18 +57,17 @@ export const containerFileManagerRouter = router({
     .input(ListContainerMountsInputSchema.omit({ organizationId: true }))
     .query(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:view",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         return await ctx.scope
           .resolve(ContainerFileManagerUseCaseToken)
-          .listMounts({ ...input, organizationId });
+          .listMounts({ ...input, organizationId }, { allowLocalInCloud });
       } catch (error) {
         handleUseCaseError(error);
       }
@@ -66,20 +77,22 @@ export const containerFileManagerRouter = router({
     .input(ListContainerFilesInputSchema.omit({ organizationId: true }))
     .query(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:view",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
-        return await useCase.listFiles({
-          ...input,
-          organizationId,
-        });
+        return await useCase.listFiles(
+          {
+            ...input,
+            organizationId,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error);
       }
@@ -89,20 +102,22 @@ export const containerFileManagerRouter = router({
     .input(ReadContainerFileInputSchema.omit({ organizationId: true }))
     .query(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:view",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
-        return await useCase.readFile({
-          ...input,
-          organizationId,
-        });
+        return await useCase.readFile(
+          {
+            ...input,
+            organizationId,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error);
       }
@@ -112,20 +127,22 @@ export const containerFileManagerRouter = router({
     .input(WriteContainerFileInputSchema.omit({ organizationId: true }))
     .mutation(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:update",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
-        return await useCase.writeFile({
-          ...input,
-          organizationId,
-        });
+        return await useCase.writeFile(
+          {
+            ...input,
+            organizationId,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error);
       }
@@ -135,20 +152,22 @@ export const containerFileManagerRouter = router({
     .input(CreateContainerItemInputSchema.omit({ organizationId: true }))
     .mutation(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:update",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
-        return await useCase.createItem({
-          ...input,
-          organizationId,
-        });
+        return await useCase.createItem(
+          {
+            ...input,
+            organizationId,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error);
       }
@@ -158,20 +177,22 @@ export const containerFileManagerRouter = router({
     .input(RenameContainerItemInputSchema.omit({ organizationId: true }))
     .mutation(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:update",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
-        return await useCase.renameItem({
-          ...input,
-          organizationId,
-        });
+        return await useCase.renameItem(
+          {
+            ...input,
+            organizationId,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error);
       }
@@ -181,20 +202,22 @@ export const containerFileManagerRouter = router({
     .input(DeleteContainerItemInputSchema.omit({ organizationId: true }))
     .mutation(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:update",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
-        return await useCase.deleteItem({
-          ...input,
-          organizationId,
-        });
+        return await useCase.deleteItem(
+          {
+            ...input,
+            organizationId,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error);
       }
@@ -208,20 +231,22 @@ export const containerFileManagerRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:update",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
-        return await useCase.changePermissions({
-          ...input,
-          organizationId,
-        });
+        return await useCase.changePermissions(
+          {
+            ...input,
+            organizationId,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error);
       }
@@ -231,20 +256,22 @@ export const containerFileManagerRouter = router({
     .input(SearchContainerFilesInputSchema.omit({ organizationId: true }))
     .query(async ({ ctx, input }) => {
       try {
-        const organizationId = await resolveResourceOrgId(
-          ctx,
-          input.resourceId,
-        );
+        const { organizationId, allowLocalInCloud } =
+          await resolveResourceContext(ctx, input.resourceId);
         await checkPermission(
           ctx.session.user.id,
           organizationId,
           "resource:view",
         );
+        await requireLocalResourceOwner(ctx, allowLocalInCloud);
         const useCase = ctx.scope.resolve(ContainerFileManagerUseCaseToken);
-        return await useCase.searchFiles({
-          ...input,
-          organizationId,
-        });
+        return await useCase.searchFiles(
+          {
+            ...input,
+            organizationId,
+          },
+          { allowLocalInCloud },
+        );
       } catch (error) {
         handleUseCaseError(error);
       }

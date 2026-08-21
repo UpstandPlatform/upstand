@@ -1,4 +1,5 @@
 import type { ServiceScope } from "@circulo-ai/di";
+import { normalizeDirectIpAuthRequest } from "@upstand/auth";
 import type { EvlogVariables } from "evlog/hono";
 import {
   type ApiKeyPrincipal,
@@ -39,8 +40,9 @@ export type CreateContextOptions = {
 };
 
 export async function createContext({ context }: CreateContextOptions) {
+  const authRequest = normalizeDirectIpAuthRequest(context.req.raw);
   const authenticatedSession = await auth.api.getSession({
-    headers: context.req.raw.headers,
+    headers: authRequest.headers,
   });
   const apiKey = authenticatedSession
     ? null

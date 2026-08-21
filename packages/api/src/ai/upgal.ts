@@ -1738,10 +1738,16 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
         if (!input.serverId || ["local", "manager"].includes(input.serverId)) {
           await requireInteractiveInstanceOwner(context);
         }
-        return run(PruneDockerResourcesUseCaseToken).execute({
-          organizationId: context.organizationId,
-          ...input,
-        });
+        return run(PruneDockerResourcesUseCaseToken).execute(
+          {
+            organizationId: context.organizationId,
+            ...input,
+          },
+          {
+            allowLocalInCloud:
+              !input.serverId || ["local", "manager"].includes(input.serverId),
+          },
+        );
       },
       pruneDockerOutputSchema,
     ),
@@ -1755,10 +1761,16 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
         } else {
           await assertServer(context, input.serverId);
         }
-        const res = await run(ExecContainerCommandUseCaseToken).execute({
-          organizationId: context.organizationId,
-          ...input,
-        });
+        const res = await run(ExecContainerCommandUseCaseToken).execute(
+          {
+            organizationId: context.organizationId,
+            ...input,
+          },
+          {
+            allowLocalInCloud:
+              !input.serverId || ["local", "manager"].includes(input.serverId),
+          },
+        );
         return { output: truncateOutput(res.output) };
       },
       execCommandOutputSchema,
@@ -1776,10 +1788,16 @@ function createUpGalToolRegistry(context: UpGalBaseContext): UpGalToolRegistry {
         } else {
           await assertServer(context, input.serverId);
         }
-        const res = await run(ExecServerTerminalCommandUseCaseToken).execute({
-          organizationId: context.organizationId,
-          ...input,
-        });
+        const res = await run(ExecServerTerminalCommandUseCaseToken).execute(
+          {
+            organizationId: context.organizationId,
+            ...input,
+          },
+          {
+            allowLocalInCloud:
+              !input.serverId || ["local", "manager"].includes(input.serverId),
+          },
+        );
         return { output: truncateOutput(res.output) };
       },
       execCommandOutputSchema,
