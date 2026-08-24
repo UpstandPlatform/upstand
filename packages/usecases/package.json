@@ -20,7 +20,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@circulo-ai/di": "^3.1.0",
+    "@circulo-ai/di": "^3.2.1",
     "@upstand/domain": "workspace:*",
     "@upstand/env": "workspace:*",
     "@upstand/platform": "workspace:*",

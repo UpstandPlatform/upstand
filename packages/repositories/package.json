@@ -20,7 +20,7 @@
     "lint": "biome check ."
   },
   "dependencies": {
-    "@circulo-ai/di": "^3.1.0",
+    "@circulo-ai/di": "^3.2.1",
     "@upstand/db": "workspace:*",
     "@upstand/domain": "workspace:*",
     "@upstand/platform": "workspace:*",
@@ -28,7 +28,7 @@
     "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.3.14",
+    "@electric-sql/pglite": "^0.5.5",
     "@upstand/config": "workspace:*",
     "typescript": "catalog:"
   }
