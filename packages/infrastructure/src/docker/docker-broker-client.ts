@@ -48,7 +48,11 @@ import {
   cleanDockerLogs,
   filterDockerLogs,
 } from "@upstand/usecases/resource/docker-log-filter";
-import { pack as packTar } from "tar-fs";
+// tar-fs is CommonJS and does not ship TypeScript declarations. Keep the
+// runtime import static so Bun includes it in compiled Desktop executables,
+// while constraining the small API used by this adapter locally.
+// @ts-expect-error tar-fs has no bundled declaration file.
+import tarFsModule from "tar-fs";
 import { z } from "zod";
 import {
   readDockerBrokerTLSFile,
@@ -61,6 +65,18 @@ const BUILD_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_BUILD_CONTEXT_BYTES = 512 * 1024 * 1024;
 const MAX_BUILD_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_REGISTRY_AUTH_BYTES = 16 * 1024;
+
+type TarFsModule = {
+  pack: (
+    cwd: string,
+    options?: {
+      ignore?: (absolutePath: string) => boolean;
+    },
+  ) => Readable;
+};
+
+const tarFs = tarFsModule as unknown as TarFsModule;
+
 function encodeTypedRegistryAuth(auth: {
   username: string;
   password: string;
@@ -564,7 +580,7 @@ function createBoundedDockerBuildContext(
   if (fs.existsSync(ignorePath)) {
     ignore.add(fs.readFileSync(ignorePath, "utf8"));
   }
-  const source = packTar(contextPath, {
+  const source = tarFs.pack(contextPath, {
     ignore: (absolutePath) => {
       const relative = path
         .relative(contextPath, absolutePath)
