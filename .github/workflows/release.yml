@@ -11,9 +11,9 @@ on:
         required: true
         type: string
       acceptance_profile:
-        description: Release acceptance profile (smoke or full recovery rehearsal)
+        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics)
         required: false
-        default: smoke
+        default: full
         type: string
       publish_release:
         description: Create the GitHub Release after verification
@@ -37,9 +37,9 @@ on:
         required: true
         type: string
       acceptance_profile:
-        description: Release acceptance profile (smoke or full recovery rehearsal)
+        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics)
         required: false
-        default: smoke
+        default: full
         type: string
       publish_release:
         description: Create the GitHub Release after verification
@@ -469,7 +469,10 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
       ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || github.ref }}
-      ACCEPTANCE_PROFILE: ${{ inputs.acceptance_profile || 'smoke' }}
+      # Stable tag pushes have no workflow inputs. Always run the full
+      # recovery/load profile for those releases; smoke is retained only as an
+      # explicitly selected manual diagnostic profile.
+      ACCEPTANCE_PROFILE: ${{ github.event_name == 'push' && 'full' || inputs.acceptance_profile || 'full' }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
       ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network

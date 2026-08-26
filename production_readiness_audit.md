@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-26
-Revision: §9b10050e§ (release/promote 0.2.25)
+Revision: §4978c227§ (production-hardening-release)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -96,6 +96,15 @@ attachable-network checks, and schema-validated responses instead of raw Docker
 transport. Local inventory, container/resource control, and pruning use a
 separate typed contract with bounded operation-specific fields and validated
 response models; remote server targets remain on their explicit SSH path.
+
+The release gate now selects the `full` acceptance profile for stable tag
+pushes, so backup/restore, failure-injection, bounded load, soak, and
+observability rehearsals cannot be skipped by the tag-triggered publication
+workflow. The `smoke` profile remains available only as an explicitly selected
+manual diagnostic retry; it is not the stable publication default. This closes
+a release-workflow configuration gap, but the full hosted rehearsal still uses
+disposable infrastructure and does not replace installation-specific
+off-host restore or key-escrow evidence.
 
 The API now records low-cardinality authentication outcomes at the protected
 HTTP middleware boundary (`authenticated` or `rejected`) without including
@@ -507,7 +516,7 @@ Additional observations: AI history is bounded but retention limits are needed; 
 5. **Major:** Legacy owner repair and transfer now have audited, step-up-protected workflows, but live recovery evidence and removal of environment overrides remain operational requirements.
 6. **Major:** Explicit direct-IP/plaintext bootstrap remains a deliberate initial downgrade mode; runtime now closes it after first account creation, but private-interface and TLS-cutover evidence are still operational requirements.
 7. **Major:** AI cost admission now uses a conservative operator-configured ceiling and optional exact model allowlists, but provider invoice reconciliation is absent and untrusted-data isolation still relies partly on model-facing provenance instructions.
-8. **Major:** Live production E2E, restore drills, and synthetic rollback evidence are not mandatory release evidence.
+8. **Major:** Installation-specific production E2E, off-host restore, and key-escrow evidence remain outside the hosted disposable release rehearsal; the stable tag workflow now requires its full synthetic/failure-injection/load/soak profile.
 9. **Major:** Privileged worker separation and durable orphan reconciliation remain incomplete.
 
 ## Verification Performed
@@ -563,6 +572,7 @@ Passed:
 - native Bun high-severity audit with no advisories or suppressions
 - Go 1.25.13 `govulncheck` scans for `apps/docker-broker` and `apps/monitoring` (zero reachable vulnerabilities)
 - operational-status rehearsal restore-verification gate test and internal Docker-control-network acceptance contracts
+- stable tag release acceptance defaulting to the full recovery/load profile, with a contract test preventing smoke from becoming the tag-push default
 
 Concerning or operationally incomplete:
 
