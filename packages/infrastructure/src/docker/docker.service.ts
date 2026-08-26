@@ -250,6 +250,14 @@ export function redactCommandOutput(
     );
 }
 
+function writePrivateDeploymentFile(filePath: string, content: string): void {
+  fs.writeFileSync(filePath, content, { encoding: "utf8", mode: 0o600 });
+  // Windows does not expose POSIX owner/group permissions. On Unix-like
+  // deployment hosts, make the restriction explicit even when the file was
+  // created previously with a broader mode.
+  if (process.platform !== "win32") fs.chmodSync(filePath, 0o600);
+}
+
 export function shouldSuppressComposeRestart(
   resource: Pick<Resource, "type" | "composeType">,
   command: string,
@@ -2932,86 +2940,89 @@ export class DockerService implements DockerSwarmManagementPort {
     const composeDir = path.join(buildDir, resource.id);
     fs.mkdirSync(composeDir, { recursive: true });
     const composePath = path.join(composeDir, "docker-compose.yml");
+    let composeContent = "";
 
-    const advancedConfig = parseResourceAdvancedConfig(resource.advancedConfig);
-    const composeSource = advancedConfig.randomize
-      ? randomizeComposeFile(rawCompose, advancedConfig.randomSuffix)
-      : rawCompose;
-    let composeContent = applyComposeResourceConfig(
-      composeSource,
-      resource,
-      advancedConfig,
-    );
     try {
-      composeContent = applyComposeIngressNetwork(
-        composeContent,
-        deploymentNetwork.name,
-        advancedConfig.isolatedDeployment &&
-          advancedConfig.isolatedDeploymentsVolume,
-        stackName,
+      const advancedConfig = parseResourceAdvancedConfig(
+        resource.advancedConfig,
       );
-    } catch (error) {
-      throw new Error(
-        `Unable to prepare Compose networking: ${error instanceof Error ? error.message : String(error)}`,
+      const composeSource = advancedConfig.randomize
+        ? randomizeComposeFile(rawCompose, advancedConfig.randomSuffix)
+        : rawCompose;
+      composeContent = applyComposeResourceConfig(
+        composeSource,
+        resource,
+        advancedConfig,
       );
-    }
-
-    // Inject placement constraints if provided
-    if (constraints && constraints.length > 0) {
       try {
-        const parsed = yaml.parse(composeContent);
-        if (parsed && typeof parsed === "object" && parsed.services) {
-          for (const serviceName of Object.keys(parsed.services)) {
-            const service = parsed.services[serviceName];
-            if (service && typeof service === "object") {
-              if (!service.deploy) {
-                service.deploy = {};
-              }
-              if (!service.deploy.placement) {
-                service.deploy.placement = {};
-              }
-              if (!service.deploy.placement.constraints) {
-                service.deploy.placement.constraints = [];
-              }
-              for (const c of constraints) {
-                if (!service.deploy.placement.constraints.includes(c)) {
-                  service.deploy.placement.constraints.push(c);
+        composeContent = applyComposeIngressNetwork(
+          composeContent,
+          deploymentNetwork.name,
+          advancedConfig.isolatedDeployment &&
+            advancedConfig.isolatedDeploymentsVolume,
+          stackName,
+        );
+      } catch (error) {
+        throw new Error(
+          `Unable to prepare Compose networking: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      // Inject placement constraints if provided
+      if (constraints && constraints.length > 0) {
+        try {
+          const parsed = yaml.parse(composeContent);
+          if (parsed && typeof parsed === "object" && parsed.services) {
+            for (const serviceName of Object.keys(parsed.services)) {
+              const service = parsed.services[serviceName];
+              if (service && typeof service === "object") {
+                if (!service.deploy) {
+                  service.deploy = {};
+                }
+                if (!service.deploy.placement) {
+                  service.deploy.placement = {};
+                }
+                if (!service.deploy.placement.constraints) {
+                  service.deploy.placement.constraints = [];
+                }
+                for (const c of constraints) {
+                  if (!service.deploy.placement.constraints.includes(c)) {
+                    service.deploy.placement.constraints.push(c);
+                  }
                 }
               }
             }
+            composeContent = yaml.stringify(parsed);
           }
-          composeContent = yaml.stringify(parsed);
+        } catch (err) {
+          onLog(
+            `Warning: Failed to inject Swarm placement constraints: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
         }
-      } catch (err) {
-        onLog(
-          `Warning: Failed to inject Swarm placement constraints: ${err instanceof Error ? err.message : String(err)}\n`,
-        );
       }
-    }
 
-    fs.writeFileSync(composePath, composeContent, "utf8");
+      writePrivateDeploymentFile(composePath, composeContent);
 
-    const composeCommand =
-      resource.composeType === "compose"
-        ? [
-            "compose",
-            "--project-name",
-            stackName,
-            "--file",
-            composePath,
-            "up",
-            "--detach",
-            "--remove-orphans",
-          ]
-        : ["stack", "deploy", "--compose-file", composePath, stackName];
-    onLog(
-      resource.composeType === "compose"
-        ? `Deploying Docker Compose project '${stackName}'...\n`
-        : `Deploying Docker Swarm stack '${stackName}'...\n`,
-    );
-    const composeEnv =
-      envVars ?? parseResourceEnvironmentVariables(resource.envVars);
-    try {
+      const composeCommand =
+        resource.composeType === "compose"
+          ? [
+              "compose",
+              "--project-name",
+              stackName,
+              "--file",
+              composePath,
+              "up",
+              "--detach",
+              "--remove-orphans",
+            ]
+          : ["stack", "deploy", "--compose-file", composePath, stackName];
+      onLog(
+        resource.composeType === "compose"
+          ? `Deploying Docker Compose project '${stackName}'...\n`
+          : `Deploying Docker Swarm stack '${stackName}'...\n`,
+      );
+      const composeEnv =
+        envVars ?? parseResourceEnvironmentVariables(resource.envVars);
       await this.runCommandAsync(
         "docker",
         composeCommand,

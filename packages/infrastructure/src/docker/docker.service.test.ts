@@ -379,6 +379,94 @@ describe("deployment command log safety", () => {
     );
   });
 
+  test("keeps generated Compose manifests private until cleanup", async () => {
+    const resourceId = `compose-private-${process.pid}-${Date.now()}`;
+    const service = new DockerService({} as never) as unknown as {
+      ensureDeploymentNetwork: (
+        resource: unknown,
+      ) => Promise<{ id: string; name: string; isolated: boolean }>;
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (log: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { resourceId?: string; redactions?: readonly string[] },
+      ) => Promise<void>;
+      waitForComposeConvergence: (
+        projectName: string,
+        onLog: (log: string) => void,
+      ) => Promise<void>;
+      deployComposeStack: DockerService["deployComposeStack"];
+    };
+    let composePath = "";
+    service.ensureDeploymentNetwork = async () => ({
+      id: "network-1",
+      name: "upstand-network",
+      isolated: false,
+    });
+    service.waitForComposeConvergence = async () => {};
+    service.runCommandAsync = async (_command, args) => {
+      const fileIndex = args.indexOf("--file");
+      composePath = args[fileIndex + 1] || "";
+      expect(composePath).not.toBe("");
+      expect(fs.readFileSync(composePath, "utf8")).toContain("super-secret");
+      if (process.platform !== "win32") {
+        expect(fs.statSync(composePath).mode & 0o077).toBe(0);
+      }
+    };
+
+    await service.deployComposeStack(
+      {
+        id: resourceId,
+        name: "Private Compose",
+        appName: resourceId,
+        type: "compose",
+        composeType: "compose",
+        advancedConfig: "{}",
+        envVars: null,
+      } as never,
+      "services:\n  app:\n    image: alpine:3.20\n    environment:\n      SECRET: super-secret\n",
+      () => {},
+    );
+
+    expect(fs.existsSync(composePath)).toBe(false);
+  });
+
+  test("cleans the Compose workspace when manifest preparation fails", async () => {
+    const resourceId = `compose-invalid-${process.pid}-${Date.now()}`;
+    const service = new DockerService({} as never) as unknown as {
+      ensureDeploymentNetwork: (
+        resource: unknown,
+      ) => Promise<{ id: string; name: string; isolated: boolean }>;
+      deployComposeStack: DockerService["deployComposeStack"];
+    };
+    service.ensureDeploymentNetwork = async () => ({
+      id: "network-1",
+      name: "upstand-network",
+      isolated: false,
+    });
+
+    await expect(
+      service.deployComposeStack(
+        {
+          id: resourceId,
+          name: "Invalid Compose",
+          appName: resourceId,
+          type: "compose",
+          composeType: "compose",
+          advancedConfig: "{}",
+          envVars: null,
+        } as never,
+        "services: [",
+        () => {},
+      ),
+    ).rejects.toThrow("Compose YAML is invalid");
+
+    expect(fs.existsSync(path.join(process.cwd(), ".builds", resourceId))).toBe(
+      false,
+    );
+  });
+
   test("uses the typed ownership-checked teardown for local Compose resources", async () => {
     const removeResourceCompose = mock(async () => {});
     const removeResourceNetwork = mock(async () => {});
