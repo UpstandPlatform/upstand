@@ -33,8 +33,7 @@ import { z } from "zod";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 import {
-  incrementUpGalDailyBudget,
-  reserveUpGalDailyTokenAndCostBudget,
+  reserveUpGalDailyRunTokenAndCostBudget,
   upGalCostCentsForTokens,
 } from "./ai-budget";
 import {
@@ -179,11 +178,22 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     try {
       if (env.NODE_ENV !== "test") {
         const now = new Date();
-        let runCount: number;
+        const requestedCents = upGalCostCentsForTokens(
+          UPGAL_MAX_CHAT_TOTAL_TOKENS,
+          env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
+        );
+        let reservation: Awaited<
+          ReturnType<typeof reserveUpGalDailyRunTokenAndCostBudget>
+        >;
         try {
-          runCount = await incrementUpGalDailyBudget(
+          reservation = await reserveUpGalDailyRunTokenAndCostBudget(
             redis,
             body.organizationId,
+            env.UPGAL_DAILY_RUN_LIMIT,
+            UPGAL_MAX_CHAT_TOTAL_TOKENS,
+            env.UPGAL_DAILY_TOKEN_LIMIT,
+            requestedCents,
+            Math.round(env.UPGAL_DAILY_COST_LIMIT_USD * 100),
             now,
           );
         } catch (error) {
@@ -193,39 +203,12 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
           });
           return c.json({ error: "UpGal is temporarily unavailable" }, 503);
         }
-        if (runCount > env.UPGAL_DAILY_RUN_LIMIT) {
-          return c.json(
-            { error: "UpGal daily organization run limit exceeded" },
-            429,
-          );
-        }
-        const requestedCents = upGalCostCentsForTokens(
-          UPGAL_MAX_CHAT_TOTAL_TOKENS,
-          env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
-        );
-        let reservation: Awaited<
-          ReturnType<typeof reserveUpGalDailyTokenAndCostBudget>
-        >;
-        try {
-          reservation = await reserveUpGalDailyTokenAndCostBudget(
-            redis,
-            body.organizationId,
-            UPGAL_MAX_CHAT_TOTAL_TOKENS,
-            env.UPGAL_DAILY_TOKEN_LIMIT,
-            requestedCents,
-            Math.round(env.UPGAL_DAILY_COST_LIMIT_USD * 100),
-            now,
-          );
-        } catch (error) {
-          requestLog.error(error instanceof Error ? error : String(error), {
-            message: "Unable to enforce UpGal daily token and cost budget",
-            organizationId: body.organizationId,
-          });
-          return c.json({ error: "UpGal is temporarily unavailable" }, 503);
-        }
         if (!reservation) {
           return c.json(
-            { error: "UpGal daily organization token or cost limit exceeded" },
+            {
+              error:
+                "UpGal daily organization run, token, or cost limit exceeded",
+            },
             429,
           );
         }

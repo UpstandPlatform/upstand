@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  reserveUpGalDailyRunTokenAndCostBudget,
   reserveUpGalDailyTokenAndCostBudget,
   upGalDailyCostBudgetKey,
   upGalDailyTokenBudgetKey,
@@ -55,6 +56,96 @@ describe("UpGal atomic token and cost budgets", () => {
     expect(script).toContain("currentTokens + requestedTokens");
     expect(script).toContain("currentCents + requestedCents");
     expect(script.indexOf("return 0")).toBeLessThan(script.indexOf("INCRBY"));
+  });
+
+  test("admits run, token, and cost budgets atomically", async () => {
+    const calls: Array<{
+      script: string;
+      numberOfKeys: number;
+      argumentsList: string[];
+    }> = [];
+    const client = {
+      eval: async (
+        script: string,
+        numberOfKeys: number,
+        ...argumentsList: string[]
+      ) => {
+        calls.push({ script, numberOfKeys, argumentsList });
+        return [3, 5000, 37];
+      },
+    };
+
+    const result = await reserveUpGalDailyRunTokenAndCostBudget(
+      client,
+      "org-1",
+      100,
+      5000,
+      100_000,
+      37,
+      10_000,
+      now,
+    );
+
+    expect(result).toEqual({
+      totalRuns: 3,
+      runLimit: 100,
+      totalTokens: 5000,
+      tokenLimit: 100_000,
+      totalCents: 37,
+      costLimitCents: 10_000,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.numberOfKeys).toBe(3);
+    expect(calls[0]?.argumentsList.slice(0, 9)).toEqual([
+      "upgal:daily-runs:org-1:2026-08-26",
+      upGalDailyTokenBudgetKey("org-1", now),
+      upGalDailyCostBudgetKey("org-1", now),
+      "1",
+      "100",
+      "5000",
+      "100000",
+      "37",
+      "10000",
+    ]);
+    expect(calls[0]?.script).toContain("currentRuns + requestedRuns");
+    const script = calls[0]?.script ?? "";
+    expect(script.indexOf("return 0")).toBeLessThan(script.indexOf("INCRBY"));
+  });
+
+  test("rejects the combined reservation without incrementing any budget", async () => {
+    let calls = 0;
+    const reservation = await reserveUpGalDailyRunTokenAndCostBudget(
+      {
+        eval: async () => {
+          calls += 1;
+          return 0;
+        },
+      },
+      "org-1",
+      100,
+      5000,
+      100_000,
+      37,
+      10_000,
+      now,
+    );
+    expect(reservation).toBeNull();
+    expect(calls).toBe(1);
+  });
+
+  test("fails closed on malformed combined reservation values", async () => {
+    await expect(
+      reserveUpGalDailyRunTokenAndCostBudget(
+        { eval: async () => [1, 5000] },
+        "org-1",
+        100,
+        5000,
+        100_000,
+        37,
+        10_000,
+        now,
+      ),
+    ).rejects.toThrow("invalid UpGal run, token, and cost reservation");
   });
 
   test("does not admit a rejected combined reservation", async () => {

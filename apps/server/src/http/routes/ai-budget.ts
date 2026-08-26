@@ -1,5 +1,6 @@
 export {
   incrementUpGalDailyBudget,
+  reserveUpGalDailyRunTokenAndCostBudget,
   reserveUpGalDailyTokenAndCostBudget,
   secondsUntilNextUtcDay,
   upGalCostCentsForTokens,
