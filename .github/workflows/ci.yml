@@ -93,6 +93,7 @@ jobs:
           BETTER_AUTH_URL: http://localhost:3000
           CORS_ORIGIN: http://localhost:3001
           BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+          UPGAL_TOOL_APPROVAL_SECRET: ci-only-approval-secret-that-is-at-least-32-characters-long
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
         run: |
           bun run db:generate
