@@ -261,10 +261,12 @@ async function ensureManagedOverlayNetwork(
       existing.Driver !== "overlay" ||
       existing.Scope !== "swarm" ||
       existing.Attachable !== true ||
-      (encryptionRequired && !hasEncryptedOverlayOption(existing))
+      (encryptionRequired && !hasEncryptedOverlayOption(existing)) ||
+      (resourceId !== "" &&
+        existing.Labels?.["com.upstand.resource-id"] !== resourceId)
     ) {
       throw new ConflictError(
-        `Network '${name}' exists but is not a compatible${encryptionRequired ? ", encrypted" : ""} attachable Swarm overlay network. Rename or remove it before continuing.`,
+        `Network '${name}' exists but is not a compatible${encryptionRequired ? ", encrypted" : ""} attachable Swarm overlay network owned by the requested resource. Rename or remove it before continuing.`,
       );
     }
 
@@ -313,10 +315,12 @@ async function ensureManagedOverlayNetwork(
       racedNetwork.Driver !== "overlay" ||
       racedNetwork.Scope !== "swarm" ||
       racedNetwork.Attachable !== true ||
-      (encryptionRequired && !hasEncryptedOverlayOption(racedNetwork))
+      (encryptionRequired && !hasEncryptedOverlayOption(racedNetwork)) ||
+      (resourceId !== "" &&
+        racedNetwork.Labels?.["com.upstand.resource-id"] !== resourceId)
     ) {
       throw new ConflictError(
-        `Network '${name}' exists but is not a compatible${encryptionRequired ? ", encrypted" : ""} attachable Swarm overlay network.`,
+        `Network '${name}' exists but is not a compatible${encryptionRequired ? ", encrypted" : ""} attachable Swarm overlay network owned by the requested resource.`,
       );
     }
     return { id: racedNetwork.Id, created: false };

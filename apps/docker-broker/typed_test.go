@@ -735,7 +735,7 @@ func TestResourceNetworkOperationRemovesOnlyManagedIsolatedNetwork(t *testing.T)
 		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
 			switch {
 			case request.Method == http.MethodGet && request.URL.Path == "/networks/upstand-resource-resource-1":
-				return dockerResponse(http.StatusOK, `{"Id":"network-id","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation"}}`), nil
+				return dockerResponse(http.StatusOK, `{"Id":"network-id","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`), nil
 			case request.Method == http.MethodDelete && request.URL.Path == "/networks/network-id":
 				removedNetworkID = "network-id"
 				return dockerResponse(http.StatusOK, `{}`), nil
@@ -745,7 +745,7 @@ func TestResourceNetworkOperationRemovesOnlyManagedIsolatedNetwork(t *testing.T)
 		}),
 	}}
 
-	if err := engine.resourceNetworkOperation(
+	if _, err := engine.resourceNetworkOperation(
 		context.Background(),
 		[]byte(`{"operation":"remove","resource_id":"resource-1","network_id":"upstand-resource-resource-1"}`),
 	); err != nil {
@@ -755,11 +755,54 @@ func TestResourceNetworkOperationRemovesOnlyManagedIsolatedNetwork(t *testing.T)
 		t.Fatalf("expected inspected network to be removed, got %q", removedNetworkID)
 	}
 
-	if err := engine.resourceNetworkOperation(
+	if _, err := engine.resourceNetworkOperation(
 		context.Background(),
 		[]byte(`{"operation":"remove","resource_id":"resource-2","network_id":"upstand-resource-resource-1"}`),
 	); err == nil {
 		t.Fatal("expected network name ownership mismatch to be rejected")
+	}
+}
+
+func TestResourceNetworkOperationEnsuresOwnedIsolatedNetwork(t *testing.T) {
+	created := false
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			switch {
+			case request.Method == http.MethodGet && request.URL.Path == "/networks/upstand-resource-resource-1":
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			case request.Method == http.MethodPost && request.URL.Path == "/networks/create":
+				created = true
+				return dockerResponse(http.StatusOK, `{"Id":"created-network"}`), nil
+			default:
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+		}),
+	}}
+
+	result, err := engine.resourceNetworkOperation(
+		context.Background(),
+		[]byte(`{"operation":"ensure","resource_id":"resource-1"}`),
+	)
+	if err != nil {
+		t.Fatalf("expected managed isolated network creation to succeed: %v", err)
+	}
+	if !created || result.ID != "created-network" || result.Name != "upstand-resource-resource-1" || !result.Created {
+		t.Fatalf("unexpected resource network result: created=%t result=%+v", created, result)
+	}
+}
+
+func TestResourceNetworkOperationRejectsUnownedExistingNetwork(t *testing.T) {
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			return dockerResponse(http.StatusOK, `{"Id":"network-id","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"other-resource"}}`), nil
+		}),
+	}}
+
+	if _, err := engine.resourceNetworkOperation(
+		context.Background(),
+		[]byte(`{"operation":"ensure","resource_id":"resource-1"}`),
+	); err == nil {
+		t.Fatal("expected an existing network with a different owner to be rejected")
 	}
 }
 

@@ -306,5 +306,27 @@ services:
         },
       });
     });
+
+    test("rejects an existing isolated network with a mismatched owner label", async () => {
+      const mockDocker = {
+        getNetwork: () => ({
+          inspect: async () => ({
+            Id: "res-net-id",
+            Driver: "overlay",
+            Scope: "swarm",
+            Attachable: true,
+            Labels: {
+              "com.upstand.managed": "true",
+              "com.upstand.purpose": "resource-isolation",
+              "com.upstand.resource-id": "other-resource",
+            },
+          }),
+        }),
+      } satisfies DockerSwarmNetworkClient;
+
+      await expect(
+        ensureResourceOverlayNetwork(mockDocker, "res-billing-api"),
+      ).rejects.toThrow("owned by the requested resource");
+    });
   });
 });

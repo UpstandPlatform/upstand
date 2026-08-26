@@ -601,7 +601,15 @@ func serveTypedDockerRequest(w http.ResponseWriter, r *http.Request, body []byte
 			r.Header.Get(`X-Upstand-Registry-Auth`),
 		)
 	case typedResourceNetworkPath:
-		err = engine.resourceNetworkOperation(r.Context(), body)
+		var resourceNetworkResponse typedResourceNetworkResponse
+		resourceNetworkResponse, err = engine.resourceNetworkOperation(r.Context(), body)
+		if err == nil && resourceNetworkResponse.ID != `` {
+			w.Header().Set(`Content-Type`, `application/json`)
+			if encodeErr := json.NewEncoder(w).Encode(resourceNetworkResponse); encodeErr != nil {
+				return http.StatusInternalServerError
+			}
+			return http.StatusOK
+		}
 	case typedResourceVolumePath:
 		err = engine.resourceVolumeOperation(r.Context(), body)
 	case typedResourceTeardownPath:

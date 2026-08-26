@@ -319,13 +319,19 @@ func validateBrokerConfiguration(credentials map[string]string, allowedCallers m
 	if len(allowedCallers) == 0 {
 		return errors.New("Docker broker TLS mode requires a non-empty caller allowlist")
 	}
+	seenTokens := make(map[string]string, len(allowedCallers))
 	for caller := range allowedCallers {
 		if caller != "server" && caller != "schedules" && caller != "deployment-worker" {
 			return fmt.Errorf("Docker broker TLS mode contains unknown caller %q", caller)
 		}
-		if strings.TrimSpace(credentials[caller]) == "" {
+		token := strings.TrimSpace(credentials[caller])
+		if token == "" {
 			return fmt.Errorf("Docker broker TLS mode is missing credentials for caller %q", caller)
 		}
+		if previousCaller, duplicate := seenTokens[token]; duplicate {
+			return fmt.Errorf("Docker broker TLS mode reuses the same credential for callers %q and %q", previousCaller, caller)
+		}
+		seenTokens[token] = caller
 	}
 	return nil
 }

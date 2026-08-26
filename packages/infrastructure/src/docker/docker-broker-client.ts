@@ -193,6 +193,10 @@ export type DockerResourceCommandBrokerPort = {
     serviceName: string,
     replicas: number,
   ): Promise<void>;
+  ensureResourceNetwork?(
+    target: DockerInspectionTarget,
+    resourceId: string,
+  ): Promise<{ id: string; name: string; created: boolean }>;
   removeResourceNetwork?(
     target: DockerInspectionTarget,
     resourceId: string,
@@ -1635,6 +1639,32 @@ export function createDockerResourceCommandBrokerClient():
           replicas,
         },
       );
+    },
+
+    async ensureResourceNetwork(target, resourceId) {
+      if (target.kind !== "local") {
+        throw new Error(
+          "The typed Docker broker only handles the local control-plane target",
+        );
+      }
+      if (!resourceId) {
+        throw new Error("A resource ID is required for typed network creation");
+      }
+      const response = z
+        .object({
+          id: z.string().min(1),
+          name: z.string().min(1),
+          created: z.boolean(),
+        })
+        .parse(
+          await callBrokerValue(
+            configuration,
+            "POST",
+            "/upstand/v1/server/resource-network",
+            { operation: "ensure", resource_id: resourceId },
+          ),
+        );
+      return response;
     },
 
     async removeResourceNetwork(target, resourceId, networkId) {

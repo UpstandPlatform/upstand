@@ -300,6 +300,41 @@ describe("deployment command log safety", () => {
     );
   });
 
+  test("uses the typed owned-network ensure operation for isolated local deployments", async () => {
+    const ensureResourceNetwork = mock(async () => ({
+      id: "network-1",
+      name: "upstand-resource-resource-1",
+      created: true,
+    }));
+    const broker = {
+      ensureResourceNetwork,
+    } as unknown as DockerResourceCommandBrokerPort;
+    const service = new DockerService({} as never, {}, broker) as unknown as {
+      ensureDeploymentNetwork(resource: unknown): Promise<{
+        id: string;
+        name: string;
+        created: boolean;
+        isolated: boolean;
+      }>;
+    };
+
+    await expect(
+      service.ensureDeploymentNetwork({
+        id: "resource-1",
+        advancedConfig: JSON.stringify({ isolatedDeployment: true }),
+      }),
+    ).resolves.toEqual({
+      id: "network-1",
+      name: "upstand-resource-resource-1",
+      created: true,
+      isolated: true,
+    });
+    expect(ensureResourceNetwork).toHaveBeenCalledWith(
+      { kind: "local", name: "local" },
+      "resource-1",
+    );
+  });
+
   test("uses the typed owned-service removal for local deployment revisions", async () => {
     const removeResourceService = mock(async () => {});
     const broker = {

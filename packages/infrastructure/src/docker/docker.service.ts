@@ -1134,6 +1134,17 @@ export class DockerService implements DockerSwarmManagementPort {
       resource.advancedConfig,
     ).isolatedDeployment;
     if (isolated) {
+      const ensureTypedResourceNetwork =
+        !targetDocker && this.resourceCommandBroker?.ensureResourceNetwork;
+      if (ensureTypedResourceNetwork) {
+        return {
+          ...(await ensureTypedResourceNetwork(
+            { kind: "local", name: "local" },
+            resource.id,
+          )),
+          isolated: true,
+        };
+      }
       const network = await ensureResourceOverlayNetwork(docker, resource.id);
       return { ...network, isolated: true };
     }

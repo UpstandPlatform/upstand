@@ -516,6 +516,22 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			allow:  true,
 		},
 		{
+			name:   "deployment worker may ensure a typed resource network",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/resource-network",
+			body:   `{"operation":"ensure","resource_id":"resource-1"}`,
+			allow:  true,
+		},
+		{
+			name:   "typed resource network cannot select another resource network",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/resource-network",
+			body:   `{"operation":"ensure","resource_id":"resource-1","network_id":"upstand-resource-other-resource"}`,
+			allow:  false,
+		},
+		{
 			name:   "typed resource network rejects arbitrary fields",
 			caller: "server",
 			method: http.MethodPost,
@@ -924,6 +940,13 @@ func TestValidateBrokerConfigurationRequiresExplicitProductionIdentity(t *testin
 	callerAllowlist := map[string]struct{}{"server": {}}
 	if err := validateBrokerConfiguration(callerCredentials, callerAllowlist, true); err != nil {
 		t.Fatalf("expected caller-specific TLS configuration to be accepted: %v", err)
+	}
+	if err := validateBrokerConfiguration(
+		map[string]string{"server": "same-token", "schedules": "same-token"},
+		map[string]struct{}{"server": {}, "schedules": {}},
+		true,
+	); err == nil {
+		t.Fatal("expected caller credentials to be unique when TLS identity is required")
 	}
 	if err := validateBrokerConfiguration(callerCredentials, map[string]struct{}{"schedules": {}}, true); err == nil {
 		t.Fatal("expected an allowlisted caller without a token file to be rejected")
