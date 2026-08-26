@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: §6e1adca7§ (production-hardening-release)
+Revision: §80561667§ (production-hardening-release)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -465,7 +465,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Impact:** Credential, session, and verification endpoints have a bounded request cost and fail through the same limiter availability policy as other sensitive traffic.
 - **Recommended Fix:** Retain the layered limiter and exercise the new production auth-failure/lockout telemetry through a paging runbook.
 
-## Iteration Status (2026-08-26)
+## Iteration Status (2026-08-27)
 
 | Finding | Current status |
 |---|---|
