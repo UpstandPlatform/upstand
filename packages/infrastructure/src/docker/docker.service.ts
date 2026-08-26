@@ -1149,6 +1149,14 @@ export class DockerService implements DockerSwarmManagementPort {
       return { ...network, isolated: true };
     }
 
+    if (!targetDocker && this.resourceCommandBroker?.ensureUpstandNetwork) {
+      return {
+        ...(await this.resourceCommandBroker.ensureUpstandNetwork()),
+        name: this.networkName,
+        isolated: false,
+      };
+    }
+
     return {
       id: await this.ensureNetwork(docker),
       name: this.networkName,
@@ -3012,6 +3020,12 @@ export class DockerService implements DockerSwarmManagementPort {
         }
       }
 
+      composeContent = await this.ensureTypedComposeResources(
+        composeContent,
+        resource,
+        stackName,
+      );
+
       writePrivateDeploymentFile(composePath, composeContent);
 
       const composeCommand =
@@ -3055,6 +3069,99 @@ export class DockerService implements DockerSwarmManagementPort {
     } finally {
       fs.rmSync(composeDir, { recursive: true, force: true });
     }
+  }
+
+  private async ensureTypedComposeResources(
+    rawCompose: string,
+    resource: Resource,
+    projectName: string,
+  ): Promise<string> {
+    const ensureNetwork = this.resourceCommandBroker?.ensureResourceNetwork;
+    const ensureVolume = this.resourceCommandBroker?.ensureResourceVolume;
+    if (!this.resourceCommandBroker) return rawCompose;
+    if (!ensureNetwork || !ensureVolume) {
+      throw new Error(
+        "Typed Compose resource provisioning is unavailable for the configured Docker broker",
+      );
+    }
+
+    const parsed = yaml.parse(rawCompose) as {
+      services?: Record<string, Record<string, unknown>>;
+      networks?: Record<string, unknown>;
+      volumes?: Record<string, unknown>;
+    };
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Compose file must contain an object document");
+    }
+
+    const composeType =
+      resource.composeType === "compose"
+        ? ("compose" as const)
+        : ("stack" as const);
+    const networks = parsed.networks ?? {};
+    for (const [networkKey, definition] of Object.entries(networks)) {
+      if (networkKey === "upstand_ingress") continue;
+      const internal =
+        isUnknownRecord(definition) && definition.internal === true;
+      const ensured = await ensureNetwork(
+        { kind: "local", name: "local" },
+        resource.id,
+        {
+          networkKey,
+          projectName,
+          composeType,
+          internal,
+        },
+      );
+      parsed.networks ??= {};
+      parsed.networks[networkKey] = {
+        name: ensured.name,
+        external: true,
+      };
+    }
+
+    parsed.volumes ??= {};
+    if (parsed.services) {
+      for (const service of Object.values(parsed.services)) {
+        const volumes = service.volumes;
+        if (!Array.isArray(volumes)) continue;
+        for (const volume of volumes) {
+          let source: string | undefined;
+          if (typeof volume === "string") {
+            source = volume.split(":", 1)[0];
+          } else if (
+            isUnknownRecord(volume) &&
+            typeof volume.source === "string"
+          ) {
+            source = volume.source;
+          }
+          if (
+            source &&
+            !source.startsWith(".") &&
+            !source.startsWith("/") &&
+            !source.startsWith("~") &&
+            !/^[A-Za-z]:[\\/]/.test(source)
+          ) {
+            parsed.volumes[source] ??= {};
+          }
+        }
+      }
+    }
+    for (const volumeKey of Object.keys(parsed.volumes)) {
+      await ensureVolume(
+        { kind: "local", name: "local" },
+        resource.id,
+        volumeKey,
+        projectName,
+        composeType,
+      );
+      parsed.volumes[volumeKey] = {
+        name: `upstand-resource-${resource.id.toLowerCase()}-volume-${volumeKey}`,
+        external: true,
+      };
+    }
+
+    return yaml.stringify(parsed);
   }
 
   private async waitForComposeConvergence(

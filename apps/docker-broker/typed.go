@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -131,6 +132,28 @@ func isTypedDockerPath(path string) bool {
 
 func authorizeTypedDockerRequest(caller string, r *http.Request, body []byte) error {
 	path := normalizeDockerPath(r.URL.Path)
+	if path == typedServerPrefix+`swarm` && caller == `deployment-worker` {
+		if r.Method != http.MethodPost {
+			return errors.New(`typed Swarm operations require POST`)
+		}
+		var input typedSwarmRequest
+		if err := decodeTypedJSON(body, &input); err != nil {
+			return err
+		}
+		if input.Operation != `ensure_network` {
+			return errors.New(`deployment-worker may only ensure the shared Upstand network`)
+		}
+		if err := validateTypedSwarmFieldSet(body, input.Operation); err != nil {
+			return err
+		}
+		if err := validateTypedSwarmRequest(input); err != nil {
+			return err
+		}
+		if input.NetworkName != configuredSharedNetworkName() {
+			return errors.New(`deployment-worker may only ensure the configured shared Upstand network`)
+		}
+		return nil
+	}
 	if path == typedResourceCommandPath {
 		if caller != `server` && caller != `schedules` && caller != `deployment-worker` {
 			return errors.New(`typed resource command is reserved for server, schedules, and deployment-worker callers`)
@@ -476,6 +499,14 @@ func validateTypedSwarmRequest(input typedSwarmRequest) error {
 		}
 	}
 	return nil
+}
+
+func configuredSharedNetworkName() string {
+	name := strings.TrimSpace(os.Getenv(`UPSTAND_DOCKER_NETWORK`))
+	if name == `` {
+		return `upstand-network`
+	}
+	return name
 }
 
 func validateTypedSwarmFieldSet(body []byte, operation string) error {

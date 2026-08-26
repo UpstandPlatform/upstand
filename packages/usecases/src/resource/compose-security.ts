@@ -2,6 +2,7 @@ import yaml from "yaml";
 import { isUnknownRecord } from "./docker-values";
 
 const HOST_PATH_PATTERN = /^(?:[a-zA-Z]:[\\/]|[\\/]{2}|[\\/~]|\.\.?[\\/])/;
+const COMPOSE_RESOURCE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 
 function volumeSource(value: unknown): string | undefined {
   if (typeof value === "string") {
@@ -33,6 +34,14 @@ function isHostPath(value: string): boolean {
   );
 }
 
+function isExternalResourceDefinition(value: unknown): boolean {
+  return (
+    value === true ||
+    (isUnknownRecord(value) &&
+      (value.external === true || isUnknownRecord(value.external)))
+  );
+}
+
 /**
  * Reject Compose features that can escape the workload's isolation boundary.
  * This applies to raw Compose resources as well as user-created templates.
@@ -51,6 +60,16 @@ export function validateComposeSecurity(rawCompose: string): void {
 
   if (isUnknownRecord(parsed.volumes)) {
     for (const [volumeName, rawDefinition] of Object.entries(parsed.volumes)) {
+      if (!COMPOSE_RESOURCE_KEY_PATTERN.test(volumeName)) {
+        throw new Error(
+          `Compose volume '${volumeName}' has an invalid resource name`,
+        );
+      }
+      if (isExternalResourceDefinition(rawDefinition)) {
+        throw new Error(
+          `Compose volume '${volumeName}' cannot be external; resource volumes must be provisioned inside the resource boundary`,
+        );
+      }
       if (isInterpolated(volumeName)) {
         throw new Error(
           `Compose volume '${volumeName}' uses environment interpolation, which is not allowed`,
@@ -89,6 +108,16 @@ export function validateComposeSecurity(rawCompose: string): void {
     for (const [networkName, rawDefinition] of Object.entries(
       parsed.networks,
     )) {
+      if (!COMPOSE_RESOURCE_KEY_PATTERN.test(networkName)) {
+        throw new Error(
+          `Compose network '${networkName}' has an invalid resource name`,
+        );
+      }
+      if (isExternalResourceDefinition(rawDefinition)) {
+        throw new Error(
+          `Compose network '${networkName}' cannot be external; resource networks must be provisioned inside the resource boundary`,
+        );
+      }
       if (!isUnknownRecord(rawDefinition)) continue;
       if (
         isUnknownRecord(rawDefinition.driver_opts) &&

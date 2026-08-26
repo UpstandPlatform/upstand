@@ -638,6 +638,7 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 		// run global cleanup or delete/tag arbitrary images.
 		if (method == http.MethodPost && (path == "/containers/prune" || path == "/images/prune")) ||
 			(method == http.MethodPost && path == "/images/create") ||
+			(method == http.MethodPost && (path == "/networks/create" || path == "/volumes/create")) ||
 			(method == http.MethodDelete && resourceItemPath(path, "images")) ||
 			(method == http.MethodDelete && resourceItemPath(path, "networks")) ||
 			(method == http.MethodDelete && resourceItemPath(path, "volumes")) ||

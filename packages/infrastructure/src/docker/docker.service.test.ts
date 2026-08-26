@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
+import yaml from "yaml";
 import {
   DockerService,
   redactCommandOutput,
@@ -333,6 +334,99 @@ describe("deployment command log safety", () => {
       { kind: "local", name: "local" },
       "resource-1",
     );
+  });
+
+  test("pre-provisions Compose networks and volumes through the typed broker", async () => {
+    const ensureUpstandNetwork = mock(async () => ({
+      id: "shared-network-id",
+      created: false,
+    }));
+    const ensureResourceNetwork = mock(async () => ({
+      id: "private-network-id",
+      name: "upstand-resource-resource-1-private",
+      created: true,
+    }));
+    const ensureResourceVolume = mock(async () => {});
+    const broker = {
+      ensureUpstandNetwork,
+      ensureResourceNetwork,
+      ensureResourceVolume,
+    } as unknown as DockerResourceCommandBrokerPort;
+    const service = new DockerService({} as never, {}, broker) as unknown as {
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (log: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { resourceId?: string; redactions?: readonly string[] },
+      ) => Promise<void>;
+      waitForComposeConvergence: (
+        projectName: string,
+        onLog: (log: string) => void,
+      ) => Promise<void>;
+      deployComposeStack: DockerService["deployComposeStack"];
+    };
+    let generatedCompose = "";
+    service.runCommandAsync = async (_command, args) => {
+      const fileIndex = args.indexOf("--file");
+      generatedCompose = fs.readFileSync(args[fileIndex + 1] || "", "utf8");
+    };
+    service.waitForComposeConvergence = async () => {};
+
+    await service.deployComposeStack(
+      {
+        id: "resource-1",
+        name: "Resource 1",
+        appName: "resource-1",
+        type: "compose",
+        composeType: "compose",
+        advancedConfig: "{}",
+        envVars: null,
+      } as never,
+      `
+services:
+  api:
+    image: nginx:alpine
+    networks: [private]
+    volumes: [data:/var/lib/data]
+networks:
+  private:
+volumes:
+  data:
+`,
+      () => {},
+    );
+
+    const parsed = yaml.parse(generatedCompose) as {
+      networks: Record<string, Record<string, unknown>>;
+      volumes: Record<string, Record<string, unknown>>;
+    };
+    expect(ensureUpstandNetwork).toHaveBeenCalledTimes(1);
+    expect(ensureResourceNetwork).toHaveBeenCalledWith(
+      { kind: "local", name: "local" },
+      "resource-1",
+      {
+        networkKey: "private",
+        projectName: "resource-1",
+        composeType: "compose",
+        internal: false,
+      },
+    );
+    expect(ensureResourceVolume).toHaveBeenCalledWith(
+      { kind: "local", name: "local" },
+      "resource-1",
+      "data",
+      "resource-1",
+      "compose",
+    );
+    expect(parsed.networks.private).toEqual({
+      name: "upstand-resource-resource-1-private",
+      external: true,
+    });
+    expect(parsed.volumes.data).toEqual({
+      name: "upstand-resource-resource-1-volume-data",
+      external: true,
+    });
   });
 
   test("uses the typed owned-service removal for local deployment revisions", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import yaml from "yaml";
 import { randomizeComposeFile } from "./compose-randomization";
 import {
   applyComposeIngressNetwork,
@@ -143,6 +144,53 @@ networks:
       ).toThrow("host-backed driver options");
     });
 
+    test("rejects external networks and volumes", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+networks:
+  shared:
+    external: true
+`),
+      ).toThrow("cannot be external");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+volumes:
+  shared:
+    external:
+      name: shared-volume
+`),
+      ).toThrow("cannot be external");
+    });
+
+    test("rejects invalid top-level network and volume keys", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+networks:
+  ../host: {}
+`),
+      ).toThrow("invalid resource name");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+volumes:
+  \${VOLUME_NAME}: {}
+`),
+      ).toThrow("invalid resource name");
+    });
+
     test("rejects unsafe security options (seccomp:unconfined, apparmor:unconfined)", () => {
       const compose = `
 services:
@@ -216,6 +264,52 @@ services:
       expect(result).toContain('cpus: "1.5"');
       expect(result).toContain("memory: 512M");
     });
+
+    test("adds immutable ownership labels to Compose networks and volumes", () => {
+      const result = applyComposeResourceConfig(
+        `
+services:
+  api:
+    image: nginx
+networks:
+  private:
+    labels:
+      com.upstand.resource-id: other-resource
+volumes:
+  data:
+    labels:
+      com.upstand.resource-id: other-resource
+`,
+        { id: "resource-1", envVars: "" } as never,
+        {
+          command: [],
+          args: [],
+          dns: [],
+          dnsSearch: [],
+          extraHosts: [],
+          capDrop: [],
+          ports: [],
+          volumes: [],
+          placementConstraints: [],
+          resources: {},
+          restartPolicy: { condition: "any" },
+        } as never,
+      );
+      const parsed = yaml.parse(result) as {
+        networks: Record<string, { labels: Record<string, string> }>;
+        volumes: Record<string, { labels: Record<string, string> }>;
+      };
+      const privateNetwork = parsed.networks.private;
+      const dataVolume = parsed.volumes.data;
+      if (!privateNetwork || !dataVolume) {
+        throw new Error("Expected Compose network and volume definitions");
+      }
+
+      expect(privateNetwork.labels["com.upstand.resource-id"]).toBe(
+        "resource-1",
+      );
+      expect(dataVolume.labels["com.upstand.resource-id"]).toBe("resource-1");
+    });
   });
 
   describe("Compose Stack Randomization & Isolation", () => {
@@ -285,6 +379,51 @@ services:
       expect(() =>
         applyComposeIngressNetwork(rawCompose, "upstand-network", true, ""),
       ).toThrow("An isolated Compose deployment needs a valid name");
+    });
+
+    test("scopes explicit network and volume names to the Compose project", () => {
+      const result = yaml.parse(
+        applyComposeIngressNetwork(
+          `
+services:
+  api:
+    image: nginx
+    networks: [private]
+    volumes: [data:/var/lib/data]
+networks:
+  private:
+    name: shared-network
+volumes:
+  data:
+    name: shared-volume
+`,
+          "upstand-network",
+          false,
+          "resource-1",
+        ),
+      ) as {
+        networks: Record<string, Record<string, unknown>>;
+        volumes: Record<string, Record<string, unknown>>;
+      };
+      const privateNetwork = result.networks.private;
+      const dataVolume = result.volumes.data;
+      if (!privateNetwork || !dataVolume) {
+        throw new Error("Expected scoped Compose network and volume");
+      }
+
+      expect(privateNetwork.name).toBe("resource-1_private");
+      expect(dataVolume.name).toBe("resource-1_data");
+    });
+
+    test("reserves the shared ingress network name", () => {
+      expect(() =>
+        applyComposeIngressNetwork(
+          "services:\n  api:\n    image: nginx\nnetworks:\n  upstand_ingress: {}\n",
+          "upstand-network",
+          false,
+          "resource-1",
+        ),
+      ).toThrow("reserved by Upstand");
     });
   });
 });

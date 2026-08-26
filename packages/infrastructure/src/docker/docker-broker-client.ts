@@ -129,6 +129,7 @@ export type DockerInspectionBrokerPort = DockerInventoryReaderPort &
 export type DockerResourceFileBrokerPort = ContainerFileSystemPort;
 
 export type DockerResourceCommandBrokerPort = {
+  ensureUpstandNetwork?(): Promise<{ id: string; created: boolean }>;
   buildResourceDockerfile?(
     target: DockerInspectionTarget,
     resourceId: string,
@@ -196,7 +197,20 @@ export type DockerResourceCommandBrokerPort = {
   ensureResourceNetwork?(
     target: DockerInspectionTarget,
     resourceId: string,
+    options?: {
+      networkKey?: string;
+      projectName?: string;
+      composeType?: "compose" | "stack";
+      internal?: boolean;
+    },
   ): Promise<{ id: string; name: string; created: boolean }>;
+  ensureResourceVolume?(
+    target: DockerInspectionTarget,
+    resourceId: string,
+    volumeKey: string,
+    projectName: string,
+    composeType: "compose" | "stack",
+  ): Promise<void>;
   removeResourceNetwork?(
     target: DockerInspectionTarget,
     resourceId: string,
@@ -1641,7 +1655,25 @@ export function createDockerResourceCommandBrokerClient():
       );
     },
 
-    async ensureResourceNetwork(target, resourceId) {
+    async ensureUpstandNetwork() {
+      const value = z
+        .object({ id: z.string().min(1), created: z.boolean() })
+        .parse(
+          await callBrokerValue(
+            configuration,
+            "POST",
+            "/upstand/v1/server/swarm",
+            {
+              operation: "ensure_network",
+              network_name:
+                process.env.DOCKER_NETWORK?.trim() || "upstand-network",
+            },
+          ),
+        );
+      return value;
+    },
+
+    async ensureResourceNetwork(target, resourceId, options) {
       if (target.kind !== "local") {
         throw new Error(
           "The typed Docker broker only handles the local control-plane target",
@@ -1649,6 +1681,18 @@ export function createDockerResourceCommandBrokerClient():
       }
       if (!resourceId) {
         throw new Error("A resource ID is required for typed network creation");
+      }
+      if (
+        options?.networkKey !== undefined &&
+        !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(options.networkKey)
+      ) {
+        throw new Error("The typed resource network key is invalid");
+      }
+      if (
+        options?.projectName !== undefined &&
+        !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(options.projectName)
+      ) {
+        throw new Error("The typed resource network project name is invalid");
       }
       const response = z
         .object({
@@ -1661,10 +1705,56 @@ export function createDockerResourceCommandBrokerClient():
             configuration,
             "POST",
             "/upstand/v1/server/resource-network",
-            { operation: "ensure", resource_id: resourceId },
+            {
+              operation: "ensure",
+              resource_id: resourceId,
+              ...(options?.networkKey
+                ? { network_key: options.networkKey }
+                : {}),
+              ...(options?.projectName
+                ? { project_name: options.projectName }
+                : {}),
+              ...(options?.composeType
+                ? { compose_type: options.composeType }
+                : {}),
+              ...(options?.internal ? { internal: true } : {}),
+            },
           ),
         );
       return response;
+    },
+
+    async ensureResourceVolume(
+      target,
+      resourceId,
+      volumeKey,
+      projectName,
+      composeType,
+    ) {
+      if (target.kind !== "local") {
+        throw new Error(
+          "The typed Docker broker only handles the local control-plane target",
+        );
+      }
+      if (
+        !resourceId ||
+        !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(volumeKey) ||
+        !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(projectName)
+      ) {
+        throw new Error("The typed resource volume identity is invalid");
+      }
+      await callBrokerValue(
+        configuration,
+        "POST",
+        "/upstand/v1/server/resource-volume",
+        {
+          operation: "ensure",
+          resource_id: resourceId,
+          volume_key: volumeKey,
+          project_name: projectName,
+          compose_type: composeType,
+        },
+      );
     },
 
     async removeResourceNetwork(target, resourceId, networkId) {

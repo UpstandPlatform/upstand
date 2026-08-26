@@ -524,6 +524,14 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			allow:  true,
 		},
 		{
+			name:   "deployment worker may ensure a named typed resource network",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/resource-network",
+			body:   `{"operation":"ensure","resource_id":"resource-1","network_key":"private","project_name":"resource-1","compose_type":"stack","internal":true}`,
+			allow:  true,
+		},
+		{
 			name:   "typed resource network cannot select another resource network",
 			caller: "deployment-worker",
 			method: http.MethodPost,
@@ -545,6 +553,14 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			method: http.MethodPost,
 			path:   "/upstand/v1/server/resource-volume",
 			body:   `{"operation":"remove","resource_id":"resource-1","volume_id":"upstand-db-data-resource-1"}`,
+			allow:  true,
+		},
+		{
+			name:   "deployment worker may ensure a named typed resource volume",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/resource-volume",
+			body:   `{"operation":"ensure","resource_id":"resource-1","volume_key":"data","project_name":"resource-1","compose_type":"compose"}`,
 			allow:  true,
 		},
 		{
@@ -585,6 +601,22 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			method: http.MethodPost,
 			path:   "/upstand/v1/server/cleanup",
 			body:   `{"command":"system-shell"}`,
+			allow:  false,
+		},
+		{
+			name:   "deployment worker may ensure the shared network through typed Swarm",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/swarm",
+			body:   `{"operation":"ensure_network","network_name":"upstand-network"}`,
+			allow:  true,
+		},
+		{
+			name:   "deployment worker cannot ensure another typed Swarm network",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/swarm",
+			body:   `{"operation":"ensure_network","network_name":"upstand-other"}`,
 			allow:  false,
 		},
 		{
@@ -818,8 +850,6 @@ func TestProductionDeploymentWorkerResourceCreationRequiresResourceScope(t *test
 		path   string
 	}{
 		{method: http.MethodPost, path: "/v1.43/containers/create"},
-		{method: http.MethodPost, path: "/v1.43/networks/create"},
-		{method: http.MethodPost, path: "/v1.43/volumes/create"},
 		{method: http.MethodPost, path: "/v1.43/networks/network-1/connect"},
 	} {
 		withoutScope := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
@@ -835,6 +865,14 @@ func TestProductionDeploymentWorkerResourceCreationRequiresResourceScope(t *test
 		}
 		if err := authorizeDockerRequestForCaller("deployment-worker", withScope, body); err != nil {
 			t.Fatalf("expected a resource-scoped deployment-worker creation to be allowed: %s: %v", test.path, err)
+		}
+	}
+
+	for _, path := range []string{"/v1.43/networks/create", "/v1.43/volumes/create"} {
+		request := httptest.NewRequest(http.MethodPost, "http://broker"+path, strings.NewReader(`{"Labels":{"com.upstand.resource-id":"resource-1"}}`))
+		request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+		if err := authorizeDockerRequestForCaller("deployment-worker", request, []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"}}`)); err == nil {
+			t.Fatalf("expected raw deployment-worker resource creation to remain denied: %s", path)
 		}
 	}
 }

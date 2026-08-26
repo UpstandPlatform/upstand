@@ -735,7 +735,7 @@ func TestResourceNetworkOperationRemovesOnlyManagedIsolatedNetwork(t *testing.T)
 		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
 			switch {
 			case request.Method == http.MethodGet && request.URL.Path == "/networks/upstand-resource-resource-1":
-				return dockerResponse(http.StatusOK, `{"Id":"network-id","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`), nil
+				return dockerResponse(http.StatusOK, `{"Id":"network-id","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`), nil
 			case request.Method == http.MethodDelete && request.URL.Path == "/networks/network-id":
 				removedNetworkID = "network-id"
 				return dockerResponse(http.StatusOK, `{}`), nil
@@ -791,6 +791,49 @@ func TestResourceNetworkOperationEnsuresOwnedIsolatedNetwork(t *testing.T) {
 	}
 }
 
+func TestResourceNetworkOperationEnsuresNamedComposeNetwork(t *testing.T) {
+	created := false
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			switch {
+			case request.Method == http.MethodGet && request.URL.Path == "/networks/upstand-resource-resource-1-private":
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			case request.Method == http.MethodPost && request.URL.Path == "/networks/create":
+				var payload struct {
+					Name       string            `json:"Name"`
+					Driver     string            `json:"Driver"`
+					Attachable bool              `json:"Attachable"`
+					Internal   bool              `json:"Internal"`
+					Options    map[string]string `json:"Options"`
+					Labels     map[string]string `json:"Labels"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+					return nil, err
+				}
+				if payload.Name != "upstand-resource-resource-1-private" || payload.Driver != "overlay" || !payload.Attachable || !payload.Internal || payload.Options["encrypted"] != "" ||
+					payload.Labels["com.upstand.managed"] != "true" || payload.Labels["com.upstand.purpose"] != "resource-isolation" || payload.Labels["com.upstand.resource-id"] != "resource-1" || payload.Labels["com.docker.stack.namespace"] != "resource-1" {
+					return dockerResponse(http.StatusBadRequest, `{}`), nil
+				}
+				created = true
+				return dockerResponse(http.StatusOK, `{"Id":"named-network"}`), nil
+			default:
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+		}),
+	}}
+
+	result, err := engine.resourceNetworkOperation(
+		context.Background(),
+		[]byte(`{"operation":"ensure","resource_id":"resource-1","network_key":"private","project_name":"resource-1","compose_type":"stack","internal":true}`),
+	)
+	if err != nil {
+		t.Fatalf("expected named managed network creation to succeed: %v", err)
+	}
+	if !created || result.ID != "named-network" || result.Name != "upstand-resource-resource-1-private" || !result.Created {
+		t.Fatalf("unexpected named resource network result: created=%t result=%+v", created, result)
+	}
+}
+
 func TestResourceNetworkOperationRejectsUnownedExistingNetwork(t *testing.T) {
 	engine := &dockerEngineClient{httpClient: &http.Client{
 		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
@@ -803,6 +846,22 @@ func TestResourceNetworkOperationRejectsUnownedExistingNetwork(t *testing.T) {
 		[]byte(`{"operation":"ensure","resource_id":"resource-1"}`),
 	); err == nil {
 		t.Fatal("expected an existing network with a different owner to be rejected")
+	}
+}
+
+func TestTypedResourceNetworkRejectsNamesBeyondDockerLimit(t *testing.T) {
+	resourceID := strings.Repeat("r", 120)
+	if _, err := validateTypedResourceNetworkRequest([]byte(`{"operation":"ensure","resource_id":"` + resourceID + `","network_key":"private"}`)); err == nil {
+		t.Fatal("expected a resource network name beyond Docker's limit to be rejected")
+	}
+}
+
+func TestTypedResourceNetworkRequiresCompleteComposeScope(t *testing.T) {
+	if _, err := validateTypedResourceNetworkRequest([]byte(`{"operation":"ensure","resource_id":"resource-1","network_key":"private"}`)); err == nil {
+		t.Fatal("expected a named network without project scope to be rejected")
+	}
+	if _, err := validateTypedResourceNetworkRequest([]byte(`{"operation":"ensure","resource_id":"resource-1","project_name":"resource-1","compose_type":"compose"}`)); err == nil {
+		t.Fatal("expected project scope without a network key to be rejected")
 	}
 }
 
@@ -837,6 +896,44 @@ func TestResourceVolumeOperationRemovesOnlyDeterministicLocalVolume(t *testing.T
 		[]byte(`{"operation":"remove","resource_id":"resource-2","volume_id":"upstand-db-data-resource-1"}`),
 	); err == nil {
 		t.Fatal("expected volume name ownership mismatch to be rejected")
+	}
+}
+
+func TestResourceVolumeOperationEnsuresNamedComposeVolume(t *testing.T) {
+	created := false
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			switch {
+			case request.Method == http.MethodGet && request.URL.Path == "/volumes/upstand-resource-resource-1-volume-data":
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			case request.Method == http.MethodPost && request.URL.Path == "/volumes/create":
+				var payload struct {
+					Name   string            `json:"Name"`
+					Driver string            `json:"Driver"`
+					Labels map[string]string `json:"Labels"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+					return nil, err
+				}
+				if payload.Name != "upstand-resource-resource-1-volume-data" || payload.Driver != "local" || payload.Labels["com.upstand.managed"] != "true" || payload.Labels["com.upstand.purpose"] != "resource-isolation" || payload.Labels["com.upstand.resource-id"] != "resource-1" || payload.Labels["com.docker.compose.project"] != "resource-1" {
+					return dockerResponse(http.StatusBadRequest, `{}`), nil
+				}
+				created = true
+				return dockerResponse(http.StatusCreated, `{}`), nil
+			default:
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+		}),
+	}}
+
+	if err := engine.resourceVolumeOperation(
+		context.Background(),
+		[]byte(`{"operation":"ensure","resource_id":"resource-1","volume_key":"data","project_name":"resource-1","compose_type":"compose"}`),
+	); err != nil {
+		t.Fatalf("expected named managed volume creation to succeed: %v", err)
+	}
+	if !created {
+		t.Fatal("expected named resource volume to be created")
 	}
 }
 

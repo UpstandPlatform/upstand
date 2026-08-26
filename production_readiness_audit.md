@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
-Date: 2026-08-26
-Revision: §fe796aa1§ (production-hardening-release)
+Date: 2026-08-27
+Revision: §d38287d0§ (production-hardening-release)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -26,6 +26,16 @@ Unix deployment hosts and are removed from the temporary build workspace on
 every preparation, command, convergence, and write failure path. This reduces
 the lifetime and local-read exposure of environment values that remain in the
 current constrained Compose transport.
+
+The latest Compose boundary pass rejects external network and volume references,
+invalid top-level resource keys, and reserved ingress-network reuse before
+deployment. Explicit Docker resource names are rewritten into the project
+scope; generated networks and volumes receive immutable resource labels; and
+local deployments pre-provision user-defined networks and named volumes through
+typed broker capabilities before externalizing them in the private manifest.
+The deployment worker's raw network/volume creation endpoints are denied in
+production, and shared-network creation uses a typed, configured-name-only
+operation.
 
 The release remains blocked by two current facts:
 
@@ -235,6 +245,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Latest build hardening:** Local Dockerfile builds now use `/upstand/v1/server/resource-build` for bounded, `.dockerignore`-filtered contexts with validated non-secret build arguments and build targets as well as ownership labels. The remaining raw Dockerfile/static build path now adds the exact resource ownership label and the broker rejects missing/mismatched ownership, remote contexts, output exporters, host/container network modes, weakened security options, traversal-enabled Dockerfile paths, malformed/unbounded arguments, and sensitive arguments; secret-bearing builds remain explicitly identified as raw-path work.
 - **Latest raw-build boundary hardening:** Production deployment-worker raw `/build` requests now require a valid tagged image and exact `com.upstand.resource-id` ownership label in the query, reject remote contexts, output exporters, host/container network modes, weakened security options, Dockerfile traversal, null/malformed/unbounded arguments, and sensitive argument names, and have Go policy plus infrastructure subprocess regression coverage. Raw Dockerfile and static-image subprocesses now add the ownership label; Compose, secret-bearing builds, and remote service mutation remain open transport slices.
 - **Latest workload-boundary hardening:** Compose validation now rejects environment-interpolated and long-syntax bind sources, host-backed volume/network driver options, unsupported volume/network drivers, and unsafe built-in network names before any CLI deployment. The broker's raw JSON policy now rejects every non-telemetry absolute bind source, not only a sensitive-path denylist. Typed resource service mutation accepts only bounded named Docker volumes, so a non-denylisted host path cannot bypass the broker's host-escape policy.
+- **Latest Compose resource hardening:** Compose validation rejects external resource references and unsafe resource keys; explicit network/volume names are project-scoped; network and volume ownership labels are system-controlled; and local Compose deployments pre-provision all user-defined networks and named volumes through owner-labelled typed broker operations before marking them external in the generated manifest. Production deployment workers cannot call raw network/volume creation and can only ensure the configured shared network through the typed Swarm route. The Compose CLI orchestration itself and secret-bearing build paths remain constrained raw transport slices.
 - **Latest manifest-lifecycle hardening:** Generated Compose manifests are written with owner-only permissions on Unix deployment hosts, and the temporary resource workspace is removed when preparation, command execution, convergence, or manifest writing fails. Infrastructure regression tests verify both the private mode and failure cleanup; Compose orchestration and secret-bearing build transport remain open typed-capability slices.
 - **Latest teardown hardening:** Local Compose and Swarm-stack teardown now uses `/upstand/v1/server/resource-teardown`. The broker enumerates the project-scoped containers or stack services, re-inspects every object for the exact system-owned resource label before any delete, and removes only project-labelled networks plus local, empty-option, project-labelled volumes when requested. Compose configuration now applies the ownership label to every service, including services outside an optional service override. Cross-resource teardown, arbitrary fields, and unsupported object shapes are covered by broker runtime/policy tests.
 - **Current hardening:** Production now separates schedules orchestration from deployment queue execution. The `deployment-worker` has its own caller token, mTLS certificate/key, `UPSTAND_SCHEDULES_ROLE`, replica setting, read-only/non-root runtime, and acceptance checks. Its DI graph resolves `DockerDeploymentToken` through `createDockerDeploymentPort`, which exposes only deployment/build/convergence operations and has a regression test excluding inventory, pruning, and daemon-wide image methods. Workload migration and autoscaling resolve separate method-bound ports, and API resource workflows resolve separate method-bound control, read, command, database, and runtime-stat capabilities; remote resolution filters returned services to the requested capability shape. Web-server maintenance and self-update now resolve typed broker clients: self-update accepts only validated release digests and allowlisted service names, maintenance covers bounded service, network, and cleanup operations, and Swarm management covers all eleven cluster operations with strict request schemas and validated response mapping rather than raw Dockerode transport. GPU inspection/setup remains a separate local host capability. The broker still remains a constrained Docker API for broader API-facing maintenance paths rather than a fully typed transport.
