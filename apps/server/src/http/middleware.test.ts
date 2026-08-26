@@ -9,7 +9,7 @@ import {
 
 describe("HTTP middleware request limits", () => {
   test("bounds direct-IP HTTP to the initial self-hosted bootstrap window", () => {
-    const request = new Request("http://85.155.230.19/api/auth/sign-in/email");
+    const request = new Request("http://192.168.1.10/api/auth/sign-in/email");
     const production = {
       request,
       nodeEnv: "production",

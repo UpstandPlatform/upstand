@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AuthConfiguration,
+  isPrivateDirectIpHost,
   normalizeDirectIpAuthRequest,
   normalizeDirectIpAuthResponse,
   resolveSharedCookieDomain,
@@ -20,6 +21,16 @@ function configuration(
 }
 
 describe("authentication origin configuration", () => {
+  test("classifies only non-public direct addresses as private bootstrap targets", () => {
+    expect(isPrivateDirectIpHost("127.0.0.1")).toBe(true);
+    expect(isPrivateDirectIpHost("10.0.0.8")).toBe(true);
+    expect(isPrivateDirectIpHost("172.16.0.8")).toBe(true);
+    expect(isPrivateDirectIpHost("192.168.1.8")).toBe(true);
+    expect(isPrivateDirectIpHost("[fd00::8]")).toBe(true);
+    expect(isPrivateDirectIpHost("85.155.230.19")).toBe(false);
+    expect(isPrivateDirectIpHost("2001:db8::8")).toBe(false);
+  });
+
   test("uses only configured exact origins in production", () => {
     expect(
       resolveTrustedOrigins(configuration({ nodeEnv: "production" })),
@@ -62,11 +73,11 @@ describe("authentication origin configuration", () => {
       request?: Request,
     ) => Promise<string[]>;
     const resolved = await resolver(
-      new Request("http://85.155.230.19:3000", {
-        headers: { origin: "http://85.155.230.19:3001" },
+      new Request("http://192.168.1.10:3000", {
+        headers: { origin: "http://192.168.1.10:3001" },
       }),
     );
-    expect(resolved).toContain("http://85.155.230.19:3001");
+    expect(resolved).toContain("http://192.168.1.10:3001");
     expect(resolved).toContain("https://dashboard.example.com");
 
     const productionAuth = createAuth({
@@ -80,11 +91,18 @@ describe("authentication origin configuration", () => {
       request?: Request,
     ) => Promise<string[]>;
     const productionResolved = await productionResolver(
+      new Request("http://192.168.1.10:3000", {
+        headers: { origin: "http://192.168.1.10:3001" },
+      }),
+    );
+    expect(productionResolved).not.toContain("http://192.168.1.10:3001");
+
+    const publicIpResolved = await resolver(
       new Request("http://85.155.230.19:3000", {
         headers: { origin: "http://85.155.230.19:3001" },
       }),
     );
-    expect(productionResolved).not.toContain("http://85.155.230.19:3001");
+    expect(publicIpResolved).not.toContain("http://85.155.230.19:3001");
 
     const invalidIpResolved = await resolver(
       new Request("http://localhost:3000", {
@@ -96,7 +114,7 @@ describe("authentication origin configuration", () => {
 
   test("normalizes auth cookies for direct HTTP access", () => {
     const response = normalizeDirectIpAuthResponse(
-      new Request("http://85.155.230.19:3000/api/auth/sign-in/email"),
+      new Request("http://192.168.1.10:3000/api/auth/sign-in/email"),
       new Response("ok", {
         headers: {
           "set-cookie":
@@ -124,7 +142,7 @@ describe("authentication origin configuration", () => {
         },
       });
       const normalized = normalizeDirectIpAuthResponse(
-        new Request("http://85.155.230.19:3000/api/auth/sign-in/email"),
+        new Request("http://192.168.1.10:3000/api/auth/sign-in/email"),
         response,
       );
       expect(normalized).toBe(response);
@@ -157,6 +175,50 @@ describe("authentication origin configuration", () => {
         response,
       );
       expect(normalized).toBe(response);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousDirectOrigins === undefined)
+        delete process.env.UPSTAND_DIRECT_ORIGINS;
+      else process.env.UPSTAND_DIRECT_ORIGINS = previousDirectOrigins;
+      if (previousInsecureBootstrap === undefined)
+        delete process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP;
+      else
+        process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP =
+          previousInsecureBootstrap;
+    }
+  });
+
+  test("allows plaintext cookie normalization only for private production bootstrap", () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousDirectOrigins = process.env.UPSTAND_DIRECT_ORIGINS;
+    const previousInsecureBootstrap =
+      process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP;
+    process.env.NODE_ENV = "production";
+    process.env.UPSTAND_DIRECT_ORIGINS = "true";
+    process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP = "true";
+    try {
+      const response = () =>
+        new Response("ok", {
+          headers: {
+            "set-cookie":
+              "__Secure-better-auth.session_token=token; Path=/; Secure; HttpOnly; Domain=.example.com",
+          },
+        });
+      const privateResponse = normalizeDirectIpAuthResponse(
+        new Request("http://192.168.1.10:3000/api/auth/sign-in/email"),
+        response(),
+      );
+      expect(privateResponse.headers.get("set-cookie")).not.toMatch(
+        /(?:^|;)\s*secure(?:;|$)/i,
+      );
+      const publicResponse = response();
+      expect(
+        normalizeDirectIpAuthResponse(
+          new Request("http://85.155.230.19:3000/api/auth/sign-in/email"),
+          publicResponse,
+        ),
+      ).toBe(publicResponse);
     } finally {
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;

@@ -1,4 +1,8 @@
-import { isDirectIpHttpRequest } from "@upstand/auth";
+import {
+  isDirectIpHttpRequest,
+  isPrivateDirectIpHost,
+  isPrivateDirectIpHttpRequest,
+} from "@upstand/auth";
 import { env } from "@upstand/env/server";
 import { resolveCorrelationId } from "@upstand/platform";
 import type { Hono } from "hono";
@@ -50,7 +54,7 @@ export function shouldRejectDirectHttpAfterBootstrap(input: {
     !input.isCloud &&
     input.directOrigins &&
     input.allowInsecureBootstrap &&
-    isDirectIpHttpRequest(input.request) &&
+    isPrivateDirectIpHttpRequest(input.request) &&
     !input.initialAccountPending
   );
 }
@@ -129,6 +133,12 @@ export function registerHttpMiddleware(
       directBootstrapEnabled &&
       !DIRECT_HTTP_BOOTSTRAP_ALLOWED_PATHS.has(c.req.path)
     ) {
+      if (!isPrivateDirectIpHttpRequest(c.req.raw)) {
+        return c.json(
+          { error: "Insecure bootstrap requires a private direct address" },
+          403,
+        );
+      }
       let initialAccountPending = false;
       try {
         initialAccountPending =
@@ -223,7 +233,13 @@ export function registerHttpMiddleware(
         return false;
       }
       const requestHost = new URL(requestUrl).hostname;
-      return isDirectHost(requestHost) && parsed.hostname === requestHost;
+      return (
+        isDirectHost(requestHost) &&
+        parsed.hostname === requestHost &&
+        (env.NODE_ENV !== "production" ||
+          (isPrivateDirectIpHost(parsed.hostname) &&
+            isPrivateDirectIpHost(requestHost)))
+      );
     } catch {
       return false;
     }
