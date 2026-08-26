@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-26
-Revision: §14e39056§ (production-hardening-release)
+Revision: §fcd93d1f§ (production-hardening-release)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -180,6 +180,14 @@ MCP connection cleanup is attempted in a finally path and cleanup failures are
 logged without replacing the original run failure. This keeps durable run
 status and external-tool cleanup aligned with the existing token checkpoints.
 
+The latest AI-budget change reserves the per-request token ceiling and the
+conservative cost ceiling in one two-key Redis script: both limits are checked
+before either counter is incremented. The focused regression suite covers
+successful two-key accounting, combined-limit rejection, malformed Redis
+responses, and unsafe input rejection. A rejected cost admission therefore
+cannot consume token quota without admitting a model call; provider invoice
+reconciliation and model-facing data isolation remain open.
+
 ## Production Readiness Scorecard
 
 | Area | Score | Assessment |
@@ -301,7 +309,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 
 ### F-008 — AI cost admission remains a conservative operator-configured estimate
 
-- **File:** apps/server/src/http/routes/ai.ts:121-139, 178-200; packages/api/src/ai/upgal.ts:2190-2238, 2291-2307
+- **File:** packages/api/src/routers/ai.router.ts:61-103; packages/api/src/ai-budget.ts:113-180; packages/api/src/ai/upgal.ts:2190-2238, 2291-2307
 - **Function/Class:** /api/ai/chat, provider test/template calls, createUpGalResponse
 - **Severity:** Major
 - **Category:** AI abuse / cost control / data growth
@@ -536,7 +544,7 @@ Passed:
 - bun run db:check
 - full server, schedules, Fumadocs, and web production build completed during `bun run build`; the earlier local Windows process-memory failure was cleared by the successful retry
 - bun run test (17 workspace tasks successful; live resource lifecycle checks are explicitly skipped unless a configured live server is available)
-- bun test apps/server/src/http/routes/ai-budget.test.ts (7 focused cost/token budget tests passed)
+- bun test packages/api/src/ai-budget.test.ts packages/api/src/ai/upgal.persistence.test.ts (8 focused budget/persistence tests passed)
 - git diff --check
 - bash scripts/installer-contract.test.sh
 - bash scripts/release-acceptance-contract.test.sh
