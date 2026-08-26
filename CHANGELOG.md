@@ -4,6 +4,10 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.26 - 2026-08-21
+
+Allow the production dashboard to reach the control plane over HTTP and WebSocket IP:port recovery URLs when a configured host is unavailable.
+
 ## 0.2.25 - 2026-08-21
 
 Allow the production dashboard to reach the control plane over HTTP and WebSocket IP:port recovery URLs when a configured host is unavailable.
