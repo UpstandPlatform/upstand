@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-26
-Revision: §4978c227§ (production-hardening-release)
+Revision: §60a25035§ (production-hardening-release)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -193,7 +193,7 @@ status and external-tool cleanup aligned with the existing token checkpoints.
 | Frontend | 8/10 | CSP, safe React rendering, and browser smoke tests are present. |
 | Containers/infra | 9.9/10 | Server/schedules/monitoring socket exposure is removed; the broker is isolated on an encrypted internal control network, requires TLS 1.3 with caller-specific verified client certificates at the TLS handshake plus defense-in-depth tokens, fails closed on legacy/missing/unknown production identities, validates certificate chain/EKU/identity/key pairing before reuse, enforces a deny-by-default API allowlist plus caller-specific operation capabilities, permits only built-in volume/network drivers, rejects host-backed volume options, custom runtimes, weakened security profiles, and writable telemetry binds, bounds in-flight Docker operations, emits normalized audit events, and has explicit HTTP limits. Docker CLI subprocesses use verified caller-specific certificates through standard TLS file names. The schedules orchestrator is lean, the separately published worker resolves a tested narrowed deployment adapter, and typed self-update, preview cleanup, restart-safe pending-preview reconciliation, web-server maintenance, typed Caddy provisioning/configuration (including bounded archive upload, validation, reload, and rollback), typed cleanup, host maintenance, workload migration, autoscaling, bounded local resource scaling, API resource workflows, local inventory/control/prune, resource-scoped container file operations and commands, typed local convergence, resource-owned local service mutation, revision promotion, and cleanup, deterministic owned isolated-network and database-volume cleanup, bounded non-secret Dockerfile builds, owned-image registry pushes, all Swarm control, and deployment-hook command execution resolve method-bound capabilities; the broker transport remains broader for Compose, secret-bearing builds, and remote service mutation. |
 | CI/CD | 8.5/10 | Pinned actions/images, current Go toolchains, broker image provenance, generated-schema checks, Go vulnerability scans, and a zero-high-advisory dependency gate are present; live release evidence and broader coverage gates remain. |
-| Observability | 6.5/10 | Scheduler/queue/backup coverage now includes protected API request/error/latency/memory metrics and alerts; auth/deployment/DB-pool-specific SLOs remain. |
+| Observability | 6.5/10 | Scheduler/queue/backup coverage now includes protected API request/error/latency/memory metrics, authentication outcomes, and aggregate PostgreSQL pool saturation metrics and alerts; deployment, broker, web, and full request-cost SLOs remain. |
 | QA/release gate | 8/10 | Typecheck, lint, DB checks, full test suite, release contracts, security audit, and build pass; live production E2E evidence remains opt-in. |
 | Disaster recovery | 8.2/10 | Control-plane web-server backups validate the dump and all volume archives, storage defaults to SSE-S3 unless a reviewed SSE-KMS/SSE-C mode is selected, production installation requires a recovery-plan attestation, and production acceptance now requires fresh installation-specific JSON evidence with a detached Ed25519 signature, data assertion, off-site/retention/escrow claims, measured RPO/RTO, reference binding, and release-hash-verified tooling. The disposable MinIO/PostgreSQL rehearsal plus synthetic AES-256-GCM key-format probe emit explicitly labelled evidence with measured timings; independent real-data off-host restore, escrow-access, and target-installation evidence remain open. |
 
@@ -390,8 +390,8 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Function/Class:** Prometheus scrape and alert configuration
 - **Severity:** Major
 - **Category:** Observability / incident response
-- **Problem:** The configuration now scrapes schedules and the API, but deeper security, deployment, database-pool, broker, and web SLOs are still absent.
-- **Evidence:** `/_internal/metrics` is token-protected, exposes low-cardinality API request status, duration, uptime, resident-memory, and protected authentication-outcome metrics, and Prometheus has an authenticated `upstand-server` job with 5xx/memory/authentication-rejection alerts. Webhooks, deployment latency, broker health, DB pool saturation, and web availability still lack dedicated metrics.
+- **Problem:** The configuration now scrapes schedules and the API, but deeper security, deployment, broker, web, and full request-cost SLOs are still absent.
+- **Evidence:** `/_internal/metrics` is token-protected, exposes low-cardinality API request status, duration, uptime, resident-memory, authentication-outcome, and aggregate PostgreSQL pool gauges, and Prometheus has an authenticated `upstand-server` job with 5xx/memory/authentication-rejection/database-pool alerts. Webhooks, deployment latency, broker health, web availability, and request-cost accounting still lack dedicated metrics.
 - **Impact:** Operators can detect API unavailability and elevated 5xx responses, but cannot yet localize several important production failure modes.
 - **Recommended Fix:** Add API/auth/webhook/AI RED metrics, deployment lifecycle, DB/Redis pools, broker health, SLO runbooks, and a synthetic journey.
 
@@ -444,7 +444,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-012 | Remediated in source and migrations — generated migrations `0091` and `0092` add composite uniqueness first and same-organization foreign keys second for backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; fresh-schema portable transfer coverage and fresh-plus-upgraded external PostgreSQL migration smoke pass; and full-schema PGlite coverage proves normalized resource ownership follows the non-null resource/environment/project chain. |
 | F-013 | Remediated — device approval claims before API-key creation, completes only from the claim, and cleans up both key and claim on failure; focused tests pass. |
 | F-014 | Partial/remediated for image isolation, worker DI, migration, autoscaling, API resource workflows, typed self-update, preview cleanup, revision promotion, bounded local scaling, typed web-server maintenance, typed cleanup, host maintenance, typed Swarm control, resource-container commands, resource convergence, resource-scoped service, network, and volume cleanup, deployment hooks, resource-scoped worker builds, and use-case SDK isolation — the orchestrator is lean, the worker is separately published with its own identity and acceptance checks, raw worker image builds require a validated resource scope, capability workflows receive method-bound ports with remote shape preservation, the use-case layer no longer imports the Docker SDK, and regression tests prove the narrowed surfaces; broker transport breadth remains open for Compose and service mutation.
-| F-015 | Partial — Prometheus now scrapes token-protected API RED/process metrics and low-cardinality authentication outcomes with paging alerts; deployment, DB-pool, broker, and web-specific telemetry remain. |
+| F-015 | Partial — Prometheus now scrapes token-protected API RED/process metrics, low-cardinality authentication outcomes, and aggregate PostgreSQL pool saturation with paging alerts; deployment, broker, web, and request-cost telemetry remain. |
 | F-016 | Remediated — CodeQL now analyzes JavaScript/TypeScript and Go, and CI runs `govulncheck` for both Go production services. |
 | F-017 | Remediated in code — docs-chat messages, parts, text, search query, and output are bounded. |
 | F-018 | Remediated in code — Better Auth routes now have shared distributed request limiting and a 256 KiB body cap; protected HTTP middleware records low-cardinality authentication outcomes and Prometheus alerts on sustained rejection rates; live auth-failure paging evidence remains. |
@@ -490,7 +490,7 @@ Additional observations: AI history is bounded but retention limits are needed; 
 1. Typed operations for the remaining broker-backed maintenance paths, with independent capability audit; build and service mutation remain open, while deployment hooks, local convergence, self-update, web-server maintenance, cleanup, local inventory/control/prune, container file management, and Swarm management are already narrowed.
 2. Independently verifiable off-host encrypted control-plane backup/WAL retention with separate key recovery.
 3. Scheduled restore drills using real scrubbed control-plane data with measured RPO/RTO evidence.
-4. API/auth/deployment/webhook/DB-pool/broker RED metrics and paging runbooks.
+4. API/auth/deployment/webhook/broker/request-cost RED metrics and paging runbooks; PostgreSQL pool saturation is now covered.
 5. Synthetic login-to-deploy-to-rollback journey.
 6. Installation-specific evidence for the persisted instance-owner lifecycle and independently authenticated legacy-owner repair.
 7. Provider invoice reconciliation, conservative AI token/cost budgets, and spend alerts.
@@ -510,7 +510,7 @@ Additional observations: AI history is bounded but retention limits are needed; 
 7. Add provider invoice reconciliation and spend alerts; retain the new conservative token/cost admission controls and model allowlist.
 8. Enforce AI tool/data scope outside model instructions and add adversarial evaluations.
 9. Add durable broker and preview reconciliation/observability.
-10. Add API/auth/deployment/database-pool/broker SLO metrics and paging runbooks.
+10. Add API/auth/deployment/broker/web/request-cost SLO metrics and paging runbooks; retain the PostgreSQL pool saturation alert.
 11. Add coverage, concurrency, and load gates.
 12. Publish compromise/rollback/restore/key-rotation/owner-transfer runbooks.
 
@@ -519,7 +519,7 @@ Additional observations: AI history is bounded but retention limits are needed; 
 1. **Major:** The broker’s remaining raw transport still exposes reviewed daemon operations rather than fully typed resource-scoped capabilities; self-update, Swarm, resource-container commands, deployment hooks, local convergence, migration, autoscaling, API resource workflows, typed web-server maintenance, typed cleanup, and resource-scoped container file management now resolve narrowed authority and retain the mTLS workload identity boundary, while broader build and service-mutation operations remain open.
 2. **Major:** No demonstrated installation-specific control-plane backup/restore with key recovery and measured RPO/RTO; production acceptance now verifies signed evidence, but the repository cannot supply the target installation’s real rehearsal record.
 3. **Major:** The separate worker still carries a broad build toolchain and the broker transport remains broader than typed resource-scoped operations for maintenance paths, so worker/control-plane compromise impact is reduced but not eliminated.
-4. **Major:** API/auth/deployment/database-pool/broker observability and paging coverage is incomplete.
+4. **Major:** API/auth/deployment/broker/web/request-cost observability and paging coverage is incomplete.
 5. **Major:** Legacy owner repair and transfer now have audited, step-up-protected workflows, but live recovery evidence and removal of environment overrides remain operational requirements.
 6. **Major:** Explicit direct-IP/plaintext bootstrap remains a deliberate initial downgrade mode; runtime now closes it after first account creation, but private-interface and TLS-cutover evidence are still operational requirements.
 7. **Major:** AI cost admission now uses a conservative operator-configured ceiling and optional exact model allowlists, but provider invoice reconciliation is absent and untrusted-data isolation still relies partly on model-facing provenance instructions.
