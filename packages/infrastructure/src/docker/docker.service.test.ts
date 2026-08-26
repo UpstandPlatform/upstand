@@ -548,6 +548,73 @@ describe("deployment command log safety", () => {
     );
   });
 
+  test("includes resource ownership labels on raw Dockerfile builds", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (message: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { resourceId?: string },
+      ) => Promise<void>;
+    };
+    const calls: Array<{ command: string; args: string[] }> = [];
+    service.runCommandAsync = async (command, args) => {
+      calls.push({ command, args });
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-raw-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "FROM alpine:3.20\n",
+    );
+    try {
+      await service.buildDockerfileImage(
+        "resource-1",
+        contextPath,
+        "upstand-app-resource-1:latest",
+        {
+          dockerfilePath: "Dockerfile",
+          dockerContextPath: ".",
+          dockerNoCache: false,
+          dockerBuildStage: undefined,
+          dockerBuildArgs: undefined,
+          dockerCleanupCache: false,
+        },
+        {},
+        () => {},
+        {},
+        false,
+      );
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
+    expect(calls[0]).toEqual(
+      expect.objectContaining({
+        command: "docker",
+        args: expect.arrayContaining([
+          "--label",
+          "com.upstand.resource-id=resource-1",
+        ]),
+      }),
+    );
+  });
+
   test("fails when a resource container command exits non-zero", async () => {
     const docker = {
       listServices: async () => [{ Spec: { Name: "resource-1" } }],

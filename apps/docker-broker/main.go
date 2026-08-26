@@ -492,6 +492,13 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 	if caller != "deployment-worker" || !brokerRequiresProductionIdentity() {
 		return nil
 	}
+	if method == http.MethodPost && path == "/build" {
+		resourceID := strings.TrimSpace(r.Header.Get("X-Upstand-Resource-ID"))
+		if !resourceIDPattern.MatchString(resourceID) {
+			return errors.New("deployment-worker build requires a valid X-Upstand-Resource-ID")
+		}
+		return validateDeploymentWorkerBuildQuery(r, resourceID)
+	}
 	serviceMutation := (method == http.MethodPost && path == "/services/create") ||
 		(method == http.MethodPost && resourceActionPath(path, "services", "update")) ||
 		(method == http.MethodDelete && resourceItemPath(path, "services"))
@@ -506,6 +513,62 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 		resourceID := strings.TrimSpace(r.Header.Get("X-Upstand-Resource-ID"))
 		if !resourceIDPattern.MatchString(resourceID) {
 			return errors.New("deployment-worker resource mutation requires a valid X-Upstand-Resource-ID")
+		}
+	}
+	return nil
+}
+
+func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) error {
+	query := r.URL.Query()
+	image := strings.TrimSpace(query.Get("t"))
+	if !resourceBuildImagePattern.MatchString(image) {
+		return errors.New("deployment-worker build requires a valid tagged image")
+	}
+
+	dockerfile := strings.TrimSpace(query.Get("dockerfile"))
+	if dockerfile != "" && (strings.HasPrefix(dockerfile, "/") || strings.Contains(dockerfile, `\`)) {
+		return errors.New("deployment-worker build Dockerfile path is invalid")
+	}
+	for _, segment := range strings.Split(dockerfile, "/") {
+		if segment == "." || segment == ".." {
+			return errors.New("deployment-worker build Dockerfile path contains an invalid segment")
+		}
+	}
+
+	if query.Get("remote") != "" || query.Get("outputs") != "" {
+		return errors.New("deployment-worker build cannot use remote contexts or output exporters")
+	}
+	networkMode := strings.ToLower(strings.TrimSpace(query.Get("networkmode")))
+	if networkMode == "host" || strings.HasPrefix(networkMode, "container:") {
+		return errors.New("deployment-worker build cannot use host network access")
+	}
+	for _, option := range query["securityopt"] {
+		if unsafeSecurityOption(option) {
+			return errors.New("deployment-worker build cannot weaken the security profile")
+		}
+	}
+
+	labels := strings.TrimSpace(query.Get("labels"))
+	if labels == "" {
+		return errors.New("deployment-worker build requires an ownership label")
+	}
+	var parsedLabels map[string]string
+	if json.Unmarshal([]byte(labels), &parsedLabels) != nil ||
+		parsedLabels["com.upstand.resource-id"] != resourceID {
+		return errors.New("deployment-worker build must carry the exact resource ownership label")
+	}
+
+	buildArgs := strings.TrimSpace(query.Get("buildargs"))
+	if buildArgs == "" {
+		return nil
+	}
+	var parsedBuildArgs map[string]string
+	if json.Unmarshal([]byte(buildArgs), &parsedBuildArgs) != nil || parsedBuildArgs == nil || len(parsedBuildArgs) > 64 {
+		return errors.New("deployment-worker build arguments are invalid or unbounded")
+	}
+	for key, value := range parsedBuildArgs {
+		if !resourceBuildTargetPattern.MatchString(key) || len(value) > maxResourceBuildArgumentB || hasControlCharacter(value) || isSensitiveBuildArgument(key) {
+			return errors.New("deployment-worker build argument is invalid or sensitive")
 		}
 	}
 	return nil

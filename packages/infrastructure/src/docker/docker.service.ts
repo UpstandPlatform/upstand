@@ -2314,7 +2314,15 @@ export class DockerService implements DockerSwarmManagementPort {
       }
     }
 
-    const args = ["build", "--file", dockerfilePath, "--tag", imageName];
+    const args = [
+      "build",
+      "--file",
+      dockerfilePath,
+      "--tag",
+      imageName,
+      "--label",
+      `com.upstand.resource-id=${resourceId}`,
+    ];
     if (preserveForRollback) {
       args.push("--label", "com.upstand.rollback.keep=true");
     }
@@ -2737,6 +2745,8 @@ export class DockerService implements DockerSwarmManagementPort {
           dockerfilePath,
           "--tag",
           imageName,
+          "--label",
+          `com.upstand.resource-id=${resourceId}`,
           ...(preserveForRollback
             ? ["--label", "com.upstand.rollback.keep=true"]
             : []),

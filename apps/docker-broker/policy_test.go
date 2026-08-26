@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -670,6 +671,10 @@ func TestProductionDeploymentWorkerBuildRequiresResourceScope(t *testing.T) {
 
 	withScope := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/build", nil)
 	withScope.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	withScope.URL.RawQuery = url.Values{
+		"t":      []string{"upstand-app-resource-1:latest"},
+		"labels": []string{`{"com.upstand.resource-id":"resource-1"}`},
+	}.Encode()
 	if err := authorizeDockerRequestForCaller("deployment-worker", withScope, nil); err != nil {
 		t.Fatalf("expected a resource-scoped deployment-worker build to be allowed: %v", err)
 	}
@@ -678,6 +683,32 @@ func TestProductionDeploymentWorkerBuildRequiresResourceScope(t *testing.T) {
 	withInvalidScope.Header.Set("X-Upstand-Resource-ID", "../other-resource")
 	if err := authorizeDockerRequestForCaller("deployment-worker", withInvalidScope, nil); err == nil {
 		t.Fatal("expected an invalid deployment-worker resource scope to be rejected")
+	}
+}
+
+func TestProductionDeploymentWorkerBuildRejectsUnsafeQueryOptions(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	for _, test := range []struct {
+		name  string
+		query url.Values
+	}{
+		{name: "missing image", query: url.Values{"labels": []string{`{"com.upstand.resource-id":"resource-1"}`}}},
+		{name: "missing ownership label", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}}},
+		{name: "mismatched ownership label", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"other-resource"}`}}},
+		{name: "remote context", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "remote": []string{"https://example.invalid/context.tar"}}},
+		{name: "output exporter", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "outputs": []string{"type=registry"}}},
+		{name: "host network", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "networkmode": []string{"host"}}},
+		{name: "sensitive build arg", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "buildargs": []string{`{"API_TOKEN":"redacted"}`}}},
+		{name: "null build args", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "buildargs": []string{"null"}}},
+		{name: "path traversal", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "dockerfile": []string{"../Dockerfile"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/build?"+test.query.Encode(), nil)
+			req.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			if err := authorizeDockerRequestForCaller("deployment-worker", req, nil); err == nil {
+				t.Fatal("expected unsafe deployment-worker build query to be rejected")
+			}
+		})
 	}
 }
 
