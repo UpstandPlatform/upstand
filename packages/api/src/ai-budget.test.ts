@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  recordUpGalUsage,
+  renderUpGalBudgetMetrics,
   reserveUpGalDailyRunTokenAndCostBudget,
   reserveUpGalDailyTokenAndCostBudget,
   upGalDailyCostBudgetKey,
   upGalDailyTokenBudgetKey,
+  upGalUsageCostCentsForPricing,
 } from "./ai-budget";
 
 describe("UpGal atomic token and cost budgets", () => {
@@ -207,5 +210,39 @@ describe("UpGal atomic token and cost budgets", () => {
       ),
     ).rejects.toThrow("positive safe integers");
     expect(calls).toBe(0);
+  });
+});
+
+describe("UpGal usage cost observability", () => {
+  test("calculates conservative cents from separate input and output rates", () => {
+    expect(
+      upGalUsageCostCentsForPricing(1_000_000, 500_000, {
+        inputPerMTokensUsd: 2,
+        outputPerMTokensUsd: 4,
+      }),
+    ).toBe(400);
+  });
+
+  test("does not estimate usage when a required rate is unavailable", () => {
+    expect(
+      upGalUsageCostCentsForPricing(10, 10, { inputPerMTokensUsd: 2 }),
+    ).toBeNull();
+    expect(() =>
+      upGalUsageCostCentsForPricing(-1, 1, {
+        inputPerMTokensUsd: 2,
+        outputPerMTokensUsd: 4,
+      }),
+    ).toThrow("non-negative safe integers");
+  });
+
+  test("keeps unknown pricing visible in aggregate metrics", () => {
+    recordUpGalUsage({
+      provider: "openai",
+      modelId: "definitely-not-a-real-model",
+      inputTokens: 10,
+      outputTokens: 10,
+    });
+    const metrics = renderUpGalBudgetMetrics();
+    expect(metrics).toContain("upstand_ai_usage_unpriced_requests_total");
   });
 });

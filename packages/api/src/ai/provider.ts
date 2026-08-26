@@ -31,6 +31,7 @@ export type UpGalProviderOverrides = {
 
 export type UpGalResolvedProvider = {
   model: LanguageModel;
+  provider: AIProvider;
   modelId: string;
   temperature: number;
   reasoningEnabled: boolean;
@@ -220,13 +221,19 @@ export async function getUpGalProvider(
     const modelId = config.model.includes("/")
       ? config.model
       : `openai/${config.model}`;
-    return { model: gateway(modelId), modelId, ...controls };
+    return {
+      model: gateway(modelId),
+      provider: effectiveProvider,
+      modelId,
+      ...controls,
+    };
   }
   if (effectiveProvider === "anthropic") {
     return {
       model: createAnthropic({ apiKey, baseURL: config.baseUrl || undefined })(
         config.model,
       ),
+      provider: effectiveProvider,
       modelId: config.model,
       ...controls,
     };
@@ -237,6 +244,7 @@ export async function getUpGalProvider(
         apiKey,
         baseURL: config.baseUrl || undefined,
       })(config.model),
+      provider: effectiveProvider,
       modelId: config.model,
       ...controls,
     };
@@ -253,6 +261,7 @@ export async function getUpGalProvider(
         appUrl: "https://upstand.dev",
         appName: "Upstand",
       }).chat(config.model),
+      provider: effectiveProvider,
       modelId: config.model,
       ...controls,
     };
@@ -263,6 +272,7 @@ export async function getUpGalProvider(
       apiKey,
       baseURL: config.baseUrl || undefined,
     })(config.model),
+    provider: effectiveProvider,
     modelId: config.model,
     ...controls,
   };

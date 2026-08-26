@@ -1,3 +1,9 @@
+import type { AIProvider } from "@upstand/domain";
+import {
+  getUpGalStaticModelPricing,
+  type UpGalModelPricing,
+} from "./ai/model-catalog";
+
 export interface RedisScriptClient {
   eval(
     script: string,
@@ -74,6 +80,9 @@ const aiBudgetCounters = {
   rejected: 0,
   reservedTokens: 0,
   reservedCostCents: 0,
+  pricedUsageRequests: 0,
+  unpricedUsageRequests: 0,
+  estimatedUsageCostCents: 0,
 };
 
 export function upGalDailyBudgetKey(
@@ -122,7 +131,78 @@ export function renderUpGalBudgetMetrics(): string {
     "# HELP upstand_ai_budget_reserved_cost_cents_total Conservative cost cents admitted by the AI budget.",
     "# TYPE upstand_ai_budget_reserved_cost_cents_total counter",
     `upstand_ai_budget_reserved_cost_cents_total ${aiBudgetCounters.reservedCostCents}`,
+    "# HELP upstand_ai_usage_priced_requests_total AI calls with checked-in model pricing metadata.",
+    "# TYPE upstand_ai_usage_priced_requests_total counter",
+    `upstand_ai_usage_priced_requests_total ${aiBudgetCounters.pricedUsageRequests}`,
+    "# HELP upstand_ai_usage_unpriced_requests_total AI calls without checked-in model pricing metadata.",
+    "# TYPE upstand_ai_usage_unpriced_requests_total counter",
+    `upstand_ai_usage_unpriced_requests_total ${aiBudgetCounters.unpricedUsageRequests}`,
+    "# HELP upstand_ai_usage_estimated_cost_cents_total Estimated AI usage cost in cents from catalog pricing.",
+    "# TYPE upstand_ai_usage_estimated_cost_cents_total counter",
+    `upstand_ai_usage_estimated_cost_cents_total ${aiBudgetCounters.estimatedUsageCostCents}`,
   ].join("\n");
+}
+
+export function upGalUsageCostCentsForPricing(
+  inputTokens: number,
+  outputTokens: number,
+  pricing: UpGalModelPricing,
+): number | null {
+  if (
+    !Number.isSafeInteger(inputTokens) ||
+    inputTokens < 0 ||
+    !Number.isSafeInteger(outputTokens) ||
+    outputTokens < 0
+  ) {
+    throw new Error(
+      "UpGal usage token values must be non-negative safe integers",
+    );
+  }
+  const inputRate = pricing.inputPerMTokensUsd;
+  const outputRate =
+    pricing.outputPerMTokensUsd ?? pricing.reasoningPerMTokensUsd;
+  if (
+    typeof inputRate !== "number" ||
+    typeof outputRate !== "number" ||
+    !Number.isFinite(inputRate) ||
+    !Number.isFinite(outputRate) ||
+    inputRate < 0 ||
+    outputRate < 0
+  ) {
+    return null;
+  }
+  const cents = Math.ceil(
+    ((inputTokens * inputRate + outputTokens * outputRate) * 100) / 1_000_000,
+  );
+  if (!Number.isSafeInteger(cents) || cents < 0) {
+    throw new Error("UpGal usage cost calculation exceeded safe integer range");
+  }
+  return cents;
+}
+
+/** Record aggregate usage only; no tenant, model, prompt, or credential labels. */
+export function recordUpGalUsage(input: {
+  provider: AIProvider;
+  modelId: string;
+  inputTokens: number;
+  outputTokens: number;
+}): void {
+  const pricing = getUpGalStaticModelPricing(input.provider, input.modelId);
+  if (!pricing) {
+    aiBudgetCounters.unpricedUsageRequests += 1;
+    return;
+  }
+  const estimatedCents = upGalUsageCostCentsForPricing(
+    input.inputTokens,
+    input.outputTokens,
+    pricing,
+  );
+  if (estimatedCents === null) {
+    aiBudgetCounters.unpricedUsageRequests += 1;
+    return;
+  }
+  aiBudgetCounters.pricedUsageRequests += 1;
+  aiBudgetCounters.estimatedUsageCostCents += estimatedCents;
 }
 
 export function upGalCostCentsForTokens(

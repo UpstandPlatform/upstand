@@ -29,8 +29,13 @@ grep -Fq 'upstand_server_authentication_attempts_total' "$SERVER_METRICS_FILE"
 grep -Fq 'renderUpGalBudgetMetrics' "$SERVER_METRICS_FILE"
 grep -Fq 'upstand_ai_budget_reservations_total' "$ROOT_DIR/packages/api/src/ai-budget.ts"
 grep -Fq 'upstand_ai_budget_reserved_tokens_total' "$ROOT_DIR/packages/api/src/ai-budget.ts"
+grep -Fq 'upstand_ai_usage_priced_requests_total' "$ROOT_DIR/packages/api/src/ai-budget.ts"
+grep -Fq 'upstand_ai_usage_unpriced_requests_total' "$ROOT_DIR/packages/api/src/ai-budget.ts"
+grep -Fq 'upstand_ai_usage_estimated_cost_cents_total' "$ROOT_DIR/packages/api/src/ai-budget.ts"
+grep -Fq 'getUpGalStaticModelPricing' "$ROOT_DIR/packages/api/src/ai/model-catalog.ts"
 grep -Fq 'UpstandServerAuthenticationFailuresHigh' "$ALERT_RULES"
 grep -Fq 'UpstandAIBudgetRejectionsHigh' "$ALERT_RULES"
+grep -Fq 'UpstandAIUsageUnpriced' "$ALERT_RULES"
 
 for metric in \
   upstand_schedules_collection_success \

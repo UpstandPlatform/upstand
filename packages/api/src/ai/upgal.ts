@@ -81,6 +81,7 @@ import {
 import { log, type RequestLogger } from "evlog";
 import { createEvlogIntegration } from "evlog/ai";
 import { z } from "zod";
+import { recordUpGalUsage } from "../ai-budget";
 import type { RequestLog } from "../context";
 import { requireInstanceOwner } from "../instance-access";
 import { getSessionCapabilities } from "../permissions";
@@ -2223,6 +2224,12 @@ export async function testUpGalProvider(
       ? { telemetry: { integrations: [createEvlogIntegration(requestLog)] } }
       : {}),
   });
+  recordUpGalUsage({
+    provider: provider.provider,
+    modelId: provider.modelId,
+    inputTokens: result.usage.inputTokens ?? 0,
+    outputTokens: result.usage.outputTokens ?? 0,
+  });
   return { ok: true, model: provider.modelId, text: result.text };
 }
 
@@ -2250,6 +2257,12 @@ export async function generateComposeTemplate(
     ...(requestLog
       ? { telemetry: { integrations: [createEvlogIntegration(requestLog)] } }
       : {}),
+  });
+  recordUpGalUsage({
+    provider: provider.provider,
+    modelId: provider.modelId,
+    inputTokens: result.usage.inputTokens ?? 0,
+    outputTokens: result.usage.outputTokens ?? 0,
   });
   const fenced = result.text.match(/```(?:yaml|yml)?\s*([\s\S]*?)```/i);
   const composeFile = (fenced?.[1] ?? result.text).trim();
@@ -2381,6 +2394,12 @@ export async function createUpGalResponse(
       tokenUsage.inputTokens += usage.inputTokens ?? 0;
       tokenUsage.outputTokens += usage.outputTokens ?? 0;
       tokenUsage.totalTokens += usage.totalTokens ?? 0;
+      recordUpGalUsage({
+        provider: provider.provider,
+        modelId: provider.modelId,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+      });
       await updateRunSafely({
         stepCount: stepNumber + 1,
         inputTokens: tokenUsage.inputTokens,

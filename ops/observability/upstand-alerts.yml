@@ -72,6 +72,16 @@ groups:
           summary: UpGal budget admissions are being rejected continuously
           description: Investigate AI abuse, provider pricing configuration, noisy organizations, or an unexpectedly low request-cost budget. Metrics intentionally contain no organization, model, prompt, or credential labels.
 
+      - alert: UpstandAIUsageUnpriced
+        expr: sum(rate(upstand_ai_usage_unpriced_requests_total{job="upstand-server"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: UpGal usage is not covered by catalog pricing metadata
+          description: Investigate newly enabled or changed provider models and update the reviewed pricing metadata or operator ceiling before relying on estimated spend. Metrics intentionally contain no organization, model, prompt, or credential labels.
+
   - name: upstand-schedules
     interval: 30s
     rules:

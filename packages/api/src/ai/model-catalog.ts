@@ -14,7 +14,17 @@ export type UpGalModelCatalogItem = {
   reasoning: boolean;
   temperature: boolean;
   toolCalling: boolean;
+  pricing?: UpGalModelPricing;
   source: "remote" | "static";
+};
+
+/** Pricing hints in USD per one million tokens from the public model catalog. */
+export type UpGalModelPricing = {
+  inputPerMTokensUsd?: number;
+  outputPerMTokensUsd?: number;
+  reasoningPerMTokensUsd?: number;
+  cacheReadPerMTokensUsd?: number;
+  cacheWritePerMTokensUsd?: number;
 };
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -42,6 +52,22 @@ function normalizeModel(
   model: ProviderModel,
   source: UpGalModelCatalogItem["source"],
 ): UpGalModelCatalogItem {
+  const pricing = model.cost
+    ? Object.fromEntries(
+        Object.entries({
+          inputPerMTokensUsd: model.cost.input,
+          outputPerMTokensUsd: model.cost.output,
+          reasoningPerMTokensUsd: model.cost.reasoning,
+          cacheReadPerMTokensUsd: model.cost.cache_read,
+          cacheWritePerMTokensUsd: model.cost.cache_write,
+        }).filter(
+          (entry): entry is [string, number] =>
+            typeof entry[1] === "number" &&
+            Number.isFinite(entry[1]) &&
+            entry[1] >= 0,
+        ),
+      )
+    : undefined;
   return {
     id: model.id,
     name: model.name || model.id,
@@ -53,6 +79,7 @@ function normalizeModel(
     reasoning: model.reasoning === true,
     temperature: model.temperature !== false,
     toolCalling: model.tool_call !== false,
+    ...(pricing && Object.keys(pricing).length > 0 ? { pricing } : {}),
     source,
   };
 }
@@ -66,6 +93,23 @@ function staticModels(provider: AIProvider): UpGalModelCatalogItem[] {
     );
   }
   return [];
+}
+
+/**
+ * Return only checked-in pricing for a model. Runtime budget enforcement keeps
+ * the operator ceiling as the fallback because a public catalog can be stale
+ * or absent; this helper is for conservative estimates and observability.
+ */
+export function getUpGalStaticModelPricing(
+  provider: AIProvider,
+  modelId: string,
+): UpGalModelPricing | undefined {
+  const normalizedModelId = modelId.includes("/")
+    ? modelId.slice(modelId.lastIndexOf("/") + 1)
+    : modelId;
+  return staticModels(provider).find(
+    (model) => model.id === modelId || model.id === normalizedModelId,
+  )?.pricing;
 }
 
 async function remoteModels(provider: AIProvider) {

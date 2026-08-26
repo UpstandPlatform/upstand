@@ -223,7 +223,12 @@ token budget. They also reserve a conservative cost ceiling using
 `UPGAL_MAX_COST_PER_MILLION_TOKENS_USD` and `UPGAL_DAILY_COST_LIMIT_USD` (both
 default to 100). The cost rate must be set to a reviewed worst-case rate for
 every configured provider/model; it is an admission-control ceiling, not a
-substitute for provider-side billing quotas or invoices.
+substitute for provider-side billing quotas or invoices. The checked-in model
+catalog also carries pricing hints. UpGal records aggregate estimated usage
+cost when both input and output rates are known, and exposes a separate
+unpriced-usage counter when catalog pricing is unavailable; these metrics have
+no organization, model, prompt, or credential labels and are not invoice
+reconciliation.
 
 Set `UPGAL_TOOL_APPROVAL_SECRET` to a dedicated server-only secret of at least
 32 characters. The AI SDK uses it to HMAC-bind approval continuations to the
