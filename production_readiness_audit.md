@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: §926f1a36§ (production-hardening-release)
+Revision: §1d62dd68§ (production-hardening-release)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -37,6 +37,14 @@ The deployment worker's raw network/volume creation endpoints are denied in
 production, and shared-network creation uses a typed, configured-name-only
 operation.
 
+The latest rollback boundary pass routes local rollback image commit/tag operations
+through the typed broker, verifies the source image's exact resource ownership
+label or deterministic resource image name, and removes the temporary marker
+container and image on both success and failure. The legacy direct Docker CLI
+fallback now also generates valid tagged marker references. This closes the raw
+container-commit path for production local callers while retaining the documented
+unsupported remote and secret-bearing builder paths.
+
 The release remains blocked by two current facts:
 
 1. Docker authority is now isolated in a dedicated broker, and deployment queue
@@ -49,32 +57,21 @@ The release remains blocked by two current facts:
    method-bound capability objects, and remote resolution preserves that
    capability shape instead of returning the full Docker service. The broker
    still exposes a constrained Docker API rather than fully typed transport;
-   the installer provisions and validates
-   independently rotated mTLS identities, distinct server/schedules/worker
-   credentials through Swarm secrets, bounds concurrent Docker operations, and
-    keeps the broker control network internal to the Swarm overlay. The
-    deployment-worker now uses the typed, resource-scoped command route for
-    pre- and post-deploy hooks, and local convergence uses a typed,
-    resource-owned health route; local image service create/update and network
-    attachment now have a typed resource-service route; Dockerfile context
-    builds with bounded non-secret build arguments and without build secrets now stream through a bounded
-	    typed resource-build route; local database/application image pulls now
-	    use a typed resource-pull route with bounded image references and
-	    ephemeral registry authentication; ownership-labelled local image pushes now use
-	    a typed resource-push route with ephemeral registry authentication; broader build, Compose, and secret-bearing
-	    service-mutation operations
-	    remain on the constrained transport pending further decomposition. In
-	    production caller-identity mode, the server caller is denied raw image
-	    builds and arbitrary service create/update operations, and raw worker
-	    image-build requests require a validated resource scope propagated
-	    through Docker CLI custom headers. Local
-     resource-container command execution used by database operations and
-     scheduled jobs now uses the typed resource-command route with caller-
-    specific authorization and bounded output. Local resource-only command
-    requests now resolve a running container inside the broker from the exact
-    system-owned `com.upstand.resource-id` label, avoiding a preliminary raw
-    container-discovery call; Compose-generated resource services receive that
-    label during configuration.
+   the installer provisions and validates independently rotated mTLS identities,
+   distinct server/schedules/worker credentials through Swarm secrets, bounds
+   concurrent Docker operations, and keeps the broker control network internal
+   to the Swarm overlay. The deployment-worker now uses typed, resource-scoped
+   command, convergence, service, pull, push, build, network, volume, and
+   rollback routes for local operations; local resource-only command execution
+   resolves a running container inside the broker from the exact system-owned
+   `com.upstand.resource-id` label, and Compose-generated resource services
+   receive that label during configuration. Broader build, Compose, secret-
+   bearing service-mutation, unsupported credential/fallback, and explicit
+   remote paths remain on constrained transport pending further decomposition.
+   In production caller-identity mode, the server caller is denied raw image
+   builds and arbitrary service create/update operations, and raw worker
+   image-build requests require a validated resource scope propagated through
+   Docker CLI custom headers.
      Local Swarm convergence checks now use a typed resource-convergence route
     that verifies service and task ownership inside the broker and returns
     bounded task/health state instead of raw local task and container
@@ -239,7 +236,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Severity:** Major
 - **Category:** Container isolation / RCE / infrastructure security
 - **Problem:** The original direct mounts were removed from server, schedules, and the monitoring agent, but the broker still mediates Docker daemon operations rather than exposing typed deployment capabilities.
-- **Latest iteration:** Local API-facing inventory, container/resource control, and pruning now resolve through `/upstand/v1/server/inventory`; container file management and resource-container command execution resolve through `/upstand/v1/server/resource-files` and `/upstand/v1/server/resource-command`; deployment-worker pre/post hooks use the same typed command contract with service-task resolution; local Swarm convergence checks use `/upstand/v1/server/resource-convergence`, which verifies the exact service/resource label and returns bounded task/health state; local database/application image pulls now use `/upstand/v1/server/resource-pull` with bounded image references and ephemeral registry authentication; local image deployments, including registry-authenticated service create/update, use `/upstand/v1/server/resource-service` for resource-owned service mutation and overlay-network attachment; ownership-labelled local image pushes use `/upstand/v1/server/resource-push`; local Dockerfile builds stream a Dockerfile-aware, `.dockerignore`-filtered context through `/upstand/v1/server/resource-build`, which now accepts only bounded non-secret build arguments and a bounded build target; isolated resource overlay-network removal uses `/upstand/v1/server/resource-network`; and deterministic database-volume removal uses `/upstand/v1/server/resource-volume`, with broker-side ownership and driver checks. Production server identities are now denied raw image-build and arbitrary service create/update paths; production schedules and deployment-worker identities are denied raw `/images/create` and must use the typed pull route. Production deployment-worker raw image-build requests additionally require a validated `X-Upstand-Resource-ID`; Dockerfile, BuildKit, Nixpacks, Railpack, Buildpacks, static, and Compose subprocesses propagate that scope through Docker CLI custom headers, and Railpack now emits the exact ownership label required by the raw build policy. Local resource-only command requests now let the broker resolve a running container only from the exact system-owned `com.upstand.resource-id` label, avoiding a preliminary raw container-discovery call; Compose-generated services receive that label during configuration. The command, convergence, pull, service, push, build, network, and volume routes are available only to server, schedules, and deployment-worker identities and enforce bounded resource identities, image metadata, context size, build metadata, non-secret build-argument shape, registry-auth shape, and response fields. These are typed broker contracts with strict operation-specific field validation and schema-validated response models; file operations additionally require a named-volume mount. The remaining raw broker exposure is concentrated in deployment-worker Compose/service orchestration, secret-bearing build paths, unsupported credential/fallback paths, and explicit remote paths.
+- **Latest iteration:** Local API-facing inventory, container/resource control, and pruning now resolve through `/upstand/v1/server/inventory`; container file management and resource-container command execution resolve through `/upstand/v1/server/resource-files` and `/upstand/v1/server/resource-command`; deployment-worker pre/post hooks use the same typed command contract with service-task resolution; local Swarm convergence checks use `/upstand/v1/server/resource-convergence`, which verifies the exact service/resource label and returns bounded task/health state; local database/application image pulls now use `/upstand/v1/server/resource-pull` with bounded image references and ephemeral registry authentication; local image deployments, including registry-authenticated service create/update, use `/upstand/v1/server/resource-service` for resource-owned service mutation and overlay-network attachment; ownership-labelled local image pushes use `/upstand/v1/server/resource-push`; local Dockerfile builds stream a Dockerfile-aware, `.dockerignore`-filtered context through `/upstand/v1/server/resource-build`, which now accepts only bounded non-secret build arguments and a bounded build target; isolated resource overlay-network removal uses `/upstand/v1/server/resource-network`; deterministic database-volume removal uses `/upstand/v1/server/resource-volume`; and local rollback image commit/tag operations use `/upstand/v1/server/resource-rollback`, with broker-side ownership checks and cleanup. Production server identities are now denied raw image-build and arbitrary service create/update paths; production schedules and deployment-worker identities are denied raw `/images/create` and must use the typed pull route. Production deployment-worker raw image-build requests additionally require a validated `X-Upstand-Resource-ID`; Dockerfile, BuildKit, Nixpacks, Railpack, Buildpacks, static, and Compose subprocesses propagate that scope through Docker CLI custom headers, and Railpack now emits the exact ownership label required by the raw build policy. Local resource-only command requests now let the broker resolve a running container only from the exact system-owned `com.upstand.resource-id` label, avoiding a preliminary raw container-discovery call; Compose-generated services receive that label during configuration. The command, convergence, pull, service, push, build, network, volume, and rollback routes are available only to server, schedules, and deployment-worker identities and enforce bounded resource identities, image metadata, context size, build metadata, non-secret build-argument shape, registry-auth shape, response fields, ownership, and cleanup. These are typed broker contracts with strict operation-specific field validation and schema-validated response models; file operations additionally require a named-volume mount. The remaining raw broker exposure is concentrated in deployment-worker Compose/service orchestration, secret-bearing build paths, unsupported credential/fallback paths, and explicit remote paths.
 - **Latest deletion/network hardening:** Local resource, database, replication, and deployment-revision service deletion now uses the typed resource-service removal operation when the broker is configured. Isolated per-resource overlay-network creation/lookup/removal now uses a typed resource-network operation; it derives the deterministic name, creates only an encrypted attachable overlay with an exact owner label, and rejects pre-existing name collisions before service deployment. Database-volume cleanup uses a typed resource-volume operation. The broker re-inspects each requested object and verifies deterministic resource naming, overlay/swarm properties, managed isolation labels, or the built-in local driver with empty options before deletion; mismatched ownership is rejected before Docker mutation and missing objects are idempotent. Production server and deployment-worker identities are denied raw service, network, and volume deletion. Focused broker runtime/policy tests plus infrastructure delegation, network-label, and volume-ownership tests pass.
 - **Latest Caddy hardening:** Local Caddy initialization and configuration sync now use `/upstand/v1/web-server/caddy` and `/upstand/v1/web-server/caddy/configure`; the broker owns the fixed image, container command, four named volumes, encrypted managed overlay network, bounded environment, port-binding shape, bounded certificate archive, validation, reload, and rollback flow, and refuses an unowned existing Caddy container before any deletion. Focused TypeScript and Go tests cover capability delegation, archive permissions/traversal, transactional reload, and server/worker policy separation.
 - **Latest build hardening:** Local Dockerfile builds now use `/upstand/v1/server/resource-build` for bounded, `.dockerignore`-filtered contexts with validated non-secret build arguments and build targets as well as ownership labels. The remaining raw Dockerfile/static build path now adds the exact resource ownership label and the broker rejects missing/mismatched ownership, remote contexts, output exporters, host/container network modes, weakened security options, traversal-enabled Dockerfile paths, malformed/unbounded arguments, and sensitive arguments; secret-bearing builds remain explicitly identified as raw-path work.
