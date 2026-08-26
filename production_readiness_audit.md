@@ -113,6 +113,13 @@ rejection-rate alert, and the observability contract verifies both the metric
 and alert. This improves detection of credential attacks and authentication
 outages, but does not replace live cutover or incident-response evidence.
 
+The server metrics endpoint now also exposes only aggregate PostgreSQL pool
+gauges (total, idle, and waiting clients), with a critical alert when requests
+wait for a connection for five minutes. Focused rendering and invalid-value
+tests plus the observability contract pass. This makes database saturation
+actionable without adding route, tenant, query, or credential labels; it does
+not yet provide deployment- or broker-specific RED metrics.
+
 Preview cleanup now carries the owning resource ID through the capability
 boundary. Local broker-backed cleanup uses the typed ownership-checked service
 removal route, while the non-broker fallback re-inspects the service and
@@ -560,6 +567,7 @@ Passed:
 - Swarm/network capability regression tests and use-case SDK-boundary scan (no Docker SDK import remains in `packages/usecases/src`)
 - Better Auth route edge limiter/body-cap checks plus server type/lint verification
 - protected authentication outcome metrics, alert, focused middleware/metrics tests, and observability contract
+- aggregate PostgreSQL pool metrics, saturation alert, focused invalid-value coverage, and observability contract
 - preview cleanup resource-ID propagation, typed ownership delegation, and unowned-service rejection tests
 - typed revision-promotion ownership validation and local deployment delegation tests
 - typed resource-service scaling validation and local autoscaling delegation tests
