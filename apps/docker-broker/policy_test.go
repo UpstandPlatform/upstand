@@ -925,6 +925,23 @@ func TestAuthorizeDockerRequestRejectsUnreviewedOperations(t *testing.T) {
 	}
 }
 
+func TestAuthorizeTypedResourceRollback(t *testing.T) {
+	body := []byte(`{"resource_id":"resource-1","image":"upstand-app-resource-1:latest"}`)
+	request := httptest.NewRequest(http.MethodPost, "http://broker/upstand/v1/server/resource-rollback", strings.NewReader(string(body)))
+	if err := authorizeTypedDockerRequest("deployment-worker", request, body); err != nil {
+		t.Fatalf("expected deployment-worker rollback to be allowed: %v", err)
+	}
+	for _, caller := range []string{"client", ""} {
+		if err := authorizeTypedDockerRequest(caller, request, body); err == nil {
+			t.Fatalf("expected caller %q to be rejected", caller)
+		}
+	}
+	invalid := []byte(`{"resource_id":"resource-1","image":"upstand-app-resource-1:latest","extra":true}`)
+	if err := authorizeTypedDockerRequest("deployment-worker", request, invalid); err == nil {
+		t.Fatal("expected unknown rollback fields to be rejected")
+	}
+}
+
 func TestUnsafeBindSourceAllowsManagedNamedVolumes(t *testing.T) {
 	if unsafeBindSource("upstand-build:/workspace") {
 		t.Fatal("named volumes must remain available")

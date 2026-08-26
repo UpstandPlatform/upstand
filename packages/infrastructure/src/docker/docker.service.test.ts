@@ -104,6 +104,7 @@ describe("deployment command log safety", () => {
     if (typeof markerImage !== "string" || typeof containerName !== "string") {
       throw new Error("Rollback marker command was not recorded");
     }
+    expect(markerImage.split(":")).toHaveLength(2);
     expect(createArgs).toEqual([
       "create",
       "--name",
@@ -126,6 +127,31 @@ describe("deployment command log safety", () => {
     ]);
     expect(calls[3]?.args).toEqual(["rm", "--force", containerName]);
     expect(calls[4]?.args).toEqual(["image", "rm", markerImage]);
+  });
+
+  test("uses the typed broker for local resource rollback markers", async () => {
+    const markResourceImageForRollback = mock(async () => {});
+    const service = new DockerService({} as never, {}, {
+      markResourceImageForRollback,
+    } as unknown as DockerResourceCommandBrokerPort) as unknown as {
+      markImageForRollback: (
+        imageName: string,
+        onLog: (message: string) => void,
+        resourceId?: string,
+      ) => Promise<void>;
+    };
+
+    await service.markImageForRollback(
+      "upstand-app-resource-1:latest",
+      () => {},
+      "resource-1",
+    );
+
+    expect(markResourceImageForRollback).toHaveBeenCalledWith(
+      { kind: "local", name: "local" },
+      "resource-1",
+      "upstand-app-resource-1:latest",
+    );
   });
 
   test("skips the post-deploy smoke test when it is disabled", async () => {

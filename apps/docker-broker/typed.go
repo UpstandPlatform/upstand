@@ -126,7 +126,8 @@ func isTypedDockerPath(path string) bool {
 			path == typedResourceFilesPath ||
 			path == typedResourceCommandPath ||
 			path == typedResourceServicePath ||
-			path == typedResourceConvergencePath
+			path == typedResourceConvergencePath ||
+			path == typedResourceRollbackPath
 	}
 }
 
@@ -279,6 +280,16 @@ func authorizeTypedDockerRequest(caller string, r *http.Request, body []byte) er
 			return errors.New(`typed resource convergence operations require POST`)
 		}
 		_, err := validateTypedResourceConvergenceRequest(body)
+		return err
+	}
+	if path == typedResourceRollbackPath {
+		if caller != `server` && caller != `schedules` && caller != `deployment-worker` {
+			return errors.New(`typed resource rollback is reserved for server, schedules, and deployment-worker callers`)
+		}
+		if r.Method != http.MethodPost {
+			return errors.New(`typed resource rollback operations require POST`)
+		}
+		_, err := validateTypedResourceRollbackRequest(body)
 		return err
 	}
 	if caller != `server` {
@@ -667,6 +678,8 @@ func serveTypedDockerRequest(w http.ResponseWriter, r *http.Request, body []byte
 			}
 			return http.StatusOK
 		}
+	case typedResourceRollbackPath:
+		err = engine.resourceRollbackOperation(r.Context(), body)
 	default:
 		err = errors.New(`unknown typed Docker operation`)
 	}
@@ -676,7 +689,7 @@ func serveTypedDockerRequest(w http.ResponseWriter, r *http.Request, body []byte
 		return http.StatusBadGateway
 	}
 	path := normalizeDockerPath(r.URL.Path)
-	if path == typedBrokerPrefix+`service-update` || path == typedBrokerPrefix+`service-command` || path == typedCaddyPath || path == typedServerPrefix+`cleanup` || path == typedResourceServicePath || path == typedResourcePullPath || path == typedResourceNetworkPath || path == typedResourceVolumePath || path == typedResourceTeardownPath || path == typedResourcePushPath {
+	if path == typedBrokerPrefix+`service-update` || path == typedBrokerPrefix+`service-command` || path == typedCaddyPath || path == typedServerPrefix+`cleanup` || path == typedResourceServicePath || path == typedResourcePullPath || path == typedResourceNetworkPath || path == typedResourceVolumePath || path == typedResourceTeardownPath || path == typedResourcePushPath || path == typedResourceRollbackPath {
 		w.WriteHeader(http.StatusNoContent)
 		return http.StatusNoContent
 	}

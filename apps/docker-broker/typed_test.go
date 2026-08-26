@@ -93,6 +93,59 @@ func TestApplySelfUpdateMutatesOnlyManagedServices(t *testing.T) {
 	assertEnvValue(t, env, "UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@"+monitoringDigest)
 }
 
+func TestResourceRollbackUsesOwnedTypedDockerOperations(t *testing.T) {
+	var requests []string
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			requests = append(requests, request.Method+" "+request.URL.RequestURI())
+			switch {
+			case request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/images/upstand-app-resource-1:latest/json"):
+				return dockerResponse(http.StatusOK, `{"Config":{"Labels":{"com.upstand.resource-id":"resource-1"}}}`), nil
+			case request.Method == http.MethodPost && request.URL.Path == "/containers/create":
+				return dockerResponse(http.StatusCreated, `{"Id":"container-1"}`), nil
+			case request.Method == http.MethodPost && request.URL.Path == "/commit":
+				return dockerResponse(http.StatusCreated, `{"Id":"sha256:marker"}`), nil
+			case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/tag"):
+				return dockerResponse(http.StatusCreated, `{}`), nil
+			case request.Method == http.MethodDelete:
+				return dockerResponse(http.StatusNoContent, `{}`), nil
+			default:
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+		}),
+	}}
+
+	if err := engine.resourceRollbackOperation(
+		context.Background(),
+		[]byte(`{"resource_id":"resource-1","image":"upstand-app-resource-1:latest"}`),
+	); err != nil {
+		t.Fatalf("expected typed rollback to succeed: %v", err)
+	}
+	if len(requests) != 6 {
+		t.Fatalf("expected inspect, create, commit, tag, and two cleanup calls; got %d: %v", len(requests), requests)
+	}
+	if !strings.Contains(requests[2], "repo=upstand-rollback-marker-") || !strings.Contains(requests[2], "tag=") {
+		t.Fatalf("expected bounded marker repository and tag: %v", requests[2])
+	}
+	if !strings.Contains(requests[3], "repo=upstand-app-resource-1") || !strings.Contains(requests[3], "tag=latest") {
+		t.Fatalf("expected source image to be retagged: %v", requests[3])
+	}
+}
+
+func TestResourceRollbackRejectsAnotherResourceImage(t *testing.T) {
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			return dockerResponse(http.StatusOK, `{"Config":{"Labels":{"com.upstand.resource-id":"other-resource"}}}`), nil
+		}),
+	}}
+	if err := engine.resourceRollbackOperation(
+		context.Background(),
+		[]byte(`{"resource_id":"resource-1","image":"registry.example/app:latest"}`),
+	); err == nil {
+		t.Fatal("expected rollback of another resource image to be rejected")
+	}
+}
+
 func TestApplySelfUpdateRejectsSourceInstallation(t *testing.T) {
 	engine := &dockerEngineClient{httpClient: &http.Client{
 		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {

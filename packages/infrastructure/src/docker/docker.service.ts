@@ -2746,12 +2746,35 @@ export class DockerService implements DockerSwarmManagementPort {
     onLog: (log: string) => void,
     resourceId?: string,
   ): Promise<void> {
+    const markResourceImageForRollback =
+      this.resourceCommandBroker?.markResourceImageForRollback;
+    if (
+      resourceId &&
+      Object.keys(this.commandEnvironment).length === 0 &&
+      markResourceImageForRollback
+    ) {
+      onLog(
+        `Marking image ${imageName} through the typed Docker broker for rollback protection...\n`,
+      );
+      await markResourceImageForRollback(
+        { kind: "local", name: "local" },
+        resourceId,
+        imageName,
+      );
+      return;
+    }
     const suffix = createHash("sha256")
       .update(`${imageName}:${Date.now()}`)
       .digest("hex")
       .slice(0, 12);
     const containerName = `upstand-rollback-marker-${suffix}`;
-    const markerImage = `${imageName}-rollback-marker-${suffix}`;
+    const imageTagSeparator = imageName.lastIndexOf(":");
+    const markerImage =
+      imageTagSeparator > 0
+        ? `${imageName.slice(0, imageTagSeparator)}:${imageName.slice(
+            imageTagSeparator + 1,
+          )}-rollback-marker-${suffix}`
+        : `${imageName}-rollback-marker-${suffix}`;
     try {
       onLog(`Marking image ${imageName} as rollback-protected...\n`);
       await this.runCommandAsync(

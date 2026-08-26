@@ -154,6 +154,11 @@ export type DockerResourceCommandBrokerPort = {
       serveraddress?: string;
     },
   ): Promise<void>;
+  markResourceImageForRollback?(
+    target: DockerInspectionTarget,
+    resourceId: string,
+    imageName: string,
+  ): Promise<void>;
   pushResourceImage?(
     target: DockerInspectionTarget,
     resourceId: string,
@@ -1524,6 +1529,32 @@ export function createDockerResourceCommandBrokerClient():
               "X-Upstand-Registry-Auth": encodeTypedRegistryAuth(registryAuth),
             }
           : undefined,
+      );
+    },
+
+    async markResourceImageForRollback(target, resourceId, imageName) {
+      if (target.kind !== "local") {
+        throw new Error(
+          "The typed Docker broker only handles the local control-plane target",
+        );
+      }
+      if (!resourceId || !imageName) {
+        throw new Error(
+          "A resource ID and image name are required for typed rollback markers",
+        );
+      }
+      if (
+        !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,510}:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(
+          imageName,
+        )
+      ) {
+        throw new Error("The typed rollback marker image name is invalid");
+      }
+      await callBrokerValue(
+        configuration,
+        "POST",
+        "/upstand/v1/server/resource-rollback",
+        { resource_id: resourceId, image: imageName },
       );
     },
 
