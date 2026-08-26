@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { type Readable, Transform } from "node:stream";
 import dockerIgnore from "@balena/dockerignore";
@@ -49,6 +48,7 @@ import {
   cleanDockerLogs,
   filterDockerLogs,
 } from "@upstand/usecases/resource/docker-log-filter";
+import { pack as packTar } from "tar-fs";
 import { z } from "zod";
 import {
   readDockerBrokerTLSFile,
@@ -61,16 +61,6 @@ const BUILD_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_BUILD_CONTEXT_BYTES = 512 * 1024 * 1024;
 const MAX_BUILD_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_REGISTRY_AUTH_BYTES = 16 * 1024;
-const require = createRequire(import.meta.url);
-const tarFs = require("tar-fs") as {
-  pack: (
-    cwd: string,
-    options?: {
-      ignore?: (absolutePath: string) => boolean;
-    },
-  ) => Readable;
-};
-
 function encodeTypedRegistryAuth(auth: {
   username: string;
   password: string;
@@ -574,7 +564,7 @@ function createBoundedDockerBuildContext(
   if (fs.existsSync(ignorePath)) {
     ignore.add(fs.readFileSync(ignorePath, "utf8"));
   }
-  const source = tarFs.pack(contextPath, {
+  const source = packTar(contextPath, {
     ignore: (absolutePath) => {
       const relative = path
         .relative(contextPath, absolutePath)
