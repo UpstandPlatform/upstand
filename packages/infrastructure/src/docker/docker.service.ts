@@ -2594,6 +2594,8 @@ export class DockerService implements DockerSwarmManagementPort {
         planPath,
         "--output",
         `type=docker,name=${imageName}`,
+        "--label",
+        `com.upstand.resource-id=${resourceId}`,
       ];
       if (preserveForRollback) {
         buildArgs.push("--label", "com.upstand.rollback.keep=true");
