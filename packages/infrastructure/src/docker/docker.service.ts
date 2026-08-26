@@ -1225,15 +1225,24 @@ export class DockerService implements DockerSwarmManagementPort {
     const scopedDocker =
       this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
     try {
-      const stream = await scopedDocker.pull(image);
-      await followProgressWithTimeout(scopedDocker.modem, stream, (event) => {
-        if (onLog && event) {
-          const status = event.status || "";
-          const progress = event.progress ? ` ${event.progress}` : "";
-          const id = event.id ? ` [${event.id}]` : "";
-          onLog(`${status}${progress}${id}\n`);
-        }
-      });
+      const pullResourceImage = this.resourceCommandBroker?.pullResourceImage;
+      if (pullResourceImage && this.cacheDockerDiskUsage) {
+        await pullResourceImage(
+          { kind: "local", name: "local" },
+          resource.id,
+          image,
+        );
+      } else {
+        const stream = await scopedDocker.pull(image);
+        await followProgressWithTimeout(scopedDocker.modem, stream, (event) => {
+          if (onLog && event) {
+            const status = event.status || "";
+            const progress = event.progress ? ` ${event.progress}` : "";
+            const id = event.id ? ` [${event.id}]` : "";
+            onLog(`${status}${progress}${id}\n`);
+          }
+        });
+      }
     } catch (err: unknown) {
       if (onLog)
         onLog(
@@ -1400,17 +1409,41 @@ export class DockerService implements DockerSwarmManagementPort {
     const scopedDocker =
       this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
     try {
-      const stream = await scopedDocker.pull(resource.dockerImage, {
-        ...(registryAuth ? { authconfig: registryAuth } : {}),
-      });
-      await followProgressWithTimeout(scopedDocker.modem, stream, (event) => {
-        if (onLog && event) {
-          const status = event.status || "";
-          const progress = event.progress ? ` ${event.progress}` : "";
-          const id = event.id ? ` [${event.id}]` : "";
-          onLog(`${status}${progress}${id}\n`);
-        }
-      });
+      const pullResourceImage = this.resourceCommandBroker?.pullResourceImage;
+      const typedRegistryAuth =
+        registryAuth?.username && registryAuth.password
+          ? {
+              username: registryAuth.username,
+              password: registryAuth.password,
+              ...(registryAuth.serveraddress
+                ? { serveraddress: registryAuth.serveraddress }
+                : {}),
+            }
+          : undefined;
+      if (
+        pullResourceImage &&
+        this.cacheDockerDiskUsage &&
+        (!registryAuth || typedRegistryAuth)
+      ) {
+        await pullResourceImage(
+          { kind: "local", name: "local" },
+          resource.id,
+          resource.dockerImage,
+          typedRegistryAuth,
+        );
+      } else {
+        const stream = await scopedDocker.pull(resource.dockerImage, {
+          ...(registryAuth ? { authconfig: registryAuth } : {}),
+        });
+        await followProgressWithTimeout(scopedDocker.modem, stream, (event) => {
+          if (onLog && event) {
+            const status = event.status || "";
+            const progress = event.progress ? ` ${event.progress}` : "";
+            const id = event.id ? ` [${event.id}]` : "";
+            onLog(`${status}${progress}${id}\n`);
+          }
+        });
+      }
     } catch (err: unknown) {
       if (onLog)
         onLog(

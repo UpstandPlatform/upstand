@@ -65,6 +65,8 @@ const BUILD_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_BUILD_CONTEXT_BYTES = 512 * 1024 * 1024;
 const MAX_BUILD_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_REGISTRY_AUTH_BYTES = 16 * 1024;
+const TYPED_RESOURCE_IMAGE_REFERENCE_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,510}$/;
 
 type TarFsModule = {
   pack: (
@@ -139,6 +141,16 @@ export type DockerResourceCommandBrokerPort = {
       buildArgs?: Record<string, string>;
       preserveForRollback?: boolean;
       onLog?: (chunk: string) => void;
+    },
+  ): Promise<void>;
+  pullResourceImage?(
+    target: DockerInspectionTarget,
+    resourceId: string,
+    imageName: string,
+    registryAuth?: {
+      username: string;
+      password: string;
+      serveraddress?: string;
     },
   ): Promise<void>;
   pushResourceImage?(
@@ -1467,6 +1479,33 @@ export function createDockerResourceCommandBrokerClient():
         {
           "X-Upstand-Registry-Auth": encodeTypedRegistryAuth(registryAuth),
         },
+      );
+    },
+
+    async pullResourceImage(target, resourceId, imageName, registryAuth) {
+      if (target.kind !== "local") {
+        throw new Error(
+          "The typed Docker broker only handles the local control-plane target",
+        );
+      }
+      if (!resourceId || !imageName) {
+        throw new Error(
+          "A resource ID and image name are required for typed image pulls",
+        );
+      }
+      if (!TYPED_RESOURCE_IMAGE_REFERENCE_PATTERN.test(imageName)) {
+        throw new Error("The typed Docker pull image name is invalid");
+      }
+      await callBrokerValue(
+        configuration,
+        "POST",
+        "/upstand/v1/server/resource-pull",
+        { resource_id: resourceId, image: imageName },
+        registryAuth
+          ? {
+              "X-Upstand-Registry-Auth": encodeTypedRegistryAuth(registryAuth),
+            }
+          : undefined,
       );
     },
 

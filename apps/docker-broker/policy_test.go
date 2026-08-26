@@ -258,6 +258,7 @@ func TestAuthorizeDockerRequestAppliesCallerSpecificCapabilities(t *testing.T) {
 		{caller: "schedules", method: http.MethodPost, path: "/v1.43/services/create", allow: true},
 		{caller: "schedules", method: http.MethodPost, path: "/v1.43/build", allow: false},
 		{caller: "schedules", method: http.MethodPost, path: "/v1.43/containers/create", allow: false},
+		{caller: "schedules", method: http.MethodPost, path: "/v1.43/images/create", allow: false},
 		{caller: "deployment-worker", method: http.MethodPost, path: "/v1.43/build", allow: true},
 		{caller: "deployment-worker", method: http.MethodPost, path: "/v1.43/images/prune", allow: false},
 		{caller: "deployment-worker", method: http.MethodDelete, path: "/v1.43/images/sha256:abc", allow: false},
@@ -499,6 +500,14 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			allow:  true,
 		},
 		{
+			name:   "deployment worker may pull only through the typed resource route",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/resource-pull",
+			body:   `{"resource_id":"resource-1","image":"example/app:latest"}`,
+			allow:  true,
+		},
+		{
 			name:   "deployment worker may remove only an owned typed resource network",
 			caller: "deployment-worker",
 			method: http.MethodPost,
@@ -686,6 +695,15 @@ func TestProductionDeploymentWorkerBuildRequiresResourceScope(t *testing.T) {
 	}
 }
 
+func TestProductionDeploymentWorkerCannotUseRawImagePull(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	req := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/images/create?fromImage=example/app:latest", nil)
+	req.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDockerRequestForCaller("deployment-worker", req, nil); err == nil {
+		t.Fatal("expected deployment-worker raw image pull to be rejected")
+	}
+}
+
 func TestProductionDeploymentWorkerBuildRejectsUnsafeQueryOptions(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	for _, test := range []struct {
@@ -784,7 +802,6 @@ func TestProductionDeploymentWorkerResourceCreationRequiresResourceScope(t *test
 		path   string
 	}{
 		{method: http.MethodPost, path: "/v1.43/containers/create"},
-		{method: http.MethodPost, path: "/v1.43/images/create"},
 		{method: http.MethodPost, path: "/v1.43/networks/create"},
 		{method: http.MethodPost, path: "/v1.43/volumes/create"},
 		{method: http.MethodPost, path: "/v1.43/networks/network-1/connect"},

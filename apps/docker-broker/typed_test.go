@@ -405,6 +405,51 @@ func TestResourceServiceOperationScopesCreateUpdateAndNetworkAttachment(t *testi
 	}
 }
 
+func TestResourcePullOperationUsesBoundedResourcePullContract(t *testing.T) {
+	var pullQuery string
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			if request.Method != http.MethodPost || request.URL.Path != "/images/create" {
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+			pullQuery = request.URL.Query().Get("fromImage")
+			return dockerResponse(http.StatusOK, "{\"status\":\"Pulling\"}\n{\"status\":\"Downloaded\"}\n"), nil
+		}),
+	}}
+
+	if err := engine.resourcePullOperation(
+		context.Background(),
+		[]byte(`{"resource_id":"resource-1","image":"example/app:latest"}`),
+		``,
+	); err != nil {
+		t.Fatalf("expected a bounded resource pull to succeed: %v", err)
+	}
+	if pullQuery != "example/app:latest" {
+		t.Fatalf("expected the validated image to be pulled, got %q", pullQuery)
+	}
+
+	if _, err := validateTypedResourcePullRequest([]byte(`{"resource_id":"resource-1","image":"example/app"}`)); err != nil {
+		t.Fatalf("expected an untagged image reference to remain supported: %v", err)
+	}
+	if _, err := validateTypedResourcePullRequest([]byte(`{"resource_id":"resource-1","image":"example/app@sha256:0123456789abcdef"}`)); err != nil {
+		t.Fatalf("expected a digest image reference to remain supported: %v", err)
+	}
+	if _, err := validateTypedResourcePullRequest([]byte(`{"resource_id":"resource-1","image":"example/app:latest","command":"id"}`)); err == nil {
+		t.Fatal("expected arbitrary pull fields to be rejected")
+	}
+
+	engine.httpClient.Transport = roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		return dockerResponse(http.StatusOK, "{\"error\":\"pull denied\"}\n"), nil
+	})
+	if err := engine.resourcePullOperation(
+		context.Background(),
+		[]byte(`{"resource_id":"resource-1","image":"example/app:latest"}`),
+		``,
+	); err == nil {
+		t.Fatal("expected a Docker pull error event to fail the typed operation")
+	}
+}
+
 func TestResourceServiceRevisionPromotionRequiresBothOwnedServices(t *testing.T) {
 	var updateBody map[string]any
 	engine := &dockerEngineClient{httpClient: &http.Client{

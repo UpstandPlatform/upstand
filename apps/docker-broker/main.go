@@ -610,7 +610,7 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 		// Workload migration and backup orchestration do not build images or
 		// create ad-hoc containers. Those capabilities belong to the deployment
 		// worker or the API server's explicitly reviewed workflows.
-		if method == http.MethodPost && (path == "/build" || path == "/build/prune" || path == "/containers/create") {
+		if method == http.MethodPost && (path == "/build" || path == "/build/prune" || path == "/containers/create" || path == "/images/create") {
 			return false
 		}
 	}
@@ -631,6 +631,7 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 		// The deployment worker must deploy and build, but it has no reason to
 		// run global cleanup or delete/tag arbitrary images.
 		if (method == http.MethodPost && (path == "/containers/prune" || path == "/images/prune")) ||
+			(method == http.MethodPost && path == "/images/create") ||
 			(method == http.MethodDelete && resourceItemPath(path, "images")) ||
 			(method == http.MethodDelete && resourceItemPath(path, "networks")) ||
 			(method == http.MethodDelete && resourceItemPath(path, "volumes")) ||

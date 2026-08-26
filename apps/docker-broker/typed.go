@@ -116,6 +116,7 @@ func isTypedDockerPath(path string) bool {
 			path == typedServerPrefix+`self-update` ||
 			path == typedServerPrefix+`swarm` ||
 			path == typedServerPrefix+`inventory` ||
+			path == typedResourcePullPath ||
 			path == typedResourceNetworkPath ||
 			path == typedResourceVolumePath ||
 			path == typedResourceTeardownPath ||
@@ -148,6 +149,24 @@ func authorizeTypedDockerRequest(caller string, r *http.Request, body []byte) er
 			return errors.New(`typed resource build operations require POST`)
 		}
 		_, err := validateTypedResourceBuildHeaders(r.Header)
+		return err
+	}
+	if path == typedResourcePullPath {
+		if caller != `server` && caller != `schedules` && caller != `deployment-worker` {
+			return errors.New(`typed resource pull is reserved for server, schedules, and deployment-worker callers`)
+		}
+		if r.Method != http.MethodPost {
+			return errors.New(`typed resource pull operations require POST`)
+		}
+		if err := rejectHostEscapeJSON(body); err != nil {
+			return err
+		}
+		if _, err := validateTypedResourcePullRequest(body); err != nil {
+			return err
+		}
+		_, err := validateTypedResourceServiceRegistryAuth(
+			r.Header.Get(`X-Upstand-Registry-Auth`),
+		)
 		return err
 	}
 	if path == typedResourcePushPath {
@@ -593,6 +612,12 @@ func serveTypedDockerRequest(w http.ResponseWriter, r *http.Request, body []byte
 			body,
 			r.Header.Get(`X-Upstand-Registry-Auth`),
 		)
+	case typedResourcePullPath:
+		err = engine.resourcePullOperation(
+			r.Context(),
+			body,
+			r.Header.Get(`X-Upstand-Registry-Auth`),
+		)
 	case typedResourceConvergencePath:
 		var payload typedResourceConvergenceResponse
 		payload, err = engine.resourceConvergenceOperation(r.Context(), body)
@@ -612,7 +637,7 @@ func serveTypedDockerRequest(w http.ResponseWriter, r *http.Request, body []byte
 		return http.StatusBadGateway
 	}
 	path := normalizeDockerPath(r.URL.Path)
-	if path == typedBrokerPrefix+`service-update` || path == typedBrokerPrefix+`service-command` || path == typedCaddyPath || path == typedServerPrefix+`cleanup` || path == typedResourceServicePath || path == typedResourceNetworkPath || path == typedResourceVolumePath || path == typedResourceTeardownPath || path == typedResourcePushPath {
+	if path == typedBrokerPrefix+`service-update` || path == typedBrokerPrefix+`service-command` || path == typedCaddyPath || path == typedServerPrefix+`cleanup` || path == typedResourceServicePath || path == typedResourcePullPath || path == typedResourceNetworkPath || path == typedResourceVolumePath || path == typedResourceTeardownPath || path == typedResourcePushPath {
 		w.WriteHeader(http.StatusNoContent)
 		return http.StatusNoContent
 	}

@@ -213,9 +213,12 @@ describe("deployment command log safety", () => {
   });
 
   test("uses typed resource service mutation for local image deployment", async () => {
+    const pullResourceImage = mock(async () => {});
+    const pull = mock(async () => "pull-stream" as never);
     const upsertResourceService = mock(async () => {});
     const ensureResourceServiceNetwork = mock(async () => {});
     const broker = {
+      pullResourceImage,
       upsertResourceService,
       ensureResourceServiceNetwork,
       execContainerCommand: mock(),
@@ -234,7 +237,7 @@ describe("deployment command log safety", () => {
           Options: { encrypted: "" },
         }),
       }),
-      pull: async () => "pull-stream" as never,
+      pull,
       modem: {
         followProgress: (
           _stream: unknown,
@@ -262,6 +265,17 @@ describe("deployment command log safety", () => {
       },
     );
 
+    expect(pullResourceImage).toHaveBeenCalledWith(
+      { kind: "local", name: "local" },
+      "resource-1",
+      "example/app:latest",
+      {
+        username: "builder",
+        password: "temporary",
+        serveraddress: "registry.example",
+      },
+    );
+    expect(pull).not.toHaveBeenCalled();
     expect(upsertResourceService).toHaveBeenCalledWith(
       { kind: "local", name: "local" },
       "resource-1",
