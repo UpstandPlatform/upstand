@@ -188,13 +188,15 @@ MCP connection cleanup is attempted in a finally path and cleanup failures are
 logged without replacing the original run failure. This keeps durable run
 status and external-tool cleanup aligned with the existing token checkpoints.
 
-The latest AI-budget change reserves the per-request token ceiling and the
-conservative cost ceiling in one two-key Redis script: both limits are checked
-before either counter is incremented. The focused regression suite covers
-successful two-key accounting, combined-limit rejection, malformed Redis
-responses, and unsafe input rejection. A rejected cost admission therefore
-cannot consume token quota without admitting a model call; provider invoice
-reconciliation and model-facing data isolation remain open.
+The latest AI-budget change reserves the per-request run, token, and
+conservative cost ceilings in one three-key Redis script: all three limits are
+checked before any counter is incremented. Both the tRPC and legacy HTTP chat
+entry points use this all-or-nothing admission path. The focused regression
+suite covers successful three-key accounting, combined-limit rejection,
+malformed Redis responses, and unsafe input rejection. A rejected cost or
+token admission therefore cannot consume run quota without admitting a model
+call; provider invoice reconciliation and model-facing data isolation remain
+open.
 
 ## Production Readiness Scorecard
 
@@ -323,7 +325,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Severity:** Major
 - **Category:** AI abuse / cost control / data growth
 - **Problem:** The daily organization cost budget now exists, but it uses an operator-configured worst-case USD-per-million-token rate rather than provider invoice reconciliation or a model-specific pricing registry.
-- **Evidence:** New conversation creation now occurs after Redis budget admission. Chat history is capped at 128 KiB, interactive output at 8,192 tokens, aggregate model usage at 32,768 tokens per run, provider tests at 256 tokens, and template generation at 4,096 tokens. Redis now atomically reserves each request’s worst-case token ceiling against `UPGAL_DAILY_TOKEN_LIMIT` and a conservative integer-cent cost ceiling against `UPGAL_DAILY_COST_LIMIT_USD`, using `UPGAL_MAX_COST_PER_MILLION_TOKENS_USD`, per organization and UTC day, alongside the run-count limit. `ai_run` persists aggregate input, output, and total provider token counts after every model step. Tavily model-facing tools validate bounded URLs/depth/text and clip returned content; focused budget tests pass.
+- **Evidence:** New conversation creation now occurs after Redis budget admission. Chat history is capped at 128 KiB, interactive output at 8,192 tokens, aggregate model usage at 32,768 tokens per run, provider tests at 256 tokens, and template generation at 4,096 tokens. Redis now atomically reserves each request’s run, worst-case token, and conservative integer-cent cost ceilings against `UPGAL_DAILY_RUN_LIMIT`, `UPGAL_DAILY_TOKEN_LIMIT`, and `UPGAL_DAILY_COST_LIMIT_USD`, using `UPGAL_MAX_COST_PER_MILLION_TOKENS_USD`, per organization and UTC day. Both chat entry points use the three-key script, so rejected token/cost admission does not consume run quota. `ai_run` persists aggregate input, output, and total provider token counts after every model step. Tavily model-facing tools validate bounded URLs/depth/text and clip returned content; focused budget tests pass.
 - **Impact:** Input/tool amplification, unbounded per-run generation, and the configured worst-case daily admission exposure are bounded. Vendor spend still varies by model/provider price and the system does not reconcile actual usage to provider invoices.
 - **Attack Scenario:** An authenticated member automates requests up to rate limits, submits over-budget runs, or repeatedly tests an expensive custom provider.
 - **Recommended Fix:** Add a reviewed provider/model pricing registry or provider billing reconciliation and spend alerts. Keep the hard per-run ceilings, atomic token/cost reservations, durable token counters, and operator model allowlist.
@@ -456,7 +458,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-004 | Remediated for the default test gate — resource lifecycle E2E now runs only when an explicitly available local server is configured; the opt-in live suite remains required for release evidence. |
 | F-005 | Partial/remediated for ownership safety — new self-hosted bootstrap persists the owner, missing legacy ownership fails closed, and configured legacy owners now have a one-time, explicit-confirmation, step-up-protected repair path; existing owners have an audited transfer path and live evidence remains. |
 | F-006/F-007 | Mostly remediated in runtime — direct-origin trust and cookie normalization are disabled in production unless both explicit bootstrap flags are enabled, and non-health direct-IP HTTP is rejected after first account creation; private-network enforcement and installation cutover evidence remain. |
-| F-008 | Partial/remediated for token/cost admission — quota admission, bounded history, per-step aggregate token ceilings, standalone output caps, atomic per-organization daily worst-case token plus conservative cents reservations, durable failed-run finalization, and an exact operator model allowlist exist; provider invoice reconciliation remains. |
+| F-008 | Partial/remediated for token/cost admission — quota admission, bounded history, per-step aggregate token ceilings, standalone output caps, atomic per-organization run plus worst-case token plus conservative cents reservations, durable failed-run finalization, and an exact operator model allowlist exist; provider invoice reconciliation remains. |
 | F-009 | Partial — first-party scope checks, HMAC-bound approval gates, MCP restrictions, and bounded Tavily wrappers exist; model-facing provenance isolation and adversarial evaluation remain. |
 | F-010/F-011 | Remediated in code — preview quota uses a resource-row transaction lock and failed cleanup remains `cleanup_pending`; preview cleanup now carries the owning resource ID, requires an exact service ownership label before deletion, and has a bounded restart-safe scheduler retry path; focused use-case coverage passes, while repeated-close and live remote-target evidence remain. |
 | F-012 | Remediated in source and migrations — generated migrations `0091` and `0092` add composite uniqueness first and same-organization foreign keys second for backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; fresh-schema portable transfer coverage and fresh-plus-upgraded external PostgreSQL migration smoke pass; and full-schema PGlite coverage proves normalized resource ownership follows the non-null resource/environment/project chain. |
@@ -569,6 +571,7 @@ Passed:
 - full-schema PGlite resource ownership coverage (organization-scoped discovery, valid environment moves, and orphan-FK rejection)
 - local database/scheduled resource-command delegation tests (typed broker use, caller boundary, timeout/output bounds, and raw-exec avoidance)
 - AI SDK approval continuation configuration with a dedicated server-only HMAC secret and AI policy regression tests
+- atomic AI run/token/cost admission tests covering both API and legacy HTTP budget surfaces
 - deployment adapter and worker hook regression tests proving local hooks require a resource ID and use the typed service-scoped command route
 - typed web-server broker client and deployment-adapter focused tests
 - typed cleanup/self-update authorization and server-maintenance adapter checks
