@@ -826,6 +826,36 @@ func TestProductionDeploymentWorkerResourceMutationsRequireMatchingOwnedLabel(t 
 	}
 }
 
+func TestProductionDeploymentWorkerCannotMountAnotherResourceVolume(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+
+	ownedService := `{"Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"upstand-db-data-resource-1","Target":"/data"}]}}}`
+	ownedRequest := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(ownedService))
+	ownedRequest.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDockerRequestForCaller("deployment-worker", ownedRequest, []byte(ownedService)); err != nil {
+		t.Fatalf("expected the resource database volume to remain available: %v", err)
+	}
+
+	ownedComposeService := `{"Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"upstand-resource-resource-1-volume-data","Target":"/data"}]}}}`
+	ownedComposeRequest := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(ownedComposeService))
+	ownedComposeRequest.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDockerRequestForCaller("deployment-worker", ownedComposeRequest, []byte(ownedComposeService)); err != nil {
+		t.Fatalf("expected the resource Compose volume to remain available: %v", err)
+	}
+
+	for _, body := range []string{
+		`{"Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"upstand-db-data-resource-2","Target":"/data"}]}}}`,
+		`{"Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"bind","Source":"/var/lib/other-resource","Target":"/data"}]}}}`,
+		`{"Labels":{"com.upstand.resource-id":"resource-1"},"HostConfig":{"Binds":["upstand-db-data-resource-2:/data"]}}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(body))
+		request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+		if err := authorizeDockerRequestForCaller("deployment-worker", request, []byte(body)); err == nil {
+			t.Fatalf("expected a non-owned service volume to be rejected: %s", body)
+		}
+	}
+}
+
 func TestProductionDeploymentWorkerCannotUseRawNetworkDeletion(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	req := httptest.NewRequest(http.MethodDelete, "http://broker/v1.43/networks/network-1", nil)

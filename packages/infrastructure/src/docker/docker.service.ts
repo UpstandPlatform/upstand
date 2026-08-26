@@ -269,6 +269,67 @@ export function shouldSuppressComposeRestart(
   );
 }
 
+export function applyComposePlacementConstraints(
+  composeContent: string,
+  constraints: readonly string[],
+): string {
+  if (
+    constraints.some(
+      (constraint) =>
+        typeof constraint !== "string" || constraint.trim() === "",
+    )
+  ) {
+    throw new Error("Swarm placement constraints must be non-empty strings");
+  }
+
+  const parsed: unknown = yaml.parse(composeContent);
+  if (!isUnknownRecord(parsed) || !isUnknownRecord(parsed.services)) {
+    throw new Error("Compose document must contain a services object");
+  }
+
+  for (const [serviceName, rawService] of Object.entries(parsed.services)) {
+    if (!isUnknownRecord(rawService)) {
+      throw new Error(`Compose service '${serviceName}' is invalid`);
+    }
+
+    const deploy = rawService.deploy === undefined ? {} : rawService.deploy;
+    if (!isUnknownRecord(deploy)) {
+      throw new Error(
+        `Compose service '${serviceName}' has an invalid deploy section`,
+      );
+    }
+    rawService.deploy = deploy;
+
+    const placement = deploy.placement === undefined ? {} : deploy.placement;
+    if (!isUnknownRecord(placement)) {
+      throw new Error(
+        `Compose service '${serviceName}' has an invalid placement section`,
+      );
+    }
+    deploy.placement = placement;
+
+    const existingConstraints =
+      placement.constraints === undefined ? [] : placement.constraints;
+    if (
+      !Array.isArray(existingConstraints) ||
+      existingConstraints.some((constraint) => typeof constraint !== "string")
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' has invalid placement constraints`,
+      );
+    }
+    placement.constraints = existingConstraints;
+
+    for (const constraint of constraints) {
+      if (!existingConstraints.includes(constraint)) {
+        existingConstraints.push(constraint);
+      }
+    }
+  }
+
+  return yaml.stringify(parsed);
+}
+
 function getUrlRedactions(value: string): string[] {
   const redactions = [value];
   try {
@@ -1271,10 +1332,9 @@ export class DockerService implements DockerSwarmManagementPort {
         });
       }
     } catch (err: unknown) {
-      if (onLog)
-        onLog(
-          `Warning: Failed to pull database image: ${errorMessage(err)}. Relying on local cache.\n`,
-        );
+      const message = `Failed to pull database image: ${errorMessage(err)}`;
+      if (onLog) onLog(`${message}\n`);
+      throw new Error(message, { cause: err });
     }
 
     const mergedEnv = { ...defaultEnv, ...envVars };
@@ -1472,10 +1532,9 @@ export class DockerService implements DockerSwarmManagementPort {
         });
       }
     } catch (err: unknown) {
-      if (onLog)
-        onLog(
-          `Warning: Failed to pull image: ${errorMessage(err)}. Relying on local cache.\n`,
-        );
+      const message = `Failed to pull image: ${errorMessage(err)}`;
+      if (onLog) onLog(`${message}\n`);
+      throw new Error(message, { cause: err });
     }
 
     const envArray = Object.entries(envVars).map(([k, v]) => `${k}=${v}`);
@@ -2695,7 +2754,15 @@ export class DockerService implements DockerSwarmManagementPort {
       onLog(`Marking image ${imageName} as rollback-protected...\n`);
       await this.runCommandAsync(
         "docker",
-        ["create", "--name", containerName, imageName],
+        [
+          "create",
+          "--name",
+          containerName,
+          ...(resourceId
+            ? ["--label", `com.upstand.resource-id=${resourceId}`]
+            : []),
+          imageName,
+        ],
         onLog,
         undefined,
         { resourceId },
@@ -2989,35 +3056,10 @@ export class DockerService implements DockerSwarmManagementPort {
 
       // Inject placement constraints if provided
       if (constraints && constraints.length > 0) {
-        try {
-          const parsed = yaml.parse(composeContent);
-          if (parsed && typeof parsed === "object" && parsed.services) {
-            for (const serviceName of Object.keys(parsed.services)) {
-              const service = parsed.services[serviceName];
-              if (service && typeof service === "object") {
-                if (!service.deploy) {
-                  service.deploy = {};
-                }
-                if (!service.deploy.placement) {
-                  service.deploy.placement = {};
-                }
-                if (!service.deploy.placement.constraints) {
-                  service.deploy.placement.constraints = [];
-                }
-                for (const c of constraints) {
-                  if (!service.deploy.placement.constraints.includes(c)) {
-                    service.deploy.placement.constraints.push(c);
-                  }
-                }
-              }
-            }
-            composeContent = yaml.stringify(parsed);
-          }
-        } catch (err) {
-          onLog(
-            `Warning: Failed to inject Swarm placement constraints: ${err instanceof Error ? err.message : String(err)}\n`,
-          );
-        }
+        composeContent = applyComposePlacementConstraints(
+          composeContent,
+          constraints,
+        );
       }
 
       composeContent = await this.ensureTypedComposeResources(

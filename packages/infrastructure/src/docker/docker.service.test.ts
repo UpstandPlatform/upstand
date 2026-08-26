@@ -5,6 +5,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import yaml from "yaml";
 import {
+  applyComposePlacementConstraints,
   DockerService,
   redactCommandOutput,
   shouldSuppressComposeRestart,
@@ -12,6 +13,28 @@ import {
 import type { DockerResourceCommandBrokerPort } from "./docker-broker-client";
 
 describe("deployment command log safety", () => {
+  test("fails closed when placement constraints cannot be applied", () => {
+    expect(() =>
+      applyComposePlacementConstraints("services:\n  web: invalid", [
+        "node.labels.upstand.role == worker",
+      ]),
+    ).toThrow("Compose service 'web' is invalid");
+
+    const updated = applyComposePlacementConstraints(
+      "services:\n  web:\n    image: example/web\n    deploy:\n      placement:\n        constraints:\n          - node.labels.existing == true\n",
+      ["node.labels.upstand.role == worker", "node.labels.existing == true"],
+    );
+    const parsed = yaml.parse(updated) as {
+      services: {
+        web: { deploy: { placement: { constraints: string[] } } };
+      };
+    };
+    expect(parsed.services.web.deploy.placement.constraints).toEqual([
+      "node.labels.existing == true",
+      "node.labels.upstand.role == worker",
+    ]);
+  });
+
   test("redacts build and registry secrets without leaking shorter values", () => {
     expect(
       redactCommandOutput("token=super-secret and token=secret", [
@@ -56,6 +79,7 @@ describe("deployment command log safety", () => {
       markImageForRollback: (
         imageName: string,
         onLog: (message: string) => void,
+        resourceId?: string,
       ) => Promise<void>;
       runCommandAsync: (
         command: string,
@@ -67,7 +91,11 @@ describe("deployment command log safety", () => {
       calls.push({ command, args });
     };
 
-    await service.markImageForRollback("upstand-app-resource:latest", () => {});
+    await service.markImageForRollback(
+      "upstand-app-resource:latest",
+      () => {},
+      "resource-1",
+    );
 
     const createArgs = calls[0]?.args;
     const commitArgs = calls[1]?.args;
@@ -76,7 +104,14 @@ describe("deployment command log safety", () => {
     if (typeof markerImage !== "string" || typeof containerName !== "string") {
       throw new Error("Rollback marker command was not recorded");
     }
-    expect(createArgs?.[0]).toBe("create");
+    expect(createArgs).toEqual([
+      "create",
+      "--name",
+      containerName,
+      "--label",
+      "com.upstand.resource-id=resource-1",
+      "upstand-app-resource:latest",
+    ]);
     expect(commitArgs).toEqual([
       "commit",
       "--change",
@@ -299,6 +334,51 @@ describe("deployment command log safety", () => {
       "resource-1",
       "network-1",
     );
+  });
+
+  test("does not deploy a stale local image when the required pull fails", async () => {
+    const pullResourceImage = mock(async () => {
+      throw new Error("registry unavailable");
+    });
+    const upsertResourceService = mock(async () => {});
+    const ensureResourceServiceNetwork = mock(async () => {});
+    const broker = {
+      pullResourceImage,
+      upsertResourceService,
+      ensureResourceServiceNetwork,
+    } as unknown as DockerResourceCommandBrokerPort;
+    const docker = {
+      info: async () => ({
+        Swarm: { LocalNodeState: "active", ControlAvailable: true },
+      }),
+      getNetwork: () => ({
+        inspect: async () => ({
+          Id: "network-1",
+          Driver: "overlay",
+          Scope: "swarm",
+          Attachable: true,
+          Options: { encrypted: "" },
+        }),
+      }),
+    } as never;
+    const service = new DockerService(docker, {}, broker);
+    const logs: string[] = [];
+
+    await expect(
+      service.deployAppImage(
+        {
+          id: "resource-1",
+          name: "Resource 1",
+          appName: "resource-1",
+          dockerImage: "example/app:latest",
+          advancedConfig: "{}",
+        } as never,
+        {},
+        (message) => logs.push(message),
+      ),
+    ).rejects.toThrow("Failed to pull image: registry unavailable");
+    expect(upsertResourceService).not.toHaveBeenCalled();
+    expect(logs).toContain("Failed to pull image: registry unavailable\n");
   });
 
   test("uses the typed owned-network ensure operation for isolated local deployments", async () => {

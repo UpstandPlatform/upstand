@@ -16,6 +16,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ const (
 	maximumMaxInflight       = 256
 	brokerBusyRetryAfterSecs = 1
 )
+
+var deploymentWorkerVolumeKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 func main() {
 	socketPath := os.Getenv("UPSTAND_DOCKER_SOCKET")
@@ -599,7 +602,75 @@ func requireDeploymentWorkerOwnedResourceBody(caller string, r *http.Request, bo
 		payload.Labels["com.upstand.resource-id"] != resourceID {
 		return errors.New("deployment-worker resource mutation must carry the matching system-owned resource label")
 	}
+	if err := validateDeploymentWorkerOwnedVolumes(body, resourceID); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateDeploymentWorkerOwnedVolumes(body []byte, resourceID string) error {
+	var value any
+	if err := json.Unmarshal(body, &value); err != nil {
+		return fmt.Errorf("invalid deployment-worker resource mutation body: %w", err)
+	}
+	return walkDeploymentWorkerOwnedVolumes(value, "$", resourceID)
+}
+
+func walkDeploymentWorkerOwnedVolumes(value any, location, resourceID string) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			keyLocation := location + "." + key
+			switch key {
+			case "Binds":
+				list, ok := child.([]any)
+				if !ok {
+					return fmt.Errorf("%s must be an array of managed volume binds", keyLocation)
+				}
+				for index, entry := range list {
+					bind, ok := entry.(string)
+					if !ok || !isDeploymentWorkerOwnedVolume(strings.SplitN(bind, ":", 2)[0], resourceID) {
+						return fmt.Errorf("%s[%d] must reference a volume owned by resource %s", keyLocation, index, resourceID)
+					}
+				}
+			case "Mounts":
+				list, ok := child.([]any)
+				if !ok {
+					return fmt.Errorf("%s must be an array of managed volume mounts", keyLocation)
+				}
+				for index, entry := range list {
+					mount, ok := entry.(map[string]any)
+					if !ok {
+						return fmt.Errorf("%s[%d] must be a managed volume mount", keyLocation, index)
+					}
+					mountType, _ := mount["Type"].(string)
+					source, _ := mount["Source"].(string)
+					if mountType != "volume" || !isDeploymentWorkerOwnedVolume(source, resourceID) {
+						return fmt.Errorf("%s[%d] must reference a volume owned by resource %s", keyLocation, index, resourceID)
+					}
+				}
+			}
+			if err := walkDeploymentWorkerOwnedVolumes(child, keyLocation, resourceID); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for index, child := range typed {
+			if err := walkDeploymentWorkerOwnedVolumes(child, fmt.Sprintf("%s[%d]", location, index), resourceID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func isDeploymentWorkerOwnedVolume(volumeName, resourceID string) bool {
+	if volumeName == "upstand-db-data-"+resourceID {
+		return true
+	}
+	prefix := "upstand-resource-" + strings.ToLower(resourceID) + "-volume-"
+	volumeKey := strings.TrimPrefix(volumeName, prefix)
+	return volumeKey != volumeName && deploymentWorkerVolumeKeyPattern.MatchString(volumeKey)
 }
 
 // isAllowedCallerDockerOperation narrows the global Docker operation allowlist
