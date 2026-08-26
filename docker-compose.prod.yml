@@ -179,6 +179,7 @@ services:
       REDIS_HOST: ${UPSTAND_REDIS_HOST:-redis}
       REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
       REDIS_URL_FILE: /run/secrets/redis_url
+      UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
@@ -194,6 +195,7 @@ services:
       - database_url
       - redis_url
       - better_auth_secret
+      - upgal_tool_approval_secret
       - encryption_key
     networks:
       upstand-network:
@@ -290,6 +292,7 @@ services:
       REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
       REDIS_URL_FILE: /run/secrets/redis_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
@@ -354,6 +357,7 @@ services:
       - database_url
       - redis_url
       - better_auth_secret
+      - upgal_tool_approval_secret
       - encryption_key
       - source: docker_broker_ca
         target: ca.pem
@@ -456,6 +460,7 @@ services:
       REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
       REDIS_URL_FILE: /run/secrets/redis_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
@@ -499,6 +504,7 @@ services:
       - database_url
       - redis_url
       - better_auth_secret
+      - upgal_tool_approval_secret
       - encryption_key
       - source: docker_broker_ca
         target: ca.pem
@@ -600,6 +606,7 @@ services:
       REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
       REDIS_URL_FILE: /run/secrets/redis_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
@@ -633,6 +640,7 @@ services:
       - database_url
       - redis_url
       - better_auth_secret
+      - upgal_tool_approval_secret
       - encryption_key
       - source: docker_broker_ca
         target: ca.pem
@@ -866,6 +874,8 @@ secrets:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/redis_password
   better_auth_secret:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/better_auth_secret
+  upgal_tool_approval_secret:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/upgal_tool_approval_secret
   encryption_key:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/encryption_key
   database_url:

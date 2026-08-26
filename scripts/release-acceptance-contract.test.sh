@@ -43,6 +43,8 @@ require_compose_text "target: /tmp"
 require_compose_text "target: /app/.builds"
 require_compose_text "target: /home/upstand/.docker"
 require_compose_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: \${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}"
+require_compose_text "UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret"
+require_compose_text "- upgal_tool_approval_secret"
 require_compose_text "UPSTAND_DR_READINESS_GATE: \${UPSTAND_DR_READINESS_GATE:-true}"
 if grep -Eq '^    tmpfs:' "$COMPOSE"; then
   echo "production Compose must use explicit type: tmpfs mounts for Swarm deployments" >&2
@@ -143,6 +145,7 @@ require_workflow_text "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > \"\$UPSTA
 require_workflow_text "docker_broker_server_token"
 require_workflow_text "docker_broker_schedules_token"
 require_workflow_text "docker_broker_deployment_worker_token"
+require_workflow_text "upgal_tool_approval_secret"
 require_workflow_text "metrics_token"
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"
 require_workflow_text "startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')"

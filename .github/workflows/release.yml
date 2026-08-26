@@ -597,7 +597,7 @@ jobs:
               docker stack services "$STACK_NAME" >/dev/null 2>&1 || break
               sleep 1
             done
-            for secret in postgres_password redis_password better_auth_secret encryption_key database_url redis_url docker_broker_server_token docker_broker_schedules_token docker_broker_deployment_worker_token docker_broker_ca docker_broker_server_cert docker_broker_server_key docker_broker_server_client_cert docker_broker_server_client_key docker_broker_schedules_client_cert docker_broker_schedules_client_key docker_broker_deployment_worker_client_cert docker_broker_deployment_worker_client_key metrics_token; do
+            for secret in postgres_password redis_password better_auth_secret upgal_tool_approval_secret encryption_key database_url redis_url docker_broker_server_token docker_broker_schedules_token docker_broker_deployment_worker_token docker_broker_ca docker_broker_server_cert docker_broker_server_key docker_broker_server_client_cert docker_broker_server_client_key docker_broker_schedules_client_cert docker_broker_schedules_client_key docker_broker_deployment_worker_client_cert docker_broker_deployment_worker_client_key metrics_token; do
               docker secret rm "${STACK_NAME}_${secret}" >/dev/null 2>&1 || true
             done
           }
@@ -619,6 +619,7 @@ jobs:
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/postgres_password"
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/redis_password"
           printf '%s' 'upstand-ci-auth-secret-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/better_auth_secret"
+          printf '%s' 'upstand-ci-approval-secret-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/upgal_tool_approval_secret"
           printf '%s' 'MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > "$UPSTAND_SECRETS_DIR/encryption_key"
           printf '%s' 'postgresql://upstand:upstand-ci-password@postgres:5432/upstand' > "$UPSTAND_SECRETS_DIR/database_url"
           printf '%s' 'redis://:upstand-ci-password@redis:6379' > "$UPSTAND_SECRETS_DIR/redis_url"

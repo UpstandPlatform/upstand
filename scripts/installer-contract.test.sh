@@ -43,6 +43,14 @@ grep -Fq 'docker_broker_deployment_worker_token' "$ROOT_DIR/install.sh" || {
 	echo "installer must provision the deployment-worker-specific Docker broker authentication secret" >&2
 	exit 1
 }
+grep -Fq 'upgal_tool_approval_secret' "$ROOT_DIR/install.sh" || {
+	echo "installer must provision the UpGal tool approval secret" >&2
+	exit 1
+}
+grep -Fq 'UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret' "$ROOT_DIR/docker-compose.prod.yml" || {
+	echo "production Compose must inject the UpGal tool approval secret through Docker secrets" >&2
+	exit 1
+}
 grep -Fq 'UPSTAND_DOCKER_BROKER_MAX_INFLIGHT' "$ROOT_DIR/docker-compose.prod.yml" || {
   echo "production Compose must configure a bounded Docker broker concurrency limit" >&2
   exit 1
