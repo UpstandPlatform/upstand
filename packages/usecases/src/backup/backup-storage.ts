@@ -89,6 +89,8 @@ const SAFE_S3_ADDITIONAL_FLAG_PATTERN =
 
 const S3_CONFIG_FLAG_PATTERN =
   /^--s3-(server-side-encryption|sse-kms-key-id|sse-customer-algorithm|sse-customer-key|sse-customer-key-md5)(?:=(.*))?$/i;
+const S3_ENCRYPTION_FLAG_PATTERN =
+  /^--s3-(server-side-encryption|sse-kms-key-id|sse-customer-(?:algorithm|key|key-md5))(?:=|$)/i;
 
 function toRcloneConfigEnvironment(
   accessKeyId: string,
@@ -120,6 +122,13 @@ function toRcloneConfigEnvironment(
       continue;
     }
     flags.push(flag);
+  }
+
+  // Never silently create plaintext backup objects. Operators may select
+  // SSE-KMS or SSE-C through the reviewed flags, but the safe default for
+  // compatible S3 providers is provider-managed AES-256 encryption.
+  if (!additionalFlags.some((flag) => S3_ENCRYPTION_FLAG_PATTERN.test(flag))) {
+    environment.RCLONE_CONFIG_UPSTAND_SERVER_SIDE_ENCRYPTION = "AES256";
   }
 
   return { flags, environment };

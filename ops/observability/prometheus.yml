@@ -11,3 +11,10 @@ scrape_configs:
     static_configs:
       - targets:
           - schedules:3002
+  - job_name: upstand-server
+    metrics_path: /_internal/metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/upstand_metrics_token
+    static_configs:
+      - targets:
+          - server:3000

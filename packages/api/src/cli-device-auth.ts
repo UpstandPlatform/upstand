@@ -20,7 +20,7 @@ const DEVICE_CODE_BYTES = 32;
 const USER_CODE_BYTES = 5;
 const DEVICE_KEY_PREFIX = "upstand:cli-device";
 
-export type CliDeviceStatus = "pending" | "approved" | "denied";
+export type CliDeviceStatus = "pending" | "claiming" | "approved" | "denied";
 
 export type CliDeviceState = {
   clientId: typeof CLI_DEVICE_CLIENT_ID;
@@ -125,6 +125,18 @@ export class CliDeviceAuthStore {
     preset: ApiKeyPreset;
     accessToken: string;
   }): Promise<boolean> {
+    if (!(await this.claim(input))) return false;
+    const approved = await this.completeApproval(input);
+    if (!approved) await this.releaseClaim(input);
+    return approved;
+  }
+
+  async claim(input: {
+    userCode: string;
+    userId: string;
+    organizationId: string;
+    preset: ApiKeyPreset;
+  }): Promise<boolean> {
     const normalizedUserCode = normalizeUserCode(input.userCode);
     const deviceDigest = await this.store.get(
       userCodeIndexKey(normalizedUserCode),
@@ -145,10 +157,9 @@ export class CliDeviceAuthStore {
       return false;
     }
 
-    const encrypted = encryptSecret(input.accessToken);
-    const approvedState = JSON.stringify({
+    const claimingState = JSON.stringify({
       ...state,
-      status: "approved",
+      status: "claiming",
       userId: input.userId,
       organizationId: input.organizationId,
       preset: input.preset,
@@ -158,16 +169,118 @@ export class CliDeviceAuthStore {
 if not current then return 0 end
 local state = cjson.decode(current)
 if state.status ~= "pending" or state.userCode ~= ARGV[1] then return 0 end
-redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
-redis.call("SET", KEYS[1], ARGV[4], "EX", ARGV[3])
+redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3])
+return 1`,
+      1,
+      key,
+      normalizedUserCode,
+      claimingState,
+      String(CLI_DEVICE_AUTH_TTL_SECONDS),
+    );
+    return Number(result) === 1;
+  }
+
+  async completeApproval(input: {
+    userCode: string;
+    userId: string;
+    organizationId: string;
+    preset: ApiKeyPreset;
+    accessToken: string;
+  }): Promise<boolean> {
+    const normalizedUserCode = normalizeUserCode(input.userCode);
+    const deviceDigest = await this.store.get(
+      userCodeIndexKey(normalizedUserCode),
+    );
+    if (!deviceDigest) return false;
+
+    const key = redisKey(DEVICE_KEY_PREFIX, "request", deviceDigest);
+    const current = await this.store.get(key);
+    if (!current) return false;
+    let state: CliDeviceState;
+    try {
+      state = JSON.parse(current) as CliDeviceState;
+    } catch {
+      return false;
+    }
+    if (
+      state.status !== "claiming" ||
+      state.userCode !== normalizedUserCode ||
+      state.userId !== input.userId ||
+      state.organizationId !== input.organizationId ||
+      state.preset !== input.preset
+    ) {
+      return false;
+    }
+
+    const approvedState = JSON.stringify({
+      ...state,
+      status: "approved",
+    } satisfies CliDeviceState);
+    const result = await this.store.eval(
+      `local current = redis.call("GET", KEYS[1])
+if not current then return 0 end
+local state = cjson.decode(current)
+if state.status ~= "claiming" or state.userCode ~= ARGV[1] or state.userId ~= ARGV[2] then return 0 end
+redis.call("SET", KEYS[2], ARGV[3], "EX", ARGV[4])
+redis.call("SET", KEYS[1], ARGV[5], "EX", ARGV[4])
 return 1`,
       2,
       key,
       redisKey(DEVICE_KEY_PREFIX, "secret", deviceDigest),
       normalizedUserCode,
-      JSON.stringify(encrypted),
+      input.userId,
+      JSON.stringify(encryptSecret(input.accessToken)),
       String(CLI_DEVICE_AUTH_TTL_SECONDS),
       approvedState,
+    );
+    return Number(result) === 1;
+  }
+
+  async releaseClaim(input: {
+    userCode: string;
+    userId: string;
+  }): Promise<boolean> {
+    const normalizedUserCode = normalizeUserCode(input.userCode);
+    const deviceDigest = await this.store.get(
+      userCodeIndexKey(normalizedUserCode),
+    );
+    if (!deviceDigest) return false;
+
+    const key = redisKey(DEVICE_KEY_PREFIX, "request", deviceDigest);
+    const current = await this.store.get(key);
+    if (!current) return false;
+    let state: CliDeviceState;
+    try {
+      state = JSON.parse(current) as CliDeviceState;
+    } catch {
+      return false;
+    }
+    if (
+      state.status !== "claiming" ||
+      state.userCode !== normalizedUserCode ||
+      state.userId !== input.userId
+    ) {
+      return false;
+    }
+    const pendingState: CliDeviceState = {
+      clientId: state.clientId,
+      userCode: state.userCode,
+      status: "pending",
+      createdAt: state.createdAt,
+    };
+    const result = await this.store.eval(
+      `local current = redis.call("GET", KEYS[1])
+if not current then return 0 end
+local state = cjson.decode(current)
+if state.status ~= "claiming" or state.userCode ~= ARGV[1] or state.userId ~= ARGV[2] then return 0 end
+redis.call("SET", KEYS[1], ARGV[3], "EX", ARGV[4])
+return 1`,
+      1,
+      key,
+      normalizedUserCode,
+      input.userId,
+      JSON.stringify(pendingState),
+      String(CLI_DEVICE_AUTH_TTL_SECONDS),
     );
     return Number(result) === 1;
   }
@@ -199,7 +312,9 @@ return 1`,
   async poll(deviceCode: string): Promise<CliDevicePollResult> {
     const state = await this.getByDeviceCode(deviceCode);
     if (!state) return { status: "expired_token" };
-    if (state.status === "pending") return { status: "authorization_pending" };
+    if (state.status === "pending" || state.status === "claiming") {
+      return { status: "authorization_pending" };
+    }
     if (state.status === "denied") return { status: "access_denied" };
     if (!state.organizationId) return { status: "expired_token" };
 

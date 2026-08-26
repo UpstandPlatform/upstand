@@ -67,6 +67,12 @@ jobs:
             # multi-architecture publishing; canary prioritizes fast feedback.
             platforms: linux/amd64
             build_args: ""
+          - name: docker-broker
+            context: apps/docker-broker
+            file: apps/docker-broker/Dockerfile
+            scope: canary-upstand-docker-broker
+            platforms: linux/amd64
+            build_args: ""
     env:
       NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
     permissions:
@@ -75,7 +81,6 @@ jobs:
       actions: write
       id-token: write
       attestations: write
-      artifact-metadata: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

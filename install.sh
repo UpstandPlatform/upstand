@@ -9,6 +9,7 @@ readonly INSTALL_DIR="/etc/upstand"
 readonly ENV_FILE="$INSTALL_DIR/.env"
 readonly SOURCE_DIR="$INSTALL_DIR/source"
 readonly NETWORK_NAME="${DOCKER_NETWORK:-upstand-network}"
+readonly CONTROL_NETWORK_NAME="${UPSTAND_DOCKER_CONTROL_NETWORK:-upstand-docker-control}"
 readonly RECOMMENDED_CPU_CORES=2
 readonly RECOMMENDED_MEMORY_BYTES=$((4 * 1024 * 1024 * 1024))
 readonly RECOMMENDED_DISK_BYTES=$((30 * 1024 * 1024 * 1024))
@@ -38,14 +39,21 @@ and UPSTAND_REGISTRY_PASSWORD. The password is read from the environment only,
 forwarded to the Swarm service specification, and removed from the local Docker
 credential store after deployment.
 
-Production installs also require explicit acknowledgements for the Docker socket
-control-plane boundary and single-replica services:
-UPSTAND_ALLOW_DOCKER_SOCKET=true and UPSTAND_ALLOW_SINGLE_REPLICA=true. Configure
+Production installs use a constrained, mutually authenticated TLS Docker broker
+for the control-plane Docker API and require an explicit acknowledgement for single-replica services:
+UPSTAND_ALLOW_SINGLE_REPLICA=true. Configure
 OTLP_ENDPOINT, or set UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true only when an
 approved external telemetry path is unavailable.
 For a durable HA data plane, provide DATABASE_URL and REDIS_URL (or the
 UPSTAND_DATABASE_URL and UPSTAND_REDIS_URL aliases). The URLs are stored as
 Docker secrets and the bundled PostgreSQL and Redis services are disabled.
+Before installing, also record the recovery plan with
+UPSTAND_DR_OFFSITE_CONFIRMED=true, UPSTAND_DR_KEY_ESCROW_CONFIRMED=true,
+UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true, positive
+UPSTAND_DR_RPO_SECONDS and UPSTAND_DR_RTO_SECONDS, and a non-secret
+UPSTAND_DR_EVIDENCE_REFERENCE. These values are an operator attestation and
+traceability gate. Production acceptance additionally requires the signed
+installation recovery evidence files documented in the production runbook.
 
 Options:
   --interactive         prompt for the Swarm advertise address
@@ -56,8 +64,6 @@ EOF
 }
 
 validate_production_operating_model() {
-  [[ "${UPSTAND_ALLOW_DOCKER_SOCKET:-false}" == true ]] \
-    || fail "production deployment requires explicit acknowledgement of the Docker socket control-plane boundary: set UPSTAND_ALLOW_DOCKER_SOCKET=true after reviewing the production readiness runbook"
   [[ "${UPSTAND_ALLOW_SINGLE_REPLICA:-false}" == true ]] \
     || fail "the bundled PostgreSQL, Redis, and control-plane services are single-replica; set UPSTAND_ALLOW_SINGLE_REPLICA=true only after approving the external HA/PITR plan"
 
@@ -69,6 +75,32 @@ validate_production_operating_model() {
     [[ "$otlp_endpoint" == http://* || "$otlp_endpoint" == https://* ]] \
       || fail "OTLP_ENDPOINT must use HTTP or HTTPS"
   fi
+}
+
+validate_disaster_recovery_plan() {
+  for confirmation in \
+    "${UPSTAND_DR_OFFSITE_CONFIRMED:-false}" \
+    "${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-false}" \
+    "${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-false}"; do
+    [[ "$confirmation" == true ]] \
+      || fail "the production recovery plan must confirm off-site storage, key escrow, and immutable retention"
+  done
+
+  [[ "${UPSTAND_DR_RPO_SECONDS:-}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "UPSTAND_DR_RPO_SECONDS must be a positive integer"
+  [[ "${UPSTAND_DR_RTO_SECONDS:-}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "UPSTAND_DR_RTO_SECONDS must be a positive integer"
+  (( UPSTAND_DR_RPO_SECONDS <= 31 * 24 * 60 * 60 )) \
+    || fail "UPSTAND_DR_RPO_SECONDS must be at most 31 days"
+  (( UPSTAND_DR_RTO_SECONDS <= 31 * 24 * 60 * 60 )) \
+    || fail "UPSTAND_DR_RTO_SECONDS must be at most 31 days"
+
+  [[ -n "${UPSTAND_DR_EVIDENCE_REFERENCE:-}" ]] \
+    || fail "UPSTAND_DR_EVIDENCE_REFERENCE is required"
+  [[ "${UPSTAND_DR_EVIDENCE_REFERENCE}" != *$'\r'* && "${UPSTAND_DR_EVIDENCE_REFERENCE}" != *$'\n'* ]] \
+    || fail "UPSTAND_DR_EVIDENCE_REFERENCE must not contain newlines"
+  [[ "${#UPSTAND_DR_EVIDENCE_REFERENCE}" -le 256 ]] \
+    || fail "UPSTAND_DR_EVIDENCE_REFERENCE must be at most 256 characters"
 }
 
 parse_args() {
@@ -99,25 +131,28 @@ validate_replica_configuration() {
   local external_data="$1"
   local server_replicas="$2"
   local schedules_replicas="$3"
-  local web_replicas="$4"
-  local fumadocs_replicas="$5"
-  local postgres_replicas="$6"
-  local redis_replicas="$7"
+  local deployment_worker_replicas="$4"
+  local web_replicas="$5"
+  local fumadocs_replicas="$6"
+  local postgres_replicas="$7"
+  local redis_replicas="$8"
   local service_name replica_count
 
   for replica_count in \
     "$server_replicas" \
     "$schedules_replicas" \
+    "$deployment_worker_replicas" \
     "$web_replicas" \
     "$fumadocs_replicas" \
     "$postgres_replicas" \
     "$redis_replicas"; do
     [[ "$replica_count" =~ ^[0-9]+$ ]] || fail "service replica counts must be non-negative integers"
   done
-  for service_name in server schedules web fumadocs; do
+  for service_name in server schedules deployment-worker web fumadocs; do
     case "$service_name" in
       server) replica_count="$server_replicas" ;;
       schedules) replica_count="$schedules_replicas" ;;
+      deployment-worker) replica_count="$deployment_worker_replicas" ;;
       web) replica_count="$web_replicas" ;;
       fumadocs) replica_count="$fumadocs_replicas" ;;
     esac
@@ -146,8 +181,20 @@ validate_swarm_network() {
     || fail "existing network '$network_name' must be an encrypted, attachable Swarm overlay network"
 }
 
+validate_control_network() {
+  local network_name="$1"
+  local driver="$2"
+  local scope="$3"
+  local attachable="$4"
+  local internal="$5"
+  local options="$6"
+  validate_swarm_network "$network_name" "$driver" "$scope" "$attachable" "$options"
+  [[ "$internal" == "true" ]] \
+    || fail "Docker control network '$network_name' must be internal to prevent ingress from outside the Swarm overlay"
+}
+
 required_stack_services() {
-  local services=(server schedules web fumadocs)
+  local services=(docker-broker server schedules deployment-worker web fumadocs)
   if [[ "${UPSTAND_BUNDLED_REDIS_REPLICAS:-1}" != 0 ]]; then
     services=(redis "${services[@]}")
   fi
@@ -262,17 +309,22 @@ build_source_images() {
 
   UPSTAND_SERVER_IMAGE="upstand-server:source-${revision}"
   UPSTAND_SCHEDULES_IMAGE="upstand-schedules:source-${revision}"
+  UPSTAND_DEPLOYMENT_WORKER_IMAGE="upstand-deployment-worker:source-${revision}"
   UPSTAND_WEB_IMAGE="upstand-web:source-${revision}"
   UPSTAND_DOCS_IMAGE="upstand-fumadocs:source-${revision}"
   UPSTAND_MONITORING_IMAGE="upstand-monitoring:source-${revision}"
+  UPSTAND_DOCKER_BROKER_IMAGE="upstand-docker-broker:source-${revision}"
 
   docker build --file "$SOURCE_DIR/apps/server/Dockerfile" --tag "$UPSTAND_SERVER_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/schedules/Dockerfile" --tag "$UPSTAND_SCHEDULES_IMAGE" "$SOURCE_DIR"
+  docker build --file "$SOURCE_DIR/apps/schedules/Dockerfile.worker" --tag "$UPSTAND_DEPLOYMENT_WORKER_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/web/Dockerfile" --build-arg "NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL" --tag "$UPSTAND_WEB_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/fumadocs/Dockerfile" --tag "$UPSTAND_DOCS_IMAGE" "$SOURCE_DIR"
   docker build --file "$SOURCE_DIR/apps/monitoring/Dockerfile" \
     --build-arg "GOPROXY=${GOPROXY:-https://proxy.golang.org|direct}" \
     --tag "$UPSTAND_MONITORING_IMAGE" "$SOURCE_DIR/apps/monitoring"
+  docker build --file "$SOURCE_DIR/apps/docker-broker/Dockerfile" \
+    --tag "$UPSTAND_DOCKER_BROKER_IMAGE" "$SOURCE_DIR/apps/docker-broker"
   SOURCE_BUILD=true
 }
 
@@ -308,7 +360,7 @@ load_release_manifest() {
 resolve_stable_image() {
   local component="$1"
   case "$component" in
-    server|schedules|web|fumadocs|monitoring) ;;
+    server|schedules|deployment-worker|web|fumadocs|monitoring|docker-broker) ;;
     *) fail "unsupported published image component '$component'" ;;
   esac
 
@@ -365,6 +417,9 @@ verify_release_artifact_hash() {
     productionEvidenceCollectSha256)
       expected="$(sed -nE 's/^[[:space:]]*"productionEvidenceCollectSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
       ;;
+    verifyInstallationRecoveryEvidenceSha256)
+      expected="$(sed -nE 's/^[[:space:]]*"verifyInstallationRecoveryEvidenceSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+      ;;
     productionAcceptanceClusterSha256)
       expected="$(sed -nE 's/^[[:space:]]*"productionAcceptanceClusterSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
       ;;
@@ -381,24 +436,27 @@ verify_release_artifact_hash() {
 }
 
 release_manifest_has_artifact_hashes() {
-  local compose_hash acceptance_hash evidence_hash cluster_hash
+  local compose_hash acceptance_hash evidence_hash recovery_hash cluster_hash
   compose_hash="$(sed -nE 's/^[[:space:]]*"dockerComposeProdSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
   acceptance_hash="$(sed -nE 's/^[[:space:]]*"productionAcceptanceSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
   evidence_hash="$(sed -nE 's/^[[:space:]]*"productionEvidenceCollectSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
+  recovery_hash="$(sed -nE 's/^[[:space:]]*"verifyInstallationRecoveryEvidenceSha256"[[:space:]]*:[[:space:]]*"([a-f0-9]{64})"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
   cluster_hash="$(sed -nE 's/^[[:space:]]*\"productionAcceptanceClusterSha256\"[[:space:]]*:[[:space:]]*\"([a-f0-9]{64})\"[,]?[[:space:]]*$/\1/p' <<<"$RELEASE_MANIFEST_CONTENT" | sed -n '1p')"
-  [[ "$compose_hash" =~ ^[a-f0-9]{64}$ && "$acceptance_hash" =~ ^[a-f0-9]{64}$ && "$evidence_hash" =~ ^[a-f0-9]{64}$ && "$cluster_hash" =~ ^[a-f0-9]{64}$ ]]
+  [[ "$compose_hash" =~ ^[a-f0-9]{64}$ && "$acceptance_hash" =~ ^[a-f0-9]{64}$ && "$evidence_hash" =~ ^[a-f0-9]{64}$ && "$recovery_hash" =~ ^[a-f0-9]{64}$ && "$cluster_hash" =~ ^[a-f0-9]{64}$ ]]
 }
 
 verify_release_deployment_artifacts() {
   local stack_file="$1"
   local acceptance_file="$2"
   local evidence_file="${3:-}"
-  local cluster_file="${4:-}"
+  local recovery_file="${4:-}"
+  local cluster_file="${5:-}"
 
   if release_manifest_has_artifact_hashes; then
     verify_release_artifact_hash "$stack_file" dockerComposeProdSha256
     verify_release_artifact_hash "$acceptance_file" productionAcceptanceSha256
     verify_release_artifact_hash "$evidence_file" productionEvidenceCollectSha256
+    verify_release_artifact_hash "$recovery_file" verifyInstallationRecoveryEvidenceSha256
     verify_release_artifact_hash "$cluster_file" productionAcceptanceClusterSha256
   else
     fail "release $UPSTAND_VERSION is missing required deployment-artifact hashes"
@@ -439,6 +497,11 @@ ensure_stack_file() {
   chmod 0755 "$INSTALL_DIR/production-evidence-collect.sh"
   curl --fail --show-error --silent --location \
     --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/verify-installation-recovery-evidence.sh" \
+    --output "$INSTALL_DIR/verify-installation-recovery-evidence.sh"
+  chmod 0755 "$INSTALL_DIR/verify-installation-recovery-evidence.sh"
+  curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
     "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/production-acceptance-cluster.sh" \
     --output "$INSTALL_DIR/production-acceptance-cluster.sh"
   chmod 0755 "$INSTALL_DIR/production-acceptance-cluster.sh"
@@ -448,6 +511,7 @@ ensure_stack_file() {
       "$STACK_FILE" \
       "$INSTALL_DIR/production-acceptance.sh" \
       "$INSTALL_DIR/production-evidence-collect.sh" \
+      "$INSTALL_DIR/verify-installation-recovery-evidence.sh" \
       "$INSTALL_DIR/production-acceptance-cluster.sh"
   fi
 }
@@ -516,25 +580,37 @@ ensure_swarm() {
     docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$NETWORK_NAME" >/dev/null
   fi
 
-  local driver scope attachable options
+  local driver scope attachable internal options
   driver="$(docker network inspect --format '{{.Driver}}' "$NETWORK_NAME")"
   scope="$(docker network inspect --format '{{.Scope}}' "$NETWORK_NAME")"
   attachable="$(docker network inspect --format '{{.Attachable}}' "$NETWORK_NAME")"
   options="$(docker network inspect --format '{{json .Options}}' "$NETWORK_NAME")"
   validate_swarm_network "$NETWORK_NAME" "$driver" "$scope" "$attachable" "$options"
+
+  [[ "$CONTROL_NETWORK_NAME" != "$NETWORK_NAME" ]] \
+    || fail "UPSTAND_DOCKER_CONTROL_NETWORK must be distinct from DOCKER_NETWORK"
+  if ! docker network inspect "$CONTROL_NETWORK_NAME" >/dev/null 2>&1; then
+    docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$CONTROL_NETWORK_NAME" >/dev/null
+  fi
+  driver="$(docker network inspect --format '{{.Driver}}' "$CONTROL_NETWORK_NAME")"
+  scope="$(docker network inspect --format '{{.Scope}}' "$CONTROL_NETWORK_NAME")"
+  attachable="$(docker network inspect --format '{{.Attachable}}' "$CONTROL_NETWORK_NAME")"
+  internal="$(docker network inspect --format '{{.Internal}}' "$CONTROL_NETWORK_NAME")"
+  options="$(docker network inspect --format '{{json .Options}}' "$CONTROL_NETWORK_NAME")"
+  validate_control_network "$CONTROL_NETWORK_NAME" "$driver" "$scope" "$attachable" "$internal" "$options"
 }
 
 validate_swarm_network_runtime() {
   local probe_name="upstand-network-probe-${RANDOM}-${RANDOM}"
   local probe_image="${UPSTAND_SERVER_IMAGE:-}"
-  local runtime_gid="${UPSTAND_DOCKER_GID:-0}"
   [[ -n "$probe_image" ]] || fail "cannot validate the encrypted network before resolving the server image"
 
   docker service create \
     --name "$probe_name" \
     --network "$NETWORK_NAME" \
+    --network "$CONTROL_NETWORK_NAME" \
     --cap-drop ALL \
-    --user "10001:${runtime_gid}" \
+    --user "10001:10001" \
     --entrypoint /bin/true \
     --restart-condition none \
     --with-registry-auth \
@@ -561,6 +637,125 @@ validate_swarm_network_runtime() {
   fail "timed out validating encrypted network '$NETWORK_NAME' runtime support"
 }
 
+ensure_docker_broker_mtls() {
+  local secrets_dir="${1:-$INSTALL_DIR/secrets}"
+  local required_file
+  local regenerate=false
+  for required_file in \
+    docker_broker_ca \
+    docker_broker_ca_key \
+    docker_broker_server_cert \
+    docker_broker_server_key \
+    docker_broker_server_client_cert \
+    docker_broker_server_client_key \
+    docker_broker_schedules_client_cert \
+    docker_broker_schedules_client_key \
+    docker_broker_deployment_worker_client_cert \
+    docker_broker_deployment_worker_client_key; do
+    if [[ ! -s "$secrets_dir/$required_file" ]]; then
+      regenerate=true
+      break
+    fi
+  done
+  if [[ "$regenerate" == false ]]; then
+    if ! validate_docker_broker_mtls_files "$secrets_dir"; then
+      regenerate=true
+    fi
+  fi
+  [[ "$regenerate" == true ]] || return 0
+
+  local temporary_dir
+  temporary_dir="$(mktemp -d "$secrets_dir/.docker-broker-mtls.XXXXXX")"
+  local cleanup_status=0
+  (
+    set -euo pipefail
+    umask 077
+    openssl genrsa -out "$temporary_dir/docker_broker_ca_key" 4096 >/dev/null 2>&1
+    openssl req -x509 -new -sha256 \
+      -key "$temporary_dir/docker_broker_ca_key" \
+      -out "$temporary_dir/docker_broker_ca" \
+      -days 3650 \
+      -subj "/CN=Upstand Docker Broker CA" >/dev/null 2>&1
+
+    issue_certificate() {
+      local name="$1"
+      local common_name="$2"
+      local usage="$3"
+      local san="$4"
+      openssl genrsa -out "$temporary_dir/${name}_key" 3072 >/dev/null 2>&1
+      openssl req -new -sha256 \
+        -key "$temporary_dir/${name}_key" \
+        -out "$temporary_dir/${name}.csr" \
+        -subj "/CN=$common_name" >/dev/null 2>&1
+      cat >"$temporary_dir/${name}.ext" <<EOF
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=critical,$usage
+subjectAltName=$san
+EOF
+      openssl x509 -req -sha256 \
+        -in "$temporary_dir/${name}.csr" \
+        -CA "$temporary_dir/docker_broker_ca" \
+        -CAkey "$temporary_dir/docker_broker_ca_key" \
+        -CAcreateserial \
+        -out "$temporary_dir/${name}_cert" \
+        -days 825 \
+        -extfile "$temporary_dir/${name}.ext" >/dev/null 2>&1
+    }
+
+    issue_certificate server upstand-docker-broker serverAuth "DNS:docker-broker,DNS:localhost"
+    issue_certificate server_client upstand-server clientAuth "DNS:upstand-server"
+    issue_certificate schedules_client upstand-schedules clientAuth "DNS:upstand-schedules"
+    issue_certificate deployment_worker_client upstand-deployment-worker clientAuth "DNS:upstand-deployment-worker"
+
+    install -m 0600 "$temporary_dir/docker_broker_ca" "$secrets_dir/docker_broker_ca"
+    install -m 0600 "$temporary_dir/docker_broker_ca_key" "$secrets_dir/docker_broker_ca_key"
+    install -m 0600 "$temporary_dir/server_cert" "$secrets_dir/docker_broker_server_cert"
+    install -m 0600 "$temporary_dir/server_key" "$secrets_dir/docker_broker_server_key"
+    install -m 0600 "$temporary_dir/server_client_cert" "$secrets_dir/docker_broker_server_client_cert"
+    install -m 0600 "$temporary_dir/server_client_key" "$secrets_dir/docker_broker_server_client_key"
+    install -m 0600 "$temporary_dir/schedules_client_cert" "$secrets_dir/docker_broker_schedules_client_cert"
+    install -m 0600 "$temporary_dir/schedules_client_key" "$secrets_dir/docker_broker_schedules_client_key"
+    install -m 0600 "$temporary_dir/deployment_worker_client_cert" "$secrets_dir/docker_broker_deployment_worker_client_cert"
+    install -m 0600 "$temporary_dir/deployment_worker_client_key" "$secrets_dir/docker_broker_deployment_worker_client_key"
+  ) || cleanup_status=$?
+  rm -r -- "$temporary_dir"
+  rm -f -- "$secrets_dir/.docker-broker-mtls.srl" "$secrets_dir/docker_broker_ca.srl"
+  ((cleanup_status == 0)) || fail "could not generate the Docker broker mTLS identity"
+}
+
+validate_docker_broker_mtls_files() {
+  local secrets_dir="$1"
+  local server_cert="$secrets_dir/docker_broker_server_cert"
+  local server_key="$secrets_dir/docker_broker_server_key"
+  local server_client_cert="$secrets_dir/docker_broker_server_client_cert"
+  local server_client_key="$secrets_dir/docker_broker_server_client_key"
+  local schedules_client_cert="$secrets_dir/docker_broker_schedules_client_cert"
+  local schedules_client_key="$secrets_dir/docker_broker_schedules_client_key"
+  local deployment_worker_client_cert="$secrets_dir/docker_broker_deployment_worker_client_cert"
+  local deployment_worker_client_key="$secrets_dir/docker_broker_deployment_worker_client_key"
+  local ca="$secrets_dir/docker_broker_ca"
+
+  openssl x509 -checkend $((30 * 86400)) -noout -in "$ca" >/dev/null 2>&1 \
+    && openssl x509 -checkend $((30 * 86400)) -noout -in "$server_cert" >/dev/null 2>&1 \
+    && openssl x509 -checkend $((30 * 86400)) -noout -in "$server_client_cert" >/dev/null 2>&1 \
+    && openssl x509 -checkend $((30 * 86400)) -noout -in "$schedules_client_cert" >/dev/null 2>&1 \
+    && openssl x509 -checkend $((30 * 86400)) -noout -in "$deployment_worker_client_cert" >/dev/null 2>&1 \
+    && openssl verify -purpose sslserver -CAfile "$ca" "$server_cert" >/dev/null 2>&1 \
+    && openssl verify -purpose sslclient -CAfile "$ca" "$server_client_cert" >/dev/null 2>&1 \
+    && openssl verify -purpose sslclient -CAfile "$ca" "$schedules_client_cert" >/dev/null 2>&1 \
+    && openssl verify -purpose sslclient -CAfile "$ca" "$deployment_worker_client_cert" >/dev/null 2>&1 \
+    && [[ "$(openssl x509 -in "$server_cert" -noout -subject -nameopt RFC2253)" == "subject=CN=upstand-docker-broker" ]] \
+    && [[ "$(openssl x509 -in "$server_client_cert" -noout -subject -nameopt RFC2253)" == "subject=CN=upstand-server" ]] \
+    && [[ "$(openssl x509 -in "$schedules_client_cert" -noout -subject -nameopt RFC2253)" == "subject=CN=upstand-schedules" ]] \
+    && [[ "$(openssl x509 -in "$deployment_worker_client_cert" -noout -subject -nameopt RFC2253)" == "subject=CN=upstand-deployment-worker" ]] \
+    && openssl x509 -in "$server_cert" -noout -ext subjectAltName 2>/dev/null | grep -Fq 'DNS:docker-broker' \
+    && [[ "$(openssl x509 -in "$server_cert" -noout -modulus | openssl dgst -sha256)" == "$(openssl rsa -in "$server_key" -noout -modulus 2>/dev/null | openssl dgst -sha256)" ]] \
+    && [[ "$(openssl x509 -in "$server_client_cert" -noout -modulus | openssl dgst -sha256)" == "$(openssl rsa -in "$server_client_key" -noout -modulus 2>/dev/null | openssl dgst -sha256)" ]] \
+    && [[ "$(openssl x509 -in "$schedules_client_cert" -noout -modulus | openssl dgst -sha256)" == "$(openssl rsa -in "$schedules_client_key" -noout -modulus 2>/dev/null | openssl dgst -sha256)" ]] \
+    && [[ "$(openssl x509 -in "$deployment_worker_client_cert" -noout -modulus | openssl dgst -sha256)" == "$(openssl rsa -in "$deployment_worker_client_key" -noout -modulus 2>/dev/null | openssl dgst -sha256)" ]]
+}
+
 write_environment() {
   install -d -m 0700 "$INSTALL_DIR"
   install -d -m 0700 "$INSTALL_DIR/secrets"
@@ -573,9 +768,11 @@ write_environment() {
   local requested_trusted_proxy_cidrs="${TRUSTED_PROXY_CIDRS:-}"
   local requested_server_image="${UPSTAND_SERVER_IMAGE:-}"
   local requested_schedules_image="${UPSTAND_SCHEDULES_IMAGE:-}"
+  local requested_deployment_worker_image="${UPSTAND_DEPLOYMENT_WORKER_IMAGE:-}"
   local requested_web_image="${UPSTAND_WEB_IMAGE:-}"
   local requested_docs_image="${UPSTAND_DOCS_IMAGE:-}"
   local requested_monitoring_image="${UPSTAND_MONITORING_IMAGE:-}"
+  local requested_docker_broker_image="${UPSTAND_DOCKER_BROKER_IMAGE:-}"
   local requested_auto_update="${UPSTAND_AUTO_UPDATE:-}"
   local requested_allow_unobserved_production="${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-}"
   local requested_audit_log_retention_days="${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-}"
@@ -595,6 +792,15 @@ write_environment() {
   local requested_secret_provider_allowed_hosts="${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}"
   local requested_git_provider_allowed_hosts="${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}"
   local requested_backup_command_timeout_ms="${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-}"
+  local requested_dr_offsite_confirmed="${UPSTAND_DR_OFFSITE_CONFIRMED:-}"
+  local requested_dr_key_escrow_confirmed="${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-}"
+  local requested_dr_immutable_retention_confirmed="${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-}"
+  local requested_dr_rpo_seconds="${UPSTAND_DR_RPO_SECONDS:-}"
+  local requested_dr_rto_seconds="${UPSTAND_DR_RTO_SECONDS:-}"
+  local requested_dr_evidence_reference="${UPSTAND_DR_EVIDENCE_REFERENCE:-}"
+  local requested_upgal_daily_cost_limit_usd="${UPGAL_DAILY_COST_LIMIT_USD:-}"
+  local requested_upgal_max_cost_per_million_tokens_usd="${UPGAL_MAX_COST_PER_MILLION_TOKENS_USD:-}"
+  local requested_upgal_allowed_models="${UPGAL_ALLOWED_MODELS:-}"
   local requested_database_pool_max="${UPSTAND_DATABASE_POOL_MAX:-}"
   local requested_database_pool_idle_timeout_ms="${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-}"
   local requested_database_pool_connection_timeout_ms="${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-}"
@@ -602,6 +808,7 @@ write_environment() {
   local requested_bundled_redis_replicas="${UPSTAND_BUNDLED_REDIS_REPLICAS:-}"
   local requested_server_replicas="${UPSTAND_SERVER_REPLICAS:-}"
   local requested_schedules_replicas="${UPSTAND_SCHEDULES_REPLICAS:-}"
+  local requested_deployment_worker_replicas="${UPSTAND_DEPLOYMENT_WORKER_REPLICAS:-}"
   local requested_web_replicas="${UPSTAND_WEB_REPLICAS:-}"
   local requested_fumadocs_replicas="${UPSTAND_FUMADOCS_REPLICAS:-}"
   local requested_docker_gid="${UPSTAND_DOCKER_GID:-}"
@@ -632,6 +839,16 @@ write_environment() {
   UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS="${requested_secret_provider_allowed_hosts:-${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}}"
   UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS="${requested_git_provider_allowed_hosts:-${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}}"
   UPSTAND_BACKUP_COMMAND_TIMEOUT_MS="${requested_backup_command_timeout_ms:-${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-1800000}}"
+  UPSTAND_DR_OFFSITE_CONFIRMED="${requested_dr_offsite_confirmed:-${UPSTAND_DR_OFFSITE_CONFIRMED:-false}}"
+  UPSTAND_DR_KEY_ESCROW_CONFIRMED="${requested_dr_key_escrow_confirmed:-${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-false}}"
+  UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED="${requested_dr_immutable_retention_confirmed:-${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-false}}"
+  UPSTAND_DR_RPO_SECONDS="${requested_dr_rpo_seconds:-${UPSTAND_DR_RPO_SECONDS:-}}"
+  UPSTAND_DR_RTO_SECONDS="${requested_dr_rto_seconds:-${UPSTAND_DR_RTO_SECONDS:-}}"
+  UPSTAND_DR_EVIDENCE_REFERENCE="${requested_dr_evidence_reference:-${UPSTAND_DR_EVIDENCE_REFERENCE:-}}"
+  UPGAL_DAILY_COST_LIMIT_USD="${requested_upgal_daily_cost_limit_usd:-${UPGAL_DAILY_COST_LIMIT_USD:-100}}"
+  UPGAL_MAX_COST_PER_MILLION_TOKENS_USD="${requested_upgal_max_cost_per_million_tokens_usd:-${UPGAL_MAX_COST_PER_MILLION_TOKENS_USD:-100}}"
+  UPGAL_ALLOWED_MODELS="${requested_upgal_allowed_models:-${UPGAL_ALLOWED_MODELS:-}}"
+  UPSTAND_DR_READINESS_GATE=true
   UPSTAND_DATABASE_POOL_MAX="${requested_database_pool_max:-${UPSTAND_DATABASE_POOL_MAX:-20}}"
   UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS="${requested_database_pool_idle_timeout_ms:-${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-30000}}"
   UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS="${requested_database_pool_connection_timeout_ms:-${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-5000}}"
@@ -647,6 +864,17 @@ write_environment() {
   [[ "$UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS" =~ ^[1-9][0-9]*$ ]] \
     && ((UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS >= 100 && UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS <= 120000)) \
     || fail "UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS must be an integer from 100 to 120000"
+  [[ "$UPGAL_DAILY_COST_LIMIT_USD" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+    && awk "BEGIN { exit !($UPGAL_DAILY_COST_LIMIT_USD > 0 && $UPGAL_DAILY_COST_LIMIT_USD <= 1000000) }" \
+    || fail "UPGAL_DAILY_COST_LIMIT_USD must be a positive number no greater than 1000000"
+  [[ "$UPGAL_MAX_COST_PER_MILLION_TOKENS_USD" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+    && awk "BEGIN { exit !($UPGAL_MAX_COST_PER_MILLION_TOKENS_USD > 0 && $UPGAL_MAX_COST_PER_MILLION_TOKENS_USD <= 1000000) }" \
+    || fail "UPGAL_MAX_COST_PER_MILLION_TOKENS_USD must be a positive number no greater than 1000000"
+  [[ "${UPGAL_ALLOWED_MODELS:-}" != *$'\n'* && "${UPGAL_ALLOWED_MODELS:-}" != *$'\r'* ]] \
+    || fail "UPGAL_ALLOWED_MODELS must be a single comma-separated line"
+  [[ "${#UPGAL_ALLOWED_MODELS}" -le 4096 ]] \
+    || fail "UPGAL_ALLOWED_MODELS must be at most 4096 characters"
+  validate_disaster_recovery_plan
   for configured_value in \
     "$AUTH_COOKIE_DOMAIN" \
     "$UPSTAND_INSTANCE_OWNER_USER_ID" \
@@ -700,6 +928,9 @@ write_environment() {
   [[ -z "${ENCRYPTION_KEY_V1:-}" && -r "$INSTALL_DIR/secrets/ssh_key_encryption_key" ]] && ENCRYPTION_KEY_V1="$(cat "$INSTALL_DIR/secrets/ssh_key_encryption_key")"
   [[ -r "$INSTALL_DIR/secrets/database_url" ]] && DATABASE_URL="$(cat "$INSTALL_DIR/secrets/database_url")"
   [[ -r "$INSTALL_DIR/secrets/redis_url" ]] && REDIS_URL="$(cat "$INSTALL_DIR/secrets/redis_url")"
+  [[ -r "$INSTALL_DIR/secrets/docker_broker_server_token" ]] && DOCKER_BROKER_SERVER_TOKEN="$(cat "$INSTALL_DIR/secrets/docker_broker_server_token")"
+  [[ -r "$INSTALL_DIR/secrets/docker_broker_schedules_token" ]] && DOCKER_BROKER_SCHEDULES_TOKEN="$(cat "$INSTALL_DIR/secrets/docker_broker_schedules_token")"
+  [[ -r "$INSTALL_DIR/secrets/docker_broker_deployment_worker_token" ]] && DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN="$(cat "$INSTALL_DIR/secrets/docker_broker_deployment_worker_token")"
   DATABASE_URL="${requested_database_url:-${DATABASE_URL:-}}"
   REDIS_URL="${requested_redis_url:-${REDIS_URL:-}}"
   if [[ -n "$DATABASE_URL" || -n "$REDIS_URL" ]]; then
@@ -721,6 +952,7 @@ write_environment() {
   fi
   UPSTAND_SERVER_REPLICAS="${requested_server_replicas:-${UPSTAND_SERVER_REPLICAS:-1}}"
   UPSTAND_SCHEDULES_REPLICAS="${requested_schedules_replicas:-${UPSTAND_SCHEDULES_REPLICAS:-1}}"
+  UPSTAND_DEPLOYMENT_WORKER_REPLICAS="${requested_deployment_worker_replicas:-${UPSTAND_DEPLOYMENT_WORKER_REPLICAS:-1}}"
   UPSTAND_WEB_REPLICAS="${requested_web_replicas:-${UPSTAND_WEB_REPLICAS:-1}}"
   UPSTAND_FUMADOCS_REPLICAS="${requested_fumadocs_replicas:-${UPSTAND_FUMADOCS_REPLICAS:-1}}"
   UPSTAND_AUDIT_LOG_RETENTION_DAYS="${requested_audit_log_retention_days:-${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-365}}"
@@ -733,6 +965,7 @@ write_environment() {
     "$external_data" \
     "$UPSTAND_SERVER_REPLICAS" \
     "$UPSTAND_SCHEDULES_REPLICAS" \
+    "$UPSTAND_DEPLOYMENT_WORKER_REPLICAS" \
     "$UPSTAND_WEB_REPLICAS" \
     "$UPSTAND_FUMADOCS_REPLICAS" \
     "$UPSTAND_BUNDLED_POSTGRES_REPLICAS" \
@@ -740,16 +973,26 @@ write_environment() {
   POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -hex 32)}"
   REDIS_PASSWORD="${REDIS_PASSWORD:-$(openssl rand -hex 32)}"
   BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(openssl rand -hex 32)}"
+  DOCKER_BROKER_SERVER_TOKEN="${DOCKER_BROKER_SERVER_TOKEN:-$(openssl rand -hex 32)}"
+  DOCKER_BROKER_SCHEDULES_TOKEN="${DOCKER_BROKER_SCHEDULES_TOKEN:-$(openssl rand -hex 32)}"
+  DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN="${DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN:-$(openssl rand -hex 32)}"
+  METRICS_TOKEN="${METRICS_TOKEN:-$(openssl rand -hex 32)}"
   ENCRYPTION_KEY_V1="${ENCRYPTION_KEY_V1:-${SSH_KEY_ENCRYPTION_KEY_V1:-$(openssl rand -base64 32 | tr -d '\n')}}"
+  ensure_docker_broker_mtls
   printf '%s' "$POSTGRES_PASSWORD" >"$INSTALL_DIR/secrets/postgres_password"
   printf '%s' "$REDIS_PASSWORD" >"$INSTALL_DIR/secrets/redis_password"
   printf '%s' "$BETTER_AUTH_SECRET" >"$INSTALL_DIR/secrets/better_auth_secret"
+  printf '%s' "$DOCKER_BROKER_SERVER_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_server_token"
+  printf '%s' "$DOCKER_BROKER_SCHEDULES_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_schedules_token"
+  printf '%s' "$DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_deployment_worker_token"
+  printf '%s' "$METRICS_TOKEN" >"$INSTALL_DIR/secrets/metrics_token"
   printf '%s' "$ENCRYPTION_KEY_V1" >"$INSTALL_DIR/secrets/encryption_key"
   printf '%s' "$DATABASE_URL" >"$INSTALL_DIR/secrets/database_url"
   printf '%s' "$REDIS_URL" >"$INSTALL_DIR/secrets/redis_url"
   cp -f "$INSTALL_DIR/secrets/encryption_key" "$INSTALL_DIR/secrets/ssh_key_encryption_key" 2>/dev/null || true
   chmod 0600 "$INSTALL_DIR/secrets"/*
   DOCKER_NETWORK="$NETWORK_NAME"
+  DOCKER_CONTROL_NETWORK="$CONTROL_NETWORK_NAME"
 
   BETTER_AUTH_URL="${requested_better_auth_url:-${BETTER_AUTH_URL:-}}"
   CORS_ORIGIN="${requested_cors_origin:-${CORS_ORIGIN:-}}"
@@ -761,9 +1004,11 @@ write_environment() {
   [[ -n "$TRUSTED_PROXY_CIDRS" ]] || fail "could not determine the trusted proxy CIDR for '$NETWORK_NAME'"
   UPSTAND_SERVER_IMAGE="${requested_server_image:-${UPSTAND_SERVER_IMAGE:-}}"
   UPSTAND_SCHEDULES_IMAGE="${requested_schedules_image:-${UPSTAND_SCHEDULES_IMAGE:-}}"
+  UPSTAND_DEPLOYMENT_WORKER_IMAGE="${requested_deployment_worker_image:-${UPSTAND_DEPLOYMENT_WORKER_IMAGE:-}}"
   UPSTAND_WEB_IMAGE="${requested_web_image:-${UPSTAND_WEB_IMAGE:-}}"
   UPSTAND_DOCS_IMAGE="${requested_docs_image:-${UPSTAND_DOCS_IMAGE:-}}"
   UPSTAND_MONITORING_IMAGE="${requested_monitoring_image:-${UPSTAND_MONITORING_IMAGE:-}}"
+  UPSTAND_DOCKER_BROKER_IMAGE="${requested_docker_broker_image:-${UPSTAND_DOCKER_BROKER_IMAGE:-}}"
   UPSTAND_AUTO_UPDATE="${requested_auto_update:-${UPSTAND_AUTO_UPDATE:-false}}"
   OTLP_ENDPOINT="${requested_otlp_endpoint:-${OTLP_ENDPOINT:-}}"
   if [[ -n "$OTLP_ENDPOINT" ]]; then
@@ -827,22 +1072,27 @@ write_environment() {
     # every published image before writing the environment file.
     UPSTAND_SERVER_IMAGE="${UPSTAND_SERVER_IMAGE:-$(resolve_stable_image server)}"
     UPSTAND_SCHEDULES_IMAGE="${UPSTAND_SCHEDULES_IMAGE:-$(resolve_stable_image schedules)}"
+    UPSTAND_DEPLOYMENT_WORKER_IMAGE="${UPSTAND_DEPLOYMENT_WORKER_IMAGE:-$(resolve_stable_image deployment-worker)}"
     UPSTAND_WEB_IMAGE="${UPSTAND_WEB_IMAGE:-$(resolve_stable_image web)}"
     UPSTAND_DOCS_IMAGE="${UPSTAND_DOCS_IMAGE:-$(resolve_stable_image fumadocs)}"
     UPSTAND_MONITORING_IMAGE="${UPSTAND_MONITORING_IMAGE:-$(resolve_stable_image monitoring)}"
+    UPSTAND_DOCKER_BROKER_IMAGE="${UPSTAND_DOCKER_BROKER_IMAGE:-$(resolve_stable_image docker-broker)}"
   fi
   if [[ "${SOURCE_BUILD:-false}" != true ]]; then
     require_digest_image UPSTAND_SERVER_IMAGE
     require_digest_image UPSTAND_SCHEDULES_IMAGE
+    require_digest_image UPSTAND_DEPLOYMENT_WORKER_IMAGE
     require_digest_image UPSTAND_WEB_IMAGE
     require_digest_image UPSTAND_DOCS_IMAGE
     require_digest_image UPSTAND_MONITORING_IMAGE
+    require_digest_image UPSTAND_DOCKER_BROKER_IMAGE
     require_digest_image POSTGRES_IMAGE
     require_digest_image REDIS_IMAGE
   fi
 
   {
     write_env_assignment DOCKER_NETWORK "$DOCKER_NETWORK"
+    write_env_assignment DOCKER_CONTROL_NETWORK "$DOCKER_CONTROL_NETWORK"
     write_env_assignment BETTER_AUTH_URL "$BETTER_AUTH_URL"
     write_env_assignment CORS_ORIGIN "$CORS_ORIGIN"
     write_env_assignment AUTH_COOKIE_DOMAIN "$AUTH_COOKIE_DOMAIN"
@@ -858,9 +1108,11 @@ write_environment() {
     write_env_assignment UPSTAND_DOCS_HOST "$UPSTAND_DOCS_HOST"
     write_env_assignment UPSTAND_SERVER_IMAGE "$UPSTAND_SERVER_IMAGE"
     write_env_assignment UPSTAND_SCHEDULES_IMAGE "$UPSTAND_SCHEDULES_IMAGE"
+    write_env_assignment UPSTAND_DEPLOYMENT_WORKER_IMAGE "$UPSTAND_DEPLOYMENT_WORKER_IMAGE"
     write_env_assignment UPSTAND_WEB_IMAGE "$UPSTAND_WEB_IMAGE"
     write_env_assignment UPSTAND_DOCS_IMAGE "$UPSTAND_DOCS_IMAGE"
     write_env_assignment UPSTAND_MONITORING_IMAGE "$UPSTAND_MONITORING_IMAGE"
+    write_env_assignment UPSTAND_DOCKER_BROKER_IMAGE "$UPSTAND_DOCKER_BROKER_IMAGE"
     write_env_assignment UPSTAND_AUTO_UPDATE "$UPSTAND_AUTO_UPDATE"
     write_env_assignment UPSTAND_ALLOW_INSECURE_BOOTSTRAP "$UPSTAND_ALLOW_INSECURE_BOOTSTRAP"
     write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION"
@@ -868,6 +1120,16 @@ write_environment() {
     write_env_assignment UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS "$UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS"
     write_env_assignment UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS "$UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS"
     write_env_assignment UPSTAND_BACKUP_COMMAND_TIMEOUT_MS "$UPSTAND_BACKUP_COMMAND_TIMEOUT_MS"
+    write_env_assignment UPSTAND_DR_READINESS_GATE "$UPSTAND_DR_READINESS_GATE"
+    write_env_assignment UPSTAND_DR_OFFSITE_CONFIRMED "$UPSTAND_DR_OFFSITE_CONFIRMED"
+    write_env_assignment UPSTAND_DR_KEY_ESCROW_CONFIRMED "$UPSTAND_DR_KEY_ESCROW_CONFIRMED"
+    write_env_assignment UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED "$UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED"
+    write_env_assignment UPSTAND_DR_RPO_SECONDS "$UPSTAND_DR_RPO_SECONDS"
+    write_env_assignment UPSTAND_DR_RTO_SECONDS "$UPSTAND_DR_RTO_SECONDS"
+    write_env_assignment UPSTAND_DR_EVIDENCE_REFERENCE "$UPSTAND_DR_EVIDENCE_REFERENCE"
+    write_env_assignment UPGAL_DAILY_COST_LIMIT_USD "$UPGAL_DAILY_COST_LIMIT_USD"
+    write_env_assignment UPGAL_MAX_COST_PER_MILLION_TOKENS_USD "$UPGAL_MAX_COST_PER_MILLION_TOKENS_USD"
+    write_env_assignment UPGAL_ALLOWED_MODELS "$UPGAL_ALLOWED_MODELS"
     write_env_assignment OTLP_ENDPOINT "$OTLP_ENDPOINT"
     write_env_assignment UPSTAND_MIGRATION_ID "$UPSTAND_MIGRATION_ID"
     write_env_assignment UPSTAND_BUNDLED_POSTGRES_REPLICAS "$UPSTAND_BUNDLED_POSTGRES_REPLICAS"
@@ -877,6 +1139,7 @@ write_environment() {
     write_env_assignment UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS "$UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS"
     write_env_assignment UPSTAND_SERVER_REPLICAS "$UPSTAND_SERVER_REPLICAS"
     write_env_assignment UPSTAND_SCHEDULES_REPLICAS "$UPSTAND_SCHEDULES_REPLICAS"
+    write_env_assignment UPSTAND_DEPLOYMENT_WORKER_REPLICAS "$UPSTAND_DEPLOYMENT_WORKER_REPLICAS"
     write_env_assignment UPSTAND_WEB_REPLICAS "$UPSTAND_WEB_REPLICAS"
     write_env_assignment UPSTAND_FUMADOCS_REPLICAS "$UPSTAND_FUMADOCS_REPLICAS"
     write_env_assignment UPSTAND_AUDIT_LOG_RETENTION_DAYS "$UPSTAND_AUDIT_LOG_RETENTION_DAYS"

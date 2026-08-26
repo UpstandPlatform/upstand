@@ -11,12 +11,95 @@ grep -Fq 'UPSTAND_DOCS_IMAGE="upstand-fumadocs:source-${revision}"' "$ROOT_DIR/i
   echo "source-build installer must assign a Fumadocs image" >&2
   exit 1
 }
+grep -Fq 'UPSTAND_DEPLOYMENT_WORKER_IMAGE="upstand-deployment-worker:source-${revision}"' "$ROOT_DIR/install.sh" || {
+  echo "source-build installer must assign a distinct deployment-worker image" >&2
+  exit 1
+}
+grep -Fq 'apps/schedules/Dockerfile.worker' "$ROOT_DIR/install.sh" || {
+  echo "source-build installer must build the deployment-worker image from its worker Dockerfile" >&2
+  exit 1
+}
 grep -Fq 'apps/fumadocs/Dockerfile' "$ROOT_DIR/install.sh" || {
   echo "source-build installer must build the Fumadocs image" >&2
   exit 1
 }
+grep -Fq 'apps/docker-broker/Dockerfile' "$ROOT_DIR/install.sh" || {
+  echo "source-build installer must build the Docker broker image" >&2
+  exit 1
+}
+grep -Fq 'ClientAuth: tls.RequireAndVerifyClientCert' "$ROOT_DIR/apps/docker-broker/main.go" || {
+  echo "Docker broker must require verified client certificates during the TLS handshake" >&2
+  exit 1
+}
+grep -Fq 'docker_broker_server_token' "$ROOT_DIR/install.sh" || {
+	echo "installer must provision the server-specific Docker broker authentication secret" >&2
+	exit 1
+}
+grep -Fq 'docker_broker_schedules_token' "$ROOT_DIR/install.sh" || {
+	echo "installer must provision the schedules-specific Docker broker authentication secret" >&2
+	exit 1
+}
+grep -Fq 'docker_broker_deployment_worker_token' "$ROOT_DIR/install.sh" || {
+	echo "installer must provision the deployment-worker-specific Docker broker authentication secret" >&2
+	exit 1
+}
+grep -Fq 'UPSTAND_DOCKER_BROKER_MAX_INFLIGHT' "$ROOT_DIR/docker-compose.prod.yml" || {
+  echo "production Compose must configure a bounded Docker broker concurrency limit" >&2
+  exit 1
+}
+grep -Fq 'ensure_docker_broker_mtls' "$ROOT_DIR/install.sh" || {
+  echo "installer must generate and persist the Docker broker mTLS identity" >&2
+  exit 1
+}
+for required_text in \
+  'validate_docker_broker_mtls_files' \
+  'openssl verify -purpose sslserver' \
+  'openssl verify -purpose sslclient' \
+  "CN=upstand-server" \
+  "CN=upstand-schedules" \
+  "CN=upstand-deployment-worker"; do
+  grep -Fq "$required_text" "$ROOT_DIR/install.sh" || {
+    echo "installer must validate the Docker broker mTLS identity before reuse: $required_text" >&2
+    exit 1
+  }
+done
+for required_text in \
+  'UPSTAND_DOCKER_BROKER_TLS_REQUIRED: "true"' \
+  'UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/docker_broker_ca' \
+  'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_server_client_cert' \
+  'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_schedules_client_cert' \
+  'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_deployment_worker_client_cert'; do
+  grep -Fq "$required_text" "$ROOT_DIR/docker-compose.prod.yml" || {
+    echo "production Compose is missing Docker broker mTLS configuration: $required_text" >&2
+    exit 1
+  }
+done
+grep -Fq 'metrics_token' "$ROOT_DIR/install.sh" || {
+  echo "installer must provision the protected API metrics token secret" >&2
+  exit 1
+}
 grep -Fq 'write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION' "$ROOT_DIR/install.sh" || {
   echo "installer must persist the explicit unobserved-production acknowledgement" >&2
+  exit 1
+}
+grep -Fq 'validate_disaster_recovery_plan' "$ROOT_DIR/install.sh" || {
+  echo "installer must enforce an explicit disaster-recovery readiness attestation" >&2
+  exit 1
+}
+grep -Fq 'verify-installation-recovery-evidence.sh' "$ROOT_DIR/install.sh" || {
+  echo "installer must install and verify the installation recovery evidence verifier" >&2
+  exit 1
+}
+grep -Fq 'write_env_assignment UPGAL_DAILY_COST_LIMIT_USD' "$ROOT_DIR/install.sh" || {
+  echo "installer must persist the UpGal daily cost limit" >&2
+  exit 1
+}
+grep -Fq 'write_env_assignment UPGAL_MAX_COST_PER_MILLION_TOKENS_USD' "$ROOT_DIR/install.sh" || {
+  echo "installer must persist the UpGal conservative cost rate" >&2
+  exit 1
+}
+grep -Fq 'write_env_assignment UPGAL_ALLOWED_MODELS' "$ROOT_DIR/install.sh" || {
+  echo "installer must persist the UpGal model allowlist" >&2
   exit 1
 }
 grep -Fq 'verify_release_deployment_artifacts \' "$ROOT_DIR/install.sh" || {
@@ -39,6 +122,10 @@ grep -Fq 'verify_release_artifact_hash "$evidence_file" productionEvidenceCollec
   echo "installer must verify the production evidence collector against the release manifest" >&2
   exit 1
 }
+grep -Fq 'verify_release_artifact_hash "$recovery_file" verifyInstallationRecoveryEvidenceSha256' "$ROOT_DIR/install.sh" || {
+  echo "installer must verify the installation recovery evidence verifier against the release manifest" >&2
+  exit 1
+}
 grep -Fq 'production-acceptance-cluster.sh' "$ROOT_DIR/install.sh" || {
   echo "installer must download the cluster acceptance aggregator" >&2
   exit 1
@@ -49,6 +136,10 @@ grep -Fq 'verify_release_artifact_hash "$cluster_file" productionAcceptanceClust
 }
 grep -Fq '"$INSTALL_DIR/production-evidence-collect.sh"' "$ROOT_DIR/install.sh" || {
   echo "installer must pass the production evidence collector to release verification" >&2
+  exit 1
+}
+grep -Fq '"$INSTALL_DIR/verify-installation-recovery-evidence.sh"' "$ROOT_DIR/install.sh" || {
+  echo "installer must pass the installation recovery evidence verifier to release verification" >&2
   exit 1
 }
 grep -Fq '"$INSTALL_DIR/production-acceptance-cluster.sh"' "$ROOT_DIR/install.sh" || {
@@ -65,7 +156,7 @@ grep -Fq 'verify_release_deployment_artifacts' "$ROOT_DIR/install.sh" || {
 }
 
 unlimited_restart_policies="$(grep -c '^        max_attempts: 0$' "$ROOT_DIR/docker-compose.prod.yml")"
-[[ "$unlimited_restart_policies" == 6 ]] || {
+[[ "$unlimited_restart_policies" == 8 ]] || {
   echo "all long-running control-plane services must use unlimited Swarm restart attempts" >&2
   exit 1
 }
@@ -114,6 +205,13 @@ expect_network_rejection() {
   fi
 }
 
+expect_control_network_rejection() {
+  if ( validate_control_network "$@" ); then
+    echo "expected Docker control network configuration to be rejected: $*" >&2
+    exit 1
+  fi
+}
+
 assert_services() {
   local expected actual
   expected="$1"
@@ -125,13 +223,37 @@ assert_services() {
   }
 }
 
-run_replica_validation false 1 1 1 1 1 1
-run_replica_validation true 2 1 2 1 0 0
-expect_replica_rejection false 1 1 1 1 1 2
-expect_replica_rejection false 0 1 1 1 1 1
-expect_replica_rejection true 2 1 2 1 1 0
+run_replica_validation false 1 1 1 1 1 1 1
+run_replica_validation true 2 1 2 2 1 0 0
+expect_replica_rejection false 1 1 1 1 1 1 2
+expect_replica_rejection false 0 1 1 1 1 1 1
+expect_replica_rejection true 2 1 2 2 1 1 0
+
+(
+  UPSTAND_DR_OFFSITE_CONFIRMED=true
+  UPSTAND_DR_KEY_ESCROW_CONFIRMED=true
+  UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true
+  UPSTAND_DR_RPO_SECONDS=3600
+  UPSTAND_DR_RTO_SECONDS=7200
+  UPSTAND_DR_EVIDENCE_REFERENCE=change-1234
+  validate_disaster_recovery_plan
+)
+if (
+  UPSTAND_DR_OFFSITE_CONFIRMED=true
+  UPSTAND_DR_KEY_ESCROW_CONFIRMED=true
+  UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=false
+  UPSTAND_DR_RPO_SECONDS=3600
+  UPSTAND_DR_RTO_SECONDS=7200
+  UPSTAND_DR_EVIDENCE_REFERENCE=change-1234
+  validate_disaster_recovery_plan
+); then
+  echo "installer unexpectedly accepted an unconfirmed immutable-retention plan" >&2
+  exit 1
+fi
 
 validate_swarm_network upstand-network overlay swarm true '{"encrypted":""}'
+validate_control_network upstand-docker-control overlay swarm true true '{"encrypted":""}'
+expect_control_network_rejection upstand-docker-control overlay swarm true false '{"encrypted":""}'
 expect_network_rejection upstand-network overlay swarm true '{"com.docker.network.driver.overlay.vxlanid_list":"4097"}'
 expect_network_rejection upstand-network overlay swarm true '{"encrypted":false}'
 expect_network_rejection upstand-network overlay swarm true '{"encrypted":"false"}'
@@ -140,7 +262,7 @@ valid_digest="$(printf 'a%.0s' {1..64})"
 (
   docker() {
     if [[ "$1 $2" == "service create" ]]; then
-      [[ "$*" == *"--network upstand-network"* && "$*" == *"--cap-drop ALL"* && "$*" == *"--user 10001:123"* ]] || {
+      [[ "$*" == *"--network upstand-network"* && "$*" == *"--network upstand-docker-control"* && "$*" == *"--cap-drop ALL"* && "$*" == *"--user 10001:10001"* ]] || {
         echo "network runtime probe omitted required hardening" >&2
         return 1
       }
@@ -171,18 +293,20 @@ resolve_stable_image_output="$(
       echo "unexpected release manifest lookup: $*" >&2
       return 1
     }
-    printf '{\n  "schemaVersion": 1,\n  "version": "v1.2.3",\n  "images": [\n    {\n      "name": "server",\n      "image": "ghcr.io/upstandplatform/upstand-server:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "schedules",\n      "image": "ghcr.io/upstandplatform/upstand-schedules:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "web",\n      "image": "ghcr.io/upstandplatform/upstand-web:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "fumadocs",\n      "image": "ghcr.io/upstandplatform/upstand-fumadocs:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "monitoring",\n      "image": "ghcr.io/upstandplatform/upstand-monitoring:v1.2.3",\n      "digest": "sha256:%s"\n    }\n  ]\n}\n' "$valid_digest" "$valid_digest" "$valid_digest" "$valid_digest" "$valid_digest"
+    printf '{\n  "schemaVersion": 1,\n  "version": "v1.2.3",\n  "images": [\n    {\n      "name": "server",\n      "image": "ghcr.io/upstandplatform/upstand-server:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "schedules",\n      "image": "ghcr.io/upstandplatform/upstand-schedules:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "deployment-worker",\n      "image": "ghcr.io/upstandplatform/upstand-deployment-worker:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "web",\n      "image": "ghcr.io/upstandplatform/upstand-web:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "fumadocs",\n      "image": "ghcr.io/upstandplatform/upstand-fumadocs:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "monitoring",\n      "image": "ghcr.io/upstandplatform/upstand-monitoring:v1.2.3",\n      "digest": "sha256:%s"\n    },\n    {\n      "name": "docker-broker",\n      "image": "ghcr.io/upstandplatform/upstand-docker-broker:v1.2.3",\n      "digest": "sha256:%s"\n    }\n  ]\n}\n' "$valid_digest" "$valid_digest" "$valid_digest" "$valid_digest" "$valid_digest" "$valid_digest" "$valid_digest"
   }
   resolve_stable_image server
-  for component in schedules web fumadocs monitoring; do
+  for component in schedules deployment-worker web fumadocs monitoring docker-broker; do
     printf '\n%s' "$(resolve_stable_image "$component")"
   done
 )"
 expected_stable_images="ghcr.io/upstandplatform/upstand-server:v1.2.3@sha256:${valid_digest}
 ghcr.io/upstandplatform/upstand-schedules:v1.2.3@sha256:${valid_digest}
+ghcr.io/upstandplatform/upstand-deployment-worker:v1.2.3@sha256:${valid_digest}
 ghcr.io/upstandplatform/upstand-web:v1.2.3@sha256:${valid_digest}
 ghcr.io/upstandplatform/upstand-fumadocs:v1.2.3@sha256:${valid_digest}
-ghcr.io/upstandplatform/upstand-monitoring:v1.2.3@sha256:${valid_digest}"
+ghcr.io/upstandplatform/upstand-monitoring:v1.2.3@sha256:${valid_digest}
+ghcr.io/upstandplatform/upstand-docker-broker:v1.2.3@sha256:${valid_digest}"
 [[ "$resolve_stable_image_output" == "$expected_stable_images" ]] || {
   echo "stable image lookup did not use the immutable release manifest" >&2
   exit 1
@@ -231,9 +355,11 @@ eval "$serialized_assignment"
   trap 'rm -f "$artifact_file"' EXIT
   printf 'acceptance-artifact' > "$artifact_file"
   artifact_hash="$(sha256sum "$artifact_file" | awk '{print $1}')"
-  RELEASE_MANIFEST_CONTENT="$(printf '{\n  "artifacts": {\n    "dockerComposeProdSha256": "%s",\n    "productionAcceptanceSha256": "%s",\n    "productionEvidenceCollectSha256": "%s",\n    "productionAcceptanceClusterSha256": "%s"\n  }\n}\n' "$artifact_hash" "$artifact_hash" "$artifact_hash" "$artifact_hash")"
+  RELEASE_MANIFEST_CONTENT="$(printf '{\n  "artifacts": {\n    "dockerComposeProdSha256": "%s",\n    "productionAcceptanceSha256": "%s",\n    "productionEvidenceCollectSha256": "%s",\n    "verifyInstallationRecoveryEvidenceSha256": "%s",\n    "productionAcceptanceClusterSha256": "%s"\n  }\n}\n' "$artifact_hash" "$artifact_hash" "$artifact_hash" "$artifact_hash" "$artifact_hash")"
   verify_release_artifact_hash "$artifact_file" dockerComposeProdSha256
   verify_release_artifact_hash "$artifact_file" productionAcceptanceSha256
+  RELEASE_MANIFEST_CONTENT="$(printf '{\n  "verifyInstallationRecoveryEvidenceSha256": "%s"\n}\n' "$artifact_hash")"
+  verify_release_artifact_hash "$artifact_file" verifyInstallationRecoveryEvidenceSha256
   RELEASE_MANIFEST_CONTENT="$(printf '{\n  "productionAcceptanceClusterSha256": "%s"\n}\n' "$artifact_hash")"
   verify_release_artifact_hash "$artifact_file" productionAcceptanceClusterSha256
 )
@@ -252,7 +378,7 @@ if (
   exit 1
 fi
 artifact_hash="$(printf 'a%.0s' {1..64})"
-RELEASE_MANIFEST_CONTENT="$(printf '{\n  "artifacts": {\n    "dockerComposeProdSha256": "%s",\n    "productionAcceptanceSha256": "%s",\n    "productionEvidenceCollectSha256": "%s",\n    "productionAcceptanceClusterSha256": "%s"\n  }\n}\n' "$artifact_hash" "$artifact_hash" "$artifact_hash" "$artifact_hash")"
+RELEASE_MANIFEST_CONTENT="$(printf '{\n  "artifacts": {\n    "dockerComposeProdSha256": "%s",\n    "productionAcceptanceSha256": "%s",\n    "productionEvidenceCollectSha256": "%s",\n    "verifyInstallationRecoveryEvidenceSha256": "%s",\n    "productionAcceptanceClusterSha256": "%s"\n  }\n}\n' "$artifact_hash" "$artifact_hash" "$artifact_hash" "$artifact_hash" "$artifact_hash")"
 release_manifest_has_artifact_hashes || {
   echo "release manifest with artifact hashes was not recognized" >&2
   exit 1
@@ -272,11 +398,11 @@ fi
 UPSTAND_BUNDLED_POSTGRES_REPLICAS=1
 UPSTAND_BUNDLED_REDIS_REPLICAS=1
 mapfile -t bundled_services < <(required_stack_services)
-assert_services $'postgres\nredis\nserver\nschedules\nweb\nfumadocs' "${bundled_services[@]}"
+assert_services $'postgres\nredis\ndocker-broker\nserver\nschedules\ndeployment-worker\nweb\nfumadocs' "${bundled_services[@]}"
 
 UPSTAND_BUNDLED_POSTGRES_REPLICAS=0
 UPSTAND_BUNDLED_REDIS_REPLICAS=0
 mapfile -t external_services < <(required_stack_services)
-assert_services $'server\nschedules\nweb\nfumadocs' "${external_services[@]}"
+assert_services $'docker-broker\nserver\nschedules\ndeployment-worker\nweb\nfumadocs' "${external_services[@]}"
 
 echo "installer-contract: passed"

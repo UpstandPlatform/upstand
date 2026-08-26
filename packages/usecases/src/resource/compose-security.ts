@@ -18,6 +18,21 @@ function isHostNamespace(value: unknown): boolean {
   return ["host", "container:host"].includes(String(value ?? ""));
 }
 
+function isInterpolated(value: string): boolean {
+  // Compose expands environment variables before asking Docker to create
+  // mounts and networks. An apparently harmless named source such as
+  // `${HOST_PATH}` can therefore become `/` or another host path at runtime.
+  return value.includes("$");
+}
+
+function isHostPath(value: string): boolean {
+  return (
+    HOST_PATH_PATTERN.test(value) ||
+    value.toLowerCase().includes("docker.sock") ||
+    isInterpolated(value)
+  );
+}
+
 /**
  * Reject Compose features that can escape the workload's isolation boundary.
  * This applies to raw Compose resources as well as user-created templates.
@@ -32,7 +47,81 @@ export function validateComposeSecurity(rawCompose: string): void {
     );
   }
 
-  if (!isUnknownRecord(parsed) || !isUnknownRecord(parsed.services)) return;
+  if (!isUnknownRecord(parsed)) return;
+
+  if (isUnknownRecord(parsed.volumes)) {
+    for (const [volumeName, rawDefinition] of Object.entries(parsed.volumes)) {
+      if (isInterpolated(volumeName)) {
+        throw new Error(
+          `Compose volume '${volumeName}' uses environment interpolation, which is not allowed`,
+        );
+      }
+      if (!isUnknownRecord(rawDefinition)) continue;
+      if (
+        isUnknownRecord(rawDefinition.driver_opts) &&
+        Object.keys(rawDefinition.driver_opts).length > 0
+      ) {
+        throw new Error(
+          `Compose volume '${volumeName}' configures host-backed driver options, which is not allowed`,
+        );
+      }
+      if (
+        typeof rawDefinition.driver === "string" &&
+        rawDefinition.driver.trim() !== "" &&
+        rawDefinition.driver.trim().toLowerCase() !== "local"
+      ) {
+        throw new Error(
+          `Compose volume '${volumeName}' uses an unsupported volume driver`,
+        );
+      }
+      if (
+        typeof rawDefinition.name === "string" &&
+        isHostPath(rawDefinition.name)
+      ) {
+        throw new Error(
+          `Compose volume '${volumeName}' resolves to an unsafe Docker volume name`,
+        );
+      }
+    }
+  }
+
+  if (isUnknownRecord(parsed.networks)) {
+    for (const [networkName, rawDefinition] of Object.entries(
+      parsed.networks,
+    )) {
+      if (!isUnknownRecord(rawDefinition)) continue;
+      if (
+        isUnknownRecord(rawDefinition.driver_opts) &&
+        Object.keys(rawDefinition.driver_opts).length > 0
+      ) {
+        throw new Error(
+          `Compose network '${networkName}' configures host-backed driver options, which is not allowed`,
+        );
+      }
+      if (
+        typeof rawDefinition.driver === "string" &&
+        rawDefinition.driver.trim() !== "" &&
+        !["bridge", "overlay"].includes(
+          rawDefinition.driver.trim().toLowerCase(),
+        )
+      ) {
+        throw new Error(
+          `Compose network '${networkName}' uses an unsupported network driver`,
+        );
+      }
+      if (
+        typeof rawDefinition.name === "string" &&
+        (isInterpolated(rawDefinition.name) ||
+          ["host", "none"].includes(rawDefinition.name.trim().toLowerCase()))
+      ) {
+        throw new Error(
+          `Compose network '${networkName}' resolves to an unsafe Docker network name`,
+        );
+      }
+    }
+  }
+
+  if (!isUnknownRecord(parsed.services)) return;
 
   for (const [serviceName, rawService] of Object.entries(parsed.services)) {
     if (!isUnknownRecord(rawService)) continue;
@@ -87,10 +176,14 @@ export function validateComposeSecurity(rawCompose: string): void {
       for (const volume of service.volumes) {
         const source = volumeSource(volume);
         if (
-          source &&
-          (HOST_PATH_PATTERN.test(source) ||
-            source.toLowerCase().includes("docker.sock"))
+          isUnknownRecord(volume) &&
+          String(volume.type ?? "").toLowerCase() === "bind"
         ) {
+          throw new Error(
+            `Compose service '${serviceName}' contains a host bind or Docker socket mount`,
+          );
+        }
+        if (source && isHostPath(source)) {
           throw new Error(
             `Compose service '${serviceName}' contains a host bind or Docker socket mount`,
           );

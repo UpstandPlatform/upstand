@@ -94,6 +94,30 @@ describe("operational status rehearsal", () => {
     ]);
   });
 
+  test("requires restore verification when the recovery gate is enabled", () => {
+    const snapshot = healthySnapshot();
+    const status = snapshot.schedulesStatus.body as Record<string, unknown>;
+    status.backup = {
+      lastSucceededAt: "2026-08-02T07:00:00.000Z",
+      lastFailedAt: null,
+      lastSucceededRestoreTestedAt: "2026-08-02T06:00:00.000Z",
+    };
+
+    const result = evaluateOperationalStatus(
+      snapshot,
+      parseOperationalThresholds({
+        OPERATIONAL_STATUS_REQUIRE_BACKUP_SUCCESS: "true",
+        OPERATIONAL_STATUS_REQUIRE_BACKUP_RESTORE_VERIFICATION: "true",
+      }),
+      Date.parse("2026-08-02T08:00:00.000Z"),
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      "the most recent successful backup has no subsequent restore verification",
+    ]);
+  });
+
   test("fetches the private readiness and status endpoints", async () => {
     const server = Bun.serve({
       port: 0,

@@ -18,11 +18,86 @@ export function registerPersistence(services: ServiceCollection) {
   );
   services.addSingleton(
     dependencies.CaddyServiceToken,
-    () => new dependencies.CaddyService(),
+    () =>
+      new dependencies.CaddyService(
+        undefined,
+        undefined,
+        dependencies.createDockerCaddyBrokerClient(),
+      ),
   );
   services.addSingleton(
     dependencies.DockerServiceToken,
     () => new dependencies.DockerService(),
+  );
+  services.addSingleton(dependencies.DockerDeploymentToken, (c) =>
+    dependencies.createDockerDeploymentPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerResourceControlPortToken, (c) =>
+    dependencies.createDockerResourceControlPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerResourceReadPortToken, (c) =>
+    dependencies.createDockerResourceReadPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerPreviewCleanupPortToken, (c) =>
+    dependencies.createDockerPreviewCleanupPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerContainerControlPortToken, (c) =>
+    dependencies.createDockerContainerControlPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerDatabaseDeploymentPortToken, (c) =>
+    dependencies.createDockerDatabaseDeploymentPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerCommandPortToken, (c) =>
+    dependencies.createDockerCommandPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerServerStatsPortToken, (c) =>
+    dependencies.createDockerServerStatsPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerSelfUpdatePortToken, (c) =>
+    dependencies.createDockerSelfUpdatePort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerWebServerMaintenancePortToken, (c) =>
+    dependencies.createDockerWebServerMaintenancePort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerSwarmManagementPortToken, (c) =>
+    dependencies.createDockerSwarmManagementPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerHostMaintenancePortToken, (c) =>
+    dependencies.createDockerHostMaintenancePort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerWorkloadMigrationPortToken, (c) =>
+    dependencies.createDockerWorkloadMigrationPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
+  );
+  services.addSingleton(dependencies.DockerAutoscalingPortToken, (c) =>
+    dependencies.createDockerAutoscalingPort(
+      c.resolve(dependencies.DockerServiceToken),
+    ),
   );
   services.addSingleton(
     dependencies.DockerInventoryReaderToken,

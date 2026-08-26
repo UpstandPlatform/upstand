@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   analyze:
-    name: Analyze TypeScript
+    name: Analyze TypeScript and Go
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -29,9 +29,9 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3
         with:
-          languages: javascript-typescript
+          languages: javascript-typescript, go
           build-mode: none
       - name: Analyze
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3
         with:
-          category: /language:javascript-typescript
+          category: /language:all

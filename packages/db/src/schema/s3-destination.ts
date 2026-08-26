@@ -1,5 +1,12 @@
 import { relations } from "drizzle-orm";
-import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  foreignKey,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+} from "drizzle-orm/pg-core";
 import { organization } from "./auth";
 import { certificate } from "./certificate";
 
@@ -29,6 +36,15 @@ export const s3Destination = pgTable(
   },
   (table) => [
     index("s3_destination_organization_idx").on(table.organizationId),
+    unique("s3_destination_organization_id_unique").on(
+      table.organizationId,
+      table.id,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.certificateId],
+      foreignColumns: [certificate.organizationId, certificate.id],
+      name: "s3_destination_organization_certificate_fk",
+    }),
   ],
 );
 

@@ -4,6 +4,8 @@ set -euo pipefail
 mode="${ACCEPTANCE_FIXTURE_MODE:-valid}"
 digest="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 server_image="ghcr.io/upstandplatform/upstand-server:v1.2.3@sha256:${digest}"
+schedules_image="ghcr.io/upstandplatform/upstand-schedules:v1.2.3@sha256:${digest}"
+deployment_worker_image="ghcr.io/upstandplatform/upstand-deployment-worker:v1.2.3@sha256:${digest}"
 migration_image="$server_image"
 postgres_image="postgres:18-alpine@sha256:${digest}"
 redis_image="redis:8.8-alpine@sha256:${digest}"
@@ -30,6 +32,7 @@ if [[ "${1:-}" == "network" && "${2:-}" == "inspect" ]]; then
         *Driver*) printf 'overlay\n' ;;
         *Scope*) printf 'swarm\n' ;;
         *Attachable*) printf 'true\n' ;;
+        *Internal*) [[ "${5:-}" == upstand-docker-control ]] && printf 'true\n' || printf 'false\n' ;;
         *Id*) printf 'network-id\n' ;;
         *Options*)
           [[ "$mode" == unencrypted ]] && printf '{"com.docker.network.driver.overlay.vxlanid_list":"4101"}\n' || printf '{"encrypted":""}\n'
@@ -56,13 +59,23 @@ fi
   format="${4:-}"
   service="${5:-}"
   if [[ "$format" == *"range .Spec.TaskTemplate.ContainerSpec.Env"* ]]; then
-    if [[ "$service" == upstand_server ]]; then
+    if [[ "$service" == upstand_docker-broker ]]; then
+      printf 'UPSTAND_DOCKER_BROKER_SERVER_TOKEN_FILE=/run/secrets/docker_broker_server_token\nUPSTAND_DOCKER_BROKER_SCHEDULES_TOKEN_FILE=/run/secrets/docker_broker_schedules_token\nUPSTAND_DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN_FILE=/run/secrets/docker_broker_deployment_worker_token\nUPSTAND_DOCKER_BROKER_ALLOWED_CALLERS=server,schedules,deployment-worker\nUPSTAND_DOCKER_BROKER_MAX_INFLIGHT=64\nUPSTAND_DOCKER_BROKER_TLS_REQUIRED=true\nUPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/docker_broker_ca\nUPSTAND_DOCKER_BROKER_CERT_FILE=/run/secrets/docker_broker_server_cert\nUPSTAND_DOCKER_BROKER_KEY_FILE=/run/secrets/docker_broker_server_key\n'
+    elif [[ "$service" == upstand_server ]]; then
       if [[ "$mode" == observed ]]; then
-        printf 'UPSTAND_MONITORING_IMAGE=%s\nOTLP_ENDPOINT=http://otel-collector:4318\n' "$monitoring_image"
+        printf 'UPSTAND_MONITORING_IMAGE=%s\nDOCKER_HOST=https://docker-broker:2375\nDOCKER_TLS_VERIFY=1\nDOCKER_CERT_PATH=/run/secrets\nUPSTAND_DOCKER_BROKER_TOKEN_FILE=/run/secrets/docker_broker_server_token\nUPSTAND_DOCKER_BROKER_CALLER=server\nUPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/docker_broker_ca\nUPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_server_client_cert\nUPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_server_client_key\nUPSTAND_METRICS_TOKEN_FILE=/run/secrets/metrics_token\nOTLP_ENDPOINT=http://otel-collector:4318\n' "$monitoring_image"
       elif [[ "$mode" == node-local || "$mode" == node-local-root ]]; then
-        printf 'UPSTAND_MONITORING_IMAGE=%s\n' "$monitoring_image"
+        printf 'UPSTAND_MONITORING_IMAGE=%s\nDOCKER_HOST=https://docker-broker:2375\nDOCKER_TLS_VERIFY=1\nDOCKER_CERT_PATH=/run/secrets\nUPSTAND_DOCKER_BROKER_TOKEN_FILE=/run/secrets/docker_broker_server_token\nUPSTAND_DOCKER_BROKER_CALLER=server\nUPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/docker_broker_ca\nUPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_server_client_cert\nUPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_server_client_key\nUPSTAND_METRICS_TOKEN_FILE=/run/secrets/metrics_token\n' "$monitoring_image"
+      else
+        printf 'DOCKER_HOST=https://docker-broker:2375\nDOCKER_TLS_VERIFY=1\nDOCKER_CERT_PATH=/run/secrets\nUPSTAND_DOCKER_BROKER_TOKEN_FILE=/run/secrets/docker_broker_server_token\nUPSTAND_DOCKER_BROKER_CALLER=server\nUPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/docker_broker_ca\nUPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_server_client_cert\nUPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_server_client_key\nUPSTAND_METRICS_TOKEN_FILE=/run/secrets/metrics_token\n'
       fi
-    elif [[ "$mode" == observed && ("$service" == upstand_schedules || "$service" == upstand_web || "$service" == upstand_fumadocs) ]]; then
+    elif [[ "$service" == upstand_schedules ]]; then
+      printf 'DOCKER_HOST=https://docker-broker:2375\nDOCKER_TLS_VERIFY=1\nDOCKER_CERT_PATH=/run/secrets\nUPSTAND_DOCKER_BROKER_TOKEN_FILE=/run/secrets/docker_broker_schedules_token\nUPSTAND_DOCKER_BROKER_CALLER=schedules\nUPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/docker_broker_ca\nUPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_schedules_client_cert\nUPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_schedules_client_key\nUPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS=true\nUPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION=true\nUPSTAND_BACKUP_ALERT_MAX_AGE_MS=172800000\n'
+      [[ "$mode" == observed ]] && printf 'OTLP_ENDPOINT=http://otel-collector:4318\n'
+    elif [[ "$service" == upstand_deployment-worker ]]; then
+      printf 'DOCKER_HOST=https://docker-broker:2375\nDOCKER_TLS_VERIFY=1\nDOCKER_CERT_PATH=/run/secrets\nUPSTAND_DOCKER_BROKER_TOKEN_FILE=/run/secrets/docker_broker_deployment_worker_token\nUPSTAND_DOCKER_BROKER_CALLER=deployment-worker\nUPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/docker_broker_ca\nUPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_deployment_worker_client_cert\nUPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_deployment_worker_client_key\nUPSTAND_SCHEDULES_ROLE=deployment-worker\n'
+      [[ "$mode" == observed ]] && printf 'OTLP_ENDPOINT=http://otel-collector:4318\n'
+    elif [[ "$mode" == observed && ("$service" == upstand_web || "$service" == upstand_fumadocs) ]]; then
       printf 'OTLP_ENDPOINT=http://otel-collector:4318\n'
     fi
     exit 0
@@ -155,13 +168,19 @@ fi
       exit 0
     fi
   fi
-  if [[ "$service" == upstand_server || "$service" == upstand_schedules || "$service" == upstand_web || "$service" == upstand_fumadocs ]]; then
+  if [[ "$service" == upstand_docker-broker || "$service" == upstand_server || "$service" == upstand_schedules || "$service" == upstand_deployment-worker || "$service" == upstand_web || "$service" == upstand_fumadocs ]]; then
     if [[ "$format" == *Replicated.Replicas* ]]; then
       [[ "$mode" == ha || "$mode" == remote-tasks ]] && printf '2\n' || printf '1\n'
       exit 0
     fi
     if [[ "$format" == *ContainerSpec.Image* ]]; then
-      printf '%s\n' "$server_image"
+      if [[ "$service" == upstand_schedules ]]; then
+        printf '%s\n' "$schedules_image"
+      elif [[ "$service" == upstand_deployment-worker ]]; then
+        printf '%s\n' "$deployment_worker_image"
+      else
+        printf '%s\n' "$server_image"
+      fi
       exit 0
     fi
     if [[ "$format" == *ContainerSpec.Healthcheck* ]]; then
@@ -169,7 +188,7 @@ fi
       exit 0
     fi
     if [[ "$format" == *ContainerSpec.ReadOnly* ]]; then
-      [[ "$service" == upstand_web || "$service" == upstand_fumadocs || "$mode" != writable-app ]] && printf 'true\n' || printf 'false\n'
+      [[ "$service" == upstand_docker-broker || "$service" == upstand_web || "$service" == upstand_fumadocs || "$mode" != writable-app ]] && printf 'true\n' || printf 'false\n'
       exit 0
     fi
     if [[ "$format" == *CapabilityDrop* ]]; then
@@ -177,7 +196,15 @@ fi
       exit 0
     fi
     if [[ "$format" == *ContainerSpec.Env* ]]; then
-      [[ "$mode" == observed ]] && printf '["OTLP_ENDPOINT=http://otel-collector:4318"]\n' || printf '["NODE_ENV=production"]\n'
+      if [[ "$service" == upstand_schedules ]]; then
+        printf '["NODE_ENV=production","UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS=true","UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION=true","UPSTAND_BACKUP_ALERT_MAX_AGE_MS=172800000"]\n'
+      elif [[ "$service" == upstand_deployment-worker ]]; then
+        printf '["NODE_ENV=production","UPSTAND_SCHEDULES_ROLE=deployment-worker"]\n'
+      elif [[ "$mode" == observed ]]; then
+        printf '["OTLP_ENDPOINT=http://otel-collector:4318"]\n'
+      else
+        printf '["NODE_ENV=production"]\n'
+      fi
       exit 0
     fi
   fi
@@ -200,7 +227,7 @@ if [[ "${1:-}" == "ps" && "${2:-}" == "-q" ]]; then
   filter="${4:-}"
   if [[ "$filter" == "label=com.docker.swarm.service.name" ]]; then
     if [[ "$mode" == node-local || "$mode" == node-local-root ]]; then
-      printf 'container-upstand_server\ncontainer-upstand_schedules\ncontainer-upstand_web\ncontainer-upstand_fumadocs\n'
+      printf 'container-upstand_docker-broker\ncontainer-upstand_server\ncontainer-upstand_schedules\ncontainer-upstand_deployment-worker\ncontainer-upstand_web\ncontainer-upstand_fumadocs\n'
     fi
     exit 0
   fi
@@ -236,6 +263,8 @@ if [[ "${1:-}" == "inspect" ]]; then
     printf 'upstand_web\n'
   elif [[ "$*" == *Config.Labels* && "$4" == container-upstand_fumadocs ]]; then
     printf 'upstand_fumadocs\n'
+  elif [[ "$*" == *Config.Labels* && "$4" == container-upstand_docker-broker ]]; then
+    printf 'upstand_docker-broker\n'
   elif [[ "$*" == *Config.Image* && "$4" == monitoring-container ]]; then
     printf '%s\n' "$monitoring_image"
   elif [[ "$*" == *Config.Image* && "$4" == container-upstand_* ]]; then

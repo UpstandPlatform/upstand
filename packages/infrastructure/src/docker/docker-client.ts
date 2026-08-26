@@ -36,16 +36,133 @@ type RemoteProxyEntry =
 const remoteDockerProxies = new Map<string, RemoteProxyEntry>();
 const proxyKeySecret = randomBytes(32);
 
-export function getDockerInstance(): Docker {
+export function getDockerInstance(
+  customHeaders: Record<string, string> = {},
+): Docker {
   const isWindows = process.platform === "win32";
   const isBun = typeof process.versions.bun !== "undefined";
 
-  if (isWindows && isBun) {
+  if (isWindows && isBun && !process.env.DOCKER_HOST) {
     ensureDockerProxy();
-    return new Docker({ host: "127.0.0.1", port: PROXY_PORT });
+    return new Docker({
+      host: "127.0.0.1",
+      port: PROXY_PORT,
+      ...(Object.keys(customHeaders).length ? { headers: customHeaders } : {}),
+    });
   }
 
-  return new Docker();
+  return createDockerClientFromEnvironment(
+    process.env.DOCKER_HOST,
+    customHeaders,
+  );
+}
+
+/**
+ * Keep Docker transport configuration explicit so production can move from a
+ * host socket to a constrained broker without changing every adapter.
+ */
+export function createDockerClientFromEnvironment(
+  configuredHost = process.env.DOCKER_HOST,
+  customHeaders: Record<string, string> = {},
+): Docker {
+  const value = configuredHost?.trim();
+  if (!value) {
+    return new Docker(
+      Object.keys(customHeaders).length ? { headers: customHeaders } : {},
+    );
+  }
+
+  if (value.startsWith("unix://")) {
+    const socketPath = value.slice("unix://".length);
+    if (!socketPath.startsWith("/")) {
+      throw new Error("DOCKER_HOST Unix socket path must be absolute");
+    }
+    return new Docker({
+      socketPath,
+      ...(Object.keys(customHeaders).length ? { headers: customHeaders } : {}),
+    });
+  }
+
+  if (
+    value.startsWith("tcp://") ||
+    value.startsWith("http://") ||
+    value.startsWith("https://")
+  ) {
+    const url = new URL(value);
+    const port = Number(url.port || 2375);
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      throw new Error("DOCKER_HOST TCP port is invalid");
+    }
+    const brokerToken = readDockerBrokerToken();
+    const brokerCaller = process.env.UPSTAND_DOCKER_BROKER_CALLER?.trim();
+    const protocol = url.protocol === "https:" ? "https" : "http";
+    const tlsOptions =
+      protocol === "https"
+        ? {
+            ca: readDockerBrokerTLSFile("UPSTAND_DOCKER_BROKER_CA_FILE", "CA"),
+            cert: readDockerBrokerTLSFile(
+              "UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE",
+              "client certificate",
+            ),
+            key: readDockerBrokerTLSFile(
+              "UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE",
+              "client key",
+            ),
+          }
+        : {};
+    return new Docker({
+      host: url.hostname,
+      port,
+      protocol,
+      ...tlsOptions,
+      ...(brokerToken || Object.keys(customHeaders).length
+        ? {
+            headers: {
+              ...(brokerToken
+                ? { "X-Upstand-Docker-Broker-Token": brokerToken }
+                : {}),
+              ...customHeaders,
+              ...(brokerCaller
+                ? { "X-Upstand-Docker-Caller": brokerCaller }
+                : {}),
+            },
+          }
+        : {}),
+    });
+  }
+
+  throw new Error("DOCKER_HOST must use unix://, tcp://, http://, or https://");
+}
+
+export function readDockerBrokerTLSFile(
+  environmentVariable: string,
+  label: string,
+): Buffer {
+  const file = process.env[environmentVariable]?.trim();
+  if (!file) {
+    throw new Error(
+      `${environmentVariable} is required for HTTPS Docker broker transport`,
+    );
+  }
+  const value = fs.readFileSync(file);
+  if (value.length === 0) {
+    throw new Error(`Docker broker TLS ${label} file is empty`);
+  }
+  return value;
+}
+
+export function readDockerBrokerToken(): string | undefined {
+  const tokenFile = process.env.UPSTAND_DOCKER_BROKER_TOKEN_FILE?.trim();
+  const token = tokenFile
+    ? fs.readFileSync(tokenFile, "utf8").trim()
+    : process.env.UPSTAND_DOCKER_BROKER_TOKEN?.trim();
+  if (!token) return undefined;
+  if (token.length < 32) {
+    throw new Error(
+      "UPSTAND_DOCKER_BROKER_TOKEN must contain at least 32 characters",
+    );
+  }
+  return token;
 }
 
 export interface RemoteDockerConnection {
@@ -78,15 +195,29 @@ function assertSafeRemoteConnection(
  * Remote servers are not Swarm workers of the control-plane node; Docker's
  * SSH transport keeps the daemon socket private while retaining the Docker API.
  */
-export function createRemoteDocker(connection: RemoteDockerConnection): Docker {
+export function createRemoteDocker(
+  connection: RemoteDockerConnection,
+  customHeaders: Record<string, string> = {},
+): Docker {
   if (!connection.hostKeyFingerprint) {
     throw new Error("Remote Docker SSH host key is not trusted");
   }
   assertSafeRemoteConnection(connection);
   const entry = ensureRemoteDockerProxy(connection);
   return "socketPath" in entry
-    ? new Docker({ socketPath: entry.socketPath })
-    : new Docker({ host: entry.host, port: entry.port });
+    ? new Docker({
+        socketPath: entry.socketPath,
+        ...(Object.keys(customHeaders).length
+          ? { headers: customHeaders }
+          : {}),
+      })
+    : new Docker({
+        host: entry.host,
+        port: entry.port,
+        ...(Object.keys(customHeaders).length
+          ? { headers: customHeaders }
+          : {}),
+      });
 }
 
 function ensureRemoteDockerProxy(
@@ -392,7 +523,15 @@ export async function resolveDockerServiceForServer(
   const remoteDocker = createRemoteDocker(connection);
   const remoteCli = createRemoteDockerCliEnvironment(connection);
 
-  const dockerService = new DockerService(remoteDocker, remoteCli.environment);
+  const dockerService = new DockerService(
+    remoteDocker,
+    remoteCli.environment,
+    undefined,
+    (resourceId) =>
+      createRemoteDocker(connection, {
+        "X-Upstand-Resource-ID": resourceId,
+      }),
+  );
   return {
     dockerService,
     cleanup: remoteCli.cleanup,
@@ -540,7 +679,15 @@ export async function resolveServicesForResource(
   const remoteDocker = createRemoteDocker(connection);
   const remoteCli = createRemoteDockerCliEnvironment(connection);
 
-  const dockerService = new DockerService(remoteDocker, remoteCli.environment);
+  const dockerService = new DockerService(
+    remoteDocker,
+    remoteCli.environment,
+    undefined,
+    (resourceId) =>
+      createRemoteDocker(connection, {
+        "X-Upstand-Resource-ID": resourceId,
+      }),
+  );
   const caddyService = new CaddyService(remoteDocker);
   return {
     dockerService,
@@ -560,7 +707,15 @@ export function createDockerInfrastructureResolver(): DockerInfrastructureResolv
       const cli = createRemoteDockerCliEnvironment(connection);
       return {
         docker: remoteDocker,
-        dockerService: new DockerService(remoteDocker, cli.environment),
+        dockerService: new DockerService(
+          remoteDocker,
+          cli.environment,
+          undefined,
+          (resourceId) =>
+            createRemoteDocker(connection, {
+              "X-Upstand-Resource-ID": resourceId,
+            }),
+        ),
         caddyService: new CaddyService(remoteDocker),
         cli,
         info: () => remoteDocker.info(),

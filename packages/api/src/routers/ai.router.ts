@@ -15,7 +15,12 @@ import {
 } from "../ai/upgal";
 import { UpGalError } from "../ai/upgal-errors";
 import { UpGalPageContextSchema } from "../ai/upgal-page-context";
-import { incrementUpGalDailyBudget } from "../ai-budget";
+import {
+  incrementUpGalDailyBudget,
+  reserveUpGalDailyCostBudget,
+  reserveUpGalDailyTokenBudget,
+  upGalCostCentsForTokens,
+} from "../ai-budget";
 import {
   protectedProcedure,
   router,
@@ -41,6 +46,7 @@ const providerFormSchema = z.object({
 async function enforceAiDailyBudget(
   organizationId: string,
   log: { error(error: unknown, context?: Record<string, unknown>): void },
+  requestedTokens = 256,
 ): Promise<void> {
   if (env.NODE_ENV === "test") return;
 
@@ -61,6 +67,58 @@ async function enforceAiDailyBudget(
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
       message: "UpGal daily organization run limit exceeded",
+    });
+  }
+  let reservation: Awaited<ReturnType<typeof reserveUpGalDailyTokenBudget>>;
+  try {
+    reservation = await reserveUpGalDailyTokenBudget(
+      redis,
+      organizationId,
+      requestedTokens,
+      env.UPGAL_DAILY_TOKEN_LIMIT,
+    );
+  } catch (error) {
+    log.error(error instanceof Error ? error : String(error), {
+      message: "Unable to enforce UpGal daily token budget",
+      organizationId,
+    });
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "UpGal is temporarily unavailable",
+    });
+  }
+  if (!reservation) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "UpGal daily organization token limit exceeded",
+    });
+  }
+
+  let costReservation: Awaited<ReturnType<typeof reserveUpGalDailyCostBudget>>;
+  try {
+    costReservation = await reserveUpGalDailyCostBudget(
+      redis,
+      organizationId,
+      upGalCostCentsForTokens(
+        requestedTokens,
+        env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
+      ),
+      Math.round(env.UPGAL_DAILY_COST_LIMIT_USD * 100),
+    );
+  } catch (error) {
+    log.error(error instanceof Error ? error : String(error), {
+      message: "Unable to enforce UpGal daily cost budget",
+      organizationId,
+    });
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "UpGal is temporarily unavailable",
+    });
+  }
+  if (!costReservation) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "UpGal daily organization cost limit exceeded",
     });
   }
 }
@@ -104,7 +162,7 @@ export const aiRouter = router({
           );
         }
       }
-      await enforceAiDailyBudget(input.organizationId, ctx.log);
+      await enforceAiDailyBudget(input.organizationId, ctx.log, 4096);
       return generateComposeTemplate(
         input.organizationId,
         ctx.scope,

@@ -67,6 +67,12 @@ export function applyComposeResourceConfig(
     if (Object.keys(environment).length) service.environment = environment;
 
     const labels = { ...composeMap(service.labels), ...config.labels };
+    if (resource.id) {
+      // The broker uses this system-owned label to resolve and authorize
+      // resource-scoped container operations. User labels must not be able to
+      // redirect a command to another resource.
+      labels["com.upstand.resource-id"] = resource.id;
+    }
     if (Object.keys(labels).length) service.labels = labels;
 
     if (config.command.length) service.entrypoint = config.command;
@@ -160,6 +166,17 @@ export function applyComposeResourceConfig(
         retries: config.healthcheck.retries,
         start_period: `${config.healthcheck.startPeriodSeconds}s`,
       };
+    }
+  }
+
+  // Every service in a resource project carries the immutable ownership label,
+  // including services outside an optional serviceName override. The broker
+  // uses it to verify whole-project teardown before deleting containers.
+  if (resource.id) {
+    for (const service of Object.values(services)) {
+      const labels = composeMap(service.labels);
+      labels["com.upstand.resource-id"] = resource.id;
+      service.labels = labels;
     }
   }
 

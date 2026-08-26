@@ -57,6 +57,7 @@ function createBuildHarness(): {
       environment?: NodeJS.ProcessEnv,
     ): Promise<void>;
     buildApplicationImage(
+      resourceId: string,
       clonePath: string,
       imageName: string,
       config: ApplicationBuildConfig,
@@ -80,6 +81,7 @@ function createBuildHarness(): {
     calls,
     build: (config, fixturePath) =>
       privateService.buildApplicationImage(
+        "fixture-resource",
         fixturePath,
         "upstand-fixture:test",
         config,

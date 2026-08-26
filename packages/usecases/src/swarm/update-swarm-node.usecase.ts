@@ -1,12 +1,10 @@
 import { ConflictError, ValidationError } from "@upstand/domain";
-import type Docker from "dockerode";
 import { z } from "zod";
-import { getDockerInstance } from "../resource/docker-client";
+import type { DockerSwarmManagementPort } from "../ports/swarm";
 import {
+  assertActiveManager,
   assertSafeManagerRemoval,
-  type DockerSwarmNode,
   dockerErrorMessage,
-  requireActiveManager,
 } from "./swarm.helpers";
 
 export const UpdateSwarmNodeInputSchema = z
@@ -23,41 +21,42 @@ export const UpdateSwarmNodeInputSchema = z
 export type UpdateSwarmNodeInput = z.infer<typeof UpdateSwarmNodeInputSchema>;
 
 export class UpdateSwarmNodeUseCase {
-  private readonly docker: Docker;
+  private readonly docker: DockerSwarmManagementPort;
 
-  constructor(docker?: Docker) {
-    this.docker = docker || getDockerInstance();
+  constructor(docker: DockerSwarmManagementPort) {
+    this.docker = docker;
   }
 
   async execute(input: UpdateSwarmNodeInput): Promise<{ success: boolean }> {
     try {
-      const info = await requireActiveManager(this.docker);
-      const node = this.docker.getNode(input.nodeId);
+      const info = await this.docker.getInfo();
       const [inspect, nodes] = await Promise.all([
-        node.inspect(),
-        this.docker.listNodes() as Promise<DockerSwarmNode[]>,
+        this.docker.inspectNode(input.nodeId),
+        this.docker.listNodes(),
       ]);
 
-      if (inspect.Version?.Index !== input.version) {
+      assertActiveManager(info);
+      if (inspect.version !== input.version) {
         throw new ConflictError(
           "This node changed since it was loaded. Refresh the cluster before applying another change.",
         );
       }
 
-      const nextRole = input.role || inspect.Spec?.Role || "worker";
-      if (inspect.Spec?.Role === "manager" && nextRole === "worker") {
-        assertSafeManagerRemoval(inspect, nodes, info.Swarm?.NodeID);
+      const nextRole = input.role || inspect.role || "worker";
+      if (inspect.role === "manager" && nextRole === "worker") {
+        assertSafeManagerRemoval(inspect, nodes, info.nodeId);
       }
 
       const nextSpec = {
-        Name: inspect.Spec?.Name,
-        Labels: inspect.Spec?.Labels || {},
-        Role: nextRole,
-        Availability:
-          input.availability || inspect.Spec?.Availability || "active",
+        name: inspect.hostname,
+        labels: inspect.labels,
+        role: nextRole as "manager" | "worker",
+        availability: (input.availability ||
+          inspect.availability ||
+          "active") as "active" | "drain" | "pause",
       };
 
-      await node.update({
+      await this.docker.updateNode(input.nodeId, {
         version: input.version,
         ...nextSpec,
       });

@@ -1,15 +1,12 @@
 import { ConflictError, ValidationError } from "@upstand/domain";
 import { env } from "@upstand/env/server";
-import type Docker from "dockerode";
 import { z } from "zod";
 import {
   getConfiguredControlPlaneMode,
   getPlatformCapabilities,
 } from "../platform/platform.types";
-import { getDockerInstance } from "../resource/docker-client";
+import type { DockerSwarmManagementPort } from "../ports/swarm";
 import {
-  ensureUpstandOverlayNetwork,
-  isSwarmActive,
   validateSwarmAddress,
   validateSwarmAddressPools,
 } from "./swarm.helpers";
@@ -37,10 +34,10 @@ export const InitSwarmInputSchema = z.object({
 export type InitSwarmInput = z.infer<typeof InitSwarmInputSchema>;
 
 export class InitSwarmUseCase {
-  private readonly docker: Docker;
+  private readonly docker: DockerSwarmManagementPort;
 
-  constructor(docker?: Docker) {
-    this.docker = docker || getDockerInstance();
+  constructor(docker: DockerSwarmManagementPort) {
+    this.docker = docker;
   }
 
   async execute(input: InitSwarmInput): Promise<{
@@ -71,37 +68,32 @@ export class InitSwarmUseCase {
     );
 
     try {
-      const info = await this.docker.info();
-      if (isSwarmActive(info)) {
+      const info = await this.docker.getInfo();
+      if (info.localNodeState === "active") {
         throw new ConflictError("Docker Swarm is already active on this node.");
       }
 
-      await this.docker.swarmInit({
-        AdvertiseAddr: advertiseAddr,
-        ListenAddr: "0.0.0.0:2377",
-        ...(dataPathAddr ? { DataPathAddr: dataPathAddr } : {}),
-        DefaultAddrPool: defaultAddrPools,
-        SubnetSize: subnetSize,
+      await this.docker.initialize({
+        advertiseAddr,
+        ...(dataPathAddr ? { dataPathAddr } : {}),
+        defaultAddrPools,
+        subnetSize,
       });
 
       const [swarm, network] = await Promise.all([
-        this.docker.swarmInspect(),
-        ensureUpstandOverlayNetwork(this.docker),
+        this.docker.inspectSwarm(),
+        this.docker.ensureUpstandNetwork(),
       ]);
 
-      if (swarm.Version?.Index) {
-        await this.docker.swarmUpdate({
-          version: swarm.Version.Index,
-          Spec: {
-            Orchestration: {
-              TaskHistoryRetentionLimit: 1,
-            },
-          },
+      if (swarm.version) {
+        await this.docker.updateSwarm({
+          version: swarm.version,
+          taskHistoryRetentionLimit: 1,
         });
       }
 
       return {
-        swarmId: swarm.ID,
+        swarmId: swarm.id,
         networkName: env.DOCKER_NETWORK || "upstand-network",
         networkCreated: network.created,
       };

@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK_NAME="upstand"
 REQUIRE_HA="false"
 ALLOW_REMOTE_TASKS="false"
 REQUIRE_OBSERVABILITY="true"
 NODE_LOCAL_ONLY="false"
 NETWORK_NAME="${DOCKER_NETWORK:-upstand-network}"
+CONTROL_NETWORK_NAME="${DOCKER_CONTROL_NETWORK:-upstand-docker-control}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 REQUIRE_ENCRYPTED_NETWORK="${UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK:-true}"
 EXTERNAL_POSTGRES_SERVICE=""
 EXTERNAL_REDIS_SERVICE=""
+DR_EVIDENCE_FILE="${UPSTAND_DR_EVIDENCE_FILE:-}"
+DR_EVIDENCE_SIGNATURE_FILE="${UPSTAND_DR_EVIDENCE_SIGNATURE_FILE:-}"
+DR_EVIDENCE_PUBLIC_KEY_FILE="${UPSTAND_DR_EVIDENCE_PUBLIC_KEY_FILE:-}"
+DR_EVIDENCE_MAX_AGE_SECONDS="${UPSTAND_DR_EVIDENCE_MAX_AGE_SECONDS:-2592000}"
 
 docker_cmd() {
   "$DOCKER_BIN" "$@"
@@ -19,7 +25,8 @@ docker_cmd() {
 usage() {
   cat >&2 <<'EOF'
 Usage: production-acceptance.sh [--stack NAME] [--network NAME] [--require-ha] [--allow-remote-tasks] [--allow-unobserved] [--node-local] \
-  [--external-postgres-service NAME] [--external-redis-service NAME]
+  [--external-postgres-service NAME] [--external-redis-service NAME] \
+  [--dr-evidence-file PATH] [--dr-evidence-signature-file PATH] [--dr-evidence-public-key-file PATH]
 
 Read-only production acceptance checks for a deployed Upstand Swarm stack.
 Use --node-local on each Swarm node to inspect task containers hosted by that
@@ -106,6 +113,21 @@ while (($# > 0)); do
       EXTERNAL_REDIS_SERVICE="$2"
       shift 2
       ;;
+    --dr-evidence-file)
+      (($# >= 2)) || { usage; exit 2; }
+      DR_EVIDENCE_FILE="$2"
+      shift 2
+      ;;
+    --dr-evidence-signature-file)
+      (($# >= 2)) || { usage; exit 2; }
+      DR_EVIDENCE_SIGNATURE_FILE="$2"
+      shift 2
+      ;;
+    --dr-evidence-public-key-file)
+      (($# >= 2)) || { usage; exit 2; }
+      DR_EVIDENCE_PUBLIC_KEY_FILE="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -149,7 +171,7 @@ assert_node_local_container() {
     || fail "node-local service '$service_name' container '$container_id' does not drop all Linux capabilities: $capabilities"
 
   case "$service_name" in
-    "${STACK_NAME}_migrate"|"${STACK_NAME}_server"|"${STACK_NAME}_schedules"|"${STACK_NAME}_web"|"${STACK_NAME}_fumadocs")
+    "${STACK_NAME}_migrate"|"${STACK_NAME}_docker-broker"|"${STACK_NAME}_server"|"${STACK_NAME}_schedules"|"${STACK_NAME}_deployment-worker"|"${STACK_NAME}_web"|"${STACK_NAME}_fumadocs")
       readonly_rootfs="$(docker_cmd inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")" \
         || fail "node-local service '$service_name' container '$container_id' filesystem mode could not be inspected"
       [[ "$readonly_rootfs" == "true" ]] \
@@ -254,6 +276,24 @@ else
   echo "acceptance: encrypted network requirement skipped by explicit CI capability override"
 fi
 
+[[ "$CONTROL_NETWORK_NAME" != "$NETWORK_NAME" ]] \
+  || fail "Docker control network must be distinct from the application network"
+control_network_driver="$(docker_cmd network inspect -f '{{.Driver}}' "$CONTROL_NETWORK_NAME")" \
+  || fail "Docker control network '$CONTROL_NETWORK_NAME' does not exist"
+control_network_scope="$(docker_cmd network inspect -f '{{.Scope}}' "$CONTROL_NETWORK_NAME")"
+control_network_attachable="$(docker_cmd network inspect -f '{{.Attachable}}' "$CONTROL_NETWORK_NAME")"
+control_network_internal="$(docker_cmd network inspect -f '{{.Internal}}' "$CONTROL_NETWORK_NAME")"
+control_network_options="$(docker_cmd network inspect -f '{{json .Options}}' "$CONTROL_NETWORK_NAME")"
+[[ "$control_network_driver" == "overlay" && "$control_network_scope" == "swarm" && "$control_network_attachable" == "true" && "$control_network_internal" == "true" ]] \
+  || fail "Docker control network '$CONTROL_NETWORK_NAME' is not an attachable Swarm overlay"
+if [[ "$REQUIRE_ENCRYPTED_NETWORK" == true ]]; then
+  [[ "$control_network_options" == *'"encrypted"'* \
+    && "$control_network_options" != *'"encrypted":false'* \
+    && "$control_network_options" != *'"encrypted":"false"'* ]] \
+    || fail "Docker control network '$CONTROL_NETWORK_NAME' is not encrypted"
+fi
+echo "acceptance: encrypted Docker control network verified"
+
 migration_name="${STACK_NAME}_migrate"
 migration_state="$(docker_cmd service ps "$migration_name" --no-trunc --format '{{.CurrentState}}' | head -n 1)" \
   || fail "migration service '$migration_name' does not exist"
@@ -311,7 +351,7 @@ assert_service() {
   healthcheck="$(docker_cmd service inspect --format '{{json .Spec.TaskTemplate.ContainerSpec.Healthcheck}}' "$service_name")"
   [[ "$healthcheck" != "null" && "$healthcheck" != "{}" ]] \
     || fail "service '$service_name' has no configured container health check"
-  if [[ "$service_name" == *_migrate || "$service_name" == *_server || "$service_name" == *_schedules ]]; then
+if [[ "$service_name" == *_migrate || "$service_name" == *_server || "$service_name" == *_schedules || "$service_name" == *_deployment-worker ]]; then
     readonly_rootfs="$(docker_cmd service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.ReadOnly}}' "$service_name")" \
       || fail "service '$service_name' read-only root filesystem could not be inspected"
     [[ "$readonly_rootfs" == "true" ]] \
@@ -362,7 +402,7 @@ assert_service() {
         "$container_id" \
         "service '$service_name' container '$container_id'"
     fi
-    if [[ "$service_name" == *_migrate || "$service_name" == *_server || "$service_name" == *_schedules ]]; then
+    if [[ "$service_name" == *_migrate || "$service_name" == *_server || "$service_name" == *_schedules || "$service_name" == *_deployment-worker ]]; then
       container_readonly="$(docker_cmd inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")" \
         || fail "service '$service_name' container '$container_id' filesystem mode could not be inspected"
       [[ "$container_readonly" == "true" ]] \
@@ -403,9 +443,144 @@ for service in postgres redis; do
   fi
 done
 
-for service in server schedules web fumadocs; do
+assert_service "${STACK_NAME}_docker-broker"
+for service in server schedules deployment-worker web fumadocs; do
   assert_service "${STACK_NAME}_${service}"
 done
+
+schedules_image="$(docker_cmd service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "${STACK_NAME}_schedules")" \
+  || fail "schedules image could not be inspected"
+deployment_worker_image="$(docker_cmd service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "${STACK_NAME}_deployment-worker")" \
+  || fail "deployment-worker image could not be inspected"
+[[ "$schedules_image" =~ @sha256:[0-9a-fA-F]{64}$ ]] \
+  || fail "schedules image is not pinned to an immutable digest: $schedules_image"
+[[ "$deployment_worker_image" =~ @sha256:[0-9a-fA-F]{64}$ ]] \
+  || fail "deployment-worker image is not pinned to an immutable digest: $deployment_worker_image"
+[[ "$schedules_image" != "$deployment_worker_image" ]] \
+  || fail "schedules and deployment-worker must use distinct images"
+echo "acceptance: schedules and deployment-worker use distinct immutable images"
+
+broker_auth_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_docker-broker")" \
+  || fail "service '${STACK_NAME}_docker-broker' environment could not be inspected for Docker broker authentication"
+printf '%s\n' "$broker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_SERVER_TOKEN_FILE=/run/secrets/docker_broker_server_token' \
+  || fail "Docker broker must load the server-specific Swarm secret"
+printf '%s\n' "$broker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_SCHEDULES_TOKEN_FILE=/run/secrets/docker_broker_schedules_token' \
+  || fail "Docker broker must load the schedules-specific Swarm secret"
+printf '%s\n' "$broker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN_FILE=/run/secrets/docker_broker_deployment_worker_token' \
+  || fail "Docker broker must load the deployment-worker-specific Swarm secret"
+printf '%s\n' "$broker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_TLS_REQUIRED=true' \
+  || fail "Docker broker must require mutually authenticated TLS"
+printf '%s\n' "$broker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/docker_broker_ca' \
+  || fail "Docker broker must load its private CA"
+printf '%s\n' "$broker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CERT_FILE=/run/secrets/docker_broker_server_cert' \
+  || fail "Docker broker must load its server certificate"
+printf '%s\n' "$broker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_KEY_FILE=/run/secrets/docker_broker_server_key' \
+  || fail "Docker broker must load its server key"
+server_auth_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_server")" \
+  || fail "server environment could not be inspected for Docker broker authentication"
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_TOKEN_FILE=/run/secrets/docker_broker_server_token' \
+  || fail "server must use its caller-specific Docker broker Swarm secret"
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'DOCKER_HOST=https://docker-broker:2375' \
+  || fail "server must use the HTTPS Docker broker transport"
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'DOCKER_TLS_VERIFY=1' \
+  || fail "server Docker CLI must verify the broker TLS certificate"
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'DOCKER_CERT_PATH=/run/secrets' \
+  || fail "server Docker CLI must use the mounted broker client certificate directory"
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_server_client_cert' \
+  || fail "server must use its mTLS client certificate"
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_server_client_key' \
+  || fail "server must use its mTLS client key"
+schedules_auth_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_schedules")" \
+  || fail "schedules environment could not be inspected for Docker broker authentication"
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_TOKEN_FILE=/run/secrets/docker_broker_schedules_token' \
+  || fail "schedules must use its caller-specific Docker broker Swarm secret"
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'DOCKER_HOST=https://docker-broker:2375' \
+  || fail "schedules must use the HTTPS Docker broker transport"
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'DOCKER_TLS_VERIFY=1' \
+  || fail "schedules Docker CLI must verify the broker TLS certificate"
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'DOCKER_CERT_PATH=/run/secrets' \
+  || fail "schedules Docker CLI must use the mounted broker client certificate directory"
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_schedules_client_cert' \
+  || fail "schedules must use its mTLS client certificate"
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_schedules_client_key' \
+  || fail "schedules must use its mTLS client key"
+worker_auth_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_deployment-worker")" \
+  || fail "deployment-worker environment could not be inspected for Docker broker authentication"
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_TOKEN_FILE=/run/secrets/docker_broker_deployment_worker_token' \
+  || fail "deployment-worker must use its caller-specific Docker broker Swarm secret"
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'DOCKER_HOST=https://docker-broker:2375' \
+  || fail "deployment-worker must use the HTTPS Docker broker transport"
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'DOCKER_TLS_VERIFY=1' \
+  || fail "deployment-worker Docker CLI must verify the broker TLS certificate"
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'DOCKER_CERT_PATH=/run/secrets' \
+  || fail "deployment-worker Docker CLI must use the mounted broker client certificate directory"
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_deployment_worker_client_cert' \
+  || fail "deployment-worker must use its mTLS client certificate"
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_deployment_worker_client_key' \
+  || fail "deployment-worker must use its mTLS client key"
+broker_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_docker-broker")" \
+  || fail "service '${STACK_NAME}_docker-broker' environment could not be inspected for caller policy"
+printf '%s\n' "$broker_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_ALLOWED_CALLERS=server,schedules,deployment-worker' \
+  || fail "Docker broker must use an explicit caller allowlist"
+printf '%s\n' "$broker_environment" | grep -Eq '^UPSTAND_DOCKER_BROKER_MAX_INFLIGHT=[1-9][0-9]*$' \
+  || fail "Docker broker must expose a bounded in-flight concurrency limit"
+server_broker_caller="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_server" | sed -n 's/^UPSTAND_DOCKER_BROKER_CALLER=//p' | head -n 1)"
+[[ "$server_broker_caller" == server ]] || fail "server must identify itself to the Docker broker"
+schedules_broker_caller="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_schedules" | sed -n 's/^UPSTAND_DOCKER_BROKER_CALLER=//p' | head -n 1)"
+[[ "$schedules_broker_caller" == schedules ]] || fail "schedules must identify itself to the Docker broker"
+deployment_worker_broker_caller="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_deployment-worker" | sed -n 's/^UPSTAND_DOCKER_BROKER_CALLER=//p' | head -n 1)"
+[[ "$deployment_worker_broker_caller" == deployment-worker ]] || fail "deployment-worker must identify itself to the Docker broker"
+echo "acceptance: Docker broker service authentication is configured"
+
+server_metrics_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_server")" \
+  || fail "service '${STACK_NAME}_server' environment could not be inspected for API metrics authentication"
+printf '%s\n' "$server_metrics_environment" | grep -Fxq 'UPSTAND_METRICS_TOKEN_FILE=/run/secrets/metrics_token' \
+  || fail "service '${STACK_NAME}_server' must protect API metrics with a Swarm secret"
+echo "acceptance: API metrics authentication is configured"
+
+schedules_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_schedules")" \
+  || fail "service '${STACK_NAME}_schedules' environment could not be inspected for backup policy"
+backup_require_success="$(printf '%s\n' "$schedules_environment" | sed -n 's/^UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS=//p' | head -n 1)"
+[[ "$backup_require_success" == "true" || "$backup_require_success" == "1" ]] \
+  || fail "schedules backup freshness policy must require a successful backup"
+backup_require_restore_verification="$(printf '%s\n' "$schedules_environment" | sed -n 's/^UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION=//p' | head -n 1)"
+[[ "$backup_require_restore_verification" == "true" || "$backup_require_restore_verification" == "1" ]] \
+  || fail "schedules backup freshness policy must require restore verification"
+backup_max_age_ms="$(printf '%s\n' "$schedules_environment" | sed -n 's/^UPSTAND_BACKUP_ALERT_MAX_AGE_MS=//p' | head -n 1)"
+[[ "$backup_max_age_ms" =~ ^[1-9][0-9]*$ ]] \
+  || fail "schedules backup freshness policy must have a positive maximum age"
+echo "acceptance: mandatory control-plane backup freshness and restore-verification policy verified"
+
+dr_readiness_gate="$(printf '%s\n' "$schedules_environment" | sed -n 's/^UPSTAND_DR_READINESS_GATE=//p' | head -n 1)"
+if [[ "$dr_readiness_gate" == "true" || "$dr_readiness_gate" == "1" ]]; then
+  for confirmation in \
+    UPSTAND_DR_OFFSITE_CONFIRMED \
+    UPSTAND_DR_KEY_ESCROW_CONFIRMED \
+    UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED; do
+    value="$(printf '%s\n' "$schedules_environment" | sed -n "s/^${confirmation}=//p" | head -n 1)"
+    [[ "$value" == "true" || "$value" == "1" ]] \
+      || fail "installed recovery plan must confirm ${confirmation#UPSTAND_DR_}"
+  done
+  dr_rpo_seconds="$(printf '%s\n' "$schedules_environment" | sed -n 's/^UPSTAND_DR_RPO_SECONDS=//p' | head -n 1)"
+  dr_rto_seconds="$(printf '%s\n' "$schedules_environment" | sed -n 's/^UPSTAND_DR_RTO_SECONDS=//p' | head -n 1)"
+  [[ "$dr_rpo_seconds" =~ ^[1-9][0-9]*$ && "$dr_rto_seconds" =~ ^[1-9][0-9]*$ ]] \
+    || fail "installed recovery plan must publish positive RPO and RTO seconds"
+  dr_evidence_reference="$(printf '%s\n' "$schedules_environment" | sed -n 's/^UPSTAND_DR_EVIDENCE_REFERENCE=//p' | head -n 1)"
+  [[ -n "$dr_evidence_reference" ]] \
+    || fail "installed recovery plan must publish a non-secret evidence reference"
+  [[ -n "$DR_EVIDENCE_FILE" && -n "$DR_EVIDENCE_SIGNATURE_FILE" && -n "$DR_EVIDENCE_PUBLIC_KEY_FILE" ]] \
+    || fail "installation-specific recovery evidence files must be supplied when the DR readiness gate is enabled"
+  [[ "$DR_EVIDENCE_MAX_AGE_SECONDS" =~ ^[1-9][0-9]*$ ]] \
+    || fail "UPSTAND_DR_EVIDENCE_MAX_AGE_SECONDS must be a positive integer"
+  verifier="$SCRIPT_DIR/verify-installation-recovery-evidence.sh"
+  [[ -x "$verifier" ]] || fail "installation-specific recovery evidence verifier is unavailable"
+  "$verifier" "$DR_EVIDENCE_FILE" "$DR_EVIDENCE_SIGNATURE_FILE" "$DR_EVIDENCE_PUBLIC_KEY_FILE" \
+    "$dr_evidence_reference" "$dr_rpo_seconds" "$dr_rto_seconds" "$DR_EVIDENCE_MAX_AGE_SECONDS" \
+    || fail "installation-specific disaster-recovery evidence could not be verified"
+  echo "acceptance: installation-specific disaster-recovery evidence verified (rpo=${dr_rpo_seconds}s rto=${dr_rto_seconds}s reference=${dr_evidence_reference})"
+else
+  echo "acceptance: installation-specific disaster-recovery attestation not enabled (disposable/release environment)"
+fi
 
 server_environment="$(docker_cmd service inspect --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}' "${STACK_NAME}_server")" \
   || fail "service '${STACK_NAME}_server' environment could not be inspected"
@@ -459,7 +634,7 @@ assert_monitoring_agent() {
 assert_monitoring_agent "$monitoring_image"
 
 if [[ "$REQUIRE_OBSERVABILITY" == "true" ]]; then
-  for service in server schedules web fumadocs; do
+  for service in server schedules deployment-worker web fumadocs; do
     assert_observability "${STACK_NAME}_${service}"
   done
 fi
@@ -470,7 +645,7 @@ if [[ "$REQUIRE_HA" == "true" ]]; then
   [[ -n "$EXTERNAL_REDIS_SERVICE" || -z "$EXTERNAL_POSTGRES_SERVICE" ]] \
     || fail "an external Redis service must be provided with the external PostgreSQL service"
 
-  for service in server schedules web fumadocs; do
+  for service in server schedules deployment-worker web fumadocs; do
     desired="$(docker_cmd service inspect --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}0{{end}}' "${STACK_NAME}_${service}")"
     [[ "$desired" -ge 2 ]] || fail "HA mode requires at least two '$service' replicas"
   done

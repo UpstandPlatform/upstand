@@ -6,7 +6,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@upstand/ui/components/sonner";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { authClient } from "@/lib/auth-client";
+import { authUiClient } from "@/lib/auth-client";
 import { queryClient } from "@/utils/trpc";
 import { ThemeProvider } from "./theme-provider";
 
@@ -22,7 +22,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     >
       <QueryClientProvider client={queryClient}>
         <AuthProvider
-          authClient={authClient}
+          authClient={authUiClient}
           plugins={[organizationPlugin()]}
           navigate={(options) => {
             if (options.replace) {

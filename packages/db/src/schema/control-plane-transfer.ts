@@ -17,6 +17,7 @@ import {
 export const controlPlaneIdentity = pgTable("control_plane_identity", {
   id: text("id").primaryKey().default("global"),
   instanceId: text("instance_id").notNull().unique(),
+  ownerUserId: text("owner_user_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

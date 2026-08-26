@@ -57,6 +57,18 @@ export class DrizzlePreviewDeploymentRepository
     });
   }
 
+  async findByStatus(
+    status: PreviewDeployment["status"],
+    limit = 100,
+  ): Promise<PreviewDeployment[]> {
+    const normalizedLimit = Number.isFinite(limit) ? Math.trunc(limit) : 100;
+    return this.findMany({
+      where: eq(previewDeployment.status, status),
+      limit: Math.min(Math.max(normalizedLimit, 1), 500),
+      orderBy: previewDeployment.updatedAt,
+    });
+  }
+
   async findByPullRequestId(
     resourceId: string,
     pullRequestId: number,

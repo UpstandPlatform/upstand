@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { ConflictError } from "@upstand/domain";
-import type Docker from "dockerode";
 import {
   applyComposeIngressNetwork,
   applyComposeResourceConfig,
 } from "../resource/docker-compose-config";
 import {
+  type DockerSwarmNetworkClient,
   ensureResourceOverlayNetwork,
   ensureUpstandOverlayNetwork,
   getResourceOverlayNetworkName,
@@ -199,7 +199,7 @@ services:
           createdNetworkSpec = spec;
           return { id: "net-upstand-overlay-123" };
         },
-      } as unknown as Docker;
+      } satisfies DockerSwarmNetworkClient;
 
       const result = await ensureUpstandOverlayNetwork(mockDocker);
 
@@ -229,7 +229,7 @@ services:
           (err as unknown as { statusCode: number }).statusCode = 409;
           throw err;
         },
-      } as unknown as Docker;
+      } satisfies DockerSwarmNetworkClient;
 
       const result = await ensureUpstandOverlayNetwork(mockDocker);
 
@@ -247,7 +247,7 @@ services:
             Attachable: false,
           }),
         }),
-      } as unknown as Docker;
+      } satisfies DockerSwarmNetworkClient;
 
       await expect(ensureUpstandOverlayNetwork(mockDocker)).rejects.toThrow(
         ConflictError,
@@ -265,7 +265,7 @@ services:
             Options: {},
           }),
         }),
-      } as unknown as Docker;
+      } satisfies DockerSwarmNetworkClient;
 
       await expect(ensureUpstandOverlayNetwork(mockDocker)).rejects.toThrow(
         "encrypted",
@@ -274,6 +274,7 @@ services:
 
     test("creates per-resource isolated overlay network (upstand-resource-<id>)", async () => {
       let createdName = "";
+      let createdSpec: Record<string, unknown> | undefined;
       const mockDocker = {
         getNetwork: () => ({
           inspect: async () => {
@@ -282,11 +283,12 @@ services:
             throw err;
           },
         }),
-        createNetwork: async (spec: { Name: string }) => {
-          createdName = spec.Name;
+        createNetwork: async (spec: Record<string, unknown>) => {
+          createdName = String(spec.Name);
+          createdSpec = spec;
           return { id: "res-net-id" };
         },
-      } as unknown as Docker;
+      } satisfies DockerSwarmNetworkClient;
 
       const result = await ensureResourceOverlayNetwork(
         mockDocker,
@@ -296,6 +298,13 @@ services:
       expect(result.name).toBe("upstand-resource-res-billing-api");
       expect(createdName).toBe("upstand-resource-res-billing-api");
       expect(result.created).toBe(true);
+      expect(createdSpec).toMatchObject({
+        Labels: {
+          "com.upstand.managed": "true",
+          "com.upstand.purpose": "resource-isolation",
+          "com.upstand.resource-id": "res-billing-api",
+        },
+      });
     });
   });
 });

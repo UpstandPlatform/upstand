@@ -46,25 +46,45 @@ describe("authentication origin configuration", () => {
     ).toThrow("dashboard hostname");
   });
 
-  test("dynamically includes direct host request origins in trustedOrigins", async () => {
+  test("requires explicit direct-origin bootstrap mode", async () => {
     const { createAuth } = await import("./index");
     const auth = createAuth({
       database: { db: {} } as never,
       secondaryStorage: {} as never,
       callbacks: {} as never,
       stepUp: {} as never,
-      configuration: configuration({ nodeEnv: "production" }),
+      configuration: configuration({
+        nodeEnv: "production",
+        directOrigins: true,
+      }),
     });
     const resolver = auth.options.trustedOrigins as (
       request?: Request,
     ) => Promise<string[]>;
     const resolved = await resolver(
-      new Request("http://localhost:3000", {
+      new Request("http://85.155.230.19:3000", {
         headers: { origin: "http://85.155.230.19:3001" },
       }),
     );
     expect(resolved).toContain("http://85.155.230.19:3001");
     expect(resolved).toContain("https://dashboard.example.com");
+
+    const productionAuth = createAuth({
+      database: { db: {} } as never,
+      secondaryStorage: {} as never,
+      callbacks: {} as never,
+      stepUp: {} as never,
+      configuration: configuration({ nodeEnv: "production" }),
+    });
+    const productionResolver = productionAuth.options.trustedOrigins as (
+      request?: Request,
+    ) => Promise<string[]>;
+    const productionResolved = await productionResolver(
+      new Request("http://85.155.230.19:3000", {
+        headers: { origin: "http://85.155.230.19:3001" },
+      }),
+    );
+    expect(productionResolved).not.toContain("http://85.155.230.19:3001");
 
     const invalidIpResolved = await resolver(
       new Request("http://localhost:3000", {
@@ -89,6 +109,66 @@ describe("authentication origin configuration", () => {
     expect(cookie).toContain("better-auth.session_token=token");
     expect(cookie).not.toMatch(/(?:^|;)\s*secure(?:;|$)/i);
     expect(cookie).not.toMatch(/(?:^|;)\s*domain=/i);
+  });
+
+  test("does not downgrade cookies for direct HTTP access in production", () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousDirectOrigins = process.env.UPSTAND_DIRECT_ORIGINS;
+    process.env.NODE_ENV = "production";
+    delete process.env.UPSTAND_DIRECT_ORIGINS;
+    try {
+      const response = new Response("ok", {
+        headers: {
+          "set-cookie":
+            "__Secure-better-auth.session_token=token; Path=/; Secure; HttpOnly; Domain=.example.com",
+        },
+      });
+      const normalized = normalizeDirectIpAuthResponse(
+        new Request("http://85.155.230.19:3000/api/auth/sign-in/email"),
+        response,
+      );
+      expect(normalized).toBe(response);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousDirectOrigins === undefined)
+        delete process.env.UPSTAND_DIRECT_ORIGINS;
+      else process.env.UPSTAND_DIRECT_ORIGINS = previousDirectOrigins;
+    }
+  });
+
+  test("does not downgrade cookies when direct origins are enabled without insecure bootstrap", () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousDirectOrigins = process.env.UPSTAND_DIRECT_ORIGINS;
+    const previousInsecureBootstrap =
+      process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP;
+    process.env.NODE_ENV = "production";
+    process.env.UPSTAND_DIRECT_ORIGINS = "true";
+    delete process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP;
+    try {
+      const response = new Response("ok", {
+        headers: {
+          "set-cookie":
+            "__Secure-better-auth.session_token=token; Path=/; Secure; HttpOnly; Domain=.example.com",
+        },
+      });
+      const normalized = normalizeDirectIpAuthResponse(
+        new Request("http://85.155.230.19:3000/api/auth/sign-in/email"),
+        response,
+      );
+      expect(normalized).toBe(response);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousDirectOrigins === undefined)
+        delete process.env.UPSTAND_DIRECT_ORIGINS;
+      else process.env.UPSTAND_DIRECT_ORIGINS = previousDirectOrigins;
+      if (previousInsecureBootstrap === undefined)
+        delete process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP;
+      else
+        process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP =
+          previousInsecureBootstrap;
+    }
   });
 
   test("does not change cookies for configured HTTPS access", () => {

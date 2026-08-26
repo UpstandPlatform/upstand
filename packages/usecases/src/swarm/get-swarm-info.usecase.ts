@@ -1,15 +1,8 @@
-import type Docker from "dockerode";
 import {
   getConfiguredControlPlaneMode,
   getPlatformCapabilities,
 } from "../platform/platform.types";
-import { getDockerInstance } from "../resource/docker-client";
-import {
-  type DockerSwarmInfo,
-  type DockerSwarmNode,
-  isManager,
-  isSwarmActive,
-} from "./swarm.helpers";
+import type { DockerSwarmManagementPort } from "../ports/swarm";
 
 export interface SwarmInfoResult {
   localNodeState: string;
@@ -29,10 +22,10 @@ export interface SwarmInfoResult {
 }
 
 export class GetSwarmInfoUseCase {
-  private readonly docker: Docker;
+  private readonly docker: DockerSwarmManagementPort;
 
-  constructor(docker?: Docker) {
-    this.docker = docker || getDockerInstance();
+  constructor(docker: DockerSwarmManagementPort) {
+    this.docker = docker;
   }
 
   async execute(): Promise<SwarmInfoResult> {
@@ -49,26 +42,22 @@ export class GetSwarmInfoUseCase {
     }
 
     try {
-      const info = (await this.docker.info()) as DockerSwarmInfo;
-      const swarmInfo = info.Swarm;
+      const info = await this.docker.getInfo();
 
-      if (!isSwarmActive(info)) {
-        return inactiveSwarmInfo(swarmInfo?.LocalNodeState || "inactive");
-      }
-      if (!swarmInfo) {
-        return inactiveSwarmInfo("inactive");
+      if (info.localNodeState !== "active") {
+        return inactiveSwarmInfo(info.localNodeState || "inactive");
       }
 
-      const isControlPlane = isManager(info);
+      const isControlPlane = info.controlAvailable;
       if (!isControlPlane) {
         return {
-          localNodeState: swarmInfo.LocalNodeState || "active",
+          localNodeState: info.localNodeState || "active",
           swarmId: "",
-          nodeCount: swarmInfo.Nodes || 0,
+          nodeCount: info.nodeCount,
           isManager: false,
           controlAvailable: false,
-          nodeId: swarmInfo.NodeID || "",
-          nodeAddress: swarmInfo.NodeAddr || "",
+          nodeId: info.nodeId,
+          nodeAddress: info.nodeAddress,
           createdAt: null,
           updatedAt: null,
           dataPathPort: null,
@@ -79,29 +68,29 @@ export class GetSwarmInfoUseCase {
       }
 
       const [swarmInspect, nodes] = await Promise.all([
-        this.docker.swarmInspect(),
-        this.docker.listNodes() as Promise<DockerSwarmNode[]>,
+        this.docker.inspectSwarm(),
+        this.docker.listNodes(),
       ]);
-      const managers = nodes.filter((node) => node.Spec?.Role === "manager");
+      const managers = nodes.filter((node) => node.role === "manager");
 
       return {
-        localNodeState: swarmInfo.LocalNodeState || "inactive",
-        swarmId: swarmInspect.ID || "",
-        nodeCount: swarmInfo?.Nodes || 0,
+        localNodeState: info.localNodeState || "inactive",
+        swarmId: swarmInspect.id,
+        nodeCount: info.nodeCount,
         isManager: isControlPlane,
-        controlAvailable: swarmInfo?.ControlAvailable || false,
-        nodeId: swarmInfo?.NodeID || "",
-        nodeAddress: swarmInfo?.NodeAddr || "",
-        createdAt: swarmInspect.CreatedAt || null,
-        updatedAt: swarmInspect.UpdatedAt || null,
-        dataPathPort: swarmInspect.DataPathPort || null,
-        defaultAddressPools: swarmInspect.DefaultAddrPool || [],
+        controlAvailable: info.controlAvailable,
+        nodeId: info.nodeId,
+        nodeAddress: info.nodeAddress,
+        createdAt: swarmInspect.createdAt,
+        updatedAt: swarmInspect.updatedAt,
+        dataPathPort: swarmInspect.dataPathPort,
+        defaultAddressPools: swarmInspect.defaultAddressPools,
         managers: managers.length,
         activeManagers: managers.filter(
           (node) =>
-            node.Spec?.Availability === "active" &&
-            node.Status?.State === "ready" &&
-            node.ManagerStatus?.Reachability !== "unreachable",
+            node.availability === "active" &&
+            node.status === "ready" &&
+            node.reachability !== "unreachable",
         ).length,
       };
     } catch (error: unknown) {

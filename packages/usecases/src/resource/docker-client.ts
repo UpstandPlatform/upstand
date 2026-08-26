@@ -2,7 +2,6 @@ import type {
   IUnitOfWork,
   ResourceAutoscalingProjection,
 } from "@upstand/domain";
-import type Docker from "dockerode";
 import type { CaddyServicePort } from "../ports/caddy";
 import type {
   DockerCommandPort,
@@ -44,14 +43,10 @@ let resolver: DockerInfrastructureResolverPort = {
   },
 };
 
-let dockerClientFactory: (() => Docker) | null = null;
-
 export function configureDockerInfrastructure(
   nextResolver: DockerInfrastructureResolverPort,
-  clientFactory: () => Docker,
 ): void {
   resolver = nextResolver;
-  dockerClientFactory = clientFactory;
 }
 
 export type DockerDeploymentService = DockerDeploymentPort;
@@ -69,23 +64,36 @@ export function resolveCaddyServiceForServer(
   return resolver.resolveCaddyServiceForServer(serverId, uow);
 }
 
-export function getDockerInstance(): Docker {
-  if (!dockerClientFactory) {
-    throw new Error("Docker infrastructure has not been configured");
-  }
-  return dockerClientFactory();
-}
-
-export function resolveDockerServiceForServer<T>(
+export function resolveDockerServiceForServer<T extends object>(
   serverId: string | null | undefined,
   uow: IUnitOfWork,
   defaultDockerService: T,
 ) {
-  return resolver.resolveDockerServiceForServer(
-    serverId,
-    uow,
-    defaultDockerService as DockerServicePort,
-  ) as Promise<{ dockerService: T; cleanup: () => void }>;
+  return resolver
+    .resolveDockerServiceForServer(
+      serverId,
+      uow,
+      defaultDockerService as DockerServicePort,
+    )
+    .then(({ dockerService, cleanup }) => ({
+      dockerService: restrictCapability(dockerService, defaultDockerService),
+      cleanup,
+    })) as Promise<{ dockerService: T; cleanup: () => void }>;
+}
+
+function restrictCapability<T extends object>(
+  service: DockerServicePort,
+  capabilityTemplate: T,
+): T {
+  return Object.fromEntries(
+    Object.keys(capabilityTemplate).map((method) => {
+      const implementation = service[method as keyof DockerServicePort];
+      if (typeof implementation !== "function") {
+        throw new Error(`Docker capability method is unavailable: ${method}`);
+      }
+      return [method, implementation.bind(service)];
+    }),
+  ) as T;
 }
 
 export function resolveDockerCliEnvironmentForServer(
@@ -95,18 +103,24 @@ export function resolveDockerCliEnvironmentForServer(
   return resolver.resolveDockerCliEnvironmentForServer(serverId, uow);
 }
 
-export function resolveServicesForResource<T>(
+export function resolveServicesForResource<T extends object>(
   resource: ResourceAutoscalingProjection,
   uow: IUnitOfWork,
   defaultDockerService: T,
   defaultCaddyService: CaddyServicePort,
 ) {
-  return resolver.resolveServicesForResource(
-    resource,
-    uow,
-    defaultDockerService as DockerServicePort,
-    defaultCaddyService,
-  ) as Promise<{
+  return resolver
+    .resolveServicesForResource(
+      resource,
+      uow,
+      defaultDockerService as DockerServicePort,
+      defaultCaddyService,
+    )
+    .then(({ dockerService, caddyService, cleanup }) => ({
+      dockerService: restrictCapability(dockerService, defaultDockerService),
+      caddyService,
+      cleanup,
+    })) as Promise<{
     dockerService: T;
     caddyService: CaddyServicePort;
     cleanup: () => void;

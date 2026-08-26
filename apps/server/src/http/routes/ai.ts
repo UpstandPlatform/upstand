@@ -8,6 +8,7 @@ import {
   getUpGalToolNamesForUser,
   isUpGalToolName,
   saveIncomingMessages,
+  UPGAL_MAX_CHAT_TOTAL_TOKENS,
   UPGAL_TOOL_METADATA,
   type UpGalUIMessage,
   validateAndRecoverUpGalMessages,
@@ -31,14 +32,23 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
-import { incrementUpGalDailyBudget } from "./ai-budget";
+import {
+  incrementUpGalDailyBudget,
+  reserveUpGalDailyCostBudget,
+  reserveUpGalDailyTokenBudget,
+  upGalCostCentsForTokens,
+} from "./ai-budget";
 import {
   type McpConnectionLease,
   RedisMcpConnectionLimiter,
 } from "./mcp-connection-limiter";
 
 export function registerAiRoutes(app: Hono<AppEnv>): void {
-  const MAX_AI_REQUEST_BYTES = 512 * 1024;
+  // Keep the complete prompt history bounded as well as the transport body.
+  // This is a cost and availability control: a 512 KiB history can otherwise
+  // become a large provider input on every retry/step.
+  const MAX_AI_REQUEST_BYTES = 256 * 1024;
+  const MAX_AI_INPUT_CHARS = 128 * 1024;
   const MAX_AI_MESSAGES = 100;
   const MAX_MCP_REQUEST_BYTES = 256 * 1024;
   const aiBodyLimit = bodyLimit({
@@ -93,6 +103,9 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     if (Buffer.byteLength(rawBody, "utf8") > MAX_AI_REQUEST_BYTES) {
       return c.json({ error: "UpGal request is too large" }, 413);
     }
+    if (rawBody.length > MAX_AI_INPUT_CHARS) {
+      return c.json({ error: "UpGal conversation is too large" }, 413);
+    }
     let parsedBody: unknown;
     try {
       parsedBody = JSON.parse(rawBody);
@@ -127,16 +140,6 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     );
     if (body.conversationId && !ownedConversation)
       return c.json({ error: "Conversation not found" }, 404);
-    if (!ownedConversation)
-      await c
-        .get("scope")
-        .resolve(AIRepositoryToken)
-        .createConversation({
-          id: conversationId,
-          organizationId: body.organizationId,
-          userId: session.user.id,
-          context: body.page ? { page: body.page } : {},
-        });
     const context = {
       actorKind: "session" as const,
       organizationId: body.organizationId,
@@ -197,6 +200,70 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
             429,
           );
         }
+        let reservation: Awaited<
+          ReturnType<typeof reserveUpGalDailyTokenBudget>
+        >;
+        try {
+          reservation = await reserveUpGalDailyTokenBudget(
+            redis,
+            body.organizationId,
+            UPGAL_MAX_CHAT_TOTAL_TOKENS,
+            env.UPGAL_DAILY_TOKEN_LIMIT,
+            now,
+          );
+        } catch (error) {
+          requestLog.error(error instanceof Error ? error : String(error), {
+            message: "Unable to enforce UpGal daily token budget",
+            organizationId: body.organizationId,
+          });
+          return c.json({ error: "UpGal is temporarily unavailable" }, 503);
+        }
+        if (!reservation) {
+          return c.json(
+            { error: "UpGal daily organization token limit exceeded" },
+            429,
+          );
+        }
+        let costReservation: Awaited<
+          ReturnType<typeof reserveUpGalDailyCostBudget>
+        >;
+        try {
+          costReservation = await reserveUpGalDailyCostBudget(
+            redis,
+            body.organizationId,
+            upGalCostCentsForTokens(
+              UPGAL_MAX_CHAT_TOTAL_TOKENS,
+              env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
+            ),
+            Math.round(env.UPGAL_DAILY_COST_LIMIT_USD * 100),
+            now,
+          );
+        } catch (error) {
+          requestLog.error(error instanceof Error ? error : String(error), {
+            message: "Unable to enforce UpGal daily cost budget",
+            organizationId: body.organizationId,
+          });
+          return c.json({ error: "UpGal is temporarily unavailable" }, 503);
+        }
+        if (!costReservation) {
+          return c.json(
+            { error: "UpGal daily organization cost limit exceeded" },
+            429,
+          );
+        }
+      }
+      // Reserve the AI run before creating persistent conversation state. This
+      // prevents rejected or over-quota requests from becoming unbounded rows.
+      if (!ownedConversation) {
+        await c
+          .get("scope")
+          .resolve(AIRepositoryToken)
+          .createConversation({
+            id: conversationId,
+            organizationId: body.organizationId,
+            userId: session.user.id,
+            context: body.page ? { page: body.page } : {},
+          });
       }
       await saveIncomingMessages(
         conversationId,

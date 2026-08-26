@@ -10,7 +10,7 @@ run does not replace the operator checks below.
 
 Before deploying a release:
 
-1. Use immutable image references for the server, schedules, web, docs, and
+1. Use immutable image references for the server, schedules, deployment-worker, web, docs, and
    monitoring images. CI builds every production image on pull requests.
 2. Provide independent secrets for PostgreSQL, Redis, Better Auth, and
    encryption. Never reuse development values or commit `.env` files.
@@ -33,15 +33,20 @@ Before deploying a release:
    It also runs a disposable non-root service probe on the overlay before
    deploying the stack, so hosts whose Docker kernel cannot attach encrypted
    VXLAN tasks fail before any production services are started.
-   Keep the server and schedules services on an isolated Swarm manager node.
-   They require Docker API access for deployment and provisioning; access to
+   Keep the server, schedules, and broker services on an isolated Swarm
+   manager node. Server and schedules reach Docker only through the constrained
+   broker; the broker is the only service with the host socket, and access to
    that node is equivalent to control of the workloads on it.
 6. The server and schedules containers run as UID 10001. The Swarm-compatible
-   production Compose file maps the Docker socket group as their primary
+   production Compose file gives only the broker the Docker socket group as its
    runtime GID; the installer records it as `UPSTAND_DOCKER_GID`. Do not
    hand-edit or omit that value because the production Compose file refuses to
-   deploy without it. The monitoring sidecar receives the same Docker socket
-   group.
+   deploy without it. The installer generates separate caller credentials per
+   installation: the broker receives both `docker_broker_server_token` and
+   `docker_broker_schedules_token`, while each caller receives only its own
+   secret. The broker derives caller identity from the credential rather than
+   trusting the attribution header. The monitoring sidecar has no Docker
+   socket and uses the broker for Docker telemetry.
    Validate the rebuilt server image against disposable external PostgreSQL
    and Redis services before publishing it:
 
@@ -60,10 +65,21 @@ $env:UPSTAND_EXTERNAL_SMOKE_IMAGE="ghcr.io/your-org/upstand-server:release@sha25
    Docker CLI config directory); do not
    add a persistent writable bind mount to those services without a security
    review.
-7. The installer also requires explicit acknowledgements for the Docker socket
-   boundary (`UPSTAND_ALLOW_DOCKER_SOCKET=true`) and the single-replica
-   operating model (`UPSTAND_ALLOW_SINGLE_REPLICA=true`). These are release
-   gates, not security controls.
+7. The installer provisions a separate encrypted Docker-control network and a
+   constrained Docker broker; only the broker receives the host Docker socket.
+   Production uses HTTPS with a broker CA, a broker server certificate, and
+   caller-specific server/schedules client certificates, while retaining the
+   caller-specific token as defense in depth. The broker maps the verified
+   certificate subject to `server` or `schedules`, rejects certificate/token
+   identity mismatches, emits normalized operation/status/latency audit records,
+   and bounds concurrent Docker operations with
+   `UPSTAND_DOCKER_BROKER_MAX_INFLIGHT` (64 by default, configurable from 1 to
+   256), returning `429` when the daemon-capacity gate is full. The installer
+   rotates the generated identity when it is missing or within 30 days of
+   expiry; retain the CA key in the secured installer secret backup.
+   The single-replica operating model still requires an explicit acknowledgement
+   (`UPSTAND_ALLOW_SINGLE_REPLICA=true`). These are release gates, not security
+   controls.
 8. For general production availability, provide `DATABASE_URL` and `REDIS_URL`
    (or the `UPSTAND_DATABASE_URL` and `UPSTAND_REDIS_URL` aliases) to the
    installer. They are stored as Docker secrets and disable the bundled
@@ -176,7 +192,10 @@ is enabled. Operators can reuse it with
 `OPERATIONAL_STATUS_MAX_OUTBOX_PUBLISHING_COUNT`, and
 `OPERATIONAL_STATUS_MAX_BACKUP_AGE_SECONDS`; set
 `OPERATIONAL_STATUS_REQUIRE_BACKUP_SUCCESS=true` when a successful backup is
-required before accepting traffic. This is a threshold gate, not a dashboard
+required before accepting traffic. Set
+`OPERATIONAL_STATUS_REQUIRE_BACKUP_RESTORE_VERIFICATION=true` for a production
+recovery gate that also requires the most recent successful backup to have a
+later recorded restore verification. This is a threshold gate, not a dashboard
 or on-call system, so retain its output with the target observability record.
 
 Rate limiting is distributed through Redis. If Redis is unavailable, ordinary
@@ -194,6 +213,23 @@ control plane. Keep an additional edge/API-gateway rate limit in front of this
 public cost-bearing endpoint and monitor OpenRouter spend; the application
 limit is defense in depth, not a billing or DDoS boundary.
 
+Authenticated UpGal routes additionally reserve the configured worst-case token
+ceiling atomically per organization and UTC day using
+`UPGAL_DAILY_TOKEN_LIMIT` (1,000,000 by default). Chat requests reserve the
+32,768-token run ceiling before a provider call; provider tests and template
+generation reserve their smaller ceilings. This prevents concurrent replicas
+from admitting more bounded provider work than the organization’s configured
+token budget. They also reserve a conservative cost ceiling using
+`UPGAL_MAX_COST_PER_MILLION_TOKENS_USD` and `UPGAL_DAILY_COST_LIMIT_USD` (both
+default to 100). The cost rate must be set to a reviewed worst-case rate for
+every configured provider/model; it is an admission-control ceiling, not a
+substitute for provider-side billing quotas or invoices.
+
+Set `UPGAL_TOOL_APPROVAL_SECRET` to a dedicated server-only secret of at least
+32 characters. The AI SDK uses it to HMAC-bind approval continuations to the
+exact tool call, so browser payload changes are rejected during replay. Rotate
+it as a separate security boundary from `BETTER_AUTH_SECRET`.
+
 Audit records are retained for `UPSTAND_AUDIT_LOG_RETENTION_DAYS` (365 days by
 default) and pruned by the schedules service in bounded batches. Set the value
 to the organization’s legal/compliance retention period before launch; do not
@@ -203,9 +239,31 @@ disable pruning on a busy installation without a separate archival plan.
 
 Configure backups to an independent S3-compatible destination with bucket
 versioning or object lock where supported. Enable restore verification for
-each schedule. Backup commands are bounded by
+each schedule. Web-server verification now validates the control-plane dump
+with `pg_restore -l` and streams every Caddy archive through a pinned helper
+container with traversal checks; it does not replace the live volumes. Backup
+commands are bounded by
 `UPSTAND_BACKUP_COMMAND_TIMEOUT_MS` (30 minutes by default and 24 hours maximum)
 so a stalled Docker daemon or object store cannot occupy a worker forever.
+Backup storage defaults to S3 SSE-S3 (`AES256`) when no explicit SSE-KMS or
+SSE-C mode is configured; use a reviewed customer-managed key policy when the
+installation requires independent key control. Keep the encryption key and
+object-store credentials in a separate recovery escrow from the backup
+objects, and test that escrow during the restore rehearsal.
+
+The production installer requires an explicit recovery-plan attestation:
+`UPSTAND_DR_OFFSITE_CONFIRMED=true`,
+`UPSTAND_DR_KEY_ESCROW_CONFIRMED=true`,
+`UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true`, positive
+`UPSTAND_DR_RPO_SECONDS` and `UPSTAND_DR_RTO_SECONDS`, and a non-secret
+`UPSTAND_DR_EVIDENCE_REFERENCE`. The installer persists these values.
+Production acceptance additionally requires an installation-specific JSON
+evidence record, detached Ed25519 signature, and public key supplied with
+`--dr-evidence-file`, `--dr-evidence-signature-file`, and
+`--dr-evidence-public-key-file` (or their environment variables). The verifier
+checks the signed schema, data assertion, off-site destination, immutable
+retention, key escrow, measured RPO/RTO, and evidence freshness. The release
+installer verifies the verifier script against the signed release manifest.
 
 Backup execution leases are five minutes and are renewed while a worker is
 active. BullMQ retries an unclaimed delivery, and the schedules service
@@ -302,7 +360,10 @@ mode additionally requires at least two stateless replicas and confirms that
 bundled PostgreSQL and Redis are disabled in favor of external services.
 The release workflow passes explicit external service names and verifies those
 services' health checks, immutable images, non-root runtime, capability drops,
-and overlay attachment as well. Operators using managed PostgreSQL/Redis can
+and overlay attachment as well. The Docker-control overlay is separately
+encrypted and created as an internal Swarm network, so the broker is not
+reachable from outside that overlay; the acceptance gate fails if the
+control network is not internal. Operators using managed PostgreSQL/Redis can
 omit those optional service-name flags because those services are not Swarm
 services.
 The gate also verifies that migration and application services drop all Linux

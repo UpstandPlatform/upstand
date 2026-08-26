@@ -11,6 +11,20 @@ import {
 
 describe("procedure authorization coverage", () => {
   const procedurePaths = Object.keys(appRouter._def.procedures).sort();
+  const procedures = appRouter._def.procedures as unknown as Record<
+    string,
+    { _def: { middlewares: readonly unknown[] } }
+  >;
+
+  function hasAuthenticationGuard(path: string): boolean {
+    const procedure = procedures[path];
+    if (!procedure) {
+      return false;
+    }
+    return procedure._def.middlewares.some((middleware) =>
+      String(middleware).includes("Authentication required"),
+    );
+  }
 
   test("declares every procedure as API-key capable or session-only", () => {
     expect(authorizationCoverageGaps(procedurePaths)).toEqual([]);
@@ -42,5 +56,15 @@ describe("procedure authorization coverage", () => {
     expect(API_KEY_ROUTE_CAPABILITIES).not.toHaveProperty(
       "resource.databaseCommand",
     );
+  });
+
+  test("requires authentication on every non-public procedure", () => {
+    for (const path of procedurePaths) {
+      if ((PUBLIC_PROCEDURES as readonly string[]).includes(path)) {
+        expect(hasAuthenticationGuard(path)).toBe(false);
+      } else {
+        expect(hasAuthenticationGuard(path)).toBe(true);
+      }
+    }
   });
 });

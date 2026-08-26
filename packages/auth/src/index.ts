@@ -24,6 +24,7 @@ export interface AuthConfiguration {
   secret: string;
   nodeEnv: string;
   trustedProxyHeaders?: boolean;
+  directOrigins?: boolean;
   sharedCookieDomain?: string;
   googleClientId?: string;
   googleClientSecret?: string;
@@ -120,13 +121,26 @@ function isDirectHost(hostname: string): boolean {
   );
 }
 
-function isDirectHttpRequest(request: Request): boolean {
+export function isDirectIpHttpRequest(request: Request): boolean {
   try {
     const url = new URL(request.url);
     return url.protocol === "http:" && isDirectHost(url.hostname);
   } catch {
     return false;
   }
+}
+
+function isDirectHttpRequest(request: Request): boolean {
+  if (
+    process.env.NODE_ENV === "production" &&
+    ((process.env.UPSTAND_DIRECT_ORIGINS !== "true" &&
+      process.env.UPSTAND_DIRECT_ORIGINS !== "1") ||
+      (process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP !== "true" &&
+        process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP !== "1"))
+  ) {
+    return false;
+  }
+  return isDirectIpHttpRequest(request);
 }
 
 function getSetCookieHeaders(headers: Headers): string[] {
@@ -282,7 +296,13 @@ export function createAuth(options: {
         if (origin) {
           try {
             const parsed = new URL(origin);
-            if (isDirectHost(parsed.hostname)) {
+            const requestUrl = new URL(request.url);
+            if (
+              configuration.directOrigins === true &&
+              isDirectHost(parsed.hostname) &&
+              isDirectHost(requestUrl.hostname) &&
+              parsed.hostname === requestUrl.hostname
+            ) {
               origins.push(parsed.origin);
             }
           } catch {}

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
+  createDockerClientFromEnvironment,
   createRemoteDocker,
   createRemoteDockerCliEnvironment,
   resolveDockerCliEnvironmentForServer,
@@ -12,6 +16,104 @@ const missingServerUow = {
 } as never;
 
 describe("remote Docker client", () => {
+  test("honors an explicit Unix-socket Docker transport", () => {
+    const docker = createDockerClientFromEnvironment(
+      "unix:///run/upstand/docker-broker.sock",
+    );
+    expect(
+      Reflect.get(Reflect.get(docker, "modem") as object, "socketPath"),
+    ).toBe("/run/upstand/docker-broker.sock");
+  });
+
+  test("honors an explicit constrained TCP Docker transport", () => {
+    const docker = createDockerClientFromEnvironment(
+      "tcp://docker-broker:2375",
+    );
+    const modem: unknown = Reflect.get(docker, "modem");
+    expect(modem).toMatchObject({ host: "docker-broker", port: 2375 });
+  });
+
+  test("adds the broker secret to HTTP Docker requests", () => {
+    const previous = process.env.UPSTAND_DOCKER_BROKER_TOKEN;
+    process.env.UPSTAND_DOCKER_BROKER_TOKEN = "x".repeat(32);
+    try {
+      const docker = createDockerClientFromEnvironment(
+        "http://docker-broker:2375",
+      );
+      const modem: unknown = Reflect.get(docker, "modem");
+      expect(modem).toMatchObject({
+        headers: { "X-Upstand-Docker-Broker-Token": "x".repeat(32) },
+      });
+    } finally {
+      if (previous === undefined)
+        delete process.env.UPSTAND_DOCKER_BROKER_TOKEN;
+      else process.env.UPSTAND_DOCKER_BROKER_TOKEN = previous;
+    }
+  });
+
+  test("supports per-resource Docker request headers", () => {
+    const docker = createDockerClientFromEnvironment(
+      "http://docker-broker:2375",
+      { "X-Upstand-Resource-ID": "resource-1" },
+    );
+    const modem: unknown = Reflect.get(docker, "modem");
+    expect(modem).toMatchObject({
+      headers: { "X-Upstand-Resource-ID": "resource-1" },
+    });
+  });
+
+  test("supports HTTPS Docker broker transport with client certificates", () => {
+    const previous = {
+      ca: process.env.UPSTAND_DOCKER_BROKER_CA_FILE,
+      cert: process.env.UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE,
+      key: process.env.UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE,
+    };
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-docker-client-test-"),
+    );
+    const files = {
+      ca: path.join(directory, "ca.pem"),
+      cert: path.join(directory, "client.pem"),
+      key: path.join(directory, "client-key.pem"),
+    };
+    fs.writeFileSync(files.ca, "ca");
+    fs.writeFileSync(files.cert, "cert");
+    fs.writeFileSync(files.key, "key");
+    process.env.UPSTAND_DOCKER_BROKER_CA_FILE = files.ca;
+    process.env.UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE = files.cert;
+    process.env.UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE = files.key;
+    try {
+      const docker = createDockerClientFromEnvironment(
+        "https://docker-broker:2375",
+      );
+      const modem: unknown = Reflect.get(docker, "modem");
+      expect(modem).toMatchObject({
+        host: "docker-broker",
+        port: 2375,
+        protocol: "https",
+        ca: Buffer.from("ca"),
+        cert: Buffer.from("cert"),
+        key: Buffer.from("key"),
+      });
+    } finally {
+      for (const [variable, value] of Object.entries({
+        UPSTAND_DOCKER_BROKER_CA_FILE: previous.ca,
+        UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: previous.cert,
+        UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE: previous.key,
+      })) {
+        if (value === undefined) delete process.env[variable];
+        else process.env[variable] = value;
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects unsupported Docker transports", () => {
+    expect(() =>
+      createDockerClientFromEnvironment("ssh://docker-host"),
+    ).toThrow("DOCKER_HOST must use");
+  });
+
   test("uses a local Unix socket instead of Dockerode's SSH URL transport", () => {
     const docker = createRemoteDocker({
       host: "ssh://203.0.113.10",

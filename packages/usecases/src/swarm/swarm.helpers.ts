@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
 import { ConflictError, ValidationError } from "@upstand/domain";
 import { env } from "@upstand/env/server";
-import type Docker from "dockerode";
+import type { DockerSwarmInfoPort } from "../ports/swarm";
 
 export const UPSTAND_SWARM_NETWORK = env.DOCKER_NETWORK || "upstand-network";
 
@@ -48,12 +48,33 @@ export interface DockerOverlayNetwork {
   Driver: string;
   Scope: string;
   Attachable: boolean;
+  Labels?: Record<string, string>;
   Options?: Record<string, string>;
 }
 
 export interface DockerNetworkCreateResult {
   id?: string;
   Id?: string;
+}
+
+/**
+ * Minimal capabilities required by the Swarm policy helpers. The use-case
+ * layer deliberately does not depend on dockerode; infrastructure adapts
+ * its Docker client to this structural boundary.
+ */
+export interface DockerSwarmManagerClient {
+  info(): Promise<unknown>;
+  swarmInit(options: {
+    AdvertiseAddr: string;
+    ListenAddr: string;
+  }): Promise<unknown>;
+}
+
+export interface DockerSwarmNetworkClient {
+  getNetwork(name: string): {
+    inspect(): Promise<unknown>;
+  };
+  createNetwork?(...args: never[]): Promise<unknown>;
 }
 
 const LOOPBACK_OR_UNSPECIFIED_ADDRESSES = new Set([
@@ -145,8 +166,21 @@ export function isManager(info: DockerSwarmInfo): boolean {
   return isSwarmActive(info) && info.Swarm?.ControlAvailable === true;
 }
 
+export function assertActiveManager(info: DockerSwarmInfoPort): void {
+  if (info.localNodeState !== "active") {
+    throw new ConflictError(
+      "Docker Swarm is inactive. Initialize a cluster before managing it.",
+    );
+  }
+  if (!info.controlAvailable) {
+    throw new ConflictError(
+      "This Upstand instance is attached to a Swarm worker. Connect the control plane to a manager node to manage the cluster.",
+    );
+  }
+}
+
 export async function requireActiveManager(
-  docker: Docker,
+  docker: DockerSwarmManagerClient,
 ): Promise<DockerSwarmInfo> {
   let info = (await docker.info()) as DockerSwarmInfo;
 
@@ -182,18 +216,19 @@ export async function requireActiveManager(
 }
 
 export async function ensureUpstandOverlayNetwork(
-  docker: Docker,
+  docker: DockerSwarmNetworkClient,
 ): Promise<{ id: string; created: boolean }> {
   return ensureManagedOverlayNetwork(
     docker,
     UPSTAND_SWARM_NETWORK,
     "application-routing",
     true,
+    "",
   );
 }
 
 export async function ensureResourceOverlayNetwork(
-  docker: Docker,
+  docker: DockerSwarmNetworkClient,
   resourceId: string,
 ): Promise<{ id: string; name: string; created: boolean }> {
   const name = getResourceOverlayNetworkName(resourceId);
@@ -202,15 +237,17 @@ export async function ensureResourceOverlayNetwork(
     name,
     "resource-isolation",
     false,
+    resourceId,
   );
   return { ...network, name };
 }
 
 async function ensureManagedOverlayNetwork(
-  docker: Docker,
+  docker: DockerSwarmNetworkClient,
   name: string,
   purpose: string,
   requireEncryption: boolean,
+  resourceId: string,
 ): Promise<{ id: string; created: boolean }> {
   const network = docker.getNetwork(name);
   const encryptionRequired =
@@ -243,6 +280,11 @@ async function ensureManagedOverlayNetwork(
   }
 
   let created: DockerNetworkCreateResult;
+  if (!docker.createNetwork) {
+    throw new ConflictError(
+      `Network '${name}' is missing and the Docker capability cannot create networks.`,
+    );
+  }
   try {
     created = (await docker.createNetwork({
       Name: name,
@@ -253,8 +295,9 @@ async function ensureManagedOverlayNetwork(
       Labels: {
         "com.upstand.managed": "true",
         "com.upstand.purpose": purpose,
+        ...(resourceId ? { "com.upstand.resource-id": resourceId } : {}),
       },
-    })) as DockerNetworkCreateResult;
+    } as never)) as DockerNetworkCreateResult;
   } catch (error: unknown) {
     // Multiple deployment workers can converge on the same network at once.
     // Docker may report the loser as a conflict even though the desired
@@ -300,8 +343,10 @@ export function isDockerNotFoundError(error: unknown): boolean {
   );
 }
 
-export function managerNodeCount(nodes: DockerSwarmNode[]): number {
-  return nodes.filter((node) => node.Spec?.Role === "manager").length;
+export function managerNodeCount(
+  nodes: import("../ports/swarm").DockerSwarmNodePort[],
+): number {
+  return nodes.filter((node) => node.role === "manager").length;
 }
 
 export function activeManagerNodeCount(nodes: DockerSwarmNode[]): number {
@@ -315,23 +360,23 @@ export function activeManagerNodeCount(nodes: DockerSwarmNode[]): number {
 }
 
 export function assertSafeManagerRemoval(
-  target: DockerSwarmNode,
-  nodes: DockerSwarmNode[],
+  target: import("../ports/swarm").DockerSwarmNodePort,
+  nodes: import("../ports/swarm").DockerSwarmNodePort[],
   localNodeId?: string,
 ): void {
-  if (target.ID === localNodeId) {
+  if (target.id === localNodeId) {
     throw new ConflictError(
       "The manager running Upstand cannot be changed from this control plane. Perform this operation from another reachable manager.",
     );
   }
 
-  if (target.ManagerStatus?.Leader) {
+  if (target.leader) {
     throw new ConflictError(
       "The current Swarm leader cannot be demoted or removed. Elect another leader first.",
     );
   }
 
-  if (target.Spec?.Role === "manager" && managerNodeCount(nodes) <= 1) {
+  if (target.role === "manager" && managerNodeCount(nodes) <= 1) {
     throw new ConflictError(
       "Refusing to remove the cluster's last manager. Promote a reachable worker first.",
     );

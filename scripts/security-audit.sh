@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# image-size is pulled only by the optional desktop DMG maker through appdmg.
-# The two upstream advisories currently have no patched release, so keep the
-# high-severity gate active for every other dependency while documenting this
-# narrow, build-only exception. Do not use image-size for untrusted runtime
-# input.
-# Electron Forge also depends on extract-zip through @electron/packager. The
-# current advisory has no patched release; Upstand uses that path only while
-# packaging trusted Electron distributions in CI, never for user-supplied
-# archives or server/runtime data.
-bun audit --audit-level=high \
-  --ignore GHSA-w3rx-r6r6-pgpr \
-  --ignore GHSA-5p2g-fcmc-qvqq \
-  --ignore GHSA-jmr9-qjv8-65gv
+# High-severity dependency advisories are release-blocking. Electron's
+# packaging extractor is replaced by the checked-in compatibility shim, and
+# the vulnerable DMG maker is intentionally not part of the supported build.
+bun_bin="${BUN_BIN:-bun}"
+if ! command -v "$bun_bin" >/dev/null 2>&1 && command -v bun.exe >/dev/null 2>&1; then
+  bun_bin="bun.exe"
+fi
+command -v "$bun_bin" >/dev/null 2>&1 || {
+  echo "security-audit: Bun runtime is required" >&2
+  exit 1
+}
+"$bun_bin" audit --audit-level=high

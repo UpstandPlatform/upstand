@@ -91,6 +91,58 @@ services:
       );
     });
 
+    test("rejects interpolated and long-syntax bind mounts", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    volumes:
+      - \${HOST_PATH}:/data
+`),
+      ).toThrow("host bind or Docker socket");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    volumes:
+      - type: bind
+        source: app-data
+        target: /data
+`),
+      ).toThrow("host bind or Docker socket");
+    });
+
+    test("rejects host-backed volume and network driver options", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+volumes:
+  data:
+    driver: local
+    driver_opts:
+      device: /
+`),
+      ).toThrow("host-backed driver options");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+networks:
+  data:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: host0
+`),
+      ).toThrow("host-backed driver options");
+    });
+
     test("rejects unsafe security options (seccomp:unconfined, apparmor:unconfined)", () => {
       const compose = `
 services:

@@ -4,7 +4,7 @@ import {
 } from "@better-auth-ui/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { authClient } from "@/lib/auth-client";
+import { authUiClient } from "@/lib/auth-client";
 import { getUserFacingError } from "@/lib/error-message";
 import { trpc } from "@/utils/trpc";
 
@@ -22,7 +22,7 @@ export function useMembersSettings(organizationId: string) {
   });
 
   const { data: invites, refetch: refetchInvites } =
-    useListOrganizationInvitations(authClient, {
+    useListOrganizationInvitations(authUiClient, {
       query: { organizationId },
     });
 
@@ -72,7 +72,7 @@ export function useMembersSettings(organizationId: string) {
       toast.error(getUserFacingError(error, "Unable to remove member")),
   });
 
-  const { mutate: cancelInvitation } = useCancelInvitation(authClient, {
+  const { mutate: cancelInvitation } = useCancelInvitation(authUiClient, {
     onSuccess: () => {
       toast.success("Invitation cancelled");
       void refetchInvites();

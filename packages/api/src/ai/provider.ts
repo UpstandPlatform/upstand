@@ -97,6 +97,24 @@ export async function assertSafeProviderBaseUrl(
   }
 }
 
+export function assertAllowedModel(model: string, provider: AIProvider): void {
+  const allowedModels = (env.UPGAL_ALLOWED_MODELS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (allowedModels.length === 0) return;
+  if (
+    allowedModels.includes(model) ||
+    allowedModels.includes(`${provider}/${model}`)
+  ) {
+    return;
+  }
+  throw new UpGalError(
+    "validation",
+    "The selected AI model is not in the operator allowlist.",
+  );
+}
+
 function decryptProviderApiKey(config: AIProviderConfigRecord | null) {
   if (
     !config?.apiKeyCiphertext ||
@@ -174,6 +192,7 @@ export async function getUpGalProvider(
   }
 
   await assertSafeProviderBaseUrl(config.baseUrl, config.provider);
+  assertAllowedModel(config.model, config.provider);
 
   const apiKey = overrides.apiKey?.trim() || decryptProviderApiKey(stored);
   if (!apiKey) {

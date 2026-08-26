@@ -1,6 +1,5 @@
-import type Docker from "dockerode";
-import { getDockerInstance } from "../resource/docker-client";
-import { type DockerSwarmNode, requireActiveManager } from "./swarm.helpers";
+import type { DockerSwarmManagementPort } from "../ports/swarm";
+import { assertActiveManager } from "./swarm.helpers";
 
 export interface SwarmNodeResult {
   id: string;
@@ -18,30 +17,31 @@ export interface SwarmNodeResult {
 }
 
 export class GetSwarmNodesUseCase {
-  private readonly docker: Docker;
+  private readonly docker: DockerSwarmManagementPort;
 
-  constructor(docker?: Docker) {
-    this.docker = docker || getDockerInstance();
+  constructor(docker: DockerSwarmManagementPort) {
+    this.docker = docker;
   }
 
   async execute(): Promise<SwarmNodeResult[]> {
-    const info = await requireActiveManager(this.docker);
-    const nodes = (await this.docker.listNodes()) as DockerSwarmNode[];
+    const info = await this.docker.getInfo();
+    assertActiveManager(info);
+    const nodes = await this.docker.listNodes();
 
     return nodes
       .map((node) => ({
-        id: node.ID,
-        hostname: node.Description?.Hostname || node.Spec?.Name || node.ID,
-        role: node.Spec?.Role || "worker",
-        status: node.Status?.State || "unknown",
-        availability: node.Spec?.Availability || "active",
-        ip: node.Status?.Addr || "",
-        engineVersion: node.Description?.Engine?.EngineVersion || "unknown",
-        version: node.Version?.Index || 0,
-        leader: node.ManagerStatus?.Leader === true,
-        managerAddr: node.ManagerStatus?.Addr || "",
-        reachability: node.ManagerStatus?.Reachability || "",
-        isLocalNode: node.ID === info.Swarm?.NodeID,
+        id: node.id,
+        hostname: node.hostname,
+        role: node.role,
+        status: node.status,
+        availability: node.availability,
+        ip: node.ip,
+        engineVersion: node.engineVersion,
+        version: node.version,
+        leader: node.leader,
+        managerAddr: node.managerAddr,
+        reachability: node.reachability,
+        isLocalNode: node.isLocalNode,
       }))
       .sort((left, right) => {
         if (left.leader !== right.leader) return left.leader ? -1 : 1;

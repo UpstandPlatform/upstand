@@ -19,7 +19,7 @@ export const previewDeployment = pgTable(
     pullRequestId: integer("pull_request_id").notNull(),
     branchName: text("branch_name").notNull(),
     appName: text("app_name").notNull().unique(),
-    status: text("status").notNull().default("idle"), // 'idle' | 'running' | 'success' | 'failed'
+    status: text("status").notNull().default("idle"), // 'idle' | 'running' | 'success' | 'failed' | 'cleanup_pending'
     domain: text("domain").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")

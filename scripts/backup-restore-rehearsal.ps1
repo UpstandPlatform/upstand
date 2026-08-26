@@ -15,6 +15,7 @@ $minioImage = "minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e70
 $postgresImage = "postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
 $maxTotalSeconds = if ($env:UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS) { [int]$env:UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS } else { 0 }
 $maxRestoreSeconds = if ($env:UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS) { [int]$env:UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS } else { 0 }
+$evidenceFile = $env:UPSTAND_BACKUP_REHEARSAL_EVIDENCE_FILE
 
 if ($maxTotalSeconds -lt 0 -or $maxTotalSeconds -gt 604800) {
   throw "UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS must be between 0 and 604800"
@@ -50,6 +51,39 @@ function Assert-Budget {
   if ($MaximumSeconds -gt 0 -and $ElapsedSeconds -gt $MaximumSeconds) {
     throw "$Name exceeded its budget: elapsed=$([math]::Round($ElapsedSeconds, 3))s budget=${MaximumSeconds}s"
   }
+}
+
+function Write-Evidence {
+  param(
+    [Parameter(Mandatory)][double]$ReadinessSeconds,
+    [Parameter(Mandatory)][double]$TransferSeconds,
+    [Parameter(Mandatory)][double]$RestoreSeconds,
+    [Parameter(Mandatory)][double]$TotalSeconds
+  )
+  if ([string]::IsNullOrWhiteSpace($evidenceFile)) {
+    return
+  }
+  $parent = Split-Path -Parent $evidenceFile
+  if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
+    throw "DR rehearsal evidence directory does not exist: $parent"
+  }
+  [ordered]@{
+    schema = "upstand.backup-restore-rehearsal.v1"
+    run_id = $runId
+    completed_at = [DateTime]::UtcNow.ToString("o")
+    image = $serverImage
+    minio_image = $minioImage
+    postgres_image = $postgresImage
+    scope = "synthetic-disposable"
+    result = "passed"
+    data_assertion = $true
+    readiness_seconds = [math]::Round($ReadinessSeconds, 3)
+    transfer_seconds = [math]::Round($TransferSeconds, 3)
+    restore_seconds = [math]::Round($RestoreSeconds, 3)
+    total_seconds = [math]::Round($TotalSeconds, 3)
+    max_restore_seconds = $maxRestoreSeconds
+    max_total_seconds = $maxTotalSeconds
+  } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $evidenceFile -Encoding utf8 -NoNewline
 }
 
 foreach ($name in $names) {
@@ -142,6 +176,7 @@ try {
 
   $totalSeconds = $stopwatch.Elapsed.TotalSeconds
   Assert-Budget "total" $totalSeconds $maxTotalSeconds
+  Write-Evidence $readinessSeconds $transferSeconds $restoreSeconds $totalSeconds
   Write-Output ("backup-restore-rehearsal: metrics readiness_seconds={0:N3} transfer_seconds={1:N3} restore_seconds={2:N3} total_seconds={3:N3} max_restore_seconds={4} max_total_seconds={5}" -f $readinessSeconds, $transferSeconds, $restoreSeconds, $totalSeconds, $maxRestoreSeconds, $maxTotalSeconds)
   Write-Output "backup-restore-rehearsal: passed (MinIO upload/download, PostgreSQL restore, data assertion)"
 } finally {

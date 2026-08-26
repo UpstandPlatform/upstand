@@ -4,7 +4,7 @@ import type {
 } from "@upstand/domain";
 import { parseResourceAdvancedConfig } from "@upstand/domain";
 import type { CaddyServicePort } from "../ports/caddy";
-import type { DockerServicePort } from "../ports/docker";
+import type { DockerAutoscalingPort } from "../ports/docker";
 import { resolveServicesForResource } from "../resource/docker-client";
 import { requestMonitoringAgent } from "../server/monitoring-agent.client";
 import { parseAccessLogEntries } from "../web-server/caddy-access-logs";
@@ -43,7 +43,7 @@ export type AutoscalingDecision = {
 export class AutoscalingService {
   constructor(
     private readonly uow: IUnitOfWork,
-    private readonly docker: DockerServicePort,
+    private readonly docker: DockerAutoscalingPort,
     private readonly lastScaledAt = new Map<string, number>(),
     private readonly caddy?: CaddyServicePort,
   ) {}
@@ -102,7 +102,7 @@ export class AutoscalingService {
     config: ReturnType<typeof parseResourceAdvancedConfig>["autoscaling"],
     current: number,
     metrics: MetricRecord[],
-    docker: DockerServicePort,
+    docker: DockerAutoscalingPort,
   ): Promise<AutoscalingDecision | null> {
     if (metrics.length === 0) return null;
     const cpu = average(metrics, ["CPU", "cpu"]);
@@ -193,7 +193,7 @@ export class AutoscalingService {
 
   private async currentReplicaCount(
     resource: ResourceAutoscalingProjection,
-    docker: DockerServicePort,
+    docker: DockerAutoscalingPort,
   ): Promise<number> {
     const containers = await docker.getContainers(resource);
     return containers.length;

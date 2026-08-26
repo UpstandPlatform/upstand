@@ -31,6 +31,14 @@ describe("S3 Backup & Restore Encryption Storage Destination", () => {
     ).rejects.toThrow();
   });
 
+  test("defaults backup objects to SSE-S3 when no encryption mode is supplied", () => {
+    const storage = toBackupStorageDestination(createMockDestination());
+
+    expect(storage.rcloneEnvironment).toMatchObject({
+      RCLONE_CONFIG_UPSTAND_SERVER_SIDE_ENCRYPTION: "AES256",
+    });
+  });
+
   test("configures rclone flags with SSE-S3 (AES256) encryption", () => {
     const destination = createMockDestination([
       "--s3-server-side-encryption=AES256",
