@@ -6,6 +6,12 @@ const authenticationCounters = new Map<"authenticated" | "rejected", number>();
 let requestCount = 0;
 let requestDurationSeconds = 0;
 
+export type DatabasePoolMetrics = {
+  total: number;
+  idle: number;
+  waiting: number;
+};
+
 export function recordServerRequest(
   method: string,
   status: number,
@@ -26,7 +32,10 @@ export function recordAuthenticationAttempt(authenticated: boolean): void {
   );
 }
 
-export function renderServerMetrics(now = Date.now()): string {
+export function renderServerMetrics(
+  now = Date.now(),
+  databasePool?: DatabasePoolMetrics,
+): string {
   const lines = [
     "# HELP upstand_server_requests_total Total HTTP requests handled by the API process.",
     "# TYPE upstand_server_requests_total counter",
@@ -64,6 +73,32 @@ export function renderServerMetrics(now = Date.now()): string {
         `upstand_server_authentication_attempts_total{outcome="${outcome}"} ${authenticationCounters.get(outcome) ?? 0}`,
     ),
   );
+  if (databasePool) {
+    for (const value of [
+      databasePool.total,
+      databasePool.idle,
+      databasePool.waiting,
+    ]) {
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(
+          "Database pool metrics must be finite and non-negative",
+        );
+      }
+    }
+    lines.splice(
+      lines.length - 1,
+      0,
+      "# HELP upstand_server_database_pool_total PostgreSQL clients currently allocated to the API pool.",
+      "# TYPE upstand_server_database_pool_total gauge",
+      `upstand_server_database_pool_total ${Math.floor(databasePool.total)}`,
+      "# HELP upstand_server_database_pool_idle PostgreSQL idle clients currently available to the API pool.",
+      "# TYPE upstand_server_database_pool_idle gauge",
+      `upstand_server_database_pool_idle ${Math.floor(databasePool.idle)}`,
+      "# HELP upstand_server_database_pool_waiting Requests waiting for a PostgreSQL client in the API pool.",
+      "# TYPE upstand_server_database_pool_waiting gauge",
+      `upstand_server_database_pool_waiting ${Math.floor(databasePool.waiting)}`,
+    );
+  }
   return lines.join("\n");
 }
 

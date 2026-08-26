@@ -37,6 +37,16 @@ groups:
           summary: Upstand API resident memory is above 8 GiB
           description: Investigate request or model-output amplification before the process is OOM-killed.
 
+      - alert: UpstandServerDatabasePoolSaturated
+        expr: upstand_server_database_pool_waiting{job="upstand-server"} > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-server
+        annotations:
+          summary: Upstand API requests are waiting for PostgreSQL connections
+          description: The API database pool is saturated; inspect PostgreSQL capacity, slow queries, and request pressure before availability degrades.
+
       - alert: UpstandServerAuthenticationFailuresHigh
         expr: |
           (

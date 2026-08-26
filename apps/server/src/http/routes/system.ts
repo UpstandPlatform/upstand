@@ -3,6 +3,7 @@ import { getRateLimiterHealth } from "@upstand/api";
 import { auth } from "@upstand/api/auth";
 import { isInstanceOwner } from "@upstand/api/permissions";
 import { normalizeDirectIpAuthRequest } from "@upstand/auth";
+import { pool } from "@upstand/db";
 import { env } from "@upstand/env/server";
 import { pingRedis, redis } from "@upstand/redis";
 import {
@@ -149,9 +150,17 @@ export function registerSystemRoutes(
         timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
       if (!matches) return c.text("Unauthorized", 401);
     }
-    return c.text(renderServerMetrics(), 200, {
-      "content-type": "text/plain; version=0.0.4; charset=utf-8",
-    });
+    return c.text(
+      renderServerMetrics(Date.now(), {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount,
+      }),
+      200,
+      {
+        "content-type": "text/plain; version=0.0.4; charset=utf-8",
+      },
+    );
   });
 
   app.get("/", (c) => c.text("OK"));
