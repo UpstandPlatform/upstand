@@ -6,16 +6,6 @@ export interface RedisScriptClient {
   ): Promise<unknown>;
 }
 
-export type UpGalTokenBudgetReservation = {
-  totalTokens: number;
-  limit: number;
-};
-
-export type UpGalCostBudgetReservation = {
-  totalCents: number;
-  limitCents: number;
-};
-
 const INCREMENT_DAILY_BUDGET_SCRIPT = `
 local count = redis.call("INCR", KEYS[1])
 if count == 1 then
@@ -24,21 +14,28 @@ end
 return count
 `;
 
-const RESERVE_DAILY_TOKEN_BUDGET_SCRIPT = `
-local requested = tonumber(ARGV[1])
-local limit = tonumber(ARGV[2])
-local current = tonumber(redis.call("GET", KEYS[1]) or "0")
-if not requested or not limit or requested < 1 or limit < 1 then
+const RESERVE_DAILY_TOKEN_AND_COST_BUDGET_SCRIPT = `
+local requestedTokens = tonumber(ARGV[1])
+local tokenLimit = tonumber(ARGV[2])
+local requestedCents = tonumber(ARGV[3])
+local costLimit = tonumber(ARGV[4])
+if not requestedTokens or not tokenLimit or not requestedCents or not costLimit or requestedTokens < 1 or tokenLimit < 1 or requestedCents < 1 or costLimit < 1 then
   return -1
 end
-if current + requested > limit then
+local currentTokens = tonumber(redis.call("GET", KEYS[1]) or "0")
+local currentCents = tonumber(redis.call("GET", KEYS[2]) or "0")
+if currentTokens + requestedTokens > tokenLimit or currentCents + requestedCents > costLimit then
   return 0
 end
-local total = redis.call("INCRBY", KEYS[1], requested)
-if total == requested then
-  redis.call("EXPIRE", KEYS[1], ARGV[3])
+local totalTokens = redis.call("INCRBY", KEYS[1], requestedTokens)
+local totalCents = redis.call("INCRBY", KEYS[2], requestedCents)
+if totalTokens == requestedTokens then
+  redis.call("EXPIRE", KEYS[1], ARGV[5])
 end
-return total
+if totalCents == requestedCents then
+  redis.call("EXPIRE", KEYS[2], ARGV[5])
+end
+return { totalTokens, totalCents }
 `;
 
 export function upGalDailyBudgetKey(
@@ -116,73 +113,66 @@ export async function incrementUpGalDailyBudget(
 }
 
 /**
- * Reserve the worst-case token ceiling for a request before calling a model.
- * Redis evaluates the limit and increment atomically, so concurrent replicas
- * cannot admit more reserved provider work than the organization budget.
+ * Reserve the token and cost ceilings in one Redis transaction. Both keys are
+ * checked before either is incremented, so a rejected cost reservation cannot
+ * consume token quota without admitting a model call.
  */
-export async function reserveUpGalDailyTokenBudget(
+export async function reserveUpGalDailyTokenAndCostBudget(
   client: RedisScriptClient,
   organizationId: string,
   requestedTokens: number,
-  limit: number,
+  tokenLimit: number,
+  requestedCents: number,
+  costLimitCents: number,
   now = new Date(),
-): Promise<UpGalTokenBudgetReservation | null> {
+): Promise<{
+  totalTokens: number;
+  tokenLimit: number;
+  totalCents: number;
+  costLimitCents: number;
+} | null> {
   if (
     !Number.isSafeInteger(requestedTokens) ||
     requestedTokens < 1 ||
-    !Number.isSafeInteger(limit) ||
-    limit < 1
-  ) {
-    throw new Error("UpGal token budget values must be positive safe integers");
-  }
-  const result = await client.eval(
-    RESERVE_DAILY_TOKEN_BUDGET_SCRIPT,
-    1,
-    upGalDailyTokenBudgetKey(organizationId, now),
-    String(requestedTokens),
-    String(limit),
-    String(secondsUntilNextUtcDay(now)),
-  );
-  const totalTokens = Number(result);
-  if (totalTokens === 0) return null;
-  if (!Number.isSafeInteger(totalTokens) || totalTokens < requestedTokens) {
-    throw new Error("Redis returned an invalid UpGal token budget reservation");
-  }
-  return { totalTokens, limit };
-}
-
-/**
- * Reserve a conservative provider-cost ceiling before a model call. The
- * caller supplies a reviewed maximum USD price per million tokens; cents are
- * used so Redis never has to perform floating-point accounting.
- */
-export async function reserveUpGalDailyCostBudget(
-  client: RedisScriptClient,
-  organizationId: string,
-  requestedCents: number,
-  limitCents: number,
-  now = new Date(),
-): Promise<UpGalCostBudgetReservation | null> {
-  if (
+    !Number.isSafeInteger(tokenLimit) ||
+    tokenLimit < 1 ||
     !Number.isSafeInteger(requestedCents) ||
     requestedCents < 1 ||
-    !Number.isSafeInteger(limitCents) ||
-    limitCents < 1
+    !Number.isSafeInteger(costLimitCents) ||
+    costLimitCents < 1
   ) {
-    throw new Error("UpGal cost budget values must be positive safe integers");
+    throw new Error(
+      "UpGal token and cost budget values must be positive safe integers",
+    );
   }
   const result = await client.eval(
-    RESERVE_DAILY_TOKEN_BUDGET_SCRIPT,
-    1,
+    RESERVE_DAILY_TOKEN_AND_COST_BUDGET_SCRIPT,
+    2,
+    upGalDailyTokenBudgetKey(organizationId, now),
     upGalDailyCostBudgetKey(organizationId, now),
+    String(requestedTokens),
+    String(tokenLimit),
     String(requestedCents),
-    String(limitCents),
+    String(costLimitCents),
     String(secondsUntilNextUtcDay(now)),
   );
-  const totalCents = Number(result);
-  if (totalCents === 0) return null;
-  if (!Number.isSafeInteger(totalCents) || totalCents < requestedCents) {
-    throw new Error("Redis returned an invalid UpGal cost budget reservation");
+  if (result === 0) return null;
+  if (!Array.isArray(result) || result.length !== 2) {
+    throw new Error(
+      "Redis returned an invalid UpGal token and cost reservation",
+    );
   }
-  return { totalCents, limitCents };
+  const totalTokens = Number(result[0]);
+  const totalCents = Number(result[1]);
+  if (
+    !Number.isSafeInteger(totalTokens) ||
+    totalTokens < requestedTokens ||
+    !Number.isSafeInteger(totalCents) ||
+    totalCents < requestedCents
+  ) {
+    throw new Error(
+      "Redis returned an invalid UpGal token and cost reservation",
+    );
+  }
+  return { totalTokens, tokenLimit, totalCents, costLimitCents };
 }
