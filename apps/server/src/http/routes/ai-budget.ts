@@ -4,6 +4,7 @@ export {
   reserveUpGalDailyRunTokenAndCostBudget,
   reserveUpGalDailyTokenAndCostBudget,
   secondsUntilNextUtcDay,
+  upGalConservativeCostPerMillionTokensUsd,
   upGalCostCentsForTokens,
   upGalDailyBudgetKey,
   upGalDailyCostBudgetKey,

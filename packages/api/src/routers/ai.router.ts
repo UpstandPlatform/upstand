@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { AI_FEATURES, AI_PROVIDERS } from "@upstand/domain";
+import { AI_FEATURES, AI_PROVIDERS, type AIProvider } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { redis } from "@upstand/redis";
 import { AIRepositoryToken } from "@upstand/repositories/tokens";
 import { z } from "zod";
+import { getUpGalProviderIdentity } from "../ai/provider";
 import {
   generateComposeTemplate,
   getConversationForUser,
@@ -17,6 +18,7 @@ import { UpGalError } from "../ai/upgal-errors";
 import { UpGalPageContextSchema } from "../ai/upgal-page-context";
 import {
   reserveUpGalDailyRunTokenAndCostBudget,
+  upGalConservativeCostPerMillionTokensUsd,
   upGalCostCentsForTokens,
 } from "../ai-budget";
 import {
@@ -45,12 +47,16 @@ async function enforceAiDailyBudget(
   organizationId: string,
   log: { error(error: unknown, context?: Record<string, unknown>): void },
   requestedTokens = 256,
+  model?: { provider: AIProvider; modelId: string },
 ): Promise<void> {
   if (env.NODE_ENV === "test") return;
 
   const requestedCents = upGalCostCentsForTokens(
     requestedTokens,
-    env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
+    upGalConservativeCostPerMillionTokensUsd(
+      env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
+      model,
+    ),
   );
   let reservation: Awaited<
     ReturnType<typeof reserveUpGalDailyRunTokenAndCostBudget>
@@ -122,7 +128,12 @@ export const aiRouter = router({
           );
         }
       }
-      await enforceAiDailyBudget(input.organizationId, ctx.log, 4096);
+      const model = await getUpGalProviderIdentity(
+        input.organizationId,
+        ctx.scope.resolve(AIRepositoryToken),
+        { feature: "template" },
+      );
+      await enforceAiDailyBudget(input.organizationId, ctx.log, 4096, model);
       return generateComposeTemplate(
         input.organizationId,
         ctx.scope,
@@ -259,7 +270,18 @@ export const aiRouter = router({
         input.organizationId,
         "ai:manage",
       );
-      await enforceAiDailyBudget(input.organizationId, ctx.log);
+      const model = await getUpGalProviderIdentity(
+        input.organizationId,
+        ctx.scope.resolve(AIRepositoryToken),
+        {
+          providerConfigId: input.id,
+          provider: input.provider,
+          model: input.model,
+          baseUrl: input.baseUrl,
+          apiKey: input.apiKey,
+        },
+      );
+      await enforceAiDailyBudget(input.organizationId, ctx.log, 256, model);
       return testUpGalProvider(
         input.organizationId,
         ctx.scope,

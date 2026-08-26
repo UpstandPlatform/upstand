@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getUpGalProviderIdentity } from "@upstand/api/ai/provider";
 import {
   createUpGalResponse,
   createUpGalTools,
@@ -34,6 +35,7 @@ import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 import {
   reserveUpGalDailyRunTokenAndCostBudget,
+  upGalConservativeCostPerMillionTokensUsd,
   upGalCostCentsForTokens,
 } from "./ai-budget";
 import {
@@ -178,9 +180,17 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     try {
       if (env.NODE_ENV !== "test") {
         const now = new Date();
+        const model = await getUpGalProviderIdentity(
+          body.organizationId,
+          c.get("scope").resolve(AIRepositoryToken),
+          { feature: "chat" },
+        );
         const requestedCents = upGalCostCentsForTokens(
           UPGAL_MAX_CHAT_TOTAL_TOKENS,
-          env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
+          upGalConservativeCostPerMillionTokensUsd(
+            env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
+            model,
+          ),
         );
         let reservation: Awaited<
           ReturnType<typeof reserveUpGalDailyRunTokenAndCostBudget>

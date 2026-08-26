@@ -4,6 +4,7 @@ import {
   renderUpGalBudgetMetrics,
   reserveUpGalDailyRunTokenAndCostBudget,
   reserveUpGalDailyTokenAndCostBudget,
+  upGalConservativeCostPerMillionTokensUsd,
   upGalDailyCostBudgetKey,
   upGalDailyTokenBudgetKey,
   upGalUsageCostCentsForPricing,
@@ -214,6 +215,30 @@ describe("UpGal atomic token and cost budgets", () => {
 });
 
 describe("UpGal usage cost observability", () => {
+  test("raises admission cost coverage for a known expensive model", () => {
+    expect(
+      upGalConservativeCostPerMillionTokensUsd(0.01, {
+        provider: "openai",
+        modelId: "gpt-3.5-turbo",
+      }),
+    ).toBeGreaterThan(0.01);
+    expect(
+      upGalConservativeCostPerMillionTokensUsd(1000, {
+        provider: "openai",
+        modelId: "gpt-3.5-turbo",
+      }),
+    ).toBe(1000);
+  });
+
+  test("keeps the configured ceiling for unknown models", () => {
+    expect(
+      upGalConservativeCostPerMillionTokensUsd(100, {
+        provider: "openai",
+        modelId: "definitely-not-a-real-model",
+      }),
+    ).toBe(100);
+  });
+
   test("calculates conservative cents from separate input and output rates", () => {
     expect(
       upGalUsageCostCentsForPricing(1_000_000, 500_000, {

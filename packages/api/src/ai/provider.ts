@@ -38,6 +38,16 @@ export type UpGalResolvedProvider = {
   maxOutputTokens?: number;
 };
 
+type ResolvedProviderConfig = {
+  provider: AIProvider;
+  model: string;
+  baseUrl: string | null;
+  enabled: boolean;
+  temperature: number | null;
+  reasoningEnabled: boolean;
+  maxOutputTokens: number | null;
+};
+
 const OFFICIAL_PROVIDER_HOSTS: Record<AIProvider, ReadonlySet<string>> = {
   openai: new Set(["api.openai.com"]),
   anthropic: new Set(["api.anthropic.com"]),
@@ -116,32 +126,14 @@ export function assertAllowedModel(model: string, provider: AIProvider): void {
   );
 }
 
-function decryptProviderApiKey(config: AIProviderConfigRecord | null) {
-  if (
-    !config?.apiKeyCiphertext ||
-    !config.apiKeyIv ||
-    !config.apiKeyAuthTag ||
-    !config.apiKeyVersion
-  ) {
-    return undefined;
-  }
-  return decryptSecret({
-    ciphertext: config.apiKeyCiphertext,
-    iv: config.apiKeyIv,
-    authTag: config.apiKeyAuthTag,
-    keyVersion: config.apiKeyVersion,
-  });
-}
-
-/**
- * Resolve the provider assigned to one UpGal feature, applying test-time
- * overrides only after the organization-scoped stored configuration is read.
- */
-export async function getUpGalProvider(
+async function resolveProviderConfig(
   organizationId: string,
   ai: IAIRepository,
-  overrides: UpGalProviderOverrides = {},
-): Promise<UpGalResolvedProvider> {
+  overrides: UpGalProviderOverrides,
+): Promise<{
+  config: ResolvedProviderConfig | null;
+  stored: AIProviderConfigRecord | null;
+}> {
   let stored: AIProviderConfigRecord | null = null;
 
   if (overrides.providerConfigId) {
@@ -184,6 +176,52 @@ export async function getUpGalProvider(
           enabled: true,
         }
       : null;
+
+  return { config, stored };
+}
+
+/** Resolve model identity without decrypting credentials or contacting a provider. */
+export async function getUpGalProviderIdentity(
+  organizationId: string,
+  ai: IAIRepository,
+  overrides: UpGalProviderOverrides = {},
+): Promise<{ provider: AIProvider; modelId: string } | undefined> {
+  const { config } = await resolveProviderConfig(organizationId, ai, overrides);
+  if (!config?.enabled) return undefined;
+  return { provider: config.provider, modelId: config.model };
+}
+
+function decryptProviderApiKey(config: AIProviderConfigRecord | null) {
+  if (
+    !config?.apiKeyCiphertext ||
+    !config.apiKeyIv ||
+    !config.apiKeyAuthTag ||
+    !config.apiKeyVersion
+  ) {
+    return undefined;
+  }
+  return decryptSecret({
+    ciphertext: config.apiKeyCiphertext,
+    iv: config.apiKeyIv,
+    authTag: config.apiKeyAuthTag,
+    keyVersion: config.apiKeyVersion,
+  });
+}
+
+/**
+ * Resolve the provider assigned to one UpGal feature, applying test-time
+ * overrides only after the organization-scoped stored configuration is read.
+ */
+export async function getUpGalProvider(
+  organizationId: string,
+  ai: IAIRepository,
+  overrides: UpGalProviderOverrides = {},
+): Promise<UpGalResolvedProvider> {
+  const { config, stored } = await resolveProviderConfig(
+    organizationId,
+    ai,
+    overrides,
+  );
 
   if (!config?.enabled) {
     throw new UpGalError(

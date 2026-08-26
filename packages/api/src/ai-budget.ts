@@ -1,5 +1,6 @@
 import type { AIProvider } from "@upstand/domain";
 import {
+  getUpGalPricingCeiling,
   getUpGalStaticModelPricing,
   type UpGalModelPricing,
 } from "./ai/model-catalog";
@@ -178,6 +179,26 @@ export function upGalUsageCostCentsForPricing(
     throw new Error("UpGal usage cost calculation exceeded safe integer range");
   }
   return cents;
+}
+
+/**
+ * Use the operator ceiling as the minimum and a known model rate as an
+ * additional conservative ceiling. Unknown models never lower the operator
+ * protection and never become implicitly priced at zero.
+ */
+export function upGalConservativeCostPerMillionTokensUsd(
+  configuredRate: number,
+  model?: { provider: AIProvider; modelId: string },
+): number {
+  if (!Number.isFinite(configuredRate) || configuredRate <= 0) {
+    throw new Error("UpGal configured cost rate must be positive");
+  }
+  const knownRate = model
+    ? getUpGalPricingCeiling(
+        getUpGalStaticModelPricing(model.provider, model.modelId),
+      )
+    : undefined;
+  return Math.max(configuredRate, knownRate ?? 0);
 }
 
 /** Record aggregate usage only; no tenant, model, prompt, or credential labels. */

@@ -112,6 +112,17 @@ export function getUpGalStaticModelPricing(
   )?.pricing;
 }
 
+export function getUpGalPricingCeiling(
+  pricing: UpGalModelPricing | undefined,
+): number | undefined {
+  if (!pricing) return undefined;
+  const rates = Object.values(pricing).filter(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0,
+  );
+  return rates.length > 0 ? Math.max(...rates) : undefined;
+}
+
 async function remoteModels(provider: AIProvider) {
   for (const providerId of providerAliases[provider]) {
     try {
