@@ -26,7 +26,10 @@ grep -Fq 'server:3000' "$PROMETHEUS_CONFIG"
 grep -Fq '/_internal/metrics' "$SERVER_ROUTE_FILE"
 grep -Fq 'upstand_server_requests_total' "$SERVER_METRICS_FILE"
 grep -Fq 'upstand_server_authentication_attempts_total' "$SERVER_METRICS_FILE"
+grep -Fq 'upstand_ai_budget_reservations_total' "$SERVER_METRICS_FILE"
+grep -Fq 'upstand_ai_budget_reserved_tokens_total' "$SERVER_METRICS_FILE"
 grep -Fq 'UpstandServerAuthenticationFailuresHigh' "$ALERT_RULES"
+grep -Fq 'UpstandAIBudgetRejectionsHigh' "$ALERT_RULES"
 
 for metric in \
   upstand_schedules_collection_success \

@@ -1,3 +1,5 @@
+import { renderUpGalBudgetMetrics } from "@upstand/api/ai-budget";
+
 type CounterKey = `${string}:${number}`;
 
 const startedAt = Date.now();
@@ -99,6 +101,7 @@ export function renderServerMetrics(
       `upstand_server_database_pool_waiting ${Math.floor(databasePool.waiting)}`,
     );
   }
+  lines.push(renderUpGalBudgetMetrics());
   return lines.join("\n");
 }
 

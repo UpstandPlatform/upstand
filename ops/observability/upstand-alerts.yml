@@ -62,6 +62,16 @@ groups:
           summary: Upstand authentication rejection rate is above 50%
           description: Investigate credential attacks, SSO/provider failures, session invalidation, or an authentication outage; confirm that no user or token data is exposed in logs.
 
+      - alert: UpstandAIBudgetRejectionsHigh
+        expr: sum(rate(upstand_ai_budget_reservations_total{job="upstand-server",outcome="rejected"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: UpGal budget admissions are being rejected continuously
+          description: Investigate AI abuse, provider pricing configuration, noisy organizations, or an unexpectedly low request-cost budget. Metrics intentionally contain no organization, model, prompt, or credential labels.
+
   - name: upstand-schedules
     interval: 30s
     rules:

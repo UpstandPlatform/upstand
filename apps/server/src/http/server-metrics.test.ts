@@ -27,6 +27,11 @@ describe("server metrics", () => {
     expect(metrics).toContain(
       'upstand_server_authentication_attempts_total{outcome="rejected"}',
     );
+    expect(metrics).toContain(
+      'upstand_ai_budget_reservations_total{outcome="admitted"}',
+    );
+    expect(metrics).toContain("upstand_ai_budget_reserved_tokens_total");
+    expect(metrics).not.toContain("organizationId");
   });
 
   test("renders bounded PostgreSQL pool gauges when supplied", () => {

@@ -69,6 +69,13 @@ end
 return { totalRuns, totalTokens, totalCents }
 `;
 
+const aiBudgetCounters = {
+  admitted: 0,
+  rejected: 0,
+  reservedTokens: 0,
+  reservedCostCents: 0,
+};
+
 export function upGalDailyBudgetKey(
   organizationId: string,
   now = new Date(),
@@ -98,6 +105,25 @@ export type UpGalDailyBudgetReservation = {
   totalCents: number;
   costLimitCents: number;
 };
+
+/**
+ * Render only aggregate, low-cardinality admission data. Organization IDs,
+ * model names, prompts, and provider credentials must never be metrics labels.
+ */
+export function renderUpGalBudgetMetrics(): string {
+  return [
+    "# HELP upstand_ai_budget_reservations_total AI budget admission outcomes.",
+    "# TYPE upstand_ai_budget_reservations_total counter",
+    `upstand_ai_budget_reservations_total{outcome="admitted"} ${aiBudgetCounters.admitted}`,
+    `upstand_ai_budget_reservations_total{outcome="rejected"} ${aiBudgetCounters.rejected}`,
+    "# HELP upstand_ai_budget_reserved_tokens_total Worst-case tokens admitted by the AI budget.",
+    "# TYPE upstand_ai_budget_reserved_tokens_total counter",
+    `upstand_ai_budget_reserved_tokens_total ${aiBudgetCounters.reservedTokens}`,
+    "# HELP upstand_ai_budget_reserved_cost_cents_total Conservative cost cents admitted by the AI budget.",
+    "# TYPE upstand_ai_budget_reserved_cost_cents_total counter",
+    `upstand_ai_budget_reserved_cost_cents_total ${aiBudgetCounters.reservedCostCents}`,
+  ].join("\n");
+}
 
 export function upGalCostCentsForTokens(
   requestedTokens: number,
@@ -196,7 +222,10 @@ export async function reserveUpGalDailyTokenAndCostBudget(
     String(costLimitCents),
     String(secondsUntilNextUtcDay(now)),
   );
-  if (result === 0) return null;
+  if (result === 0) {
+    aiBudgetCounters.rejected += 1;
+    return null;
+  }
   if (!Array.isArray(result) || result.length !== 2) {
     throw new Error(
       "Redis returned an invalid UpGal token and cost reservation",
@@ -283,6 +312,9 @@ export async function reserveUpGalDailyRunTokenAndCostBudget(
       "Redis returned an invalid UpGal run, token, and cost reservation",
     );
   }
+  aiBudgetCounters.admitted += 1;
+  aiBudgetCounters.reservedTokens += requestedTokens;
+  aiBudgetCounters.reservedCostCents += requestedCents;
   return {
     totalRuns,
     runLimit,
