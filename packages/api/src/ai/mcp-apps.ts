@@ -41,8 +41,22 @@ export const UPGAL_MCP_REQUEST_TIMEOUT_MS = 10_000;
 export function createUpGalMCPFetch(
   timeoutMs = UPGAL_MCP_REQUEST_TIMEOUT_MS,
   baseFetch: UpGalMCPFetch = globalThis.fetch,
+  resolveHost: AddressResolver = resolveAllAddresses,
 ): UpGalMCPFetch {
   return async (input, init) => {
+    // Configuration-time DNS validation is not sufficient for a long-lived
+    // MCP client: a provider can change its DNS answer between tool calls.
+    // Revalidate every request so a changed answer is detected before the
+    // provider request. The hostname is still used for the actual connection,
+    // so this is a defense-in-depth check rather than IP pinning.
+    const rawUrl =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    await assertSafeUpGalMCPServerUrl(rawUrl, resolveHost);
+
     const controller = new AbortController();
     const sourceSignal = init?.signal;
     const abortFromSource = () => controller.abort();

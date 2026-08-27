@@ -17,11 +17,39 @@ describe("UpGal MCP transport", () => {
             reject(new Error("aborted"));
           });
         }),
+      async () => [{ address: "93.184.216.34" }],
     );
 
     await expect(timedFetch("https://mcp.example.test")).rejects.toThrow(
       "aborted",
     );
+  });
+
+  test("revalidates the MCP hostname before every request", async () => {
+    let resolveCount = 0;
+    let fetchCount = 0;
+    const checkedFetch = createUpGalMCPFetch(
+      100,
+      async () => {
+        fetchCount += 1;
+        return new Response("ok");
+      },
+      async () => {
+        resolveCount += 1;
+        return resolveCount === 1
+          ? [{ address: "93.184.216.34" }]
+          : [{ address: "169.254.169.254" }];
+      },
+    );
+
+    await expect(
+      checkedFetch("https://mcp.example.test"),
+    ).resolves.toBeInstanceOf(Response);
+    await expect(checkedFetch("https://mcp.example.test")).rejects.toThrow(
+      "public addresses",
+    );
+    expect(resolveCount).toBe(2);
+    expect(fetchCount).toBe(1);
   });
 
   test("uses the documented default request deadline", () => {
