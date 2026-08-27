@@ -13,6 +13,39 @@ import {
 import type { DockerResourceCommandBrokerPort } from "./docker-broker-client";
 
 describe("deployment command log safety", () => {
+  test("does not inherit control-plane secrets into isolated command environments", async () => {
+    const key = `UPSTAND_TEST_CONTROL_PLANE_SECRET_${process.pid}`;
+    const sentinel = "control-plane-secret";
+    const previous = process.env[key];
+    process.env[key] = sentinel;
+
+    try {
+      const service = new DockerService({} as never) as unknown as {
+        runCommandAsync: (
+          command: string,
+          args: string[],
+          onLog: (log: string) => void,
+          env?: NodeJS.ProcessEnv,
+          options?: { inheritEnvironment?: boolean },
+        ) => Promise<void>;
+      };
+      let output = "";
+      await service.runCommandAsync(
+        process.execPath,
+        ["-e", `process.stdout.write(process.env.${key} ?? "")`],
+        (log) => {
+          output += log;
+        },
+        {},
+        { inheritEnvironment: false },
+      );
+      expect(output).toBe("");
+    } finally {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+    }
+  });
+
   test("fails closed when placement constraints cannot be applied", () => {
     expect(() =>
       applyComposePlacementConstraints("services:\n  web: invalid", [
@@ -464,7 +497,11 @@ describe("deployment command log safety", () => {
         args: string[],
         onLog: (log: string) => void,
         env?: NodeJS.ProcessEnv,
-        options?: { resourceId?: string; redactions?: readonly string[] },
+        options?: {
+          resourceId?: string;
+          redactions?: readonly string[];
+          inheritEnvironment?: boolean;
+        },
       ) => Promise<void>;
       waitForComposeConvergence: (
         projectName: string,
@@ -474,7 +511,11 @@ describe("deployment command log safety", () => {
       deployComposeStack: DockerService["deployComposeStack"];
     };
     let generatedCompose = "";
-    service.runCommandAsync = async (_command, args) => {
+    let commandEnvironment: NodeJS.ProcessEnv | undefined;
+    let commandOptions: { inheritEnvironment?: boolean } | undefined;
+    service.runCommandAsync = async (_command, args, _onLog, env, options) => {
+      commandEnvironment = env;
+      commandOptions = options;
       const fileIndex = args.indexOf("--file");
       generatedCompose = fs.readFileSync(args[fileIndex + 1] || "", "utf8");
     };
@@ -498,10 +539,15 @@ services:
     volumes: [data:/var/lib/data]
 networks:
   private:
-volumes:
+      volumes:
   data:
 `,
       () => {},
+      undefined,
+      {
+        DATABASE_URL: "postgres://resource-value",
+        DOCKER_HOST: "tcp://attacker.example:2375",
+      },
     );
 
     const parsed = yaml.parse(generatedCompose) as {
@@ -509,6 +555,9 @@ volumes:
       volumes: Record<string, Record<string, unknown>>;
     };
     expect(ensureUpstandNetwork).toHaveBeenCalledTimes(1);
+    expect(commandOptions?.inheritEnvironment).toBe(false);
+    expect(commandEnvironment?.DATABASE_URL).toBe("postgres://resource-value");
+    expect(commandEnvironment?.DOCKER_HOST).toBeUndefined();
     expect(ensureResourceNetwork).toHaveBeenCalledWith(
       { kind: "local", name: "local" },
       "resource-1",

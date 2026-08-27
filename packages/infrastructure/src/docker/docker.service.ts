@@ -88,6 +88,53 @@ import {
 import { getDockerInstance } from "./docker-client";
 import { createPinnedGitSshEnvironment, isSshGitUrl } from "./git-host-key";
 
+const MINIMAL_COMMAND_ENVIRONMENT_KEYS = [
+  "PATH",
+  "Path",
+  "PATHEXT",
+  "SystemRoot",
+  "COMSPEC",
+  "ComSpec",
+  "TEMP",
+  "TMP",
+  "HOME",
+  "USERPROFILE",
+  "DOCKER_CONFIG",
+  "XDG_RUNTIME_DIR",
+] as const;
+const COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES = new Set([
+  "COMPOSE_FILE",
+  "COMPOSE_PATH_SEPARATOR",
+  "COMPOSE_PROJECT_NAME",
+  "COMPOSE_PROFILES",
+  "DOCKER_API_VERSION",
+  "DOCKER_CERT_PATH",
+  "DOCKER_CONFIG",
+  "DOCKER_CONTEXT",
+  "DOCKER_CUSTOM_HEADERS",
+  "DOCKER_HOST",
+  "DOCKER_TLS_VERIFY",
+]);
+
+function getMinimalCommandEnv(): Record<string, string> {
+  return Object.fromEntries(
+    MINIMAL_COMMAND_ENVIRONMENT_KEYS.flatMap((key) => {
+      const value = process.env[key];
+      return value === undefined ? [] : [[key, value]];
+    }),
+  );
+}
+
+function getComposeCliEnvironment(
+  resourceEnvironment: Record<string, string>,
+): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(resourceEnvironment).filter(
+      ([name]) => !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name),
+    ),
+  ) as NodeJS.ProcessEnv;
+}
+
 function isDockerTarget(value: unknown): value is Docker {
   return (
     isUnknownRecord(value) &&
@@ -3129,10 +3176,11 @@ export class DockerService implements DockerSwarmManagementPort {
         "docker",
         composeCommand,
         onLog,
-        composeEnv as NodeJS.ProcessEnv,
+        getComposeCliEnvironment(composeEnv),
         {
           redactions: Object.values(composeEnv),
           resourceId: resource.id,
+          inheritEnvironment: false,
         },
       );
 
@@ -4329,22 +4377,26 @@ export class DockerService implements DockerSwarmManagementPort {
       redactions?: readonly string[];
       resourceId?: string;
       timeoutMs?: number;
+      inheritEnvironment?: boolean;
     } = {},
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
       let cancelled = false;
       const startedAt = Date.now();
+      const commandEnvironment = {
+        ...(options.inheritEnvironment === false
+          ? getMinimalCommandEnv()
+          : getInheritedEnv()),
+        ...this.commandEnvironment,
+        ...(env ?? {}),
+        ...(cmd === "docker" && options.resourceId
+          ? this.getDockerCommandEnvironment(options.resourceId)
+          : {}),
+      } as NodeJS.ProcessEnv;
       const p = spawn(cmd, args, {
         shell: false,
-        env: {
-          ...getInheritedEnv(),
-          ...this.commandEnvironment,
-          ...(env ?? {}),
-          ...(cmd === "docker" && options.resourceId
-            ? this.getDockerCommandEnvironment(options.resourceId)
-            : {}),
-        },
+        env: commandEnvironment,
       });
 
       if (options.stdin !== undefined) p.stdin.end(options.stdin);

@@ -226,7 +226,11 @@ export function applyComposeResourceConfig(
     scopeComposeFileBackedResources(parsed, resource.id);
   }
 
-  return yaml.stringify(parsed);
+  const updatedCompose = yaml.stringify(parsed);
+  // Config and environment overrides are user-controlled too, so validate the
+  // fully materialized document before it reaches the Docker CLI.
+  validateComposeSecurity(updatedCompose);
+  return updatedCompose;
 }
 
 export function applyComposeIngressNetwork(

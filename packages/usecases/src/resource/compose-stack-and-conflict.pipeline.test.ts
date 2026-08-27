@@ -281,6 +281,32 @@ services:
       ).toThrow("service build context 'web' uses an unsafe path");
     });
 
+    test("rejects interpolation of Docker transport credentials", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    environment:
+      DOCKER_HEADERS: \${DOCKER_CUSTOM_HEADERS}
+`),
+      ).toThrow(
+        "cannot interpolate protected Docker environment variable 'DOCKER_CUSTOM_HEADERS'",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    environment:
+      DOCKER_ENDPOINT: $DOCKER_HOST
+`),
+      ).toThrow(
+        "cannot interpolate protected Docker environment variable 'DOCKER_HOST'",
+      );
+    });
+
     test("allows bounded local or remote build contexts", () => {
       expect(() =>
         validateComposeSecurity(`
@@ -297,6 +323,34 @@ services:
   });
 
   describe("Port Publishing & Resource Config Conversion", () => {
+    test("revalidates environment values injected by resource configuration", () => {
+      const resource = { id: "res-env", envVars: "" } as never;
+      const config = {
+        command: [],
+        args: [],
+        dns: [],
+        dnsSearch: [],
+        extraHosts: [],
+        capDrop: [],
+        environment: { LEAKED_HEADER: "${" + "DOCKER_CUSTOM_HEADERS}" },
+        ports: [],
+        volumes: [],
+        placementConstraints: [],
+        resources: {},
+        restartPolicy: { condition: "any" },
+      } as never;
+
+      expect(() =>
+        applyComposeResourceConfig(
+          "services:\n  api:\n    image: nginx\n",
+          resource,
+          config,
+        ),
+      ).toThrow(
+        "cannot interpolate protected Docker environment variable 'DOCKER_CUSTOM_HEADERS'",
+      );
+    });
+
     test("formats TCP and UDP port bindings correctly", () => {
       const rawCompose = `
 services:

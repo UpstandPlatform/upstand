@@ -3,6 +3,27 @@ import { isUnknownRecord } from "./docker-values";
 
 const HOST_PATH_PATTERN = /^(?:[a-zA-Z]:[\\/]|[\\/]{2}|[\\/~]|\.\.?[\\/])/;
 const COMPOSE_RESOURCE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+const PROTECTED_DOCKER_ENVIRONMENT_NAMES = [
+  "DOCKER_CUSTOM_HEADERS",
+  "DOCKER_CERT_PATH",
+  "DOCKER_HOST",
+  "DOCKER_TLS_VERIFY",
+] as const;
+
+function validateProtectedDockerEnvironmentReferences(
+  rawCompose: string,
+): void {
+  for (const name of PROTECTED_DOCKER_ENVIRONMENT_NAMES) {
+    const referencePattern = new RegExp(
+      `(?:\\$\\{${name}(?:[:?+\\-][^}]*)?\\}|\\$${name}\\b)`,
+    );
+    if (referencePattern.test(rawCompose)) {
+      throw new Error(
+        `Compose cannot interpolate protected Docker environment variable '${name}'`,
+      );
+    }
+  }
+}
 
 function volumeSource(value: unknown): string | undefined {
   if (typeof value === "string") {
@@ -191,6 +212,8 @@ function validateComposeFileBackedResources(
  * This applies to raw Compose resources as well as user-created templates.
  */
 export function validateComposeSecurity(rawCompose: string): void {
+  validateProtectedDockerEnvironmentReferences(rawCompose);
+
   let parsed: unknown;
   try {
     parsed = yaml.parse(rawCompose);
