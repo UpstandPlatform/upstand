@@ -7,6 +7,8 @@ import { join, resolve } from "node:path";
 const appRoot = resolve(import.meta.dirname, "..");
 const maxOutputLength = 16_000;
 const dockerProxyPort = 23775;
+const startupTimeoutMs = 60_000;
+const startupPollIntervalMs = 250;
 
 function freePort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
@@ -54,7 +56,8 @@ async function waitForHealth(
   processRef: ReturnType<typeof spawn>,
   output: () => string,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  const deadline = Date.now() + startupTimeoutMs;
+  while (Date.now() < deadline) {
     if (processRef.exitCode !== null) {
       throw new Error(
         `Packaged local service exited before it became healthy: ${url}\n${output()}`,
@@ -66,7 +69,9 @@ async function waitForHealth(
     } catch {
       // The local control plane may still be opening its loopback listener.
     }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+    await new Promise((resolveDelay) =>
+      setTimeout(resolveDelay, startupPollIntervalMs),
+    );
   }
   throw new Error(
     `Packaged local control plane did not become healthy: ${url}\n${output()}`,
