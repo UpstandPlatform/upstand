@@ -115,6 +115,62 @@ const COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES = new Set([
   "DOCKER_HOST",
   "DOCKER_TLS_VERIFY",
 ]);
+const DOCKER_BUILD_ARGUMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SENSITIVE_DOCKER_BUILD_ARGUMENT_MARKERS = [
+  "password",
+  "secret",
+  "token",
+  "api_key",
+  "apikey",
+  "private_key",
+  "privatekey",
+  "credential",
+  "client_secret",
+  "clientsecret",
+  "access_token",
+  "access_key",
+  "accesskey",
+] as const;
+
+function validateDockerBuildArguments(buildArgs: Record<string, string>): void {
+  const entries = Object.entries(buildArgs);
+  if (entries.length > 64) {
+    throw new Error("Docker build arguments exceed their limit");
+  }
+  for (const [name, value] of entries) {
+    if (
+      !DOCKER_BUILD_ARGUMENT_NAME_PATTERN.test(name) ||
+      value.length > 8 * 1024 ||
+      [...value].some(
+        (character) => character.charCodeAt(0) < 0x20 || character === "\u007f",
+      )
+    ) {
+      throw new Error(`Docker build argument '${name}' is invalid`);
+    }
+    const normalizedName = name.toLowerCase().replaceAll("-", "_");
+    if (
+      SENSITIVE_DOCKER_BUILD_ARGUMENT_MARKERS.some((marker) =>
+        normalizedName.includes(marker),
+      )
+    ) {
+      throw new Error(
+        `Docker build argument '${name}' looks secret-like; use build secrets instead`,
+      );
+    }
+  }
+}
+
+function validateDockerBuildSecretEnvironment(
+  buildSecrets: Record<string, string>,
+): void {
+  for (const name of Object.keys(buildSecrets)) {
+    if (COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase())) {
+      throw new Error(
+        `Docker build secret '${name}' cannot override Docker or Compose control environment`,
+      );
+    }
+  }
+}
 
 function getMinimalCommandEnv(): Record<string, string> {
   return Object.fromEntries(
@@ -130,7 +186,8 @@ function getComposeCliEnvironment(
 ): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.entries(resourceEnvironment).filter(
-      ([name]) => !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name),
+      ([name]) =>
+        !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase()),
     ),
   ) as NodeJS.ProcessEnv;
 }
@@ -2439,9 +2496,20 @@ export class DockerService implements DockerSwarmManagementPort {
 
     const buildResourceDockerfile =
       this.resourceCommandBroker?.buildResourceDockerfile;
+    const explicitBuildArgs = config.dockerBuildArgs ?? {};
+    validateDockerBuildArguments(explicitBuildArgs);
+    // Environment values may contain credentials even when their names do not
+    // look sensitive. Docker records --build-arg values in image metadata, so
+    // keep resolved environment values on the BuildKit secret channel instead
+    // of copying them into the image history.
+    const buildSecretsForDockerfile = {
+      ...buildEnvVars,
+      ...buildSecrets,
+    };
+    validateDockerBuildSecretEnvironment(buildSecretsForDockerfile);
     const typedBuild =
       Object.keys(this.commandEnvironment).length === 0 &&
-      Object.keys(buildSecrets).length === 0 &&
+      Object.keys(buildSecretsForDockerfile).length === 0 &&
       buildResourceDockerfile;
 
     if (typedBuild) {
@@ -2458,10 +2526,7 @@ export class DockerService implements DockerSwarmManagementPort {
           {
             noCache: config.dockerNoCache,
             target: config.dockerBuildStage,
-            buildArgs: {
-              ...buildEnvVars,
-              ...(config.dockerBuildArgs ?? {}),
-            },
+            buildArgs: explicitBuildArgs,
             preserveForRollback,
             onLog,
           },
@@ -2499,11 +2564,10 @@ export class DockerService implements DockerSwarmManagementPort {
     if (config.dockerBuildStage) {
       args.push("--target", config.dockerBuildStage);
     }
-    const buildArgs = { ...buildEnvVars, ...config.dockerBuildArgs };
-    for (const [key, value] of Object.entries(buildArgs)) {
+    for (const [key, value] of Object.entries(explicitBuildArgs)) {
       args.push("--build-arg", `${key}=${value}`);
     }
-    for (const key of Object.keys(buildSecrets)) {
+    for (const key of Object.keys(buildSecretsForDockerfile)) {
       args.push("--secret", `id=${key},env=${key}`);
     }
     args.push(contextPath);
@@ -2514,10 +2578,19 @@ export class DockerService implements DockerSwarmManagementPort {
         "docker",
         args,
         onLog,
-        Object.keys(buildSecrets).length
-          ? { ...getInheritedEnv(buildSecrets), DOCKER_BUILDKIT: "1" }
+        Object.keys(buildSecretsForDockerfile).length
+          ? {
+              ...this.getBuildEnvironment(
+                buildSecretsForDockerfile,
+                resourceId,
+              ),
+              DOCKER_BUILDKIT: "1",
+            }
           : undefined,
-        { redactions: Object.values(buildSecrets), resourceId },
+        {
+          redactions: Object.values(buildSecretsForDockerfile),
+          resourceId,
+        },
       );
     } finally {
       if (config.dockerCleanupCache) {
@@ -3005,8 +3078,14 @@ export class DockerService implements DockerSwarmManagementPort {
     envVars: Record<string, string>,
     resourceId?: string,
   ): NodeJS.ProcessEnv {
+    const safeEnvironment = Object.fromEntries(
+      Object.entries(envVars).filter(
+        ([name]) =>
+          !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase()),
+      ),
+    );
     return {
-      ...getInheritedEnv(envVars),
+      ...getInheritedEnv(safeEnvironment),
       ...(resourceId ? this.getDockerCommandEnvironment(resourceId) : {}),
     };
   }

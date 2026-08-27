@@ -13,6 +13,43 @@ import {
 import type { DockerResourceCommandBrokerPort } from "./docker-broker-client";
 
 describe("deployment command log safety", () => {
+  test("does not let build variables redirect Docker transport", () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_CUSTOM_HEADERS: "X-Test=preserved" },
+      undefined,
+    ) as unknown as {
+      getBuildEnvironment: (
+        envVars: Record<string, string>,
+        resourceId: string,
+      ) => NodeJS.ProcessEnv;
+    };
+
+    const buildEnvironment = service.getBuildEnvironment(
+      {
+        DATABASE_URL: "postgres://build-value",
+        DOCKER_HOST: "tcp://attacker.example:2375",
+        DOCKER_CERT_PATH: "C:\\attacker-certs",
+        DOCKER_CUSTOM_HEADERS: "X-Upstand-Resource-ID=other-resource",
+        docker_host: "tcp://lowercase-attacker.example:2375",
+      },
+      "resource-1",
+    );
+
+    expect(buildEnvironment.DATABASE_URL).toBe("postgres://build-value");
+    expect(buildEnvironment.DOCKER_HOST).not.toBe(
+      "tcp://attacker.example:2375",
+    );
+    expect(buildEnvironment.DOCKER_CERT_PATH).not.toBe("C:\\attacker-certs");
+    expect(buildEnvironment.docker_host).toBeUndefined();
+    expect(buildEnvironment.DOCKER_CUSTOM_HEADERS).toContain(
+      "X-Upstand-Resource-ID=resource-1",
+    );
+    expect(buildEnvironment.DOCKER_CUSTOM_HEADERS).not.toContain(
+      "other-resource",
+    );
+  });
+
   test("does not inherit control-plane secrets into isolated command environments", async () => {
     const key = `UPSTAND_TEST_CONTROL_PLANE_SECRET_${process.pid}`;
     const sentinel = "control-plane-secret";
@@ -910,7 +947,7 @@ networks:
           dockerBuildArgs: { BUILD_MODE: "production" },
           dockerCleanupCache: false,
         },
-        { BUILD_VARIANT: "stable" },
+        {},
         () => {},
         {},
         true,
@@ -929,11 +966,184 @@ networks:
         target: "production",
         buildArgs: {
           BUILD_MODE: "production",
-          BUILD_VARIANT: "stable",
         },
         preserveForRollback: true,
       }),
     );
+  });
+
+  test("keeps resolved environment values out of Docker image history", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (message: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { redactions?: string[]; resourceId?: string },
+      ) => Promise<void>;
+    };
+    const calls: Array<{
+      command: string;
+      args: string[];
+      env?: NodeJS.ProcessEnv;
+    }> = [];
+    service.runCommandAsync = async (command, args, _onLog, env) => {
+      calls.push({ command, args, env });
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-secret-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "# syntax=docker/dockerfile:1\nFROM alpine:3.20\n",
+    );
+    try {
+      await service.buildDockerfileImage(
+        "resource-1",
+        contextPath,
+        "upstand-app-resource-1:latest",
+        {
+          dockerfilePath: "Dockerfile",
+          dockerContextPath: ".",
+          dockerNoCache: false,
+          dockerBuildStage: undefined,
+          dockerBuildArgs: { BUILD_MODE: "production" },
+          dockerCleanupCache: false,
+        },
+        { NPM_TOKEN: "secret-value" },
+        () => {},
+        {},
+        false,
+      );
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
+    const buildCall = calls[0];
+    expect(buildCall?.command).toBe("docker");
+    expect(buildCall?.args).toEqual(
+      expect.arrayContaining([
+        "--build-arg",
+        "BUILD_MODE=production",
+        "--secret",
+        "id=NPM_TOKEN,env=NPM_TOKEN",
+      ]),
+    );
+    expect(buildCall?.args).not.toContain("NPM_TOKEN=secret-value");
+    expect(buildCall?.env).toMatchObject({ NPM_TOKEN: "secret-value" });
+  });
+
+  test("rejects secret-like explicit Docker build arguments", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-invalid-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "FROM alpine:3.20\n",
+    );
+    try {
+      await expect(
+        service.buildDockerfileImage(
+          "resource-1",
+          contextPath,
+          "upstand-app-resource-1:latest",
+          {
+            dockerfilePath: "Dockerfile",
+            dockerContextPath: ".",
+            dockerNoCache: false,
+            dockerBuildStage: undefined,
+            dockerBuildArgs: { NPM_TOKEN: "secret-value" },
+            dockerCleanupCache: false,
+          },
+          {},
+          () => {},
+          {},
+          false,
+        ),
+      ).rejects.toThrow("looks secret-like");
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects build secrets that target Docker control variables", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-control-secret-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "FROM alpine:3.20\n",
+    );
+    try {
+      await expect(
+        service.buildDockerfileImage(
+          "resource-1",
+          contextPath,
+          "upstand-app-resource-1:latest",
+          {
+            dockerfilePath: "Dockerfile",
+            dockerContextPath: ".",
+            dockerNoCache: false,
+            dockerBuildStage: undefined,
+            dockerBuildArgs: {},
+            dockerCleanupCache: false,
+          },
+          {},
+          () => {},
+          { DOCKER_HOST: "tcp://attacker.example:2375" },
+          false,
+        ),
+      ).rejects.toThrow(
+        "cannot override Docker or Compose control environment",
+      );
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
   });
 
   test("includes resource ownership labels on raw Dockerfile builds", async () => {
@@ -981,10 +1191,10 @@ networks:
           dockerContextPath: ".",
           dockerNoCache: false,
           dockerBuildStage: undefined,
-          dockerBuildArgs: undefined,
+          dockerBuildArgs: { BUILD_MODE: "production" },
           dockerCleanupCache: false,
         },
-        {},
+        { NPM_TOKEN: "secret-value" },
         () => {},
         {},
         false,
@@ -998,9 +1208,14 @@ networks:
         args: expect.arrayContaining([
           "--label",
           "com.upstand.resource-id=resource-1",
+          "--build-arg",
+          "BUILD_MODE=production",
+          "--secret",
+          "id=NPM_TOKEN,env=NPM_TOKEN",
         ]),
       }),
     );
+    expect(calls[0]?.args).not.toContain("NPM_TOKEN=secret-value");
   });
 
   test("fails when a resource container command exits non-zero", async () => {
