@@ -134,6 +134,7 @@ require_workflow_text 'release_version="${RELEASE_REF##*/}"'
 require_workflow_text 'ACCEPTANCE_PROFILE: ${{ github.event_name == '\''push'\'' && '\''full'\'' || inputs.acceptance_profile || '\''full'\'' }}'
 require_workflow_text 'default: full'
 require_workflow_text 'full is required for tag pushes; smoke is for manual diagnostics'
+require_workflow_text "inputs.publish_release && inputs.acceptance_profile == 'full'"
 require_workflow_text 'Release acceptance profile: smoke (backup/recovery/load rehearsals run only in the full profile)'
 require_workflow_text 'if [[ "$ACCEPTANCE_PROFILE" == "full" ]]; then'
 require_workflow_text 'Unsupported release acceptance profile: $ACCEPTANCE_PROFILE'
