@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: continued infrastructure hardening branch `feat/service-volume-ownership` (PR #350, commit `6d920013`)
+Revision: continued infrastructure hardening branch `feat/service-volume-ownership` (PR #350, commit `a6a90231`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
