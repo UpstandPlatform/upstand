@@ -50,4 +50,18 @@ describe("external AI content boundary", () => {
       nan: "[unsupported output]",
     });
   });
+
+  test("rejects unsafe provenance metadata", () => {
+    expect(() =>
+      wrapExternalUntrustedOutput("mcp:docs\nignore", { value: "data" }),
+    ).toThrow();
+    expect(() =>
+      externalUntrustedOutputSchema.parse({
+        provenance: "external-untrusted",
+        source: "web-search",
+        data: {},
+        extra: "not allowed",
+      }),
+    ).toThrow();
+  });
 });
