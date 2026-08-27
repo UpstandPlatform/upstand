@@ -6,6 +6,7 @@ STABLE_WORKFLOW="$ROOT_DIR/.github/workflows/stable-tag.yml"
 RELEASE_WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
 RECOVERY_WORKFLOW="$ROOT_DIR/.github/workflows/release-recovery-rehearsal.yml"
 OWNER_ROUTE="$ROOT_DIR/apps/server/src/http/routes/control-plane-transfer.ts"
+OWNER_VALIDATION="$ROOT_DIR/apps/server/src/http/routes/control-plane-transfer.validation.ts"
 
 require_text() {
   local file="$1"
@@ -34,7 +35,7 @@ require_text "$RECOVERY_WORKFLOW" "git ls-remote --tags --refs"
 # Legacy owner recovery must remain an explicit, step-up-protected,
 # compare-and-set operation rather than a silent authorization fallback.
 require_text "$OWNER_ROUTE" 'app.post("/api/control-plane-transfer/owner/repair"'
-require_text "$OWNER_ROUTE" 'REPAIR_INSTANCE_OWNERSHIP'
+require_text "$OWNER_VALIDATION" 'REPAIR_INSTANCE_OWNERSHIP'
 require_text "$OWNER_ROUTE" 'isNull(controlPlaneIdentity.ownerUserId)'
 require_text "$OWNER_ROUTE" 'operation: "configure"'
 require_text "$ROOT_DIR/docker-compose.prod.yml" 'DOCKER_HOST: https://docker-broker:2375'
