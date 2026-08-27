@@ -566,7 +566,32 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 }
 
 func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) error {
-	query := r.URL.Query()
+	query := normalizeDockerBuildQuery(r.URL.Query())
+	for _, option := range []string{"t", "dockerfile", "labels", "buildargs", "networkmode"} {
+		if len(query[option]) > 1 {
+			return fmt.Errorf("deployment-worker build query option %q must be unique", option)
+		}
+	}
+	for _, option := range []string{
+		"cachefrom",
+		"cpuperiod",
+		"cpuquota",
+		"cpushares",
+		"cpusetcpus",
+		"extrahosts",
+		"memory",
+		"memswap",
+		"outputs",
+		"platform",
+		"remote",
+		"securityopt",
+		"shmsize",
+		"storageopt",
+	} {
+		if _, ok := query[option]; ok {
+			return fmt.Errorf("deployment-worker build option %q is outside the broker contract", option)
+		}
+	}
 	image := strings.TrimSpace(query.Get("t"))
 	if !resourceBuildImagePattern.MatchString(image) {
 		return errors.New("deployment-worker build requires a valid tagged image")
@@ -582,17 +607,9 @@ func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) erro
 		}
 	}
 
-	if query.Get("remote") != "" || query.Get("outputs") != "" {
-		return errors.New("deployment-worker build cannot use remote contexts or output exporters")
-	}
 	networkMode := strings.ToLower(strings.TrimSpace(query.Get("networkmode")))
-	if networkMode == "host" || strings.HasPrefix(networkMode, "container:") {
-		return errors.New("deployment-worker build cannot use host network access")
-	}
-	for _, option := range query["securityopt"] {
-		if unsafeSecurityOption(option) {
-			return errors.New("deployment-worker build cannot weaken the security profile")
-		}
+	if networkMode != "" && networkMode != "default" && networkMode != "bridge" && networkMode != "none" {
+		return errors.New("deployment-worker build network mode is outside the broker contract")
 	}
 
 	labels := strings.TrimSpace(query.Get("labels"))
@@ -619,6 +636,15 @@ func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) erro
 		}
 	}
 	return nil
+}
+
+func normalizeDockerBuildQuery(query url.Values) url.Values {
+	normalized := make(url.Values, len(query))
+	for key, values := range query {
+		name := strings.ToLower(strings.TrimSpace(key))
+		normalized[name] = append(normalized[name], values...)
+	}
+	return normalized
 }
 
 func requireDeploymentWorkerOwnedResourceBody(caller string, r *http.Request, body []byte) error {

@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
-Date: 2026-08-27
-Revision: follow-up infrastructure hardening branch `feat/service-volume-ownership` (PR #350, commit `040aecfd`)
+Date: 2026-08-28
+Revision: continued infrastructure hardening branch `feat/service-volume-ownership` (PR #350, commit `07f482be`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -117,6 +117,18 @@ metadata, prototype-shaped keys, and non-finite numbers, and focused API tests
 exercise the execution and schema contracts. This improves information-flow
 separation; adversarial model evaluations and provider billing reconciliation
 remain operational evidence requirements.
+
+The latest build supply-chain pass verifies every supported Railpack Linux
+archive and extracted executable against checked-in SHA-256 digests before
+execution, rejects unsupported architectures and unreviewed versions, and
+revalidates cached binaries instead of trusting their path alone. The raw
+deployment-worker Docker build boundary now also rejects external cache and
+host-resolution options, cross-platform builds, resource overrides, security
+profile overrides, duplicate ownership-sensitive query values, and arbitrary
+network modes. Focused Go policy tests and independent verification of all 24
+official Railpack artifacts pass. Compose/service transport and secret-bearing
+build migration remain open findings, so the readiness scores and release
+verdict are intentionally unchanged.
 
 Long-lived MCP clients now revalidate each request URL and its DNS answers
 before forwarding the request, so a hostname that changes from a public answer
@@ -384,7 +396,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Latest raw Swarm task-policy hardening:** The broker’s case-insensitive Docker JSON host-escape walker now rejects Swarm `CapabilityAdd`/`capabilityadd`, non-empty `Sysctls` list or mapping forms, and `service:` namespace modes in addition to the existing container/host/device/security checks. This closes equivalent raw `/services/create` and `/services/{id}/update` task controls that are not represented by the REST container `HostConfig` field names; focused broker policy regressions cover mixed-case capability/sysctl payloads and `service:host`.
 - **Latest raw service isolation hardening:** Resource-scoped deployment-worker raw Swarm service create/update requests now apply an explicit deny-by-default check to service `TaskTemplate` and `ContainerSpec` fields that can request custom runtimes, host/shared namespaces, devices, added capabilities, weakened security options, sysctls, host resource controls, shared volumes, or credential/privilege specifications. The check runs before any Docker inspection and is covered by table-driven policy tests plus a mutation-path regression; broader raw Compose orchestration and secret-bearing build transport remain open migration slices.
 - **Latest raw service authority hardening:** The same pre-inspection policy now rejects host-side `LogDriver` selection, secondary `NetworkAttachmentConfig`, generic device reservations, host alias injection, unbounded ulimits, host OOM-priority changes, and oversized shared-memory requests in raw Swarm service payloads. Focused table-driven regressions cover each class; broader raw Compose orchestration and secret-bearing build transport remain open migration slices.
-- **Latest build supply-chain hardening:** Railpack downloads now use a checked-in release/architecture allowlist, verify the official v0.15.4 archive digest before extraction, verify the extracted executable digest, reject unsupported architectures/releases, reject unsafe cache directories, and revalidate cached executables before use. Focused tests cover architecture/version selection and modified archive/cache rejection. Compose/service transport and secret-bearing build migration remain open slices.
+- **Latest build supply-chain hardening:** Railpack downloads now use a checked-in release/architecture allowlist, verify every supported official archive digest before extraction, verify every extracted executable digest, reject unsupported architectures/releases, reject unsafe cache directories, and revalidate cached executables before use. Focused tests cover architecture/version selection and modified archive/cache rejection, with independent verification of all 24 supported Linux artifacts. Compose/service transport and secret-bearing build migration remain open slices.
 - **Latest worker container boundary hardening:** Production deployment-worker requests for container start/stop/restart/kill/wait/rename/update/resize/exec, archive writes, and container deletion now require a valid `X-Upstand-Resource-ID`; global `/build/prune` is denied to the worker alongside container/image pruning. Before raw forwarding, the broker re-inspects target containers and updated Swarm services and requires the exact system-owned resource label. Network connect/disconnect requests require bounded container identity, encrypted attachable overlay inspection, and either the configured shared network or a managed, resource-labelled isolated network. Focused broker policy and fake-daemon preflight tests cover owned, cross-resource, malformed, and unencrypted cases. The remaining raw Compose/build/service-create transport is still a migration gap.
 - **Latest exec/read isolation hardening:** Production deployment-worker access to raw `/exec/{id}/json`, `/exec/{id}/start`, and `/exec/{id}/resize` now resolves the exec object to its container and requires the container’s live exact resource label before forwarding. Raw container inspection, logs, stats, changes, top, archive, and lifecycle paths now perform the same daemon-side ownership check, closing cross-resource read and exec-object confused-deputy paths. Focused fake-daemon tests cover owned and foreign exec/container cases.
 - **Latest raw container-list boundary hardening:** Production deployment-worker `GET /containers/json` now fails closed unless it receives one bounded `filters` value containing the exact `com.upstand.resource-id=<resource>` label. Compose convergence, discovery, routing, stop, teardown polling, logs, controls, and resource command fallbacks now use the resource-scoped Docker client and include that ownership label. Go policy tests and a TypeScript scoped-client regression test cover missing, malformed, foreign, and correctly scoped filters.
