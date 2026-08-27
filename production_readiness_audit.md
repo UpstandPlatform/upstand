@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: §93d6a3df§ (production-hardening-release)
+Revision: release candidate `feat/cache-gate-reliability` (latest code commit `4b7b36d9`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -626,6 +626,7 @@ Passed:
 - Go 1.25.13 `govulncheck` scans for `apps/docker-broker` and `apps/monitoring` (zero reachable vulnerabilities)
 - operational-status rehearsal restore-verification gate test and internal Docker-control-network acceptance contracts
 - stable tag release acceptance defaulting to the full recovery/load profile, with a contract test preventing smoke from becoming the tag-push default
+- Changesets release metadata validation reporting the fixed deployable set (`server`, `schedules`, `web`, and `fumadocs`) for the next patch release
 
 Concerning or operationally incomplete:
 
