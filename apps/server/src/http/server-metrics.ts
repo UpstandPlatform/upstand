@@ -1,6 +1,15 @@
 import { renderUpGalBudgetMetrics } from "@upstand/api/ai-budget";
 
 type CounterKey = `${string}:${number}`;
+export type ServerRouteGroup =
+  | "api"
+  | "auth"
+  | "deployments"
+  | "mcp"
+  | "system"
+  | "webhooks"
+  | "other";
+type RouteCounterKey = `${ServerRouteGroup}:${string}:${number}`;
 export type WebhookProvider =
   | "github"
   | "gitlab"
@@ -12,11 +21,28 @@ type WebhookCounterKey = `${WebhookProvider}:${number}`;
 
 const startedAt = Date.now();
 const requestCounters = new Map<CounterKey, number>();
+const routeRequestCounters = new Map<RouteCounterKey, number>();
+const routeDurationCounts = new Map<ServerRouteGroup, number[]>();
+const routeDurationSums = new Map<ServerRouteGroup, number>();
+const routeDurationRequests = new Map<ServerRouteGroup, number>();
 const authenticationCounters = new Map<"authenticated" | "rejected", number>();
 const webhookCounters = new Map<WebhookCounterKey, number>();
 let requestCount = 0;
 let requestDurationSeconds = 0;
 let webhookRequestDurationSeconds = 0;
+
+const ROUTE_LATENCY_BUCKETS_MS = [100, 500, 1_000, 2_000, 5_000, 10_000];
+const HTTP_METHODS = new Set([
+  "CONNECT",
+  "DELETE",
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "PATCH",
+  "POST",
+  "PUT",
+  "TRACE",
+]);
 
 export type DatabasePoolMetrics = {
   total: number;
@@ -28,11 +54,39 @@ export function recordServerRequest(
   method: string,
   status: number,
   durationMs: number,
+  path = "/",
 ): void {
-  const key: CounterKey = `${method.toUpperCase()}:${status}`;
+  const normalizedMethod = normalizeHttpMethod(method);
+  const normalizedStatus = normalizeHttpStatus(status);
+  const normalizedDurationMs = normalizeDurationMs(durationMs);
+  const key: CounterKey = `${normalizedMethod}:${normalizedStatus}`;
   requestCounters.set(key, (requestCounters.get(key) ?? 0) + 1);
   requestCount += 1;
-  requestDurationSeconds += Math.max(0, durationMs) / 1_000;
+  requestDurationSeconds += normalizedDurationMs / 1_000;
+
+  const routeGroup = classifyServerRoute(path);
+  const routeKey: RouteCounterKey = `${routeGroup}:${normalizedMethod}:${normalizedStatus}`;
+  routeRequestCounters.set(
+    routeKey,
+    (routeRequestCounters.get(routeKey) ?? 0) + 1,
+  );
+  const bucketCounts =
+    routeDurationCounts.get(routeGroup) ??
+    Array.from({ length: ROUTE_LATENCY_BUCKETS_MS.length }, () => 0);
+  for (const [index, boundaryMs] of ROUTE_LATENCY_BUCKETS_MS.entries()) {
+    if (normalizedDurationMs <= boundaryMs) {
+      bucketCounts[index] = (bucketCounts[index] ?? 0) + 1;
+    }
+  }
+  routeDurationCounts.set(routeGroup, bucketCounts);
+  routeDurationSums.set(
+    routeGroup,
+    (routeDurationSums.get(routeGroup) ?? 0) + normalizedDurationMs / 1_000,
+  );
+  routeDurationRequests.set(
+    routeGroup,
+    (routeDurationRequests.get(routeGroup) ?? 0) + 1,
+  );
 }
 
 /** Records only the authentication outcome; never attach user or token data. */
@@ -74,6 +128,34 @@ export function renderServerMetrics(
     const status = key.slice(separator + 1);
     lines.push(
       `upstand_server_requests_total{method="${escapeLabel(method)}",status="${escapeLabel(status)}"} ${count}`,
+    );
+  }
+  lines.push(
+    "# HELP upstand_server_route_requests_total HTTP requests by bounded route family, method, and status.",
+    "# TYPE upstand_server_route_requests_total counter",
+  );
+  for (const [key, count] of [...routeRequestCounters.entries()].sort()) {
+    const [routeGroup = "other", method = "OTHER", status = "500"] =
+      key.split(":");
+    lines.push(
+      `upstand_server_route_requests_total{route_group="${escapeLabel(routeGroup)}",method="${escapeLabel(method)}",status="${escapeLabel(status)}"} ${count}`,
+    );
+  }
+  lines.push(
+    "# HELP upstand_server_route_request_duration_seconds Request latency by bounded route family.",
+    "# TYPE upstand_server_route_request_duration_seconds histogram",
+  );
+  for (const routeGroup of [...routeDurationRequests.keys()].sort()) {
+    const bucketCounts = routeDurationCounts.get(routeGroup) ?? [];
+    for (const [index, boundaryMs] of ROUTE_LATENCY_BUCKETS_MS.entries()) {
+      lines.push(
+        `upstand_server_route_request_duration_seconds_bucket{route_group="${escapeLabel(routeGroup)}",le="${boundaryMs / 1_000}"} ${bucketCounts[index] ?? 0}`,
+      );
+    }
+    lines.push(
+      `upstand_server_route_request_duration_seconds_bucket{route_group="${escapeLabel(routeGroup)}",le="+Inf"} ${routeDurationRequests.get(routeGroup) ?? 0}`,
+      `upstand_server_route_request_duration_seconds_sum{route_group="${escapeLabel(routeGroup)}"} ${routeDurationSums.get(routeGroup) ?? 0}`,
+      `upstand_server_route_request_duration_seconds_count{route_group="${escapeLabel(routeGroup)}"} ${routeDurationRequests.get(routeGroup) ?? 0}`,
     );
   }
   lines.push(
@@ -144,6 +226,53 @@ export function renderServerMetrics(
   }
   lines.push(renderUpGalBudgetMetrics());
   return lines.join("\n");
+}
+
+function normalizeHttpMethod(method: string): string {
+  const normalized = method.trim().toUpperCase();
+  return HTTP_METHODS.has(normalized) ? normalized : "OTHER";
+}
+
+function normalizeHttpStatus(status: number): number {
+  return Number.isInteger(status) ? Math.min(599, Math.max(100, status)) : 500;
+}
+
+function normalizeDurationMs(durationMs: number): number {
+  return Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0;
+}
+
+export function classifyServerRoute(path: string): ServerRouteGroup {
+  const normalized = path.trim().toLowerCase();
+  if (normalized === "/api/auth" || normalized.startsWith("/api/auth/")) {
+    return "auth";
+  }
+  if (
+    normalized === "/api/deploy" ||
+    normalized.startsWith("/api/deploy/") ||
+    normalized === "/api/resources" ||
+    normalized.startsWith("/api/resources/")
+  ) {
+    return "deployments";
+  }
+  if (
+    normalized === "/api/webhooks" ||
+    normalized.startsWith("/api/webhooks/")
+  ) {
+    return "webhooks";
+  }
+  if (normalized === "/api/mcp" || normalized.startsWith("/api/mcp/")) {
+    return "mcp";
+  }
+  if (
+    normalized === "/_internal/metrics" ||
+    normalized.startsWith("/health/")
+  ) {
+    return "system";
+  }
+  if (normalized === "/api" || normalized.startsWith("/api/")) {
+    return "api";
+  }
+  return "other";
 }
 
 function escapeLabel(value: string): string {

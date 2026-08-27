@@ -47,6 +47,38 @@ groups:
           summary: Upstand API requests are waiting for PostgreSQL connections
           description: The API database pool is saturated; inspect PostgreSQL capacity, slow queries, and request pressure before availability degrades.
 
+      - alert: UpstandServerRouteLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, route_group) (
+              rate(upstand_server_route_request_duration_seconds_bucket{job="upstand-server",route_group!="system"}[5m])
+            )
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: Upstand API route-family p95 latency is above 2 seconds
+          description: A bounded API route family is exceeding its latency objective; investigate dependency saturation, deployment pressure, or request amplification without using tenant or request identifiers as metric labels.
+
+      - alert: UpstandDeploymentRouteLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(upstand_server_route_request_duration_seconds_bucket{job="upstand-server",route_group="deployments"}[5m])
+            )
+          ) > 5
+        for: 10m
+        labels:
+          severity: critical
+          service: upstand-server
+        annotations:
+          summary: Upstand deployment API p95 latency is above 5 seconds
+          description: Deployment-facing API requests are exceeding the release SLO; inspect queue, database, broker, and remote execution health.
+
       - alert: UpstandServerAuthenticationFailuresHigh
         expr: |
           (

@@ -28,6 +28,8 @@ grep -Fq 'upstand_server_requests_total' "$SERVER_METRICS_FILE"
 grep -Fq 'upstand_server_authentication_attempts_total' "$SERVER_METRICS_FILE"
 grep -Fq 'upstand_server_webhook_requests_total' "$SERVER_METRICS_FILE"
 grep -Fq 'upstand_server_webhook_request_duration_seconds_total' "$SERVER_METRICS_FILE"
+grep -Fq 'upstand_server_route_requests_total' "$SERVER_METRICS_FILE"
+grep -Fq 'upstand_server_route_request_duration_seconds_bucket' "$SERVER_METRICS_FILE"
 grep -Fq 'renderUpGalBudgetMetrics' "$SERVER_METRICS_FILE"
 grep -Fq 'upstand_ai_budget_reservations_total' "$ROOT_DIR/packages/api/src/ai-budget.ts"
 grep -Fq 'upstand_ai_budget_reserved_tokens_total' "$ROOT_DIR/packages/api/src/ai-budget.ts"
@@ -40,6 +42,8 @@ grep -Fq 'UpstandWebhookServerErrorsHigh' "$ALERT_RULES"
 grep -Fq 'UpstandWebhookSignatureRejectionsHigh' "$ALERT_RULES"
 grep -Fq 'UpstandAIBudgetRejectionsHigh' "$ALERT_RULES"
 grep -Fq 'UpstandAIUsageUnpriced' "$ALERT_RULES"
+grep -Fq 'UpstandServerRouteLatencyHigh' "$ALERT_RULES"
+grep -Fq 'UpstandDeploymentRouteLatencyHigh' "$ALERT_RULES"
 
 for metric in \
   upstand_schedules_collection_success \
