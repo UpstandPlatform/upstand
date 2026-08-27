@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: release candidate `feat/cache-gate-reliability` (latest code commit `d237a983`)
+Revision: release candidate `feat/cache-gate-reliability` (latest code commit `760c2846`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -151,6 +151,12 @@ passed at run `33036632711`; image builds, publication, and the incompatible
 current acceptance phase were skipped by explicit inputs. This proves the
 workflow starts and verifies a legacy release, but is not a production release
 publication or current-image acceptance result.
+
+The hosted release matrix also revalidated the packaged Desktop runtime after
+the Windows startup-window fix: Linux, macOS, and Windows packaging passed,
+including the Windows packaged API/dashboard health probe. This closes the
+observed CI timing failure; it does not substitute for installed-customer
+environment evidence.
 
 The API now records low-cardinality authentication outcomes at the protected
 HTTP middleware boundary (`authenticated` or `rejected`) without including
