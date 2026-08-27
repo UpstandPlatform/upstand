@@ -241,6 +241,14 @@ Set `UPGAL_TOOL_APPROVAL_SECRET` to a dedicated server-only secret of at least
 exact tool call, so browser payload changes are rejected during replay. Rotate
 it as a separate security boundary from `BETTER_AUTH_SECRET`.
 
+External web, Tavily, and opt-in MCP tool results are returned to UpGal in a
+bounded `external-untrusted` provenance envelope under `data`. The envelope is
+applied at tool execution and declared in the tool output schema; it is a
+data-flow boundary, not a claim that model-generated text is trusted. Keep the
+instruction rules, receiving-tool validation, approval binding, and
+authorization re-checks in place, and exercise adversarial prompt-injection
+cases before enabling a new external integration.
+
 Audit records are retained for `UPSTAND_AUDIT_LOG_RETENTION_DAYS` (365 days by
 default) and pruned by the schedules service in bounded batches. Set the value
 to the organization’s legal/compliance retention period before launch; do not
