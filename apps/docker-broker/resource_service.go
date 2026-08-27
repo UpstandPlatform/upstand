@@ -210,7 +210,15 @@ func validateTypedResourceContainerSpec(body []byte, resourceID string) error {
 	if err := json.Unmarshal(body, &containerSpec); err != nil || len(containerSpec) == 0 {
 		return errors.New(`typed resource service container spec is invalid`)
 	}
-	rawMounts, ok := containerSpec[`Mounts`]
+	var rawMounts json.RawMessage
+	var ok bool
+	for key, value := range containerSpec {
+		if strings.EqualFold(strings.TrimSpace(key), `Mounts`) {
+			rawMounts = value
+			ok = true
+			break
+		}
+	}
 	if !ok {
 		return nil
 	}

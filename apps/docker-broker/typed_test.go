@@ -643,6 +643,11 @@ func TestTypedResourceServiceRejectsCrossResourceVolumeMounts(t *testing.T) {
 		}
 	}
 
+	lowerCaseMounts := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","mounts":[{"type":"volume","source":"upstand-resource-resource-2-volume-data","target":"/data"}]}}}`)
+	if err := validateTypedResourceServiceSpec(lowerCaseMounts, "resource-1", "resource-1"); err == nil {
+		t.Fatal("expected case-insensitive Docker mount fields to remain resource-scoped")
+	}
+
 	valid := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","Mounts":[{"Type":"volume","Source":"upstand-db-data-resource-1","Target":"/data"}]}}}`)
 	if err := validateTypedResourceServiceSpec(valid, "resource-1", "resource-1"); err != nil {
 		t.Fatalf("expected the resource database volume to remain valid: %v", err)
