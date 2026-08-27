@@ -48,4 +48,3 @@ jobs:
       publish_release: false
       build_images: false
       attestation_source_ref: ${{ needs.resolve-release.outputs.release_ref }}
-    secrets: inherit
