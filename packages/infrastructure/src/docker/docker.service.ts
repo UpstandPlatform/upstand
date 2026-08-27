@@ -88,6 +88,12 @@ import {
 } from "./docker-broker-client";
 import { getDockerInstance } from "./docker-client";
 import { createPinnedGitSshEnvironment, isSshGitUrl } from "./git-host-key";
+import {
+  getRailpackArtifact,
+  getRailpackTarget,
+  verifyRailpackArchive,
+  verifyRailpackBinary,
+} from "./railpack-release";
 
 const MINIMAL_COMMAND_ENVIRONMENT_KEYS = [
   "PATH",
@@ -3149,8 +3155,8 @@ export class DockerService implements DockerSwarmManagementPort {
     version: string,
     onLog: (log: string) => void,
   ): Promise<string> {
-    const platform = process.arch === "arm64" ? "arm64" : "x86_64";
-    const target = `${platform}-unknown-linux-musl`;
+    const target = getRailpackTarget(process.arch);
+    const artifact = getRailpackArtifact(version, target);
     const toolsDirectory = path.join(
       process.cwd(),
       ".tools",
@@ -3158,9 +3164,16 @@ export class DockerService implements DockerSwarmManagementPort {
     );
     const binaryPath = path.join(toolsDirectory, "railpack");
     if (fs.existsSync(binaryPath)) {
+      verifyRailpackBinary(binaryPath, artifact.binarySha256);
       return binaryPath;
     }
 
+    if (fs.existsSync(toolsDirectory)) {
+      const directoryStat = fs.lstatSync(toolsDirectory);
+      if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+        throw new Error("Railpack cache directory is not a safe directory");
+      }
+    }
     fs.mkdirSync(toolsDirectory, { recursive: true });
     const archivePath = path.join(toolsDirectory, "railpack.tar.gz");
     const releaseUrl = `https://github.com/railwayapp/railpack/releases/download/v${version}/railpack-v${version}-${target}.tar.gz`;
@@ -3180,11 +3193,13 @@ export class DockerService implements DockerSwarmManagementPort {
         ],
         onLog,
       );
+      verifyRailpackArchive(archivePath, artifact.archiveSha256);
       await this.runCommandAsync(
         "tar",
         ["-xzf", archivePath, "-C", toolsDirectory],
         onLog,
       );
+      verifyRailpackBinary(binaryPath, artifact.binarySha256);
       fs.chmodSync(binaryPath, 0o755);
       return binaryPath;
     } catch (error) {
