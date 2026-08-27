@@ -649,8 +649,8 @@ func walkDeploymentWorkerOwnedVolumes(value any, location, resourceID string) er
 	case map[string]any:
 		for key, child := range typed {
 			keyLocation := location + "." + key
-			switch key {
-			case "Binds":
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "binds":
 				list, ok := child.([]any)
 				if !ok {
 					return fmt.Errorf("%s must be an array of managed volume binds", keyLocation)
@@ -661,7 +661,7 @@ func walkDeploymentWorkerOwnedVolumes(value any, location, resourceID string) er
 						return fmt.Errorf("%s[%d] must reference a volume owned by resource %s", keyLocation, index, resourceID)
 					}
 				}
-			case "Mounts":
+			case "mounts":
 				list, ok := child.([]any)
 				if !ok {
 					return fmt.Errorf("%s must be an array of managed volume mounts", keyLocation)
@@ -671,8 +671,7 @@ func walkDeploymentWorkerOwnedVolumes(value any, location, resourceID string) er
 					if !ok {
 						return fmt.Errorf("%s[%d] must be a managed volume mount", keyLocation, index)
 					}
-					mountType, _ := mount["Type"].(string)
-					source, _ := mount["Source"].(string)
+					mountType, source := deploymentWorkerMountFields(mount)
 					if mountType != "volume" || !isDeploymentWorkerOwnedVolume(source, resourceID) {
 						return fmt.Errorf("%s[%d] must reference a volume owned by resource %s", keyLocation, index, resourceID)
 					}
@@ -699,6 +698,11 @@ func isDeploymentWorkerOwnedVolume(volumeName, resourceID string) bool {
 	prefix := "upstand-resource-" + strings.ToLower(resourceID) + "-volume-"
 	volumeKey := strings.TrimPrefix(volumeName, prefix)
 	return volumeKey != volumeName && deploymentWorkerVolumeKeyPattern.MatchString(volumeKey)
+}
+
+func deploymentWorkerMountFields(mount map[string]any) (string, string) {
+	mountType, source, _ := dockerMountFields(mount)
+	return mountType, source
 }
 
 // isAllowedCallerDockerOperation narrows the global Docker operation allowlist
@@ -960,28 +964,33 @@ func walkHostEscape(value any, location string) error {
 	case map[string]any:
 		for key, child := range typed {
 			keyLocation := location + "." + key
-			switch key {
-			case "Privileged", "PublishAllPorts", "PidMode", "IpcMode", "NetworkMode", "UsernsMode", "CgroupnsMode", "Isolation":
-				if key == "Privileged" || key == "PublishAllPorts" {
+			normalizedKey := strings.ToLower(strings.TrimSpace(key))
+			switch normalizedKey {
+			case "privileged", "publishallports", "pidmode", "ipcmode", "networkmode", "usernsmode", "cgroupnsmode", "utsmode", "isolation":
+				if normalizedKey == "privileged" || normalizedKey == "publishallports" {
 					if enabled, ok := child.(bool); ok && enabled {
 						return fmt.Errorf("%s enables an unsafe host capability", keyLocation)
 					}
 				} else if text, ok := child.(string); ok && isHostMode(text) {
 					return fmt.Errorf("%s requests host mode", keyLocation)
 				}
-			case "CapAdd", "Devices", "DeviceRequests":
+			case "capadd", "devices", "devicerequests", "devicecgrouprules":
 				if list, ok := child.([]any); ok && len(list) > 0 {
 					return fmt.Errorf("%s injects host capabilities or devices", keyLocation)
 				}
-			case "DriverOpts":
+			case "driveropts":
 				if options, ok := child.(map[string]any); ok && len(options) > 0 {
 					return fmt.Errorf("%s can create a host-backed Docker volume", keyLocation)
 				}
-			case "Runtime":
+			case "volumedriver":
+				if driver, ok := child.(string); ok && strings.TrimSpace(driver) != "" && !strings.EqualFold(strings.TrimSpace(driver), "local") {
+					return fmt.Errorf("%s selects an unsupported Docker volume driver", keyLocation)
+				}
+			case "runtime":
 				if runtime, ok := child.(string); ok && strings.TrimSpace(runtime) != "" {
 					return fmt.Errorf("%s selects a custom container runtime", keyLocation)
 				}
-			case "SecurityOpt":
+			case "securityopt":
 				if options, ok := child.([]any); ok {
 					for _, option := range options {
 						if text, ok := option.(string); ok && unsafeSecurityOption(text) {
@@ -989,7 +998,7 @@ func walkHostEscape(value any, location string) error {
 						}
 					}
 				}
-			case "Binds":
+			case "binds":
 				if list, ok := child.([]any); ok {
 					for _, entry := range list {
 						if text, ok := entry.(string); ok && unsafeBindSource(text) {
@@ -997,13 +1006,12 @@ func walkHostEscape(value any, location string) error {
 						}
 					}
 				}
-			case "Mounts":
+			case "mounts":
 				if list, ok := child.([]any); ok {
 					for _, entry := range list {
 						if mount, ok := entry.(map[string]any); ok {
-							if kind, _ := mount["Type"].(string); kind == "bind" {
-								source, _ := mount["Source"].(string)
-								readOnly, _ := mount["ReadOnly"].(bool)
+							kind, source, readOnly := dockerMountFields(mount)
+							if kind == "bind" {
 								if (unsafeBindSource(source) && !(isTelemetryBindSource(source) && readOnly)) ||
 									(isTelemetryBindSource(source) && !readOnly) {
 									return fmt.Errorf("%s contains an unsafe host bind", keyLocation)
@@ -1027,9 +1035,30 @@ func walkHostEscape(value any, location string) error {
 	return nil
 }
 
+func dockerMountFields(mount map[string]any) (string, string, bool) {
+	var kind string
+	var source string
+	var readOnly bool
+	for key, value := range mount {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "type":
+			kind, _ = value.(string)
+		case "source":
+			source, _ = value.(string)
+		case "readonly":
+			readOnly, _ = value.(bool)
+		}
+	}
+	return strings.ToLower(strings.TrimSpace(kind)), source, readOnly
+}
+
 func isHostMode(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
-	return value == "host" || value == "hostipc" || value == "hostpid" || value == "hostnetwork"
+	return value == "host" ||
+		value == "hostipc" ||
+		value == "hostpid" ||
+		value == "hostnetwork" ||
+		strings.HasPrefix(value, "container:")
 }
 
 func unsafeSecurityOption(value string) bool {
@@ -1037,7 +1066,8 @@ func unsafeSecurityOption(value string) bool {
 	return value == "apparmor=unconfined" ||
 		value == "seccomp=unconfined" ||
 		value == "label=disable" ||
-		value == "systempaths=unconfined"
+		value == "systempaths=unconfined" ||
+		value == "no-new-privileges=false"
 }
 
 func unsafeBindSource(value string) bool {

@@ -868,6 +868,24 @@ func TestProductionDeploymentWorkerCannotMountAnotherResourceVolume(t *testing.T
 	}
 }
 
+func TestProductionDeploymentWorkerPolicyMatchesDockerJSONCaseInsensitively(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+
+	for _, body := range []string{
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"tasktemplate":{"containerspec":{"mounts":[{"type":"volume","source":"upstand-db-data-resource-2","target":"/data"}]}}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"binds":["/var/run/docker.sock:/var/run/docker.sock"]}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"privileged":true}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"networkmode":"container:other-resource"}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"securityopt":["no-new-privileges=false"]}}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(body))
+		request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+		if err := authorizeDockerRequestForCaller("deployment-worker", request, []byte(body)); err == nil {
+			t.Fatalf("expected case-insensitive Docker policy validation to reject body: %s", body)
+		}
+	}
+}
+
 func TestProductionDeploymentWorkerCannotUseRawNetworkDeletion(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	req := httptest.NewRequest(http.MethodDelete, "http://broker/v1.43/networks/network-1", nil)
