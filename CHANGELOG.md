@@ -4,6 +4,48 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.27 - 2026-08-27
+
+Prevent Compose CLI interpolation from inheriting unrelated control-plane environment variables or Docker transport credentials.
+
+Wrap web, Tavily, and MCP tool results in bounded, machine-checkable untrusted-data provenance envelopes before model exposure.
+
+Reject Compose build, Dockerfile, env-file, and extension paths that can escape the generated deployment directory, and disable external Compose includes and SSH-agent forwarding during builds.
+
+Serialize pull-request preview quota decisions per resource to prevent concurrent webhook deliveries from exceeding the configured limit.
+
+Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
+
+Scope Compose networks and volumes through typed, owner-labelled Docker broker capabilities before deployment.
+
+Bind deployment-worker Docker broker requests to signed, short-lived deployment scopes and refuse unscoped production deployments.
+
+Use reviewed model pricing metadata to raise AI cost admission ceilings conservatively for known models.
+
+Bound legacy Docker build contexts to the same streaming size limit as typed build capabilities.
+
+Provision the local platform Caddy container through a fixed-shape, broker-validated Docker capability.
+
+Normalize typed Docker service mount-field casing before enforcing resource ownership, closing case-insensitive volume-scope bypasses.
+
+Route local Swarm-stack stop operations through the ownership-checked typed Docker broker teardown capability.
+
+Scope Compose secrets and configs to the owning resource and verify Swarm file-backed resource ownership before service mutation.
+
+Expose reviewed model pricing metadata and aggregate estimated-cost and unpriced-usage metrics for UpGal calls while retaining the operator-configured conservative admission ceiling.
+
+Reject typed resource-service specifications that mount named volumes owned by another resource or unmanaged volume names.
+
+Keep resolved build environment values on the BuildKit secret channel instead of Dockerfile build arguments, and reject secret-like explicit build-argument names.
+
+Reject remote Compose build contexts so deployments cannot make the Docker daemon fetch unreviewed build input outside the bounded local build workspace.
+
+Prevent server-rendered session requests from trusting spoofed forwarded host and protocol headers.
+
+Scope deployment-worker Docker exec and container inspection access to the owning resource.
+
+Bind deployment-worker Docker broker grants to their signed deployment and server targets across typed, Dockerode, and Docker CLI transports.
+
 ## 0.2.26 - 2026-08-27
 
 Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
