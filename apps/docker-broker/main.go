@@ -964,7 +964,89 @@ func isJSONPolicyPath(path string) bool {
 		resourceActionPath(path, "networks", "disconnect")
 }
 
+const maxPolicyJSONDepth = 128
+
+// rejectDuplicateJSONKeys prevents authorization/parser differentials. The
+// Docker API and the broker both consume JSON, but duplicate (or merely
+// differently-cased) keys can make their last-value behavior ambiguous while
+// the policy walkers intentionally match Docker field names case-insensitively.
+func rejectDuplicateJSONKeys(body []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err := scanPolicyJSONValue(decoder, 0); err != nil {
+		return fmt.Errorf("JSON policy body is ambiguous or invalid: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("JSON policy body must contain exactly one value")
+		}
+		return fmt.Errorf("JSON policy body contains trailing data: %w", err)
+	}
+	return nil
+}
+
+func scanPolicyJSONValue(decoder *json.Decoder, depth int) error {
+	if depth > maxPolicyJSONDepth {
+		return fmt.Errorf("JSON nesting exceeds %d levels", maxPolicyJSONDepth)
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	switch delimiter := token.(type) {
+	case json.Delim:
+		switch delimiter {
+		case '{':
+			keys := make(map[string]struct{})
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return errors.New("JSON object key is not a string")
+				}
+				normalizedKey := strings.ToLower(key)
+				if _, exists := keys[normalizedKey]; exists {
+					return fmt.Errorf("duplicate JSON object key %q", key)
+				}
+				keys[normalizedKey] = struct{}{}
+				if err := scanPolicyJSONValue(decoder, depth+1); err != nil {
+					return err
+				}
+			}
+			closing, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			if closing != json.Delim('}') {
+				return errors.New("JSON object is not closed")
+			}
+		case '[':
+			for decoder.More() {
+				if err := scanPolicyJSONValue(decoder, depth+1); err != nil {
+					return err
+				}
+			}
+			closing, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			if closing != json.Delim(']') {
+				return errors.New("JSON array is not closed")
+			}
+		default:
+			return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+		}
+	}
+	return nil
+}
+
 func rejectHostEscapeJSON(body []byte) error {
+	if err := rejectDuplicateJSONKeys(body); err != nil {
+		return err
+	}
 	var value any
 	if err := json.Unmarshal(body, &value); err != nil {
 		return fmt.Errorf("invalid JSON policy body: %w", err)

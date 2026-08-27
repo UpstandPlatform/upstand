@@ -417,6 +417,9 @@ func decodeTypedJSON(body []byte, target any) error {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return errors.New(`typed Docker operation requires a JSON body`)
 	}
+	if err := rejectDuplicateJSONKeys(body); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

@@ -121,6 +121,33 @@ func TestAuthorizeDockerRequestRejectsHostSocketAndPrivilegedContainers(t *testi
 	}
 }
 
+func TestAuthorizeDockerRequestRejectsAmbiguousJSONKeys(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "exact duplicate", body: `{"Image":"alpine","HostConfig":{"Privileged":false,"Privileged":true}}`},
+		{name: "case-insensitive duplicate", body: `{"Labels":{"com.upstand.resource-id":"resource-1"},"labels":{"com.upstand.resource-id":"other-resource"}}`},
+		{name: "nested duplicate", body: `{"TaskTemplate":{"ContainerSpec":{"Env":[{"Name":"A","Value":"1","name":"B"}]}}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			req, _ := http.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(test.body))
+			if err := authorizeDockerRequest(req, []byte(test.body)); err == nil {
+				t.Fatalf("expected ambiguous JSON policy body to be rejected: %s", test.body)
+			}
+		})
+	}
+}
+
+func TestDecodeTypedJSONRejectsAmbiguousJSONKeys(t *testing.T) {
+	var target struct {
+		Operation string `json:"operation"`
+	}
+	if err := decodeTypedJSON([]byte(`{"operation":"info","Operation":"inspect"}`), &target); err == nil {
+		t.Fatal("expected typed JSON with case-insensitive duplicate keys to be rejected")
+	}
+}
+
 func TestAuthorizeDockerRequestRejectsHostBackedVolumesAndWeakSecurityProfiles(t *testing.T) {
 	for _, test := range []struct {
 		path string
