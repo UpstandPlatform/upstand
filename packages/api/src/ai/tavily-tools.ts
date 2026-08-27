@@ -8,6 +8,10 @@ import type { AITavilySettingsRecord, IAIRepository } from "@upstand/domain";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { tool } from "ai";
 import { z } from "zod";
+import {
+  externalUntrustedOutputSchema,
+  wrapExternalUntrustedOutput,
+} from "./untrusted-content";
 
 export type TavilyToolsResult = {
   enabled: boolean;
@@ -56,28 +60,9 @@ function isExecutableTavilyTool(value: unknown): value is ExecutableTavilyTool {
   );
 }
 
-function boundModelValue(value: unknown, depth = 0): unknown {
-  if (depth > 5) return "[output truncated]";
-  if (typeof value === "string") {
-    return value.length <= 4_000
-      ? value
-      : `${value.slice(0, 4_000)}\n... [output truncated]`;
-  }
-  if (Array.isArray(value)) {
-    return value.slice(0, 20).map((item) => boundModelValue(item, depth + 1));
-  }
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value)
-        .slice(0, 48)
-        .map(([key, item]) => [key, boundModelValue(item, depth + 1)]),
-    );
-  }
-  return value;
-}
-
 function createBoundedTavilyTool<TInput>(
   raw: unknown,
+  source: string,
   description: string,
   inputSchema: z.ZodType<TInput>,
 ): unknown {
@@ -85,8 +70,9 @@ function createBoundedTavilyTool<TInput>(
   return tool({
     description,
     inputSchema,
+    outputSchema: externalUntrustedOutputSchema,
     execute: async (input) =>
-      boundModelValue(await raw.execute(input as unknown)),
+      wrapExternalUntrustedOutput(source, await raw.execute(input as unknown)),
   });
 }
 
@@ -134,6 +120,7 @@ export async function createTavilyToolsForOrg(
     });
     const boundedSearch = createBoundedTavilyTool(
       search,
+      "tavily-search",
       "Search the public web using Tavily with bounded query and result data.",
       boundedSearchInputSchema,
     );
@@ -146,6 +133,7 @@ export async function createTavilyToolsForOrg(
     });
     const boundedExtract = createBoundedTavilyTool(
       extract,
+      "tavily-extract",
       "Extract bounded content from up to five public web URLs using Tavily.",
       boundedExtractInputSchema,
     );
@@ -158,6 +146,7 @@ export async function createTavilyToolsForOrg(
     });
     const boundedCrawl = createBoundedTavilyTool(
       crawl,
+      "tavily-crawl",
       "Crawl one public website with depth and output bounds; external domains are disabled.",
       boundedCrawlInputSchema,
     );
@@ -170,6 +159,7 @@ export async function createTavilyToolsForOrg(
     });
     const boundedMap = createBoundedTavilyTool(
       map,
+      "tavily-map",
       "Map one public website with bounded depth and output; external domains are disabled.",
       boundedMapInputSchema,
     );
