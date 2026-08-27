@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: release candidate `feat/cache-gate-reliability` (latest code commit `166007e6`)
+Revision: release candidate `feat/cache-gate-reliability` (latest code commit `26eb0a12`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -76,6 +76,12 @@ metadata, prototype-shaped keys, and non-finite numbers, and focused API tests
 exercise the execution and schema contracts. This improves information-flow
 separation; adversarial model evaluations and provider billing reconciliation
 remain operational evidence requirements.
+
+Long-lived MCP clients now revalidate each request URL and its DNS answers
+before forwarding the request, so a hostname that changes from a public answer
+to a blocked address is rejected before the subsequent call. This is an
+additional defense-in-depth check; the hostname transport is not IP-pinned, and
+adversarial model evaluation remains required.
 
 The release remains blocked by two current facts:
 
@@ -536,7 +542,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-005 | Partial/remediated for ownership safety — new self-hosted bootstrap persists the owner, missing legacy ownership fails closed, and configured legacy owners now have a one-time, explicit-confirmation, step-up-protected repair path; existing owners have an audited transfer path and live evidence remains. |
 | F-006/F-007 | Mostly remediated in runtime — direct-origin trust and cookie normalization are disabled in production unless both explicit bootstrap flags are enabled, production plaintext bootstrap accepts only loopback/private/link-local direct addresses, and non-health direct-IP HTTP is rejected after first account creation; installation cutover evidence remains. |
 | F-008 | Partial/remediated for token/cost admission — quota admission, bounded history, per-step aggregate token ceilings, standalone output caps, atomic per-organization run plus worst-case token plus model-aware conservative cents reservations, durable failed-run finalization, and an exact operator model allowlist exist; provider invoice reconciliation remains. |
-| F-009 | Partial/remediated in code — first-party scope checks, HMAC-bound approval gates, MCP restrictions, bounded provider output, and schema-declared model-facing provenance envelopes exist; adversarial evaluation remains. |
+| F-009 | Partial/remediated in code — first-party scope checks, HMAC-bound approval gates, MCP restrictions with per-request endpoint/DNS revalidation, bounded provider output, and schema-declared model-facing provenance envelopes exist; adversarial evaluation remains. |
 | F-010/F-011 | Remediated in code — preview quota uses a mandatory resource-row transaction lock and a tested quota use case; failed cleanup remains `cleanup_pending`; preview cleanup now carries the owning resource ID, requires an exact service ownership label before deletion, and has a bounded restart-safe scheduler retry path; focused use-case coverage passes, while repeated-close and live remote-target evidence remain. |
 | F-012 | Remediated in source and migrations — generated migrations `0091` and `0092` add composite uniqueness first and same-organization foreign keys second for backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; fresh-schema portable transfer coverage and fresh-plus-upgraded external PostgreSQL migration smoke pass; and full-schema PGlite coverage proves normalized resource ownership follows the non-null resource/environment/project chain. |
 | F-013 | Remediated — device approval claims before API-key creation, completes only from the claim, and cleans up both key and claim on failure; focused tests pass. |
@@ -642,6 +648,7 @@ Passed:
 - bun audit --audit-level=high (no vulnerabilities found)
 - Go test/vet portion of CI-equivalent checks
 - deployment-worker raw service-list, task-list, service-inspection, network-list, and network-inspection ownership policy tests, plus resource-scoped Swarm service-control regression coverage
+- MCP transport tests covering per-request DNS revalidation, blocked-address rejection before forwarding, request deadlines, endpoint safety, and untrusted-output provenance
 - `go test ./...` in `apps/docker-broker` and typed-route authorization tests
 - typed self-update runtime tests with a fake Docker transport (managed services only, immutable digest mutation, source-install rejection)
 - typed Swarm runtime tests with a fake Docker transport (inventory mapping and bounded node update)
