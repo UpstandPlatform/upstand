@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -93,6 +94,36 @@ func TestDeploymentWorkerRawContainerReadsRequireDaemonOwnership(t *testing.T) {
 	})
 	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, foreign); err == nil {
 		t.Fatal("expected a cross-resource container read to be rejected")
+	}
+}
+
+func TestDeploymentWorkerRawContainerListingRequiresExactResourceFilter(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	for _, test := range []struct {
+		name    string
+		filters string
+		valid   bool
+	}{
+		{name: "exact label", filters: `{"label":["com.docker.compose.project=app","com.upstand.resource-id=resource-1"]}`, valid: true},
+		{name: "missing label", filters: `{"label":["com.docker.compose.project=app"]}`},
+		{name: "foreign label", filters: `{"label":["com.upstand.resource-id=other-resource"]}`},
+		{name: "malformed filters", filters: `{"label":[}`},
+		{name: "wrong label shape", filters: `{"label":"com.upstand.resource-id=resource-1"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/containers/json?filters="+url.QueryEscape(test.filters), nil)
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, rawScopeTestEngine(func(*http.Request) *http.Response {
+				t.Fatal("container list policy must fail before contacting Docker")
+				return nil
+			}))
+			if test.valid && err != nil {
+				t.Fatalf("expected an exact resource filter to be allowed: %v", err)
+			}
+			if !test.valid && err == nil {
+				t.Fatal("expected an incomplete or foreign resource filter to be rejected")
+			}
+		})
 	}
 }
 

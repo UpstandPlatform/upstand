@@ -33,6 +33,9 @@ func authorizeDeploymentWorkerRawResourceScope(
 	}
 
 	path := normalizeDockerPath(r.URL.Path)
+	if r.Method == http.MethodGet && path == "/containers/json" {
+		return authorizeDeploymentWorkerRawContainerList(r, resourceID)
+	}
 	if execPath(path, "json") || execPath(path, "start") || execPath(path, "resize") {
 		return engine.authorizeResourceExec(ctx, path, resourceID)
 	}
@@ -55,6 +58,33 @@ func authorizeDeploymentWorkerRawResourceScope(
 		return authorizeDeploymentWorkerRawNetwork(ctx, path, body, resourceID, engine)
 	}
 	return nil
+}
+
+func authorizeDeploymentWorkerRawContainerList(r *http.Request, resourceID string) error {
+	values, ok := r.URL.Query()["filters"]
+	if !ok || len(values) != 1 || len(values[0]) == 0 || len(values[0]) > maxPolicyBody {
+		return errors.New("deployment-worker container listing requires one bounded resource filter")
+	}
+
+	var filters map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(values[0]), &filters); err != nil {
+		return fmt.Errorf("deployment-worker container listing filters are invalid: %w", err)
+	}
+	rawLabels, ok := filters["label"]
+	if !ok {
+		return errors.New("deployment-worker container listing requires a label filter")
+	}
+	var labels []string
+	if err := json.Unmarshal(rawLabels, &labels); err != nil || len(labels) == 0 || len(labels) > 32 {
+		return errors.New("deployment-worker container listing labels are invalid or unbounded")
+	}
+	required := "com.upstand.resource-id=" + resourceID
+	for _, label := range labels {
+		if label == required {
+			return nil
+		}
+	}
+	return errors.New("deployment-worker container listing must include the exact resource ownership label")
 }
 
 func (engine *dockerEngineClient) authorizeResourceExec(ctx context.Context, path, resourceID string) error {

@@ -468,6 +468,7 @@ describe("deployment command log safety", () => {
       ) => Promise<void>;
       waitForComposeConvergence: (
         projectName: string,
+        resourceId: string,
         onLog: (log: string) => void,
       ) => Promise<void>;
       deployComposeStack: DockerService["deployComposeStack"];
@@ -629,6 +630,7 @@ volumes:
       ) => Promise<void>;
       waitForComposeConvergence: (
         projectName: string,
+        resourceId: string,
         onLog: (log: string) => void,
       ) => Promise<void>;
       deployComposeStack: DockerService["deployComposeStack"];
@@ -1028,6 +1030,59 @@ volumes:
       ),
     ).rejects.toThrow("No running container found for service 'resource-app'");
     expect(getContainer).not.toHaveBeenCalled();
+  });
+
+  test("uses the resource-scoped Docker client for Compose container discovery", async () => {
+    const listContainers = mock(async () => [
+      {
+        Id: "container-1",
+        Names: ["/resource-app-api"],
+        State: "running",
+        Ports: [],
+      },
+    ]);
+    const scopedDocker = { listContainers };
+    const baseDocker = {
+      listContainers: mock(() => {
+        throw new Error("unscoped Docker access must not be used");
+      }),
+    };
+    const resourceScopedDockerFactory = mock(() => scopedDocker);
+    const service = new DockerService(
+      baseDocker as never,
+      {},
+      undefined,
+      resourceScopedDockerFactory as never,
+    );
+
+    await expect(
+      service.getContainers({
+        id: "resource-1",
+        name: "Resource 1",
+        appName: "resource-app",
+        type: "compose",
+        composeType: "compose",
+      } as never),
+    ).resolves.toEqual([
+      {
+        id: "container-1",
+        name: "resource-app-api",
+        status: "running",
+        ports: "N/A",
+        node: "local",
+      },
+    ]);
+
+    expect(resourceScopedDockerFactory).toHaveBeenCalledWith("resource-1");
+    expect(listContainers).toHaveBeenCalledWith({
+      all: true,
+      filters: JSON.stringify({
+        label: [
+          "com.docker.compose.project=resource-app",
+          "com.upstand.resource-id=resource-1",
+        ],
+      }),
+    });
   });
 
   test("bounds concurrent server container stats requests", async () => {

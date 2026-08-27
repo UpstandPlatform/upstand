@@ -3131,7 +3131,7 @@ export class DockerService implements DockerSwarmManagementPort {
       // crash loop or an unhealthy service cannot be reported as a successful
       // deployment. Swarm stacks use the separate convergence path.
       if (resource.composeType === "compose") {
-        await this.waitForComposeConvergence(stackName, onLog);
+        await this.waitForComposeConvergence(stackName, resource.id, onLog);
       }
     } finally {
       fs.rmSync(composeDir, { recursive: true, force: true });
@@ -3233,8 +3233,11 @@ export class DockerService implements DockerSwarmManagementPort {
 
   private async waitForComposeConvergence(
     projectName: string,
+    resourceId: string,
     onLog: (log: string) => void,
   ): Promise<void> {
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resourceId) ?? this.docker;
     const timeoutMs = 60_000;
     const stabilityMs = 5_000;
     const startedAt = Date.now();
@@ -3247,10 +3250,13 @@ export class DockerService implements DockerSwarmManagementPort {
 
     while (Date.now() - startedAt < timeoutMs) {
       try {
-        const containers = await this.docker.listContainers({
+        const containers = await scopedDocker.listContainers({
           all: true,
           filters: JSON.stringify({
-            label: [`com.docker.compose.project=${projectName}`],
+            label: [
+              `com.docker.compose.project=${projectName}`,
+              `com.upstand.resource-id=${resourceId}`,
+            ],
           }),
         });
 
@@ -3258,7 +3264,7 @@ export class DockerService implements DockerSwarmManagementPort {
           const states = await mapWithConcurrency(
             containers,
             async (container) => {
-              const inspected = await this.docker
+              const inspected = await scopedDocker
                 .getContainer(container.Id)
                 .inspect();
               return {
@@ -3346,17 +3352,22 @@ export class DockerService implements DockerSwarmManagementPort {
     const serviceName = this.sanitizeName(resource.appName || resource.name);
 
     if (resource.type === "compose") {
+      const scopedDocker =
+        this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
       // Compose resources are either Docker Compose projects or Swarm stacks.
       if (cmd === "stop") {
         if (resource.composeType === "compose") {
-          const containers = await this.docker.listContainers({
+          const containers = await scopedDocker.listContainers({
             all: true,
             filters: JSON.stringify({
-              label: [`com.docker.compose.project=${serviceName}`],
+              label: [
+                `com.docker.compose.project=${serviceName}`,
+                `com.upstand.resource-id=${resource.id}`,
+              ],
             }),
           });
           await mapWithConcurrency(containers, (container) =>
-            this.docker.getContainer(container.Id).remove({ force: true }),
+            scopedDocker.getContainer(container.Id).remove({ force: true }),
           );
         } else {
           await this.runCommandAsync(
@@ -3768,7 +3779,9 @@ export class DockerService implements DockerSwarmManagementPort {
       );
     }
 
-    const container = this.docker.getContainer(target.id);
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
+    const container = scopedDocker.getContainer(target.id);
     try {
       await container.inspect();
     } catch (error: unknown) {
@@ -3810,14 +3823,19 @@ export class DockerService implements DockerSwarmManagementPort {
 
   async getContainers(resource: Resource): Promise<DockerResourceContainer[]> {
     const nameFilter = this.sanitizeName(resource.appName || resource.name);
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
 
     if (resource.type === "compose") {
       if (resource.composeType === "compose") {
         try {
-          const containers = await this.docker.listContainers({
+          const containers = await scopedDocker.listContainers({
             all: true,
             filters: JSON.stringify({
-              label: [`com.docker.compose.project=${nameFilter}`],
+              label: [
+                `com.docker.compose.project=${nameFilter}`,
+                `com.upstand.resource-id=${resource.id}`,
+              ],
             }),
           });
           return containers.map((container) => ({
@@ -3843,21 +3861,21 @@ export class DockerService implements DockerSwarmManagementPort {
 
       // Find all services in the stack
       try {
-        const services = await this.docker.listServices({
+        const services = await scopedDocker.listServices({
           filters: JSON.stringify({
             label: [`com.docker.stack.namespace=${nameFilter}`],
           }),
         });
 
         const containersList: DockerResourceContainer[] = [];
-        const nodes = await this.docker.listNodes().catch(() => []);
+        const nodes = await scopedDocker.listNodes().catch(() => []);
         const nodeMap = new Map(
           nodes.map((n) => [n.ID, n.Description?.Hostname || n.ID]),
         );
 
         for (const s of services) {
           const serviceName = s.Spec?.Name || "";
-          const tasks = await this.docker.listTasks({
+          const tasks = await scopedDocker.listTasks({
             filters: JSON.stringify({
               service: [serviceName],
               "desired-state": ["running"],
@@ -3896,7 +3914,7 @@ export class DockerService implements DockerSwarmManagementPort {
 
     // Single Swarm Service
     try {
-      const services = await this.docker.listServices({
+      const services = await scopedDocker.listServices({
         filters: JSON.stringify({ name: [nameFilter] }),
       });
       if (services.length === 0) {
@@ -3908,14 +3926,14 @@ export class DockerService implements DockerSwarmManagementPort {
         return [];
       }
       const serviceName = s.Spec?.Name || "";
-      const tasks = await this.docker.listTasks({
+      const tasks = await scopedDocker.listTasks({
         filters: JSON.stringify({
           service: [serviceName],
           "desired-state": ["running"],
         }),
       });
 
-      const nodes = await this.docker.listNodes().catch(() => []);
+      const nodes = await scopedDocker.listNodes().catch(() => []);
       const nodeMap = new Map(
         nodes.map((n) => [n.ID, n.Description?.Hostname || n.ID]),
       );
@@ -3953,12 +3971,17 @@ export class DockerService implements DockerSwarmManagementPort {
    */
   async getRoutingServices(resource: Resource): Promise<string[]> {
     const resourceName = this.sanitizeName(resource.appName || resource.name);
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
     try {
       if (resource.type === "compose" && resource.composeType === "compose") {
-        const containers = await this.docker.listContainers({
+        const containers = await scopedDocker.listContainers({
           all: true,
           filters: JSON.stringify({
-            label: [`com.docker.compose.project=${resourceName}`],
+            label: [
+              `com.docker.compose.project=${resourceName}`,
+              `com.upstand.resource-id=${resource.id}`,
+            ],
           }),
         });
         return [
@@ -3974,7 +3997,7 @@ export class DockerService implements DockerSwarmManagementPort {
         ].sort();
       }
 
-      const services = await this.docker.listServices(
+      const services = await scopedDocker.listServices(
         resource.type === "compose"
           ? {
               filters: JSON.stringify({
@@ -4011,15 +4034,17 @@ export class DockerService implements DockerSwarmManagementPort {
     filter?: { search?: string; levels?: DockerLogLevel[] },
   ): Promise<string> {
     const serviceName = this.sanitizeName(resource.appName || resource.name);
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
     try {
       if (containerId) {
         // Fetch logs for a specific Swarm task/container
-        const task = await this.docker
+        const task = await scopedDocker
           .getTask(containerId)
           .inspect()
           .catch(() => null);
         if (task?.Status?.ContainerStatus?.ContainerID) {
-          const container = this.docker.getContainer(
+          const container = scopedDocker.getContainer(
             task.Status.ContainerStatus.ContainerID,
           );
           try {
@@ -4038,7 +4063,7 @@ export class DockerService implements DockerSwarmManagementPort {
 
         // Try raw container ID
         try {
-          const container = this.docker.getContainer(containerId);
+          const container = scopedDocker.getContainer(containerId);
           const buffer = await container.logs({
             stdout: true,
             stderr: true,
@@ -4545,6 +4570,8 @@ export class DockerService implements DockerSwarmManagementPort {
     deleteVolumes = false,
   ): Promise<void> {
     const serviceName = this.sanitizeName(resource.appName || resource.name);
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
 
     if (resource.type === "compose") {
       const removeResourceCompose =
@@ -4559,14 +4586,17 @@ export class DockerService implements DockerSwarmManagementPort {
             deleteVolumes,
           );
         } else if (resource.composeType === "compose") {
-          const containers = await this.docker.listContainers({
+          const containers = await scopedDocker.listContainers({
             all: true,
             filters: JSON.stringify({
-              label: [`com.docker.compose.project=${serviceName}`],
+              label: [
+                `com.docker.compose.project=${serviceName}`,
+                `com.upstand.resource-id=${resource.id}`,
+              ],
             }),
           });
           await mapWithConcurrency(containers, (container) =>
-            this.docker
+            scopedDocker
               .getContainer(container.Id)
               .remove({ force: true })
               .catch(() => undefined),
@@ -4583,7 +4613,7 @@ export class DockerService implements DockerSwarmManagementPort {
           resource.composeType === "compose"
             ? `com.docker.compose.project=${serviceName}`
             : `com.docker.stack.namespace=${serviceName}`;
-        await this.waitForManagedContainersGone(containerLabel);
+        await this.waitForManagedContainersGone(containerLabel, resource.id);
       } catch (err: unknown) {
         log.error({
           message: `Failed to remove Compose resource ${serviceName}`,
@@ -4638,6 +4668,7 @@ export class DockerService implements DockerSwarmManagementPort {
 
     await this.waitForManagedContainersGone(
       `com.docker.swarm.service.name=${serviceName}`,
+      resource.id,
     );
 
     if (deleteVolumes) {
@@ -4702,6 +4733,7 @@ export class DockerService implements DockerSwarmManagementPort {
     // "volume is in use" conflict.
     await this.waitForManagedContainersGone(
       `com.docker.swarm.service.name=${serviceName}`,
+      resource.id,
     );
 
     const volumeName = `upstand-db-data-${resource.id}`;
@@ -4724,11 +4756,18 @@ export class DockerService implements DockerSwarmManagementPort {
     await this.removeResourceNetwork(resource);
   }
 
-  private async waitForManagedContainersGone(label: string): Promise<void> {
+  private async waitForManagedContainersGone(
+    label: string,
+    resourceId: string,
+  ): Promise<void> {
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resourceId) ?? this.docker;
     for (let attempt = 0; attempt < 30; attempt += 1) {
-      const containers = await this.docker.listContainers({
+      const containers = await scopedDocker.listContainers({
         all: true,
-        filters: JSON.stringify({ label: [label] }),
+        filters: JSON.stringify({
+          label: [label, `com.upstand.resource-id=${resourceId}`],
+        }),
       });
       if (containers.length === 0) return;
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -4854,7 +4893,7 @@ export class DockerService implements DockerSwarmManagementPort {
 
     const docker = targetDocker
       ? requireDockerTarget(targetDocker)
-      : this.docker;
+      : (this.resourceScopedDockerFactory?.(resource.id) ?? this.docker);
     const containers = await this.getContainers(resource);
     if (containers.length === 0) {
       throw new Error(
@@ -4951,7 +4990,19 @@ export class DockerService implements DockerSwarmManagementPort {
     options?: { timeoutSeconds?: number; onLog?: (chunk: string) => void },
     _resourceId?: string,
   ): Promise<{ output: string; stderr?: string; exitCode: number }> {
-    const list = await this.docker.listContainers({ all: false });
+    const scopedDocker = _resourceId
+      ? (this.resourceScopedDockerFactory?.(_resourceId) ?? this.docker)
+      : this.docker;
+    const list = await scopedDocker.listContainers({
+      all: false,
+      ...(_resourceId
+        ? {
+            filters: JSON.stringify({
+              label: [`com.upstand.resource-id=${_resourceId}`],
+            }),
+          }
+        : {}),
+    });
     const normalizedServiceName = serviceName.replace(/^\/+/, "");
     const containerInfo = list.find(
       (c) =>
@@ -4971,7 +5022,7 @@ export class DockerService implements DockerSwarmManagementPort {
       );
     }
 
-    const container = this.docker.getContainer(containerInfo.Id);
+    const container = scopedDocker.getContainer(containerInfo.Id);
     const exec = await container.exec({
       Cmd: ["sh", "-c", command],
       AttachStdout: true,
@@ -5093,7 +5144,7 @@ export class DockerService implements DockerSwarmManagementPort {
     );
     const docker = options.destinationDocker
       ? requireDockerTarget(options.destinationDocker)
-      : this.docker;
+      : (this.resourceScopedDockerFactory?.(resource.id) ?? this.docker);
     const timeoutSeconds = options.timeoutSeconds ?? 60;
     const stabilityWindowSeconds = options.stabilityWindowSeconds ?? 5;
     const onLog = options.onLog;
