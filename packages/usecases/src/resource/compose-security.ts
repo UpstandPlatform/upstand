@@ -11,6 +11,22 @@ const PROTECTED_DOCKER_ENVIRONMENT_NAMES = [
 ] as const;
 const REMOTE_BUILD_CONTEXT_PATTERN =
   /^(?:[a-z][a-z0-9+.-]*:\/\/|[^/\\\s:@]+@[^/\\\s:]+:)/i;
+const COMPOSE_BUILD_ARGUMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SENSITIVE_BUILD_ARGUMENT_MARKERS = [
+  "password",
+  "secret",
+  "token",
+  "api_key",
+  "apikey",
+  "private_key",
+  "privatekey",
+  "credential",
+  "client_secret",
+  "clientsecret",
+  "access_token",
+  "access_key",
+  "accesskey",
+] as const;
 
 function validateProtectedDockerEnvironmentReferences(
   rawCompose: string,
@@ -102,6 +118,77 @@ function validateComposeScopedPath(
   }
 }
 
+function isSensitiveComposeBuildArgument(name: string): boolean {
+  const normalized = name.trim().toLowerCase().replaceAll("-", "_");
+  return SENSITIVE_BUILD_ARGUMENT_MARKERS.some((marker) =>
+    normalized.includes(marker),
+  );
+}
+
+function validateComposeBuildArguments(
+  serviceName: string,
+  args: unknown,
+): void {
+  const names: string[] = [];
+  if (isUnknownRecord(args)) {
+    names.push(...Object.keys(args));
+  } else if (Array.isArray(args)) {
+    for (const entry of args) {
+      if (typeof entry !== "string") {
+        throw new Error(
+          `Compose service '${serviceName}' has an invalid build argument`,
+        );
+      }
+      const separator = entry.indexOf("=");
+      if (separator === -1 || entry.slice(separator + 1).includes("$")) {
+        throw new Error(
+          `Compose service '${serviceName}' build arguments must use literal values`,
+        );
+      }
+      names.push(entry.slice(0, separator).trim());
+    }
+  } else {
+    throw new Error(
+      `Compose service '${serviceName}' has invalid build arguments`,
+    );
+  }
+
+  if (names.length > 64) {
+    throw new Error(
+      `Compose service '${serviceName}' has too many build arguments`,
+    );
+  }
+  for (const name of names) {
+    if (!COMPOSE_BUILD_ARGUMENT_NAME_PATTERN.test(name)) {
+      throw new Error(
+        `Compose service '${serviceName}' has an invalid build argument name`,
+      );
+    }
+    // Docker records ARG values in image metadata/history; never accept a
+    // secret-like name through a path intended for public build data.
+    if (isSensitiveComposeBuildArgument(name)) {
+      throw new Error(
+        `Compose service '${serviceName}' uses secret-like build argument '${name}', which is not allowed`,
+      );
+    }
+  }
+
+  if (isUnknownRecord(args)) {
+    for (const [name, value] of Object.entries(args)) {
+      if (
+        value === null ||
+        (typeof value === "object" && !Array.isArray(value)) ||
+        Array.isArray(value) ||
+        (typeof value === "string" && value.includes("$"))
+      ) {
+        throw new Error(
+          `Compose service '${serviceName}' build argument '${name}' must use a literal value`,
+        );
+      }
+    }
+  }
+}
+
 function validateComposeBuild(serviceName: string, build: unknown): void {
   if (typeof build === "string") {
     validateComposeBuildContext(build, "service build context", serviceName);
@@ -122,6 +209,9 @@ function validateComposeBuild(serviceName: string, build: unknown): void {
       "service Dockerfile",
       serviceName,
     );
+  }
+  if (build.args !== undefined) {
+    validateComposeBuildArguments(serviceName, build.args);
   }
   if (build.ssh !== undefined) {
     throw new Error(

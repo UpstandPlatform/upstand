@@ -337,6 +337,63 @@ services:
       ).toThrow("requests build entitlements");
     });
 
+    test("rejects secret-like Compose build arguments in mapping and list forms", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        API_TOKEN: build-only
+`),
+      ).toThrow("uses secret-like build argument 'API_TOKEN'");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        - PRIVATE-KEY=build-only
+`),
+      ).toThrow("has an invalid build argument name");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        - PRIVATE_KEY=build-only
+`),
+      ).toThrow("uses secret-like build argument 'PRIVATE_KEY'");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        BUILD_MODE: \${BUILD_MODE}
+`),
+      ).toThrow("build argument 'BUILD_MODE' must use a literal value");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        - BUILD_MODE
+`),
+      ).toThrow("build arguments must use literal values");
+    });
+
     test("rejects Compose deploy and runtime host-escape controls", () => {
       expect(() =>
         validateComposeSecurity(`
@@ -456,6 +513,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        BUILD_MODE: production
 `),
       ).not.toThrow();
 
