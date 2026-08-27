@@ -36,6 +36,9 @@ func authorizeDeploymentWorkerRawResourceScope(
 	}
 
 	path := normalizeDockerPath(r.URL.Path)
+	if r.Method == http.MethodGet && isDeploymentWorkerGlobalInventoryPath(path) {
+		return errors.New("deployment-worker global Docker inventory is not allowed")
+	}
 	if r.Method == http.MethodGet && path == "/containers/json" {
 		return authorizeDeploymentWorkerRawContainerList(r, resourceID)
 	}
@@ -96,6 +99,15 @@ func authorizeDeploymentWorkerRawResourceScope(
 		return authorizeDeploymentWorkerRawNetwork(ctx, path, body, resourceID, engine)
 	}
 	return nil
+}
+
+func isDeploymentWorkerGlobalInventoryPath(path string) bool {
+	switch path {
+	case "/images/json", "/nodes", "/system/df":
+		return true
+	default:
+		return false
+	}
 }
 
 func authorizeDeploymentWorkerRawVolumeInspection(

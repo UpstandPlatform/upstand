@@ -280,6 +280,29 @@ func TestDeploymentWorkerRawContainerListingRequiresExactResourceFilter(t *testi
 	}
 }
 
+func TestDeploymentWorkerRawGlobalInventoryIsDenied(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	for _, path := range []string{"/images/json", "/nodes", "/system/df"} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43"+path, nil)
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			err := authorizeDeploymentWorkerRawResourceScope(
+				context.Background(),
+				"deployment-worker",
+				request,
+				nil,
+				rawScopeTestEngine(func(*http.Request) *http.Response {
+					t.Fatal("global inventory policy must fail before contacting Docker")
+					return nil
+				}),
+			)
+			if err == nil {
+				t.Fatal("expected global deployment-worker inventory to be rejected")
+			}
+		})
+	}
+}
+
 func TestDeploymentWorkerRawServiceListingRequiresExactResourceFilter(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	for _, test := range []struct {
