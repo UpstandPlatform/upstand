@@ -919,6 +919,40 @@ func TestProductionDeploymentWorkerResourceCreationRequiresResourceScope(t *test
 	}
 }
 
+func TestProductionDeploymentWorkerContainerMutationsRequireResourceScope(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/v1.43/containers/container-1/start"},
+		{method: http.MethodPost, path: "/v1.43/containers/container-1/exec"},
+		{method: http.MethodPut, path: "/v1.43/containers/container-1/archive"},
+		{method: http.MethodDelete, path: "/v1.43/containers/container-1"},
+	} {
+		withoutScope := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
+		if err := authorizeDockerRequestForCaller("deployment-worker", withoutScope, nil); err == nil {
+			t.Fatalf("expected an unscoped deployment-worker container mutation to be rejected: %s %s", test.method, test.path)
+		}
+
+		withScope := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
+		withScope.Header.Set("X-Upstand-Resource-ID", "resource-1")
+		if err := authorizeDockerRequestForCaller("deployment-worker", withScope, nil); err != nil {
+			t.Fatalf("expected a resource-scoped deployment-worker container mutation to be allowed: %s %s: %v", test.method, test.path, err)
+		}
+	}
+}
+
+func TestProductionDeploymentWorkerCannotPruneBuildCache(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/build/prune", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDockerRequestForCaller("deployment-worker", request, nil); err == nil {
+		t.Fatal("expected deployment-worker global build-cache pruning to be rejected")
+	}
+}
+
 func TestAuthorizeDockerRequestRejectsUnreviewedOperations(t *testing.T) {
 	for _, test := range []struct {
 		method string

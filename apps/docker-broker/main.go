@@ -530,6 +530,9 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 	serviceMutation := (method == http.MethodPost && path == "/services/create") ||
 		(method == http.MethodPost && resourceActionPath(path, "services", "update")) ||
 		(method == http.MethodDelete && resourceItemPath(path, "services"))
+	containerMutation := (method == http.MethodDelete && containerPath(path, "")) ||
+		(method == http.MethodPost && isContainerMutationPath(path)) ||
+		(method == http.MethodPut && containerActionPath(path, "archive"))
 	resourceMutation := method == http.MethodPost && (path == "/build" ||
 		path == "/containers/create" ||
 		path == "/images/create" ||
@@ -537,7 +540,7 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 		path == "/volumes/create" ||
 		resourceActionPath(path, "networks", "connect") ||
 		resourceActionPath(path, "networks", "disconnect"))
-	if resourceMutation || serviceMutation {
+	if resourceMutation || serviceMutation || containerMutation {
 		resourceID := strings.TrimSpace(r.Header.Get("X-Upstand-Resource-ID"))
 		if !resourceIDPattern.MatchString(resourceID) {
 			return errors.New("deployment-worker resource mutation requires a valid X-Upstand-Resource-ID")
@@ -726,7 +729,7 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 	if caller == "deployment-worker" {
 		// The deployment worker must deploy and build, but it has no reason to
 		// run global cleanup or delete/tag arbitrary images.
-		if (method == http.MethodPost && (path == "/containers/prune" || path == "/images/prune")) ||
+		if (method == http.MethodPost && (path == "/containers/prune" || path == "/images/prune" || path == "/build/prune")) ||
 			(method == http.MethodPost && path == "/images/create") ||
 			(method == http.MethodPost && (path == "/networks/create" || path == "/volumes/create")) ||
 			(method == http.MethodDelete && resourceItemPath(path, "images")) ||
@@ -880,6 +883,15 @@ func containerPath(path, action string) bool {
 func containerActionPath(path, action string) bool {
 	parts, ok := splitResourcePath(path, "containers")
 	return ok && len(parts) == 3 && parts[2] == action
+}
+
+func isContainerMutationPath(path string) bool {
+	for _, action := range []string{"exec", "start", "stop", "restart", "kill", "wait", "rename", "update", "resize"} {
+		if containerActionPath(path, action) {
+			return true
+		}
+	}
+	return false
 }
 
 func execPath(path, action string) bool {
