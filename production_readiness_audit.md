@@ -87,8 +87,12 @@ The follow-up Compose isolation pass also rejects host and cross-container
 namespace sharing (`host`, `container:*`, and `service:*`), inherited container
 volumes, and external container links. These controls close additional
 cross-workload attachment paths in the constrained Compose validator and are
-covered by the pipeline security suite; the remaining raw Compose
-orchestration transport is still an explicit architectural limitation.
+covered by the pipeline security suite. Generated Compose now also applies the
+immutable resource label to both container/task metadata and Swarm
+`deploy.labels`, so broker service filters and daemon-side ownership checks
+remain effective for stack deployments as well as standalone Compose. The
+remaining raw Compose orchestration transport is still an explicit
+architectural limitation.
 
 The latest rollback boundary pass routes local rollback image commit/tag operations
 through the typed broker, verifies the source image's exact resource ownership
