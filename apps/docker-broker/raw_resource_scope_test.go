@@ -51,6 +51,51 @@ func TestDeploymentWorkerRawServiceUpdateRequiresDaemonOwnership(t *testing.T) {
 	}
 }
 
+func TestDeploymentWorkerRawExecRequiresOwningContainer(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/exec/exec-1/start", strings.NewReader(`{"Detach":false}`))
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	owned := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		switch request.URL.Path {
+		case "/exec/exec-1/json":
+			return dockerResponse(http.StatusOK, `{"ContainerID":"container-1"}`)
+		case "/containers/container-1/json":
+			return dockerResponse(http.StatusOK, `{"Config":{"Labels":{"com.upstand.resource-id":"resource-1"}}}`)
+		default:
+			return dockerResponse(http.StatusNotFound, `{}`)
+		}
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, owned); err != nil {
+		t.Fatalf("expected an exec attached to an owned container to be allowed: %v", err)
+	}
+
+	foreign := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		switch request.URL.Path {
+		case "/exec/exec-1/json":
+			return dockerResponse(http.StatusOK, `{"ContainerID":"container-1"}`)
+		case "/containers/container-1/json":
+			return dockerResponse(http.StatusOK, `{"Config":{"Labels":{"com.upstand.resource-id":"other-resource"}}}`)
+		default:
+			return dockerResponse(http.StatusNotFound, `{}`)
+		}
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, foreign); err == nil {
+		t.Fatal("expected an exec attached to a foreign container to be rejected")
+	}
+}
+
+func TestDeploymentWorkerRawContainerReadsRequireDaemonOwnership(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/containers/container-1/logs", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	foreign := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Config":{"Labels":{"com.upstand.resource-id":"other-resource"}}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, foreign); err == nil {
+		t.Fatal("expected a cross-resource container read to be rejected")
+	}
+}
+
 func TestDeploymentWorkerRawNetworkAttachmentRequiresOwnedNetworkAndContainer(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	body := []byte(`{"Container":"container-1"}`)

@@ -33,6 +33,9 @@ func authorizeDeploymentWorkerRawResourceScope(
 	}
 
 	path := normalizeDockerPath(r.URL.Path)
+	if execPath(path, "json") || execPath(path, "start") || execPath(path, "resize") {
+		return engine.authorizeResourceExec(ctx, path, resourceID)
+	}
 	if r.Method == http.MethodPost && resourceActionPath(path, "services", "update") {
 		parts, ok := splitResourcePath(path, "services")
 		if !ok || !swarmNamePattern.MatchString(parts[1]) {
@@ -40,7 +43,7 @@ func authorizeDeploymentWorkerRawResourceScope(
 		}
 		return engine.authorizeResourceService(ctx, parts[1], resourceID)
 	}
-	if isRawContainerMutation(r.Method, path) {
+	if isRawContainerResourcePath(r.Method, path) {
 		parts, ok := splitResourcePath(path, "containers")
 		if !ok || !swarmNamePattern.MatchString(parts[1]) {
 			return errors.New("deployment-worker container identity is invalid")
@@ -52,6 +55,27 @@ func authorizeDeploymentWorkerRawResourceScope(
 		return authorizeDeploymentWorkerRawNetwork(ctx, path, body, resourceID, engine)
 	}
 	return nil
+}
+
+func (engine *dockerEngineClient) authorizeResourceExec(ctx context.Context, path, resourceID string) error {
+	parts, ok := splitResourcePath(path, "exec")
+	if !ok || !swarmNamePattern.MatchString(parts[1]) {
+		return errors.New("deployment-worker exec identity is invalid")
+	}
+	body, _, err := engine.request(ctx, http.MethodGet, "/exec/"+url.PathEscape(parts[1])+"/json", nil)
+	if err != nil {
+		return err
+	}
+	var inspection struct {
+		ContainerID string `json:"ContainerID"`
+	}
+	if err := json.Unmarshal(body, &inspection); err != nil {
+		return fmt.Errorf("invalid Docker exec inspection: %w", err)
+	}
+	if !swarmNamePattern.MatchString(inspection.ContainerID) {
+		return errors.New("Docker exec inspection has no valid container identity")
+	}
+	return engine.authorizeResourceContainer(ctx, inspection.ContainerID, resourceID)
 }
 
 func (engine *dockerEngineClient) authorizeResourceService(ctx context.Context, serviceID, resourceID string) error {
@@ -73,8 +97,11 @@ func (engine *dockerEngineClient) authorizeResourceService(ctx context.Context, 
 	return nil
 }
 
-func isRawContainerMutation(method, path string) bool {
+func isRawContainerResourcePath(method, path string) bool {
 	return (method == http.MethodDelete && containerPath(path, "")) ||
+		(method == http.MethodGet && (containerPath(path, "") || containerActionPath(path, "json") ||
+			containerActionPath(path, "logs") || containerActionPath(path, "changes") ||
+			containerActionPath(path, "stats") || containerActionPath(path, "top"))) ||
 		(method == http.MethodPost && isContainerMutationPath(path)) ||
 		(method == http.MethodPut && containerActionPath(path, "archive"))
 }
