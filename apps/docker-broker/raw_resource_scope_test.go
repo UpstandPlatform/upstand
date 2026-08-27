@@ -128,6 +128,10 @@ func TestRawServiceSecurityRejectsIsolationEscapes(t *testing.T) {
 		{name: "storage options", field: "StorageOpt", value: map[string]any{"size": "1G"}},
 		{name: "block IO options", field: "BlkioConfig", value: map[string]any{"Weight": 1}},
 		{name: "shared volumes", field: "VolumesFrom", value: []any{"other-service"}},
+		{name: "host aliases", field: "Hosts", value: []any{"host.docker.internal:host-gateway"}},
+		{name: "unbounded ulimits", field: "Ulimits", value: []any{map[string]any{"Name": "nofile", "Hard": 1 << 30}}},
+		{name: "host OOM priority", field: "OomScoreAdj", value: 1000},
+		{name: "oversized shared memory", field: "ShmSize", value: 1 << 40},
 		{name: "privilege specification", field: "Privileges", value: map[string]any{"CredentialSpec": map[string]any{"Config": "host"}}},
 		{name: "credential specification", field: "CredentialSpec", value: map[string]any{"Config": "host"}},
 	} {
@@ -157,6 +161,61 @@ func TestRawServiceSecurityRejectsIsolationEscapes(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("expected ordinary service security fields to remain allowed: %v", err)
+	}
+	if err := validateRawServiceSecurity(map[string]any{
+		"TaskTemplate": map[string]any{
+			"LogDriver":               map[string]any{},
+			"NetworkAttachmentConfig": map[string]any{},
+			"Resources": map[string]any{
+				"Reservations": map[string]any{"GenericResources": []any{}},
+			},
+			"ContainerSpec": map[string]any{
+				"OomScoreAdj": 0,
+				"ShmSize":     0,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("expected zero-valued or empty optional fields to remain allowed: %v", err)
+	}
+
+	for _, test := range []struct {
+		name    string
+		payload map[string]any
+	}{
+		{
+			name: "host logging driver",
+			payload: map[string]any{
+				"TaskTemplate": map[string]any{
+					"LogDriver": map[string]any{"Name": "syslog", "Options": map[string]any{"syslog-address": "tcp://10.0.0.1:514"}},
+				},
+			},
+		},
+		{
+			name: "additional network attachment config",
+			payload: map[string]any{
+				"TaskTemplate": map[string]any{
+					"NetworkAttachmentConfig": map[string]any{"Target": "foreign-network"},
+				},
+			},
+		},
+		{
+			name: "generic device reservation",
+			payload: map[string]any{
+				"TaskTemplate": map[string]any{
+					"Resources": map[string]any{
+						"Reservations": map[string]any{
+							"GenericResources": []any{map[string]any{"DiscreteResourceSpec": map[string]any{"Kind": "gpu", "Value": 1}}},
+						},
+					},
+				},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateRawServiceSecurity(test.payload); err == nil {
+				t.Fatalf("expected raw service policy to reject %s", test.name)
+			}
+		})
 	}
 }
 

@@ -508,6 +508,31 @@ func validateRawServiceSecurity(payload map[string]any) error {
 			return fmt.Errorf("service TaskTemplate field %q is not allowed", field)
 		}
 	}
+	for _, field := range []string{"LogDriver", "NetworkAttachmentConfig"} {
+		// A raw worker service must not select a host-side logging backend or
+		// smuggle an additional network attachment through the less commonly
+		// used Swarm task-template fields. Both are authority-bearing Docker
+		// controls that are intentionally absent from the typed resource route.
+		if dockerFieldIsNonEmpty(taskTemplateObject, field) {
+			return fmt.Errorf("service TaskTemplate field %q is not allowed", field)
+		}
+	}
+
+	if resources, ok := dockerObjectField(taskTemplateObject, "Resources"); ok && resources != nil {
+		resourcesObject, ok := resources.(map[string]any)
+		if !ok {
+			return errors.New("service TaskTemplate Resources is not an object")
+		}
+		if reservations, ok := dockerObjectField(resourcesObject, "Reservations"); ok && reservations != nil {
+			reservationsObject, ok := reservations.(map[string]any)
+			if !ok {
+				return errors.New("service TaskTemplate resource reservations are not an object")
+			}
+			if dockerFieldIsNonEmpty(reservationsObject, "GenericResources") {
+				return errors.New("service TaskTemplate resource reservations cannot request host devices")
+			}
+		}
+	}
 
 	containerSpec, hasContainerSpec := dockerObjectField(taskTemplateObject, "ContainerSpec")
 	if !hasContainerSpec {
@@ -535,6 +560,10 @@ func validateRawServiceSecurity(payload map[string]any) error {
 		"StorageOpt",
 		"BlkioConfig",
 		"VolumesFrom",
+		"Hosts",
+		"Ulimits",
+		"OomScoreAdj",
+		"ShmSize",
 		"Privileges",
 		"CredentialSpec",
 	} {
@@ -559,6 +588,17 @@ func dockerFieldIsNonEmpty(object map[string]any, wanted string) bool {
 		return len(typed) > 0
 	case map[string]any:
 		return len(typed) > 0
+	case float64:
+		// JSON numbers decode to float64 in the policy walker. Preserve
+		// Docker's zero-value semantics so an explicitly serialized zero does
+		// not make an otherwise absent numeric control look enabled.
+		return typed != 0
+	case int:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case uint64:
+		return typed != 0
 	default:
 		return true
 	}
