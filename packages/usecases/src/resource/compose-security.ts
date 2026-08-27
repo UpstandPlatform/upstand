@@ -100,6 +100,48 @@ function isUnsafeComposePath(value: string): boolean {
     .some((segment) => segment === "..");
 }
 
+function isHostGatewayExtraHost(value: unknown): boolean {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return false;
+  const separator = normalized.search(/[:=]/);
+  if (separator === -1) {
+    return (
+      normalized === "host.docker.internal" ||
+      normalized === "gateway.docker.internal"
+    );
+  }
+  const host = normalized.slice(0, separator).trim();
+  const address = normalized.slice(separator + 1).trim();
+  return (
+    host === "host.docker.internal" ||
+    host === "gateway.docker.internal" ||
+    address === "host-gateway"
+  );
+}
+
+function validateComposeExtraHosts(
+  serviceName: string,
+  extraHosts: unknown,
+): void {
+  const entries: unknown[] = [];
+  if (Array.isArray(extraHosts)) entries.push(...extraHosts);
+  else if (isUnknownRecord(extraHosts)) {
+    for (const [host, address] of Object.entries(extraHosts)) {
+      entries.push(`${host}=${String(address)}`);
+    }
+  } else if (typeof extraHosts === "string") {
+    entries.push(extraHosts);
+  }
+
+  if (entries.some(isHostGatewayExtraHost)) {
+    throw new Error(
+      `Compose service '${serviceName}' requests host-gateway access through extra_hosts, which is not allowed`,
+    );
+  }
+}
+
 function isRemoteBuildContext(value: string): boolean {
   return REMOTE_BUILD_CONTEXT_PATTERN.test(value.trim());
 }
@@ -530,6 +572,9 @@ export function validateComposeSecurity(rawCompose: string): void {
     }
     if (service.env_file !== undefined) {
       validateComposeEnvFile(serviceName, service.env_file);
+    }
+    if (service.extra_hosts !== undefined) {
+      validateComposeExtraHosts(serviceName, service.extra_hosts);
     }
     validateComposeDeploySecurity(serviceName, service.deploy);
     if (

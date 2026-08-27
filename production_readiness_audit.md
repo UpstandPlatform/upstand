@@ -85,7 +85,8 @@ operation.
 
 The follow-up Compose isolation pass also rejects host and cross-container
 namespace sharing (`host`, `container:*`, and `service:*`), inherited container
-volumes, external container links, service sysctls, cgroup-parent/storage/blkio
+volumes, external container links, host-gateway `extra_hosts`, service sysctls,
+cgroup-parent/storage/blkio
 controls, and security-profile downgrades such as `label=disable` and
 `systempaths=unconfined`. These controls close additional cross-workload and
 host-control attachment paths in the constrained Compose validator and are
@@ -754,7 +755,7 @@ Passed:
 - preview cleanup resource-ID propagation, typed ownership delegation, and unowned-service rejection tests
 - typed revision-promotion ownership validation and local deployment delegation tests
 - typed resource-service scaling validation and local autoscaling delegation tests
-- Compose security regression tests covering interpolated/long-syntax binds, host-backed volume/network driver options, unsupported drivers, and typed resource-service named-volume enforcement
+- Compose security regression tests covering interpolated/long-syntax binds, host-backed volume/network driver options, unsupported drivers, typed resource-service named-volume enforcement, host-gateway `extra_hosts`, service resource controls, and weakened security options
 - Docker-broker regression coverage proving non-telemetry absolute binds are rejected while read-only telemetry binds remain supported
 - production Compose contract coverage for the fail-closed installation DR readiness default
 - full repository `bun run test`, `bun run check-types`, `bun run lint`, and `bun run build` after workload-boundary hardening

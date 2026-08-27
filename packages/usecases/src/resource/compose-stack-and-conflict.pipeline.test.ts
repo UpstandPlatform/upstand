@@ -541,7 +541,7 @@ services:
       ).toThrow("requests external_links");
     });
 
-    test("rejects interpolation of Docker transport credentials", () => {
+    test("rejects Compose transport and host escape controls", () => {
       expect(() =>
         validateComposeSecurity(`
 services:
@@ -585,6 +585,26 @@ services:
       - systempaths=unconfined
 `),
       ).toThrow("requests unsafe security option 'systempaths=unconfined'");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    extra_hosts:
+      - host.docker.internal:host-gateway
+`),
+      ).toThrow("requests host-gateway access through extra_hosts");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    extra_hosts:
+      host.docker.internal: host-gateway
+`),
+      ).toThrow("requests host-gateway access through extra_hosts");
     });
 
     test("allows only bounded local build contexts", () => {
