@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: release candidate `feat/cache-gate-reliability` (latest code commit `2b9deb21`)
+Revision: release candidate `feat/cache-gate-reliability` (latest code commit `96cb435d`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -202,6 +202,15 @@ wait for a connection for five minutes. Focused rendering and invalid-value
 tests plus the observability contract pass. This makes database saturation
 actionable without adding route, tenant, query, or credential labels; it does
 not yet provide deployment- or broker-specific RED metrics.
+
+The server request telemetry now also normalizes methods and status values and
+emits bounded route-family request counters plus Prometheus latency histograms
+for API, authentication, deployment, MCP, webhook, system, and other traffic.
+Route-family and deployment p95 alerts are covered by the observability
+contract and focused metrics tests; request paths and identifiers are not
+exported as labels. This improves API and deployment SLO localization, but
+broker health, web availability, provider invoice reconciliation, and live
+alert-routing/paging evidence remain open.
 
 Preview cleanup now carries the owning resource ID through the capability
 boundary. Local broker-backed cleanup uses the typed ownership-checked service
@@ -502,10 +511,10 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Function/Class:** Prometheus scrape and alert configuration
 - **Severity:** Major
 - **Category:** Observability / incident response
-- **Problem:** The configuration now scrapes schedules and the API, but deeper security, deployment, broker, web, and full request-cost SLOs are still absent.
-- **Evidence:** `/_internal/metrics` is token-protected, exposes low-cardinality API request status, duration, uptime, resident-memory, authentication-outcome, webhook provider/status/latency, aggregate PostgreSQL pool gauges, AI budget admission, and model-priced/unpriced aggregate usage-cost metrics. Prometheus has an authenticated `upstand-server` job with 5xx/memory/authentication-rejection/database-pool/webhook-error/webhook-authentication-rejection alerts. Deployment lifecycle, broker health, web availability, and provider invoice reconciliation still lack dedicated metrics.
+- **Problem:** The configuration now scrapes schedules and the API, but deeper broker, web, and full request-cost SLOs are still absent.
+- **Evidence:** `/_internal/metrics` is token-protected, exposes low-cardinality API request status, bounded route-family request status and latency histograms, uptime, resident-memory, authentication-outcome, webhook provider/status/latency, aggregate PostgreSQL pool gauges, AI budget admission, and model-priced/unpriced aggregate usage-cost metrics. Prometheus has an authenticated `upstand-server` job with 5xx/memory/authentication-rejection/database-pool/route-latency/deployment-latency/webhook-error/webhook-authentication-rejection alerts. Deployment lifecycle detail, broker health, web availability, and provider invoice reconciliation still lack dedicated metrics.
 - **Impact:** Operators can detect API unavailability and elevated 5xx responses, but cannot yet localize several important production failure modes.
-- **Recommended Fix:** Keep the webhook RED metrics and alerts, then add deployment lifecycle, Redis pool, broker health, web availability, provider billing reconciliation, SLO runbooks, and a synthetic journey.
+- **Recommended Fix:** Keep the bounded route-family and webhook RED metrics and alerts, then add deployment lifecycle, Redis pool, broker health, web availability, provider billing reconciliation, SLO runbooks, and a synthetic journey.
 
 ### F-016 — Go monitoring was outside CodeQL (resolved)
 
@@ -567,7 +576,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-012 | Remediated in source and migrations — generated migrations `0091` and `0092` add composite uniqueness first and same-organization foreign keys second for backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; fresh-schema portable transfer coverage and fresh-plus-upgraded external PostgreSQL migration smoke pass; and full-schema PGlite coverage proves normalized resource ownership follows the non-null resource/environment/project chain. |
 | F-013 | Remediated — device approval claims before API-key creation, completes only from the claim, and cleans up both key and claim on failure; focused tests pass. |
 | F-014 | Partial/remediated for image isolation, worker DI, migration, autoscaling, API resource workflows, typed self-update, preview cleanup, revision promotion, bounded local scaling, typed web-server maintenance, typed cleanup, host maintenance, typed Swarm control, resource-container commands, resource convergence, resource-pull, resource-scoped service, network, and volume cleanup, deployment hooks, resource-scoped worker builds, daemon-verified raw worker container/read/exec/list/network/service-update/metadata mutations, resource-scoped service/volume/network fallbacks, and use-case SDK isolation — the orchestrator is lean, the worker is separately published with its own identity and acceptance checks, raw worker image builds and container/service listing/reads/lifecycle/exec/network/service-update operations require a validated resource scope plus exact filtering or live ownership/security inspection, raw schedules/worker image pulls and worker-global build-cache pruning are denied, capability workflows receive method-bound ports with remote shape preservation, the use-case layer no longer imports the Docker SDK, and regression tests prove the narrowed surfaces; broker transport breadth remains open for Compose and service creation.
-| F-015 | Partial — Prometheus now scrapes token-protected API RED/process metrics, low-cardinality authentication outcomes, webhook provider/status/latency counters, aggregate PostgreSQL pool saturation, and aggregate AI budget admission/request-cost counters with alerts; deployment, broker, web, and full provider invoice/request-cost reconciliation remain. |
+| F-015 | Partial — Prometheus now scrapes token-protected API RED/process metrics, bounded route-family request/latency metrics, low-cardinality authentication outcomes, webhook provider/status/latency counters, aggregate PostgreSQL pool saturation, and aggregate AI budget admission/request-cost counters with alerts; deployment lifecycle detail, broker, web, and full provider invoice/request-cost reconciliation remain. |
 | F-016 | Remediated — CodeQL now analyzes JavaScript/TypeScript and Go, and CI runs `govulncheck` for both Go production services. |
 | F-017 | Remediated in code — docs-chat messages, parts, text, search query, and output are bounded. |
 | F-018 | Remediated in code — Better Auth routes now have shared distributed request limiting and a 256 KiB body cap; protected HTTP middleware records low-cardinality authentication outcomes and Prometheus alerts on sustained rejection rates; live auth-failure paging evidence remains. |
@@ -698,6 +707,7 @@ Passed:
 - Swarm/network capability regression tests and use-case SDK-boundary scan (no Docker SDK import remains in `packages/usecases/src`)
 - Better Auth route edge limiter/body-cap checks plus server type/lint verification
 - protected authentication outcome metrics, alert, focused middleware/metrics tests, and observability contract
+- bounded route-family request/latency metrics, deployment p95 alert, focused rendering/normalization tests, and observability contract
 - production direct-IP bootstrap private-address enforcement and public-address rejection tests
 - aggregate PostgreSQL pool metrics, saturation alert, focused invalid-value coverage, and observability contract
 - aggregate AI budget admission/request-cost metrics, sustained-rejection alert, and low-cardinality contract coverage
