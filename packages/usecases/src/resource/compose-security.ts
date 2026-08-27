@@ -124,6 +124,29 @@ function validateComposeBuild(serviceName: string, build: unknown): void {
       `Compose service '${serviceName}' requests SSH agent forwarding during build, which is not allowed`,
     );
   }
+  if (build.secrets !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' requests build secrets, which are not allowed; use Upstand-managed build secrets instead`,
+    );
+  }
+  if (build.cache_from !== undefined || build.cache_to !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' configures an external build cache, which is not allowed`,
+    );
+  }
+  if (
+    typeof build.network === "string" &&
+    build.network.trim().toLowerCase() === "host"
+  ) {
+    throw new Error(
+      `Compose service '${serviceName}' requests host networking during build, which is not allowed`,
+    );
+  }
+  if (Array.isArray(build.entitlements) && build.entitlements.length > 0) {
+    throw new Error(
+      `Compose service '${serviceName}' requests build entitlements, which is not allowed`,
+    );
+  }
   if (isUnknownRecord(build.additional_contexts)) {
     for (const [contextName, rawContext] of Object.entries(
       build.additional_contexts,

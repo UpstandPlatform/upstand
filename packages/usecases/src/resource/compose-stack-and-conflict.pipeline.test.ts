@@ -281,6 +281,62 @@ services:
       ).toThrow("service build context 'web' uses an unsafe path");
     });
 
+    test("rejects build-time secret, cache, host-network, and entitlement escapes", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      secrets:
+        - npm-token
+`),
+      ).toThrow("requests build secrets");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      cache_from:
+        - type=registry,ref=registry.example.invalid/web:cache
+`),
+      ).toThrow("configures an external build cache");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      cache_to:
+        - type=registry,ref=registry.example.invalid/web:cache
+`),
+      ).toThrow("configures an external build cache");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      network: host
+`),
+      ).toThrow("requests host networking during build");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      entitlements:
+        - network.host
+`),
+      ).toThrow("requests build entitlements");
+    });
+
     test("rejects interpolation of Docker transport credentials", () => {
       expect(() =>
         validateComposeSecurity(`
