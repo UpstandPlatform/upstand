@@ -34,6 +34,114 @@ function isHostPath(value: string): boolean {
   );
 }
 
+function isUnsafeComposePath(value: string): boolean {
+  if (isHostPath(value)) return true;
+
+  // Compose resolves relative paths from the generated deployment directory.
+  // Do not let a user-controlled Compose document walk back into the control
+  // plane checkout or another deployment's files.
+  return value
+    .replaceAll("\\", "/")
+    .split("/")
+    .some((segment) => segment === "..");
+}
+
+function isRemoteBuildContext(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function validateComposeScopedPath(
+  value: string,
+  resourceKind: string,
+  resourceName: string,
+): void {
+  if (!value || isUnsafeComposePath(value)) {
+    throw new Error(
+      `Compose ${resourceKind} '${resourceName}' uses an unsafe path`,
+    );
+  }
+}
+
+function validateComposeBuild(serviceName: string, build: unknown): void {
+  if (typeof build === "string") {
+    if (!isRemoteBuildContext(build)) {
+      validateComposeScopedPath(build, "service build context", serviceName);
+    }
+    return;
+  }
+  if (!isUnknownRecord(build)) return;
+
+  if (
+    typeof build.context === "string" &&
+    !isRemoteBuildContext(build.context)
+  ) {
+    validateComposeScopedPath(
+      build.context,
+      "service build context",
+      serviceName,
+    );
+  }
+  if (typeof build.dockerfile === "string") {
+    validateComposeScopedPath(
+      build.dockerfile,
+      "service Dockerfile",
+      serviceName,
+    );
+  }
+  if (build.ssh !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' requests SSH agent forwarding during build, which is not allowed`,
+    );
+  }
+  if (isUnknownRecord(build.additional_contexts)) {
+    for (const [contextName, rawContext] of Object.entries(
+      build.additional_contexts,
+    )) {
+      if (typeof rawContext !== "string" || isRemoteBuildContext(rawContext)) {
+        continue;
+      }
+      validateComposeScopedPath(
+        rawContext,
+        `service build context '${contextName}'`,
+        serviceName,
+      );
+    }
+  } else if (Array.isArray(build.additional_contexts)) {
+    for (const rawContext of build.additional_contexts) {
+      if (typeof rawContext !== "string") continue;
+      const separator = rawContext.indexOf("=");
+      const context =
+        separator === -1 ? rawContext : rawContext.slice(separator + 1);
+      if (!isRemoteBuildContext(context)) {
+        validateComposeScopedPath(
+          context,
+          "service additional build context",
+          serviceName,
+        );
+      }
+    }
+  }
+}
+
+function validateComposeEnvFile(serviceName: string, envFile: unknown): void {
+  const paths = Array.isArray(envFile) ? envFile : [envFile];
+  for (const entry of paths) {
+    const value =
+      typeof entry === "string"
+        ? entry
+        : isUnknownRecord(entry) && typeof entry.path === "string"
+          ? entry.path
+          : undefined;
+    if (value === undefined) continue;
+    validateComposeScopedPath(value, "env_file", serviceName);
+  }
+}
+
 function isExternalResourceDefinition(value: unknown): boolean {
   return (
     value === true ||
@@ -189,11 +297,34 @@ export function validateComposeSecurity(rawCompose: string): void {
   validateComposeFileBackedResources(parsed, "configs");
   validateComposeFileBackedResources(parsed, "secrets");
 
+  if (parsed.include !== undefined) {
+    throw new Error(
+      "Compose include files are not allowed; deployments must use a self-contained Compose document",
+    );
+  }
+
   if (!isUnknownRecord(parsed.services)) return;
 
   for (const [serviceName, rawService] of Object.entries(parsed.services)) {
     if (!isUnknownRecord(rawService)) continue;
     const service = rawService;
+
+    if (service.build !== undefined) {
+      validateComposeBuild(serviceName, service.build);
+    }
+    if (service.env_file !== undefined) {
+      validateComposeEnvFile(serviceName, service.env_file);
+    }
+    if (
+      isUnknownRecord(service.extends) &&
+      typeof service.extends.file === "string"
+    ) {
+      validateComposeScopedPath(
+        service.extends.file,
+        "extends file",
+        serviceName,
+      );
+    }
 
     if (service.privileged === true) {
       throw new Error(

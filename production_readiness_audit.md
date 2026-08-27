@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: release candidate `feat/cache-gate-reliability` (latest code commit `a1453673`)
+Revision: release candidate `feat/cache-gate-reliability` (latest code commit `1f5da7d9`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -38,6 +38,9 @@ paths are not yet a fully typed deployment capability.
 
 The latest scoped-authority slice replaces the worker's self-asserted resource
 header with a short-lived HMAC grant issued by the control-plane queueing path.
+Compose deployment validation also rejects generated-directory escapes through
+build contexts, Dockerfiles, env files, extension files, and external includes,
+and blocks SSH-agent forwarding during builds.
 Production server and schedules processes can sign grants from a Swarm secret;
 the deployment-worker image is deliberately not given that secret. The worker
 forwards the grant through Dockerode, Docker CLI custom headers, and broker

@@ -227,6 +227,73 @@ services:
         "requests unsafe security option 'seccomp=unconfined'",
       );
     });
+
+    test("rejects Compose paths that can escape the generated deployment directory", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: ../../control-plane
+      dockerfile: ../Dockerfile
+`),
+      ).toThrow("service build context 'web' uses an unsafe path");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    env_file:
+      - ../../.env
+`),
+      ).toThrow("env_file 'web' uses an unsafe path");
+
+      expect(() =>
+        validateComposeSecurity(`
+include:
+  - ../shared.yml
+services:
+  web:
+    image: nginx
+`),
+      ).toThrow("Compose include files are not allowed");
+    });
+
+    test("rejects build-time host credential forwarding and interpolated paths", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      ssh:
+        - default
+`),
+      ).toThrow("requests SSH agent forwarding during build");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: $\{BUILD_CONTEXT}
+`),
+      ).toThrow("service build context 'web' uses an unsafe path");
+    });
+
+    test("allows bounded local or remote build contexts", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  local:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+  remote:
+    build: https://github.com/example/project.git
+`),
+      ).not.toThrow();
+    });
   });
 
   describe("Port Publishing & Resource Config Conversion", () => {
