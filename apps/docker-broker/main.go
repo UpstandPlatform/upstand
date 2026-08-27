@@ -566,7 +566,34 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 }
 
 func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) error {
-	query := r.URL.Query()
+	query := normalizeDockerBuildQuery(r.URL.Query())
+	// Keep this legacy path fail-closed. Docker adds query options over time;
+	// accepting unknown fields would silently expand a deployment worker's
+	// daemon authority without a corresponding policy review.
+	allowedOptions := map[string]struct{}{
+		"buildargs":   {},
+		"dockerfile":  {},
+		"forcerm":     {},
+		"labels":      {},
+		"networkmode": {},
+		"nocache":     {},
+		"pull":        {},
+		"q":           {},
+		"rm":          {},
+		"t":           {},
+		"target":      {},
+		"version":     {},
+	}
+	for option := range query {
+		if _, ok := allowedOptions[option]; !ok {
+			return fmt.Errorf("deployment-worker build option %q is outside the broker contract", option)
+		}
+	}
+	for option := range allowedOptions {
+		if len(query[option]) > 1 {
+			return fmt.Errorf("deployment-worker build query option %q must be unique", option)
+		}
+	}
 	image := strings.TrimSpace(query.Get("t"))
 	if !resourceBuildImagePattern.MatchString(image) {
 		return errors.New("deployment-worker build requires a valid tagged image")
@@ -581,18 +608,24 @@ func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) erro
 			return errors.New("deployment-worker build Dockerfile path contains an invalid segment")
 		}
 	}
+	target := strings.TrimSpace(query.Get("target"))
+	if target != "" && !resourceBuildTargetPattern.MatchString(target) {
+		return errors.New("deployment-worker build target is invalid")
+	}
 
-	if query.Get("remote") != "" || query.Get("outputs") != "" {
-		return errors.New("deployment-worker build cannot use remote contexts or output exporters")
-	}
 	networkMode := strings.ToLower(strings.TrimSpace(query.Get("networkmode")))
-	if networkMode == "host" || strings.HasPrefix(networkMode, "container:") {
-		return errors.New("deployment-worker build cannot use host network access")
+	if networkMode != "" && networkMode != "default" && networkMode != "bridge" && networkMode != "none" {
+		return errors.New("deployment-worker build network mode is outside the broker contract")
 	}
-	for _, option := range query["securityopt"] {
-		if unsafeSecurityOption(option) {
-			return errors.New("deployment-worker build cannot weaken the security profile")
+	for _, option := range []string{"forcerm", "nocache", "pull", "q", "rm"} {
+		value := strings.ToLower(strings.TrimSpace(query.Get(option)))
+		if value != "" && value != "0" && value != "1" && value != "false" && value != "true" {
+			return fmt.Errorf("deployment-worker build option %q must be boolean", option)
 		}
+	}
+	version := strings.TrimSpace(query.Get("version"))
+	if version != "" && version != "1" && version != "2" {
+		return errors.New("deployment-worker build API version is outside the broker contract")
 	}
 
 	labels := strings.TrimSpace(query.Get("labels"))
@@ -619,6 +652,15 @@ func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) erro
 		}
 	}
 	return nil
+}
+
+func normalizeDockerBuildQuery(query url.Values) url.Values {
+	normalized := make(url.Values, len(query))
+	for key, values := range query {
+		name := strings.ToLower(strings.TrimSpace(key))
+		normalized[name] = append(normalized[name], values...)
+	}
+	return normalized
 }
 
 func requireDeploymentWorkerOwnedResourceBody(caller string, r *http.Request, body []byte) error {
@@ -749,6 +791,9 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 	if caller == "deployment-worker" {
 		// The deployment worker must deploy and build, but it has no reason to
 		// run global cleanup or delete/tag arbitrary images.
+		if method == http.MethodGet && path == "/info" {
+			return false
+		}
 		if (method == http.MethodPost && (path == "/containers/prune" || path == "/images/prune" || path == "/build/prune")) ||
 			(method == http.MethodPost && path == "/images/create") ||
 			(method == http.MethodPost && (path == "/networks/create" || path == "/volumes/create")) ||
@@ -961,7 +1006,89 @@ func isJSONPolicyPath(path string) bool {
 		resourceActionPath(path, "networks", "disconnect")
 }
 
+const maxPolicyJSONDepth = 128
+
+// rejectDuplicateJSONKeys prevents authorization/parser differentials. The
+// Docker API and the broker both consume JSON, but duplicate (or merely
+// differently-cased) keys can make their last-value behavior ambiguous while
+// the policy walkers intentionally match Docker field names case-insensitively.
+func rejectDuplicateJSONKeys(body []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err := scanPolicyJSONValue(decoder, 0); err != nil {
+		return fmt.Errorf("JSON policy body is ambiguous or invalid: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("JSON policy body must contain exactly one value")
+		}
+		return fmt.Errorf("JSON policy body contains trailing data: %w", err)
+	}
+	return nil
+}
+
+func scanPolicyJSONValue(decoder *json.Decoder, depth int) error {
+	if depth > maxPolicyJSONDepth {
+		return fmt.Errorf("JSON nesting exceeds %d levels", maxPolicyJSONDepth)
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	switch delimiter := token.(type) {
+	case json.Delim:
+		switch delimiter {
+		case '{':
+			keys := make(map[string]struct{})
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return errors.New("JSON object key is not a string")
+				}
+				normalizedKey := strings.ToLower(strings.TrimSpace(key))
+				if _, exists := keys[normalizedKey]; exists {
+					return fmt.Errorf("duplicate JSON object key %q", key)
+				}
+				keys[normalizedKey] = struct{}{}
+				if err := scanPolicyJSONValue(decoder, depth+1); err != nil {
+					return err
+				}
+			}
+			closing, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			if closing != json.Delim('}') {
+				return errors.New("JSON object is not closed")
+			}
+		case '[':
+			for decoder.More() {
+				if err := scanPolicyJSONValue(decoder, depth+1); err != nil {
+					return err
+				}
+			}
+			closing, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			if closing != json.Delim(']') {
+				return errors.New("JSON array is not closed")
+			}
+		default:
+			return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+		}
+	}
+	return nil
+}
+
 func rejectHostEscapeJSON(body []byte) error {
+	if err := rejectDuplicateJSONKeys(body); err != nil {
+		return err
+	}
 	var value any
 	if err := json.Unmarshal(body, &value); err != nil {
 		return fmt.Errorf("invalid JSON policy body: %w", err)

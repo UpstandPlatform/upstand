@@ -371,7 +371,7 @@ jobs:
           retention-days: 7
 
   publish-release:
-    if: (github.event_name == 'push' || inputs.publish_release) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v'))
+    if: (github.event_name == 'push' || (inputs.publish_release && inputs.acceptance_profile == 'full')) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v'))
     needs: [build-and-publish, build-desktop, pre-release-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 15

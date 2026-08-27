@@ -147,6 +147,13 @@ func validateTypedResourceServiceSpec(body []byte, resourceID, serviceName strin
 	if len(spec) == 0 {
 		return errors.New(`typed resource service spec must be an object`)
 	}
+	var securityPayload map[string]any
+	if err := json.Unmarshal(body, &securityPayload); err != nil {
+		return errors.New(`typed resource service security payload is invalid`)
+	}
+	if err := validateRawServiceSecurity(securityPayload); err != nil {
+		return fmt.Errorf(`typed resource service spec violates the service security policy: %w`, err)
+	}
 	for field := range spec {
 		switch field {
 		case `Name`, `Labels`, `TaskTemplate`, `Mode`, `UpdateConfig`, `RollbackConfig`, `EndpointSpec`:
@@ -362,6 +369,9 @@ func authorizeTypedServiceFileBackedResources(
 	}
 	if err := authorizeServiceFileBackedPayload(ctx, taskTemplateObject, resourceID, engine); err != nil {
 		return fmt.Errorf(`typed resource service file-backed resource policy failed: %w`, err)
+	}
+	if err := authorizeServiceVolumePayload(ctx, taskTemplateObject, resourceID, engine); err != nil {
+		return fmt.Errorf(`typed resource service volume policy failed: %w`, err)
 	}
 	return nil
 }

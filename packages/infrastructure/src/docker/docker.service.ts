@@ -72,6 +72,7 @@ import { LIBSQL_CONTAINER_PORTS } from "@upstand/usecases/resource/libsql-settin
 import { parseResourceCredentials } from "@upstand/usecases/resource/resource-credentials";
 import { parseResourceEnvironmentVariables } from "@upstand/usecases/resource/resource-environment";
 import {
+  type DockerSwarmInfo,
   ensureResourceOverlayNetwork,
   ensureUpstandOverlayNetwork,
   getResourceOverlayNetworkName,
@@ -87,6 +88,12 @@ import {
 } from "./docker-broker-client";
 import { getDockerInstance } from "./docker-client";
 import { createPinnedGitSshEnvironment, isSshGitUrl } from "./git-host-key";
+import {
+  getRailpackArtifact,
+  getRailpackTarget,
+  verifyRailpackArchive,
+  verifyRailpackBinary,
+} from "./railpack-release";
 
 const MINIMAL_COMMAND_ENVIRONMENT_KEYS = [
   "PATH",
@@ -609,6 +616,10 @@ export class DockerService implements DockerSwarmManagementPort {
   }
 
   async getInfo(): Promise<DockerSwarmInfoPort> {
+    const getSwarmInfo = this.resourceCommandBroker?.getSwarmInfo;
+    if (getSwarmInfo && Object.keys(this.commandEnvironment).length === 0) {
+      return getSwarmInfo();
+    }
     const info = await this.docker.info();
     return {
       localNodeState: info.Swarm?.LocalNodeState || "inactive",
@@ -1249,7 +1260,7 @@ export class DockerService implements DockerSwarmManagementPort {
 
   async initializeSwarm(targetDocker?: Docker): Promise<void> {
     const docker = targetDocker || this.docker;
-    let info = await docker.info();
+    let info = await this.getRawSwarmInfo(docker);
     if (!isSwarmActive(info)) {
       if (env.NODE_ENV === "development") {
         try {
@@ -1257,7 +1268,7 @@ export class DockerService implements DockerSwarmManagementPort {
             AdvertiseAddr: "127.0.0.1",
             ListenAddr: "0.0.0.0:2377",
           });
-          info = await docker.info();
+          info = await this.getRawSwarmInfo(docker);
         } catch (error) {
           throw new ConflictError(
             `Docker Swarm is inactive and auto-initialization failed: ${
@@ -1276,6 +1287,23 @@ export class DockerService implements DockerSwarmManagementPort {
         "This Upstand instance is attached to a Swarm worker. Deployments must run through a reachable manager Docker API.",
       );
     }
+  }
+
+  private async getRawSwarmInfo(docker: Docker): Promise<DockerSwarmInfo> {
+    const getSwarmInfo = this.resourceCommandBroker?.getSwarmInfo;
+    if (getSwarmInfo && Object.keys(this.commandEnvironment).length === 0) {
+      const info = await getSwarmInfo();
+      return {
+        Swarm: {
+          LocalNodeState: info.localNodeState,
+          ControlAvailable: info.controlAvailable,
+          NodeID: info.nodeId,
+          NodeAddr: info.nodeAddress,
+          Nodes: info.nodeCount,
+        },
+      };
+    }
+    return docker.info();
   }
 
   async ensureNetwork(targetDocker?: Docker): Promise<string> {
@@ -3127,8 +3155,8 @@ export class DockerService implements DockerSwarmManagementPort {
     version: string,
     onLog: (log: string) => void,
   ): Promise<string> {
-    const platform = process.arch === "arm64" ? "arm64" : "x86_64";
-    const target = `${platform}-unknown-linux-musl`;
+    const target = getRailpackTarget(process.arch);
+    const artifact = getRailpackArtifact(version, target);
     const toolsDirectory = path.join(
       process.cwd(),
       ".tools",
@@ -3136,9 +3164,16 @@ export class DockerService implements DockerSwarmManagementPort {
     );
     const binaryPath = path.join(toolsDirectory, "railpack");
     if (fs.existsSync(binaryPath)) {
+      verifyRailpackBinary(binaryPath, artifact.binarySha256);
       return binaryPath;
     }
 
+    if (fs.existsSync(toolsDirectory)) {
+      const directoryStat = fs.lstatSync(toolsDirectory);
+      if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+        throw new Error("Railpack cache directory is not a safe directory");
+      }
+    }
     fs.mkdirSync(toolsDirectory, { recursive: true });
     const archivePath = path.join(toolsDirectory, "railpack.tar.gz");
     const releaseUrl = `https://github.com/railwayapp/railpack/releases/download/v${version}/railpack-v${version}-${target}.tar.gz`;
@@ -3158,11 +3193,13 @@ export class DockerService implements DockerSwarmManagementPort {
         ],
         onLog,
       );
+      verifyRailpackArchive(archivePath, artifact.archiveSha256);
       await this.runCommandAsync(
         "tar",
         ["-xzf", archivePath, "-C", toolsDirectory],
         onLog,
       );
+      verifyRailpackBinary(binaryPath, artifact.binarySha256);
       fs.chmodSync(binaryPath, 0o755);
       return binaryPath;
     } catch (error) {

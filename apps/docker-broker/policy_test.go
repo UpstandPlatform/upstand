@@ -121,6 +121,34 @@ func TestAuthorizeDockerRequestRejectsHostSocketAndPrivilegedContainers(t *testi
 	}
 }
 
+func TestAuthorizeDockerRequestRejectsAmbiguousJSONKeys(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "exact duplicate", body: `{"Image":"alpine","HostConfig":{"Privileged":false,"Privileged":true}}`},
+		{name: "case-insensitive duplicate", body: `{"Labels":{"com.upstand.resource-id":"resource-1"},"labels":{"com.upstand.resource-id":"other-resource"}}`},
+		{name: "whitespace-normalized duplicate", body: `{"HostConfig":{"Privileged":false," privileged ":true}}`},
+		{name: "nested duplicate", body: `{"TaskTemplate":{"ContainerSpec":{"Env":[{"Name":"A","Value":"1","name":"B"}]}}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			req, _ := http.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(test.body))
+			if err := authorizeDockerRequest(req, []byte(test.body)); err == nil {
+				t.Fatalf("expected ambiguous JSON policy body to be rejected: %s", test.body)
+			}
+		})
+	}
+}
+
+func TestDecodeTypedJSONRejectsAmbiguousJSONKeys(t *testing.T) {
+	var target struct {
+		Operation string `json:"operation"`
+	}
+	if err := decodeTypedJSON([]byte(`{"operation":"info","Operation":"inspect"}`), &target); err == nil {
+		t.Fatal("expected typed JSON with case-insensitive duplicate keys to be rejected")
+	}
+}
+
 func TestAuthorizeDockerRequestRejectsHostBackedVolumesAndWeakSecurityProfiles(t *testing.T) {
 	for _, test := range []struct {
 		path string
@@ -272,6 +300,7 @@ func TestAuthorizeDockerRequestAppliesCallerSpecificCapabilities(t *testing.T) {
 		{caller: "schedules", method: http.MethodPost, path: "/v1.43/containers/create", allow: false},
 		{caller: "schedules", method: http.MethodPost, path: "/v1.43/images/create", allow: false},
 		{caller: "deployment-worker", method: http.MethodPost, path: "/v1.43/build", allow: true},
+		{caller: "deployment-worker", method: http.MethodGet, path: "/v1.43/info", allow: false},
 		{caller: "deployment-worker", method: http.MethodPost, path: "/v1.43/images/prune", allow: false},
 		{caller: "deployment-worker", method: http.MethodDelete, path: "/v1.43/images/sha256:abc", allow: false},
 		{caller: "server", method: http.MethodPost, path: "/v1.43/containers/prune", allow: true},
@@ -624,6 +653,14 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			allow:  true,
 		},
 		{
+			name:   "deployment worker may read bounded typed Swarm info",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/swarm",
+			body:   `{"operation":"info"}`,
+			allow:  true,
+		},
+		{
 			name:   "deployment worker cannot ensure another typed Swarm network",
 			caller: "deployment-worker",
 			method: http.MethodPost,
@@ -775,10 +812,24 @@ func TestProductionDeploymentWorkerBuildRejectsUnsafeQueryOptions(t *testing.T) 
 		{name: "mismatched ownership label", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"other-resource"}`}}},
 		{name: "remote context", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "remote": []string{"https://example.invalid/context.tar"}}},
 		{name: "output exporter", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "outputs": []string{"type=registry"}}},
+		{name: "external cache", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "cachefrom": []string{"type=registry,ref=example.invalid/cache:latest"}}},
+		{name: "extra hosts", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "extrahosts": []string{"metadata.internal:169.254.169.254"}}},
+		{name: "shared memory override", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "shmsize": []string{"1073741824"}}},
+		{name: "resource override", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "memory": []string{"1073741824"}}},
+		{name: "CPU quota override", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "cpuquota": []string{"100000"}}},
+		{name: "cross platform build", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "platform": []string{"linux/arm64"}}},
 		{name: "host network", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "networkmode": []string{"host"}}},
+		{name: "arbitrary network", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "networkmode": []string{"upstand-build-network"}}},
+		{name: "security profile override", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "securityopt": []string{"seccomp=unconfined"}}},
+		{name: "case-insensitive host escape", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "ExtraHosts": []string{"metadata.internal:169.254.169.254"}}},
+		{name: "duplicate ownership label", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`, `{"com.upstand.resource-id":"resource-1"}`}}},
 		{name: "sensitive build arg", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "buildargs": []string{`{"API_TOKEN":"redacted"}`}}},
 		{name: "null build args", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "buildargs": []string{"null"}}},
 		{name: "path traversal", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "dockerfile": []string{"../Dockerfile"}}},
+		{name: "unknown future option", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "cgroup-parent": []string{"upstand-host"}}},
+		{name: "invalid build target", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "target": []string{"../host"}}},
+		{name: "invalid boolean option", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "pull": []string{"yes"}}},
+		{name: "unsupported API version", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "version": []string{"3"}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/build?"+test.query.Encode(), nil)
@@ -787,6 +838,29 @@ func TestProductionDeploymentWorkerBuildRejectsUnsafeQueryOptions(t *testing.T) 
 				t.Fatal("expected unsafe deployment-worker build query to be rejected")
 			}
 		})
+	}
+}
+
+func TestProductionDeploymentWorkerBuildAllowsOnlyBoundedKnownOptions(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	query := url.Values{
+		"t":           []string{"upstand-app-resource-1:latest"},
+		"dockerfile":  []string{"Dockerfile"},
+		"labels":      []string{`{"com.upstand.resource-id":"resource-1"}`},
+		"buildargs":   []string{`{"BUILD_MODE":"production"}`},
+		"networkmode": []string{"bridge"},
+		"nocache":     []string{"1"},
+		"pull":        []string{"false"},
+		"q":           []string{"0"},
+		"rm":          []string{"true"},
+		"forcerm":     []string{"false"},
+		"target":      []string{"production"},
+		"version":     []string{"2"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/build?"+query.Encode(), nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDockerRequestForCaller("deployment-worker", request, nil); err != nil {
+		t.Fatalf("expected bounded known build options to be allowed: %v", err)
 	}
 }
 
