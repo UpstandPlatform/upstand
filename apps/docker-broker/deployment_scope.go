@@ -15,6 +15,8 @@ import (
 
 const (
 	deploymentScopeHeader = "X-Upstand-Docker-Scope"
+	deploymentIDHeader    = "X-Upstand-Deployment-ID"
+	serverIDHeader        = "X-Upstand-Server-ID"
 	minimumScopeSecretLen = 32
 	maximumScopeLifetime  = 48 * time.Hour
 	maximumClockSkew      = 5 * time.Minute
@@ -99,6 +101,12 @@ func authorizeDeploymentWorkerScopeToken(caller string, r *http.Request, body, s
 	}
 	if resourceID != "" && resourceID != claims.ResourceID {
 		return errors.New("deployment-worker resource scope does not match the signed deployment grant")
+	}
+	if strings.TrimSpace(r.Header.Get(deploymentIDHeader)) != claims.DeploymentID {
+		return errors.New("deployment-worker deployment scope does not match the signed deployment grant")
+	}
+	if strings.TrimSpace(r.Header.Get(serverIDHeader)) != claims.ServerID {
+		return errors.New("deployment-worker server scope does not match the signed deployment grant")
 	}
 	return nil
 }

@@ -74,6 +74,44 @@ export function readDeploymentScopeToken(): string | undefined {
   return process.env.UPSTAND_DEPLOYMENT_SCOPE_TOKEN?.trim() || undefined;
 }
 
+/**
+ * Returns the signed grant and its routing claims for broker transports.
+ * Claims are only used to mirror the grant binding into request headers; the
+ * broker remains the authority that verifies the signature and lifetime.
+ */
+export function readDeploymentScopeHeaders(): Record<string, string> {
+  const token = readDeploymentScopeToken();
+  if (!token) return {};
+
+  const parts = token.split(".");
+  const payload = parts[1];
+  if (
+    parts.length !== 3 ||
+    parts[0] !== DEPLOYMENT_SCOPE_VERSION ||
+    payload === undefined
+  ) {
+    return { "X-Upstand-Docker-Scope": token };
+  }
+
+  try {
+    const claims = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as Partial<DeploymentScopeClaims>;
+    const headers: Record<string, string> = {
+      "X-Upstand-Docker-Scope": token,
+    };
+    if (typeof claims.deploymentId === "string" && claims.deploymentId) {
+      headers["X-Upstand-Deployment-ID"] = claims.deploymentId;
+    }
+    if (typeof claims.serverId === "string" && claims.serverId) {
+      headers["X-Upstand-Server-ID"] = claims.serverId;
+    }
+    return headers;
+  } catch {
+    return { "X-Upstand-Docker-Scope": token };
+  }
+}
+
 /** Runs a deployment while making its grant available to broker transports. */
 export async function withDeploymentScopeToken<T>(
   token: string | undefined,

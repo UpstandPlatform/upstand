@@ -8,7 +8,7 @@ import type {
   IUnitOfWork,
   ResourceAutoscalingProjection,
 } from "@upstand/domain";
-import { readDeploymentScopeToken } from "@upstand/platform/crypto/deployment-scope";
+import { readDeploymentScopeHeaders } from "@upstand/platform/crypto/deployment-scope";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { hostVerifierForFingerprint } from "@upstand/platform/ssh/host-key";
 import {
@@ -62,10 +62,7 @@ export function getDockerInstance(
 function deploymentScopeHeaders(
   customHeaders: Record<string, string>,
 ): Record<string, string> {
-  const scopeToken = readDeploymentScopeToken();
-  return scopeToken
-    ? { ...customHeaders, "X-Upstand-Docker-Scope": scopeToken }
-    : customHeaders;
+  return { ...customHeaders, ...readDeploymentScopeHeaders() };
 }
 
 /**

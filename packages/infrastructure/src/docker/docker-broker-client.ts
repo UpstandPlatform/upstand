@@ -4,7 +4,7 @@ import https from "node:https";
 import path from "node:path";
 import { type Readable, Transform } from "node:stream";
 import dockerIgnore from "@balena/dockerignore";
-import { readDeploymentScopeToken } from "@upstand/platform/crypto/deployment-scope";
+import { readDeploymentScopeHeaders } from "@upstand/platform/crypto/deployment-scope";
 import type {
   CaddyConfigurationInput,
   CaddyProvisioningInput,
@@ -538,7 +538,7 @@ function requestBroker(
   return new Promise((resolve, reject) => {
     const serializedBody =
       body === undefined ? undefined : JSON.stringify(body);
-    const scopeToken = readDeploymentScopeToken();
+    const scopeHeaders = readDeploymentScopeHeaders();
     const request = configuration.transport.request(
       {
         hostname: configuration.hostname,
@@ -548,7 +548,7 @@ function requestBroker(
         headers: {
           Accept: "application/json",
           ...(extraHeaders ?? {}),
-          ...(scopeToken ? { "X-Upstand-Docker-Scope": scopeToken } : {}),
+          ...scopeHeaders,
           "X-Upstand-Docker-Broker-Token": configuration.token,
           "X-Upstand-Docker-Caller": configuration.caller,
           ...(serializedBody
@@ -662,7 +662,7 @@ function requestBrokerStream(
       if (error) reject(error);
       else resolve();
     };
-    const scopeToken = readDeploymentScopeToken();
+    const scopeHeaders = readDeploymentScopeHeaders();
     const request = configuration.transport.request(
       {
         hostname: configuration.hostname,
@@ -675,7 +675,7 @@ function requestBrokerStream(
           "X-Upstand-Docker-Broker-Token": configuration.token,
           "X-Upstand-Docker-Caller": configuration.caller,
           ...headers,
-          ...(scopeToken ? { "X-Upstand-Docker-Scope": scopeToken } : {}),
+          ...scopeHeaders,
         },
         ...(configuration.tls ?? {}),
       },

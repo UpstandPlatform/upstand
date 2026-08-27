@@ -49,6 +49,8 @@ func TestAuthorizeDeploymentWorkerScopeTokenRequiresValidResourceGrant(t *testin
 	request := deploymentScopeTestRequest(`{"operation":"remove","resource_id":"resource-1"}`)
 	request.Header.Set(deploymentScopeHeader, token)
 	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	request.Header.Set(deploymentIDHeader, "deployment-1")
+	request.Header.Set(serverIDHeader, "server-1")
 	if err := authorizeDeploymentWorkerScopeToken("deployment-worker", request, []byte(`{"resource_id":"resource-1"}`), secret); err != nil {
 		t.Fatalf("expected a matching signed grant to pass: %v", err)
 	}
@@ -56,6 +58,34 @@ func TestAuthorizeDeploymentWorkerScopeTokenRequiresValidResourceGrant(t *testin
 	request.Header.Set("X-Upstand-Resource-ID", "resource-2")
 	if err := authorizeDeploymentWorkerScopeToken("deployment-worker", request, nil, secret); err == nil {
 		t.Fatal("expected a cross-resource grant to be rejected")
+	}
+}
+
+func TestAuthorizeDeploymentWorkerScopeTokenRejectsCrossTargetReplay(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	secret := []byte("deployment-scope-test-secret-012345678901234567890")
+	now := time.Now()
+	token := deploymentScopeTestToken(t, secret, deploymentScopeClaims{
+		ResourceID:   "resource-1",
+		DeploymentID: "deployment-1",
+		ServerID:     "server-1",
+		IssuedAt:     now.Add(-time.Minute).UnixMilli(),
+		ExpiresAt:    now.Add(time.Hour).UnixMilli(),
+		Nonce:        "nonce-1",
+	})
+	request := deploymentScopeTestRequest(`{"resource_id":"resource-1"}`)
+	request.Header.Set(deploymentScopeHeader, token)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	request.Header.Set(deploymentIDHeader, "deployment-2")
+	request.Header.Set(serverIDHeader, "server-1")
+	if err := authorizeDeploymentWorkerScopeToken("deployment-worker", request, nil, secret); err == nil {
+		t.Fatal("expected a cross-deployment replay to be rejected")
+	}
+
+	request.Header.Set(deploymentIDHeader, "deployment-1")
+	request.Header.Set(serverIDHeader, "server-2")
+	if err := authorizeDeploymentWorkerScopeToken("deployment-worker", request, nil, secret); err == nil {
+		t.Fatal("expected a cross-server replay to be rejected")
 	}
 }
 

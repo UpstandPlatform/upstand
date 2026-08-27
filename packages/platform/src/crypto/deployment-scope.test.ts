@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   createDeploymentScopeToken,
+  readDeploymentScopeHeaders,
   readDeploymentScopeToken,
   withDeploymentScopeToken,
 } from "./deployment-scope";
@@ -119,5 +120,25 @@ describe("deployment scope grants", () => {
         });
       },
     );
+  });
+
+  test("mirrors signed routing claims into broker headers", () => {
+    const token = withScopeEnvironment({ file: undefined, value: secret }, () =>
+      createDeploymentScopeToken({
+        resourceId: "resource-1",
+        deploymentId: "deployment-1",
+        serverId: "server-1",
+      }),
+    );
+    if (!token) throw new Error("expected a signed deployment scope token");
+    expect(
+      withScopeEnvironment({ fallbackToken: token }, () =>
+        readDeploymentScopeHeaders(),
+      ),
+    ).toEqual({
+      "X-Upstand-Docker-Scope": token,
+      "X-Upstand-Deployment-ID": "deployment-1",
+      "X-Upstand-Server-ID": "server-1",
+    });
   });
 });
