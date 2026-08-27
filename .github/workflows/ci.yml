@@ -130,6 +130,7 @@ jobs:
           bash scripts/secret-key-recovery-rehearsal-contract.test.sh
           bash scripts/external-services-smoke-contract.test.sh
           bun test scripts/operational-status-rehearsal.test.ts
+          bun test scripts/version-release.test.ts
           bash scripts/health-load-rehearsal-contract.test.sh
           bash scripts/health-load-rehearsal.test.sh
           bash scripts/production-evidence-collect-contract.test.sh

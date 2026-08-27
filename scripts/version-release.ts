@@ -1,5 +1,9 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  consumeChangesetFiles,
+  mergeReleaseNotesIntoChangelog,
+} from "./version-release-helpers";
 
 const root = process.cwd();
 const changesetDirectory = join(root, ".changeset");
@@ -66,23 +70,18 @@ writeJson(rootPackagePath, rootPackage);
 
 const changelogPath = join(root, "CHANGELOG.md");
 const changelog = readFileSync(changelogPath, "utf8");
-const releaseSection = `## ${releaseVersion} - ${new Date().toISOString().slice(0, 10)}\n\n${releaseNotes.join("\n\n")}\n\n`;
-const unreleasedMarker = "## Unreleased\n\n";
-const normalizedChangelog = changelog.replaceAll("\r\n", "\n");
-
-if (!normalizedChangelog.includes(`## ${releaseVersion} -`)) {
-  if (!normalizedChangelog.includes(unreleasedMarker)) {
-    throw new Error("CHANGELOG.md must contain an Unreleased section.");
-  }
-
-  const lineEnding = changelog.includes("\r\n") ? "\r\n" : "\n";
-  writeFileSync(
-    changelogPath,
-    normalizedChangelog
-      .replace(unreleasedMarker, `${unreleasedMarker}${releaseSection}`)
-      .replaceAll("\n", lineEnding),
-  );
+const lineEnding = changelog.includes("\r\n") ? "\r\n" : "\n";
+const updatedChangelog = mergeReleaseNotesIntoChangelog(
+  changelog,
+  releaseVersion,
+  releaseNotes,
+  new Date().toISOString().slice(0, 10),
+);
+if (updatedChangelog !== changelog.replaceAll("\r\n", "\n")) {
+  writeFileSync(changelogPath, updatedChangelog.replaceAll("\n", lineEnding));
 }
+
+consumeChangesetFiles(changesetFiles);
 
 console.log(
   `Prepared ${releaseVersion} with ${releaseNotes.length} changeset note(s).`,
