@@ -14,7 +14,7 @@ export function mockUnitOfWork<T extends object>(
     tagRepository: emptyRepository(),
     templateRepository: emptyRepository(),
     environmentRepository: emptyRepository(),
-    resourceRepository: emptyRepository(),
+    resourceRepository: { lockById: async () => true },
     resourceRuntimeRepository: emptyRepository(),
     sshKeyRepository: emptyRepository(),
     gitProviderRepository: emptyRepository(),

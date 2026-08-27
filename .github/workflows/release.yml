@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       acceptance_profile:
-        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics)
+        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics; verify-only is for legacy artifacts)
         required: false
         default: full
         type: string
@@ -37,7 +37,7 @@ on:
         required: true
         type: string
       acceptance_profile:
-        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics)
+        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics; verify-only is for legacy artifacts)
         required: false
         default: full
         type: string
@@ -96,6 +96,8 @@ jobs:
           bun-version: 1.3.14
       - name: Cache Bun downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}
@@ -122,17 +124,35 @@ jobs:
 
       - name: Verify lint, security, and production shell syntax
         run: |
+          run_optional_bash() {
+            local script="$1"
+            if [[ -f "$script" ]]; then
+              bash "$script"
+            else
+              echo "::notice::Skipping $script; it is not present in release ref ${RELEASE_REF}"
+            fi
+          }
+
+          check_optional_bash_syntax() {
+            local script="$1"
+            if [[ -f "$script" ]]; then
+              bash -n "$script"
+            else
+              echo "::notice::Skipping bash -n $script; it is not present in release ref ${RELEASE_REF}"
+            fi
+          }
+
           bun run lint
           bash scripts/security-audit.sh
-          bash scripts/security-audit-contract.test.sh
+          run_optional_bash scripts/security-audit-contract.test.sh
           bash -n install.sh
           bash -n apps/server/docker-entrypoint.sh
           bash -n scripts/production-acceptance.sh
           bash -n scripts/production-acceptance-fixture-docker.sh
           bash -n scripts/backup-restore-rehearsal.sh
           bash -n scripts/backup-restore-rehearsal-contract.test.sh
-          bash -n scripts/verify-recovery-evidence.sh
-          bash -n scripts/verify-recovery-evidence-contract.test.sh
+          check_optional_bash_syntax scripts/verify-recovery-evidence.sh
+          check_optional_bash_syntax scripts/verify-recovery-evidence-contract.test.sh
           bash -n scripts/external-services-smoke-contract.test.sh
           bash -n scripts/health-load-rehearsal.sh
           bash -n scripts/health-load-rehearsal-contract.test.sh
@@ -141,7 +161,7 @@ jobs:
           bash -n scripts/production-evidence-collect-contract.test.sh
           bash -n scripts/production-acceptance-contract.test.sh
           bash -n scripts/observability-contract.test.sh
-          bash -n scripts/security-audit-contract.test.sh
+          check_optional_bash_syntax scripts/security-audit-contract.test.sh
           bash -n scripts/production-acceptance-cluster.sh
           bash -n scripts/production-acceptance-cluster-contract.test.sh
           bash -n scripts/health-soak-rehearsal.sh
@@ -149,7 +169,7 @@ jobs:
           bash -n scripts/release-acceptance-contract.test.sh
           bash scripts/installer-contract.test.sh
           bash scripts/backup-restore-rehearsal-contract.test.sh
-          bash scripts/verify-recovery-evidence-contract.test.sh
+          run_optional_bash scripts/verify-recovery-evidence-contract.test.sh
           bash scripts/external-services-smoke-contract.test.sh
           bun test scripts/operational-status-rehearsal.test.ts
           bash scripts/health-load-rehearsal-contract.test.sh
@@ -164,6 +184,8 @@ jobs:
 
       - name: Restore Turbo cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           path: .turbo/cache
           key: ${{ runner.os }}-turbo-release-${{ hashFiles('bun.lock', 'turbo.json') }}
@@ -317,6 +339,8 @@ jobs:
 
       - name: Cache Bun downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}
@@ -457,7 +481,7 @@ jobs:
           fi
 
   pre-release-acceptance:
-    if: always() && needs.verify.result == 'success' && (needs.build-and-publish.result == 'success' || inputs.build_images == false) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v'))
+    if: always() && needs.verify.result == 'success' && (needs.build-and-publish.result == 'success' || inputs.build_images == false) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')) && (github.event_name == 'push' || inputs.acceptance_profile != 'verify-only')
     needs: [verify, build-and-publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -597,7 +621,7 @@ jobs:
               docker stack services "$STACK_NAME" >/dev/null 2>&1 || break
               sleep 1
             done
-            for secret in postgres_password redis_password better_auth_secret upgal_tool_approval_secret encryption_key database_url redis_url docker_broker_server_token docker_broker_schedules_token docker_broker_deployment_worker_token docker_broker_ca docker_broker_server_cert docker_broker_server_key docker_broker_server_client_cert docker_broker_server_client_key docker_broker_schedules_client_cert docker_broker_schedules_client_key docker_broker_deployment_worker_client_cert docker_broker_deployment_worker_client_key metrics_token; do
+            for secret in postgres_password redis_password better_auth_secret upgal_tool_approval_secret encryption_key database_url redis_url docker_broker_server_token docker_broker_schedules_token docker_broker_deployment_worker_token docker_broker_scope_secret docker_broker_ca docker_broker_server_cert docker_broker_server_key docker_broker_server_client_cert docker_broker_server_client_key docker_broker_schedules_client_cert docker_broker_schedules_client_key docker_broker_deployment_worker_client_cert docker_broker_deployment_worker_client_key metrics_token; do
               docker secret rm "${STACK_NAME}_${secret}" >/dev/null 2>&1 || true
             done
           }
@@ -616,6 +640,7 @@ jobs:
           mkdir -p "$UPSTAND_SECRETS_DIR"
           mkdir -p "$ACCEPTANCE_EVIDENCE_DIR"
           chmod 700 "$ACCEPTANCE_EVIDENCE_DIR"
+          umask 077
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/postgres_password"
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/redis_password"
           printf '%s' 'upstand-ci-auth-secret-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/better_auth_secret"
@@ -626,8 +651,8 @@ jobs:
           printf '%s' 'upstand-ci-docker-broker-server-token-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/docker_broker_server_token"
           printf '%s' 'upstand-ci-docker-broker-schedules-token-0123456789012345678901' > "$UPSTAND_SECRETS_DIR/docker_broker_schedules_token"
           printf '%s' 'upstand-ci-docker-broker-deployment-worker-token-012345678901234567890' > "$UPSTAND_SECRETS_DIR/docker_broker_deployment_worker_token"
+          printf '%s' 'upstand-ci-docker-broker-scope-secret-012345678901234567890123456789' > "$UPSTAND_SECRETS_DIR/docker_broker_scope_secret"
           printf '%s' 'upstand-ci-metrics-token-012345678901234567890123456789' > "$UPSTAND_SECRETS_DIR/metrics_token"
-          umask 077
           openssl genrsa -out "$UPSTAND_SECRETS_DIR/docker_broker_ca_key" 4096 >/dev/null 2>&1
           openssl req -x509 -new -sha256 -key "$UPSTAND_SECRETS_DIR/docker_broker_ca_key" -out "$UPSTAND_SECRETS_DIR/docker_broker_ca" -days 3650 -subj '/CN=Upstand Docker Broker CA' >/dev/null 2>&1
           issue_broker_certificate() {

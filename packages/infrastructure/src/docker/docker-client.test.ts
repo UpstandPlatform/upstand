@@ -62,6 +62,24 @@ describe("remote Docker client", () => {
     });
   });
 
+  test("attaches the active signed deployment scope to Docker requests", () => {
+    const previous = process.env.UPSTAND_DEPLOYMENT_SCOPE_TOKEN;
+    process.env.UPSTAND_DEPLOYMENT_SCOPE_TOKEN = "v1.scope.signature";
+    try {
+      const docker = createDockerClientFromEnvironment(
+        "http://docker-broker:2375",
+      );
+      const modem: unknown = Reflect.get(docker, "modem");
+      expect(modem).toMatchObject({
+        headers: { "X-Upstand-Docker-Scope": "v1.scope.signature" },
+      });
+    } finally {
+      if (previous === undefined)
+        delete process.env.UPSTAND_DEPLOYMENT_SCOPE_TOKEN;
+      else process.env.UPSTAND_DEPLOYMENT_SCOPE_TOKEN = previous;
+    }
+  });
+
   test("supports HTTPS Docker broker transport with client certificates", () => {
     const previous = {
       ca: process.env.UPSTAND_DOCKER_BROKER_CA_FILE,

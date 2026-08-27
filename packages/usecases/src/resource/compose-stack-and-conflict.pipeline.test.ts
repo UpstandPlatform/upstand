@@ -169,6 +169,30 @@ volumes:
       ).toThrow("cannot be external");
     });
 
+    test("rejects external or host-backed configs and secrets", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+secrets:
+  shared:
+    external: true
+`),
+      ).toThrow("cannot be external");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+configs:
+  credentials:
+    file: /etc/shadow
+`),
+      ).toThrow("unsafe file path");
+    });
+
     test("rejects invalid top-level network and volume keys", () => {
       expect(() =>
         validateComposeSecurity(`
@@ -203,9 +227,372 @@ services:
         "requests unsafe security option 'seccomp=unconfined'",
       );
     });
+
+    test("rejects Compose paths that can escape the generated deployment directory", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: ../../control-plane
+      dockerfile: ../Dockerfile
+`),
+      ).toThrow("service build context 'web' uses an unsafe path");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    env_file:
+      - ../../.env
+`),
+      ).toThrow("env_file 'web' uses an unsafe path");
+
+      expect(() =>
+        validateComposeSecurity(`
+include:
+  - ../shared.yml
+services:
+  web:
+    image: nginx
+`),
+      ).toThrow("Compose include files are not allowed");
+    });
+
+    test("rejects build-time host credential forwarding and interpolated paths", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      ssh:
+        - default
+`),
+      ).toThrow("requests SSH agent forwarding during build");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: $\{BUILD_CONTEXT}
+`),
+      ).toThrow("service build context 'web' uses an unsafe path");
+    });
+
+    test("rejects build-time secret, cache, host-network, and entitlement escapes", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      secrets:
+        - npm-token
+`),
+      ).toThrow("requests build secrets");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      cache_from:
+        - type=registry,ref=registry.example.invalid/web:cache
+`),
+      ).toThrow("configures an external build cache");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      cache_to:
+        - type=registry,ref=registry.example.invalid/web:cache
+`),
+      ).toThrow("configures an external build cache");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      network: host
+`),
+      ).toThrow("requests host networking during build");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      entitlements:
+        - network.host
+`),
+      ).toThrow("requests build entitlements");
+    });
+
+    test("rejects secret-like Compose build arguments in mapping and list forms", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        API_TOKEN: build-only
+`),
+      ).toThrow("uses secret-like build argument 'API_TOKEN'");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        - PRIVATE-KEY=build-only
+`),
+      ).toThrow("has an invalid build argument name");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        - PRIVATE_KEY=build-only
+`),
+      ).toThrow("uses secret-like build argument 'PRIVATE_KEY'");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        BUILD_MODE: \${BUILD_MODE}
+`),
+      ).toThrow("build argument 'BUILD_MODE' must use a literal value");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      args:
+        - BUILD_MODE
+`),
+      ).toThrow("build arguments must use literal values");
+    });
+
+    test("rejects Compose deploy and runtime host-escape controls", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      privileged: true
+`),
+      ).toThrow("requests privileged deployment mode");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      cap_add:
+        - SYS_ADMIN
+`),
+      ).toThrow("requests unsafe deploy.cap_add");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      devices:
+        - /dev/kvm:/dev/kvm
+`),
+      ).toThrow("requests unsafe deploy.devices");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+`),
+      ).toThrow("requests reserved host devices");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    runtime: nvidia
+`),
+      ).toThrow("requests a custom container runtime");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    gpus: all
+`),
+      ).toThrow("requests host GPU devices");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      sysctls:
+        net.ipv4.ip_forward: "1"
+`),
+      ).toThrow("requests unsafe deploy.sysctls");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    pid: service:host
+`),
+      ).toThrow("requests host-level namespace access");
+    });
+
+    test("rejects interpolation of Docker transport credentials", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    environment:
+      DOCKER_HEADERS: \${DOCKER_CUSTOM_HEADERS}
+`),
+      ).toThrow(
+        "cannot interpolate protected Docker environment variable 'DOCKER_CUSTOM_HEADERS'",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    environment:
+      DOCKER_ENDPOINT: $DOCKER_HOST
+`),
+      ).toThrow(
+        "cannot interpolate protected Docker environment variable 'DOCKER_HOST'",
+      );
+    });
+
+    test("allows only bounded local build contexts", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  local:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        BUILD_MODE: production
+`),
+      ).not.toThrow();
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build: https://github.com/example/project.git
+`),
+      ).toThrow("cannot use a remote build context");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build:
+      context: https://example.invalid/context.tar.gz
+`),
+      ).toThrow("cannot use a remote build context");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build: git://example.invalid/repository.git
+`),
+      ).toThrow("cannot use a remote build context");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build: git@example.invalid:repository.git
+`),
+      ).toThrow("cannot use a remote build context");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build:
+      context: .
+      additional_contexts:
+        dependencies: https://example.invalid/dependencies.git
+`),
+      ).toThrow("cannot use a remote build context");
+    });
   });
 
   describe("Port Publishing & Resource Config Conversion", () => {
+    test("revalidates environment values injected by resource configuration", () => {
+      const resource = { id: "res-env", envVars: "" } as never;
+      const config = {
+        command: [],
+        args: [],
+        dns: [],
+        dnsSearch: [],
+        extraHosts: [],
+        capDrop: [],
+        environment: { LEAKED_HEADER: "${" + "DOCKER_CUSTOM_HEADERS}" },
+        ports: [],
+        volumes: [],
+        placementConstraints: [],
+        resources: {},
+        restartPolicy: { condition: "any" },
+      } as never;
+
+      expect(() =>
+        applyComposeResourceConfig(
+          "services:\n  api:\n    image: nginx\n",
+          resource,
+          config,
+        ),
+      ).toThrow(
+        "cannot interpolate protected Docker environment variable 'DOCKER_CUSTOM_HEADERS'",
+      );
+    });
+
     test("formats TCP and UDP port bindings correctly", () => {
       const rawCompose = `
 services:

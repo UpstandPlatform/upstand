@@ -15,7 +15,9 @@ permissions:
 
 jobs:
   tag:
-    if: github.repository == 'UpstandPlatform/upstand'
+    if: >-
+      github.repository == 'UpstandPlatform/upstand' &&
+      github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

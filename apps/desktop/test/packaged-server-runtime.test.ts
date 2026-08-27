@@ -52,6 +52,11 @@ describe("packaged Desktop server runtime", () => {
     expect(packagedRuntimeVerifier).toContain("ENCRYPTION_KEY_V1:");
   });
 
+  test("allows slow packaged services a bounded startup window", () => {
+    expect(packagedRuntimeVerifier).toContain("startupTimeoutMs = 60_000");
+    expect(services).toContain("serviceStartupTimeoutMs = 60_000");
+  });
+
   test("statically imports Docker context packaging dependencies", () => {
     expect(dockerBrokerClient).toContain('from "tar-fs"');
     expect(dockerBrokerClient).not.toContain('from "node:module"');

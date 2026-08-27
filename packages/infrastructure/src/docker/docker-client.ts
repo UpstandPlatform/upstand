@@ -8,6 +8,7 @@ import type {
   IUnitOfWork,
   ResourceAutoscalingProjection,
 } from "@upstand/domain";
+import { readDeploymentScopeHeaders } from "@upstand/platform/crypto/deployment-scope";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { hostVerifierForFingerprint } from "@upstand/platform/ssh/host-key";
 import {
@@ -39,6 +40,7 @@ const proxyKeySecret = randomBytes(32);
 export function getDockerInstance(
   customHeaders: Record<string, string> = {},
 ): Docker {
+  const brokerHeaders = deploymentScopeHeaders(customHeaders);
   const isWindows = process.platform === "win32";
   const isBun = typeof process.versions.bun !== "undefined";
 
@@ -47,14 +49,20 @@ export function getDockerInstance(
     return new Docker({
       host: "127.0.0.1",
       port: PROXY_PORT,
-      ...(Object.keys(customHeaders).length ? { headers: customHeaders } : {}),
+      ...(Object.keys(brokerHeaders).length ? { headers: brokerHeaders } : {}),
     });
   }
 
   return createDockerClientFromEnvironment(
     process.env.DOCKER_HOST,
-    customHeaders,
+    brokerHeaders,
   );
+}
+
+function deploymentScopeHeaders(
+  customHeaders: Record<string, string>,
+): Record<string, string> {
+  return { ...customHeaders, ...readDeploymentScopeHeaders() };
 }
 
 /**
@@ -65,10 +73,11 @@ export function createDockerClientFromEnvironment(
   configuredHost = process.env.DOCKER_HOST,
   customHeaders: Record<string, string> = {},
 ): Docker {
+  const brokerHeaders = deploymentScopeHeaders(customHeaders);
   const value = configuredHost?.trim();
   if (!value) {
     return new Docker(
-      Object.keys(customHeaders).length ? { headers: customHeaders } : {},
+      Object.keys(brokerHeaders).length ? { headers: brokerHeaders } : {},
     );
   }
 
@@ -79,7 +88,7 @@ export function createDockerClientFromEnvironment(
     }
     return new Docker({
       socketPath,
-      ...(Object.keys(customHeaders).length ? { headers: customHeaders } : {}),
+      ...(Object.keys(brokerHeaders).length ? { headers: brokerHeaders } : {}),
     });
   }
 
@@ -115,13 +124,13 @@ export function createDockerClientFromEnvironment(
       port,
       protocol,
       ...tlsOptions,
-      ...(brokerToken || Object.keys(customHeaders).length
+      ...(brokerToken || Object.keys(brokerHeaders).length
         ? {
             headers: {
               ...(brokerToken
                 ? { "X-Upstand-Docker-Broker-Token": brokerToken }
                 : {}),
-              ...customHeaders,
+              ...brokerHeaders,
               ...(brokerCaller
                 ? { "X-Upstand-Docker-Caller": brokerCaller }
                 : {}),

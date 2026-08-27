@@ -82,6 +82,7 @@ export function registerHttpMiddleware(
       c.req.method,
       c.res.status,
       performance.now() - startedAt,
+      c.req.path,
     );
     c.header("X-Request-ID", correlationId);
   });

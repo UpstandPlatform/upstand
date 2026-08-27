@@ -90,6 +90,38 @@ describe("runtime URL resolution", () => {
     );
   });
 
+  test("does not trust forwarded host or protocol for server-rendered sessions", () => {
+    const headers = new Headers({
+      host: "dashboard.example.com",
+      "x-forwarded-host": "attacker.example",
+      "x-forwarded-proto": "http",
+    });
+
+    expect(getServerUrlFromHeaders(headers, "https://api.example.com")).toBe(
+      "https://api.example.com",
+    );
+  });
+
+  test("does not infer an API destination from an unconfigured public Host", () => {
+    const headers = new Headers({ host: "attacker.example" });
+
+    expect(getServerUrlFromHeaders(headers, "http://localhost:3000")).toBe(
+      "http://localhost:3000",
+    );
+  });
+
+  test("ignores forwarded headers during direct-IP bootstrap resolution", () => {
+    const headers = new Headers({
+      host: "85.155.230.19:3001",
+      "x-forwarded-host": "attacker.example",
+      "x-forwarded-proto": "https",
+    });
+
+    expect(getServerUrlFromHeaders(headers, "https://api.example.com")).toBe(
+      "http://85.155.230.19:3000",
+    );
+  });
+
   test("resolves direct IP browser access to the local API port", () => {
     setBrowserLocation("http://85.155.230.19:3001/login?return_to=%2Fprojects");
 

@@ -10,6 +10,12 @@ describe("server metrics", () => {
   test("renders low-cardinality request and process metrics", () => {
     recordServerRequest("get", 200, 12);
     recordServerRequest("POST", 500, 25);
+    recordServerRequest(
+      "PATCH",
+      204,
+      75,
+      "/api/deploy/resource-secret-id/deployment-id",
+    );
     recordAuthenticationAttempt(true);
     recordAuthenticationAttempt(false);
 
@@ -21,6 +27,15 @@ describe("server metrics", () => {
       'upstand_server_requests_total{method="POST",status="500"}',
     );
     expect(metrics).toContain("upstand_server_request_duration_seconds_total");
+    expect(metrics).toContain(
+      'upstand_server_route_requests_total{route_group="deployments",method="PATCH",status="204"} 1',
+    );
+    expect(metrics).toContain(
+      'upstand_server_route_request_duration_seconds_bucket{route_group="deployments",le="0.1"} 1',
+    );
+    expect(metrics).toContain(
+      'upstand_server_route_request_duration_seconds_count{route_group="deployments"} 1',
+    );
     expect(metrics).toContain("upstand_server_process_resident_memory_bytes");
     expect(metrics).toContain(
       'upstand_server_authentication_attempts_total{outcome="authenticated"}',
@@ -33,6 +48,28 @@ describe("server metrics", () => {
     );
     expect(metrics).toContain("upstand_ai_budget_reserved_tokens_total");
     expect(metrics).not.toContain("organizationId");
+    expect(metrics).not.toContain("resource-secret-id");
+    expect(metrics).not.toContain("deployment-id");
+  });
+
+  test("normalizes custom methods, malformed status, and latency without unbounded labels", () => {
+    recordServerRequest(
+      "CUSTOM-ATTACKER-METHOD",
+      Number.NaN,
+      Number.NaN,
+      "/api",
+    );
+
+    const metrics = renderServerMetrics();
+
+    expect(metrics).toContain(
+      'upstand_server_requests_total{method="OTHER",status="500"}',
+    );
+    expect(metrics).toContain(
+      'upstand_server_route_requests_total{route_group="api",method="OTHER",status="500"}',
+    );
+    expect(metrics).not.toContain("CUSTOM-ATTACKER-METHOD");
+    expect(metrics).not.toContain("NaN");
   });
 
   test("renders bounded PostgreSQL pool gauges when supplied", () => {

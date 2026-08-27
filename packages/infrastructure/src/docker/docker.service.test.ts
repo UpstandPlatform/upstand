@@ -13,6 +13,76 @@ import {
 import type { DockerResourceCommandBrokerPort } from "./docker-broker-client";
 
 describe("deployment command log safety", () => {
+  test("does not let build variables redirect Docker transport", () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_CUSTOM_HEADERS: "X-Test=preserved" },
+      undefined,
+    ) as unknown as {
+      getBuildEnvironment: (
+        envVars: Record<string, string>,
+        resourceId: string,
+      ) => NodeJS.ProcessEnv;
+    };
+
+    const buildEnvironment = service.getBuildEnvironment(
+      {
+        DATABASE_URL: "postgres://build-value",
+        DOCKER_HOST: "tcp://attacker.example:2375",
+        DOCKER_CERT_PATH: "C:\\attacker-certs",
+        DOCKER_CUSTOM_HEADERS: "X-Upstand-Resource-ID=other-resource",
+        docker_host: "tcp://lowercase-attacker.example:2375",
+      },
+      "resource-1",
+    );
+
+    expect(buildEnvironment.DATABASE_URL).toBe("postgres://build-value");
+    expect(buildEnvironment.DOCKER_HOST).not.toBe(
+      "tcp://attacker.example:2375",
+    );
+    expect(buildEnvironment.DOCKER_CERT_PATH).not.toBe("C:\\attacker-certs");
+    expect(buildEnvironment.docker_host).toBeUndefined();
+    expect(buildEnvironment.DOCKER_CUSTOM_HEADERS).toContain(
+      "X-Upstand-Resource-ID=resource-1",
+    );
+    expect(buildEnvironment.DOCKER_CUSTOM_HEADERS).not.toContain(
+      "other-resource",
+    );
+  });
+
+  test("does not inherit control-plane secrets into isolated command environments", async () => {
+    const key = `UPSTAND_TEST_CONTROL_PLANE_SECRET_${process.pid}`;
+    const sentinel = "control-plane-secret";
+    const previous = process.env[key];
+    process.env[key] = sentinel;
+
+    try {
+      const service = new DockerService({} as never) as unknown as {
+        runCommandAsync: (
+          command: string,
+          args: string[],
+          onLog: (log: string) => void,
+          env?: NodeJS.ProcessEnv,
+          options?: { inheritEnvironment?: boolean },
+        ) => Promise<void>;
+      };
+      let output = "";
+      await service.runCommandAsync(
+        process.execPath,
+        ["-e", `process.stdout.write(process.env.${key} ?? "")`],
+        (log) => {
+          output += log;
+        },
+        {},
+        { inheritEnvironment: false },
+      );
+      expect(output).toBe("");
+    } finally {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+    }
+  });
+
   test("fails closed when placement constraints cannot be applied", () => {
     expect(() =>
       applyComposePlacementConstraints("services:\n  web: invalid", [
@@ -464,16 +534,25 @@ describe("deployment command log safety", () => {
         args: string[],
         onLog: (log: string) => void,
         env?: NodeJS.ProcessEnv,
-        options?: { resourceId?: string; redactions?: readonly string[] },
+        options?: {
+          resourceId?: string;
+          redactions?: readonly string[];
+          inheritEnvironment?: boolean;
+        },
       ) => Promise<void>;
       waitForComposeConvergence: (
         projectName: string,
+        resourceId: string,
         onLog: (log: string) => void,
       ) => Promise<void>;
       deployComposeStack: DockerService["deployComposeStack"];
     };
     let generatedCompose = "";
-    service.runCommandAsync = async (_command, args) => {
+    let commandEnvironment: NodeJS.ProcessEnv | undefined;
+    let commandOptions: { inheritEnvironment?: boolean } | undefined;
+    service.runCommandAsync = async (_command, args, _onLog, env, options) => {
+      commandEnvironment = env;
+      commandOptions = options;
       const fileIndex = args.indexOf("--file");
       generatedCompose = fs.readFileSync(args[fileIndex + 1] || "", "utf8");
     };
@@ -497,10 +576,15 @@ services:
     volumes: [data:/var/lib/data]
 networks:
   private:
-volumes:
+      volumes:
   data:
 `,
       () => {},
+      undefined,
+      {
+        DATABASE_URL: "postgres://resource-value",
+        DOCKER_HOST: "tcp://attacker.example:2375",
+      },
     );
 
     const parsed = yaml.parse(generatedCompose) as {
@@ -508,6 +592,9 @@ volumes:
       volumes: Record<string, Record<string, unknown>>;
     };
     expect(ensureUpstandNetwork).toHaveBeenCalledTimes(1);
+    expect(commandOptions?.inheritEnvironment).toBe(false);
+    expect(commandEnvironment?.DATABASE_URL).toBe("postgres://resource-value");
+    expect(commandEnvironment?.DOCKER_HOST).toBeUndefined();
     expect(ensureResourceNetwork).toHaveBeenCalledWith(
       { kind: "local", name: "local" },
       "resource-1",
@@ -629,6 +716,7 @@ volumes:
       ) => Promise<void>;
       waitForComposeConvergence: (
         projectName: string,
+        resourceId: string,
         onLog: (log: string) => void,
       ) => Promise<void>;
       deployComposeStack: DockerService["deployComposeStack"];
@@ -859,7 +947,7 @@ volumes:
           dockerBuildArgs: { BUILD_MODE: "production" },
           dockerCleanupCache: false,
         },
-        { BUILD_VARIANT: "stable" },
+        {},
         () => {},
         {},
         true,
@@ -878,11 +966,184 @@ volumes:
         target: "production",
         buildArgs: {
           BUILD_MODE: "production",
-          BUILD_VARIANT: "stable",
         },
         preserveForRollback: true,
       }),
     );
+  });
+
+  test("keeps resolved environment values out of Docker image history", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (message: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { redactions?: string[]; resourceId?: string },
+      ) => Promise<void>;
+    };
+    const calls: Array<{
+      command: string;
+      args: string[];
+      env?: NodeJS.ProcessEnv;
+    }> = [];
+    service.runCommandAsync = async (command, args, _onLog, env) => {
+      calls.push({ command, args, env });
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-secret-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "# syntax=docker/dockerfile:1\nFROM alpine:3.20\n",
+    );
+    try {
+      await service.buildDockerfileImage(
+        "resource-1",
+        contextPath,
+        "upstand-app-resource-1:latest",
+        {
+          dockerfilePath: "Dockerfile",
+          dockerContextPath: ".",
+          dockerNoCache: false,
+          dockerBuildStage: undefined,
+          dockerBuildArgs: { BUILD_MODE: "production" },
+          dockerCleanupCache: false,
+        },
+        { NPM_TOKEN: "secret-value" },
+        () => {},
+        {},
+        false,
+      );
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
+    const buildCall = calls[0];
+    expect(buildCall?.command).toBe("docker");
+    expect(buildCall?.args).toEqual(
+      expect.arrayContaining([
+        "--build-arg",
+        "BUILD_MODE=production",
+        "--secret",
+        "id=NPM_TOKEN,env=NPM_TOKEN",
+      ]),
+    );
+    expect(buildCall?.args).not.toContain("NPM_TOKEN=secret-value");
+    expect(buildCall?.env).toMatchObject({ NPM_TOKEN: "secret-value" });
+  });
+
+  test("rejects secret-like explicit Docker build arguments", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-invalid-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "FROM alpine:3.20\n",
+    );
+    try {
+      await expect(
+        service.buildDockerfileImage(
+          "resource-1",
+          contextPath,
+          "upstand-app-resource-1:latest",
+          {
+            dockerfilePath: "Dockerfile",
+            dockerContextPath: ".",
+            dockerNoCache: false,
+            dockerBuildStage: undefined,
+            dockerBuildArgs: { NPM_TOKEN: "secret-value" },
+            dockerCleanupCache: false,
+          },
+          {},
+          () => {},
+          {},
+          false,
+        ),
+      ).rejects.toThrow("looks secret-like");
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects build secrets that target Docker control variables", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-control-secret-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "FROM alpine:3.20\n",
+    );
+    try {
+      await expect(
+        service.buildDockerfileImage(
+          "resource-1",
+          contextPath,
+          "upstand-app-resource-1:latest",
+          {
+            dockerfilePath: "Dockerfile",
+            dockerContextPath: ".",
+            dockerNoCache: false,
+            dockerBuildStage: undefined,
+            dockerBuildArgs: {},
+            dockerCleanupCache: false,
+          },
+          {},
+          () => {},
+          { DOCKER_HOST: "tcp://attacker.example:2375" },
+          false,
+        ),
+      ).rejects.toThrow(
+        "cannot override Docker or Compose control environment",
+      );
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
   });
 
   test("includes resource ownership labels on raw Dockerfile builds", async () => {
@@ -930,10 +1191,10 @@ volumes:
           dockerContextPath: ".",
           dockerNoCache: false,
           dockerBuildStage: undefined,
-          dockerBuildArgs: undefined,
+          dockerBuildArgs: { BUILD_MODE: "production" },
           dockerCleanupCache: false,
         },
-        {},
+        { NPM_TOKEN: "secret-value" },
         () => {},
         {},
         false,
@@ -947,9 +1208,14 @@ volumes:
         args: expect.arrayContaining([
           "--label",
           "com.upstand.resource-id=resource-1",
+          "--build-arg",
+          "BUILD_MODE=production",
+          "--secret",
+          "id=NPM_TOKEN,env=NPM_TOKEN",
         ]),
       }),
     );
+    expect(calls[0]?.args).not.toContain("NPM_TOKEN=secret-value");
   });
 
   test("fails when a resource container command exits non-zero", async () => {
@@ -1028,6 +1294,132 @@ volumes:
       ),
     ).rejects.toThrow("No running container found for service 'resource-app'");
     expect(getContainer).not.toHaveBeenCalled();
+  });
+
+  test("uses the resource-scoped Docker client for Compose container discovery", async () => {
+    const listContainers = mock(async () => [
+      {
+        Id: "container-1",
+        Names: ["/resource-app-api"],
+        State: "running",
+        Ports: [],
+      },
+    ]);
+    const scopedDocker = { listContainers };
+    const baseDocker = {
+      listContainers: mock(() => {
+        throw new Error("unscoped Docker access must not be used");
+      }),
+    };
+    const resourceScopedDockerFactory = mock(() => scopedDocker);
+    const service = new DockerService(
+      baseDocker as never,
+      {},
+      undefined,
+      resourceScopedDockerFactory as never,
+    );
+
+    await expect(
+      service.getContainers({
+        id: "resource-1",
+        name: "Resource 1",
+        appName: "resource-app",
+        type: "compose",
+        composeType: "compose",
+      } as never),
+    ).resolves.toEqual([
+      {
+        id: "container-1",
+        name: "resource-app-api",
+        status: "running",
+        ports: "N/A",
+        node: "local",
+      },
+    ]);
+
+    expect(resourceScopedDockerFactory).toHaveBeenCalledWith("resource-1");
+    expect(listContainers).toHaveBeenCalledWith({
+      all: true,
+      filters: JSON.stringify({
+        label: [
+          "com.docker.compose.project=resource-app",
+          "com.upstand.resource-id=resource-1",
+        ],
+      }),
+    });
+  });
+
+  test("uses the resource-scoped Docker client for Swarm service control", async () => {
+    const update = mock(async () => {});
+    const scopedDocker = {
+      getService: mock(() => ({
+        inspect: async () => ({
+          Version: { Index: 7 },
+          Spec: {
+            Mode: { Replicated: { Replicas: 0 } },
+            TaskTemplate: { ContainerSpec: { Image: "example/app:1" } },
+          },
+        }),
+        update,
+      })),
+    };
+    const baseDocker = {
+      getService: mock(() => {
+        throw new Error("unscoped Docker access must not be used");
+      }),
+    };
+    const resourceScopedDockerFactory = mock(() => scopedDocker);
+    const service = new DockerService(
+      baseDocker as never,
+      {},
+      undefined,
+      resourceScopedDockerFactory as never,
+    );
+
+    await service.controlService(
+      {
+        id: "resource-1",
+        name: "Resource 1",
+        appName: "resource-app",
+        type: "application",
+      } as never,
+      "start",
+    );
+
+    expect(resourceScopedDockerFactory).toHaveBeenCalledWith("resource-1");
+    expect(update).toHaveBeenCalledWith({
+      version: 7,
+      Name: "resource-app",
+      Mode: { Replicated: { Replicas: 1 } },
+      TaskTemplate: { ContainerSpec: { Image: "example/app:1" } },
+      EndpointSpec: undefined,
+    });
+  });
+
+  test("uses typed ownership-checked teardown when stopping a local Swarm stack", async () => {
+    const removeResourceCompose = mock(async () => {});
+    const service = new DockerService({} as never, {}, {
+      removeResourceCompose,
+    } as unknown as DockerResourceCommandBrokerPort);
+
+    await service.controlService(
+      {
+        id: "resource-1",
+        name: "Resource 1",
+        appName: "resource-app",
+        type: "compose",
+        composeType: "stack",
+      } as never,
+      "stop",
+    );
+
+    expect(removeResourceCompose).toHaveBeenCalledWith(
+      { kind: "local", name: "local" },
+      "resource-1",
+      "resource-app",
+      "stack",
+      false,
+    );
   });
 
   test("bounds concurrent server container stats requests", async () => {

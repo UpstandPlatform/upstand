@@ -17,6 +17,18 @@ func TestAuthorizeDockerRequestAllowsNormalContainerLifecycle(t *testing.T) {
 	}
 }
 
+func TestValidateRawDockerBuildContentLength(t *testing.T) {
+	if err := validateRawDockerBuildContentLength(http.MethodPost, "/build", maxResourceBuildContext); err != nil {
+		t.Fatalf("expected a build at the limit to be allowed: %v", err)
+	}
+	if err := validateRawDockerBuildContentLength(http.MethodPost, "/build", maxResourceBuildContext+1); err == nil {
+		t.Fatal("expected an oversized raw build context to be rejected")
+	}
+	if err := validateRawDockerBuildContentLength(http.MethodGet, "/build", maxResourceBuildContext+1); err != nil {
+		t.Fatalf("expected non-build methods to be unaffected: %v", err)
+	}
+}
+
 func TestAuthorizeTypedResourceBuildRequiresScopedHeaders(t *testing.T) {
 	request, err := http.NewRequest(http.MethodPost, "http://broker/upstand/v1/server/resource-build", nil)
 	if err != nil {
@@ -856,6 +868,27 @@ func TestProductionDeploymentWorkerCannotMountAnotherResourceVolume(t *testing.T
 	}
 }
 
+func TestProductionDeploymentWorkerPolicyMatchesDockerJSONCaseInsensitively(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+
+	for _, body := range []string{
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"tasktemplate":{"containerspec":{"mounts":[{"type":"volume","source":"upstand-db-data-resource-2","target":"/data"}]}}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"binds":["/var/run/docker.sock:/var/run/docker.sock"]}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"privileged":true}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"networkmode":"container:other-resource"}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"securityopt":["no-new-privileges=false"]}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"tasktemplate":{"containerspec":{"capabilityadd":["SYS_ADMIN"]}}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"tasktemplate":{"containerspec":{"sysctls":{"net.ipv4.ip_forward":"1"}}}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"networkmode":"service:host"}}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(body))
+		request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+		if err := authorizeDockerRequestForCaller("deployment-worker", request, []byte(body)); err == nil {
+			t.Fatalf("expected case-insensitive Docker policy validation to reject body: %s", body)
+		}
+	}
+}
+
 func TestProductionDeploymentWorkerCannotUseRawNetworkDeletion(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	req := httptest.NewRequest(http.MethodDelete, "http://broker/v1.43/networks/network-1", nil)
@@ -904,6 +937,40 @@ func TestProductionDeploymentWorkerResourceCreationRequiresResourceScope(t *test
 		if err := authorizeDockerRequestForCaller("deployment-worker", request, []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"}}`)); err == nil {
 			t.Fatalf("expected raw deployment-worker resource creation to remain denied: %s", path)
 		}
+	}
+}
+
+func TestProductionDeploymentWorkerContainerMutationsRequireResourceScope(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/v1.43/containers/container-1/start"},
+		{method: http.MethodPost, path: "/v1.43/containers/container-1/exec"},
+		{method: http.MethodPut, path: "/v1.43/containers/container-1/archive"},
+		{method: http.MethodDelete, path: "/v1.43/containers/container-1"},
+	} {
+		withoutScope := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
+		if err := authorizeDockerRequestForCaller("deployment-worker", withoutScope, nil); err == nil {
+			t.Fatalf("expected an unscoped deployment-worker container mutation to be rejected: %s %s", test.method, test.path)
+		}
+
+		withScope := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
+		withScope.Header.Set("X-Upstand-Resource-ID", "resource-1")
+		if err := authorizeDockerRequestForCaller("deployment-worker", withScope, nil); err != nil {
+			t.Fatalf("expected a resource-scoped deployment-worker container mutation to be allowed: %s %s: %v", test.method, test.path, err)
+		}
+	}
+}
+
+func TestProductionDeploymentWorkerCannotPruneBuildCache(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/build/prune", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDockerRequestForCaller("deployment-worker", request, nil); err == nil {
+		t.Fatal("expected deployment-worker global build-cache pruning to be rejected")
 	}
 }
 

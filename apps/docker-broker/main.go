@@ -52,6 +52,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	scopeSecret, err := loadDockerScopeSecret()
+	if err != nil {
+		log.Fatal(err)
+	}
 	requestSlots := make(chan struct{}, loadMaxInflightRequests())
 
 	backend, _ := url.Parse("http://docker-engine")
@@ -136,6 +140,18 @@ func main() {
 
 		var body []byte
 		normalizedPath := normalizeDockerPath(r.URL.Path)
+		if err := validateRawDockerBuildContentLength(r.Method, normalizedPath, r.ContentLength); err != nil {
+			audit.finish(http.StatusRequestEntityTooLarge)
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		if r.Method == http.MethodPost && normalizedPath == "/build" && r.Body != nil {
+			// Legacy secret-bearing/toolchain builds still need streaming, but
+			// must not be allowed to stream an unbounded context through the
+			// broker into the Docker daemon. Typed builds use the same limit in
+			// resource_build.go; MaxBytesReader also covers chunked requests.
+			r.Body = http.MaxBytesReader(w, r.Body, maxResourceBuildContext)
+		}
 		if (isTypedDockerPath(normalizedPath) && normalizedPath != typedResourceBuildPath) || isJSONPolicyPath(normalizedPath) {
 			var err error
 			body, err = readPolicyBody(r)
@@ -144,6 +160,12 @@ func main() {
 				http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 				return
 			}
+		}
+		if err := authorizeDeploymentWorkerScopeToken(audit.caller, r, body, scopeSecret); err != nil {
+			audit.finish(http.StatusForbidden)
+			log.Printf("Docker broker denied deployment scope for %s %s: %v", r.Method, r.URL.Path, err)
+			http.Error(w, "Docker operation denied by Upstand deployment scope policy", http.StatusForbidden)
+			return
 		}
 		if isTypedDockerPath(normalizedPath) {
 			if err := authorizeTypedDockerRequest(audit.caller, r, body); err != nil {
@@ -165,6 +187,12 @@ func main() {
 			audit.finish(http.StatusForbidden)
 			log.Printf("Docker broker denied %s %s: %v", r.Method, r.URL.Path, err)
 			http.Error(w, "Docker operation denied by Upstand policy", http.StatusForbidden)
+			return
+		}
+		if err := authorizeDeploymentWorkerRawResourceScope(r.Context(), audit.caller, r, body, newDockerEngineClient(socketPath)); err != nil {
+			audit.finish(http.StatusForbidden)
+			log.Printf("Docker broker denied raw resource scope for %s %s: %v", r.Method, r.URL.Path, err)
+			http.Error(w, "Docker operation denied by Upstand resource policy", http.StatusForbidden)
 			return
 		}
 		if body != nil {
@@ -194,6 +222,13 @@ func main() {
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatal(serveErr)
 	}
+}
+
+func validateRawDockerBuildContentLength(method, path string, contentLength int64) error {
+	if method == http.MethodPost && path == "/build" && contentLength > maxResourceBuildContext {
+		return fmt.Errorf("Docker build context exceeds the %d-byte size limit", maxResourceBuildContext)
+	}
+	return nil
 }
 
 func loadBrokerTLSConfig() (*tls.Config, error) {
@@ -511,6 +546,9 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 	serviceMutation := (method == http.MethodPost && path == "/services/create") ||
 		(method == http.MethodPost && resourceActionPath(path, "services", "update")) ||
 		(method == http.MethodDelete && resourceItemPath(path, "services"))
+	containerMutation := (method == http.MethodDelete && containerPath(path, "")) ||
+		(method == http.MethodPost && isContainerMutationPath(path)) ||
+		(method == http.MethodPut && containerActionPath(path, "archive"))
 	resourceMutation := method == http.MethodPost && (path == "/build" ||
 		path == "/containers/create" ||
 		path == "/images/create" ||
@@ -518,7 +556,7 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 		path == "/volumes/create" ||
 		resourceActionPath(path, "networks", "connect") ||
 		resourceActionPath(path, "networks", "disconnect"))
-	if resourceMutation || serviceMutation {
+	if resourceMutation || serviceMutation || containerMutation {
 		resourceID := strings.TrimSpace(r.Header.Get("X-Upstand-Resource-ID"))
 		if !resourceIDPattern.MatchString(resourceID) {
 			return errors.New("deployment-worker resource mutation requires a valid X-Upstand-Resource-ID")
@@ -621,8 +659,8 @@ func walkDeploymentWorkerOwnedVolumes(value any, location, resourceID string) er
 	case map[string]any:
 		for key, child := range typed {
 			keyLocation := location + "." + key
-			switch key {
-			case "Binds":
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "binds":
 				list, ok := child.([]any)
 				if !ok {
 					return fmt.Errorf("%s must be an array of managed volume binds", keyLocation)
@@ -633,7 +671,7 @@ func walkDeploymentWorkerOwnedVolumes(value any, location, resourceID string) er
 						return fmt.Errorf("%s[%d] must reference a volume owned by resource %s", keyLocation, index, resourceID)
 					}
 				}
-			case "Mounts":
+			case "mounts":
 				list, ok := child.([]any)
 				if !ok {
 					return fmt.Errorf("%s must be an array of managed volume mounts", keyLocation)
@@ -643,8 +681,7 @@ func walkDeploymentWorkerOwnedVolumes(value any, location, resourceID string) er
 					if !ok {
 						return fmt.Errorf("%s[%d] must be a managed volume mount", keyLocation, index)
 					}
-					mountType, _ := mount["Type"].(string)
-					source, _ := mount["Source"].(string)
+					mountType, source := deploymentWorkerMountFields(mount)
 					if mountType != "volume" || !isDeploymentWorkerOwnedVolume(source, resourceID) {
 						return fmt.Errorf("%s[%d] must reference a volume owned by resource %s", keyLocation, index, resourceID)
 					}
@@ -671,6 +708,11 @@ func isDeploymentWorkerOwnedVolume(volumeName, resourceID string) bool {
 	prefix := "upstand-resource-" + strings.ToLower(resourceID) + "-volume-"
 	volumeKey := strings.TrimPrefix(volumeName, prefix)
 	return volumeKey != volumeName && deploymentWorkerVolumeKeyPattern.MatchString(volumeKey)
+}
+
+func deploymentWorkerMountFields(mount map[string]any) (string, string) {
+	mountType, source, _ := dockerMountFields(mount)
+	return mountType, source
 }
 
 // isAllowedCallerDockerOperation narrows the global Docker operation allowlist
@@ -707,7 +749,7 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 	if caller == "deployment-worker" {
 		// The deployment worker must deploy and build, but it has no reason to
 		// run global cleanup or delete/tag arbitrary images.
-		if (method == http.MethodPost && (path == "/containers/prune" || path == "/images/prune")) ||
+		if (method == http.MethodPost && (path == "/containers/prune" || path == "/images/prune" || path == "/build/prune")) ||
 			(method == http.MethodPost && path == "/images/create") ||
 			(method == http.MethodPost && (path == "/networks/create" || path == "/volumes/create")) ||
 			(method == http.MethodDelete && resourceItemPath(path, "images")) ||
@@ -863,6 +905,15 @@ func containerActionPath(path, action string) bool {
 	return ok && len(parts) == 3 && parts[2] == action
 }
 
+func isContainerMutationPath(path string) bool {
+	for _, action := range []string{"exec", "start", "stop", "restart", "kill", "wait", "rename", "update", "resize"} {
+		if containerActionPath(path, action) {
+			return true
+		}
+	}
+	return false
+}
+
 func execPath(path, action string) bool {
 	parts, ok := splitResourcePath(path, "exec")
 	return ok && len(parts) == 3 && parts[2] == action
@@ -905,7 +956,9 @@ func isJSONPolicyPath(path string) bool {
 		strings.HasSuffix(path, "/services/create") ||
 		strings.Contains(path, "/services/") && strings.HasSuffix(path, "/update") ||
 		strings.HasSuffix(path, "/volumes/create") ||
-		strings.HasSuffix(path, "/networks/create")
+		strings.HasSuffix(path, "/networks/create") ||
+		resourceActionPath(path, "networks", "connect") ||
+		resourceActionPath(path, "networks", "disconnect")
 }
 
 func rejectHostEscapeJSON(body []byte) error {
@@ -921,28 +974,46 @@ func walkHostEscape(value any, location string) error {
 	case map[string]any:
 		for key, child := range typed {
 			keyLocation := location + "." + key
-			switch key {
-			case "Privileged", "PublishAllPorts", "PidMode", "IpcMode", "NetworkMode", "UsernsMode", "CgroupnsMode", "Isolation":
-				if key == "Privileged" || key == "PublishAllPorts" {
+			normalizedKey := strings.ToLower(strings.TrimSpace(key))
+			switch normalizedKey {
+			case "privileged", "publishallports", "pidmode", "ipcmode", "networkmode", "usernsmode", "cgroupnsmode", "utsmode", "isolation":
+				if normalizedKey == "privileged" || normalizedKey == "publishallports" {
 					if enabled, ok := child.(bool); ok && enabled {
 						return fmt.Errorf("%s enables an unsafe host capability", keyLocation)
 					}
 				} else if text, ok := child.(string); ok && isHostMode(text) {
 					return fmt.Errorf("%s requests host mode", keyLocation)
 				}
-			case "CapAdd", "Devices", "DeviceRequests":
+			// Container and Swarm APIs use different names for equivalent
+			// capability/device controls; reject both to preserve the host boundary.
+			case "capadd", "capabilityadd", "devices", "devicerequests", "devicecgrouprules":
 				if list, ok := child.([]any); ok && len(list) > 0 {
 					return fmt.Errorf("%s injects host capabilities or devices", keyLocation)
 				}
-			case "DriverOpts":
+			case "sysctls":
+				switch sysctls := child.(type) {
+				case []any:
+					if len(sysctls) > 0 {
+						return fmt.Errorf("%s injects host or kernel sysctls", keyLocation)
+					}
+				case map[string]any:
+					if len(sysctls) > 0 {
+						return fmt.Errorf("%s injects host or kernel sysctls", keyLocation)
+					}
+				}
+			case "driveropts":
 				if options, ok := child.(map[string]any); ok && len(options) > 0 {
 					return fmt.Errorf("%s can create a host-backed Docker volume", keyLocation)
 				}
-			case "Runtime":
+			case "volumedriver":
+				if driver, ok := child.(string); ok && strings.TrimSpace(driver) != "" && !strings.EqualFold(strings.TrimSpace(driver), "local") {
+					return fmt.Errorf("%s selects an unsupported Docker volume driver", keyLocation)
+				}
+			case "runtime":
 				if runtime, ok := child.(string); ok && strings.TrimSpace(runtime) != "" {
 					return fmt.Errorf("%s selects a custom container runtime", keyLocation)
 				}
-			case "SecurityOpt":
+			case "securityopt":
 				if options, ok := child.([]any); ok {
 					for _, option := range options {
 						if text, ok := option.(string); ok && unsafeSecurityOption(text) {
@@ -950,7 +1021,7 @@ func walkHostEscape(value any, location string) error {
 						}
 					}
 				}
-			case "Binds":
+			case "binds":
 				if list, ok := child.([]any); ok {
 					for _, entry := range list {
 						if text, ok := entry.(string); ok && unsafeBindSource(text) {
@@ -958,13 +1029,12 @@ func walkHostEscape(value any, location string) error {
 						}
 					}
 				}
-			case "Mounts":
+			case "mounts":
 				if list, ok := child.([]any); ok {
 					for _, entry := range list {
 						if mount, ok := entry.(map[string]any); ok {
-							if kind, _ := mount["Type"].(string); kind == "bind" {
-								source, _ := mount["Source"].(string)
-								readOnly, _ := mount["ReadOnly"].(bool)
+							kind, source, readOnly := dockerMountFields(mount)
+							if kind == "bind" {
 								if (unsafeBindSource(source) && !(isTelemetryBindSource(source) && readOnly)) ||
 									(isTelemetryBindSource(source) && !readOnly) {
 									return fmt.Errorf("%s contains an unsafe host bind", keyLocation)
@@ -988,9 +1058,31 @@ func walkHostEscape(value any, location string) error {
 	return nil
 }
 
+func dockerMountFields(mount map[string]any) (string, string, bool) {
+	var kind string
+	var source string
+	var readOnly bool
+	for key, value := range mount {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "type":
+			kind, _ = value.(string)
+		case "source":
+			source, _ = value.(string)
+		case "readonly":
+			readOnly, _ = value.(bool)
+		}
+	}
+	return strings.ToLower(strings.TrimSpace(kind)), source, readOnly
+}
+
 func isHostMode(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
-	return value == "host" || value == "hostipc" || value == "hostpid" || value == "hostnetwork"
+	return value == "host" ||
+		value == "hostipc" ||
+		value == "hostpid" ||
+		value == "hostnetwork" ||
+		strings.HasPrefix(value, "container:") ||
+		strings.HasPrefix(value, "service:")
 }
 
 func unsafeSecurityOption(value string) bool {
@@ -998,7 +1090,8 @@ func unsafeSecurityOption(value string) bool {
 	return value == "apparmor=unconfined" ||
 		value == "seccomp=unconfined" ||
 		value == "label=disable" ||
-		value == "systempaths=unconfined"
+		value == "systempaths=unconfined" ||
+		value == "no-new-privileges=false"
 }
 
 func unsafeBindSource(value string) bool {

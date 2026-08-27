@@ -5,6 +5,7 @@ import {
   type Resource,
   ValidationError,
 } from "@upstand/domain";
+import { createDeploymentScopeToken } from "@upstand/platform/crypto/deployment-scope";
 import {
   type DeployOutboxPayload,
   OUTBOX_COMMAND_TYPES,
@@ -285,6 +286,16 @@ export class QueueDeploymentUseCase {
       const reliability = parseResourceAdvancedConfig(
         resource.advancedConfig,
       ).deploymentReliability;
+      const dockerScopeToken = createDeploymentScopeToken({
+        resourceId: resource.id,
+        deploymentId,
+        serverId,
+      });
+      if (process.env.NODE_ENV === "production" && !dockerScopeToken) {
+        throw new ValidationError(
+          "Deployment scope signing is not configured; refusing to queue an unscoped deployment",
+        );
+      }
 
       // 2. Create the deployment record in the database
       await tx.deploymentRepository.create({
@@ -315,6 +326,7 @@ export class QueueDeploymentUseCase {
         resourceId: updatedResource.id,
         deploymentId,
         serverId,
+        dockerScopeToken,
         previewDeploymentId: input.previewDeploymentId,
         sourceRevision: input.sourceRevision,
         maxAttempts: reliability.maxAttempts,

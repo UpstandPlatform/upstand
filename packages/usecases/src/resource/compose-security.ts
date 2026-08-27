@@ -3,6 +3,45 @@ import { isUnknownRecord } from "./docker-values";
 
 const HOST_PATH_PATTERN = /^(?:[a-zA-Z]:[\\/]|[\\/]{2}|[\\/~]|\.\.?[\\/])/;
 const COMPOSE_RESOURCE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+const PROTECTED_DOCKER_ENVIRONMENT_NAMES = [
+  "DOCKER_CUSTOM_HEADERS",
+  "DOCKER_CERT_PATH",
+  "DOCKER_HOST",
+  "DOCKER_TLS_VERIFY",
+] as const;
+const REMOTE_BUILD_CONTEXT_PATTERN =
+  /^(?:[a-z][a-z0-9+.-]*:\/\/|[^/\\\s:@]+@[^/\\\s:]+:)/i;
+const COMPOSE_BUILD_ARGUMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SENSITIVE_BUILD_ARGUMENT_MARKERS = [
+  "password",
+  "secret",
+  "token",
+  "api_key",
+  "apikey",
+  "private_key",
+  "privatekey",
+  "credential",
+  "client_secret",
+  "clientsecret",
+  "access_token",
+  "access_key",
+  "accesskey",
+] as const;
+
+function validateProtectedDockerEnvironmentReferences(
+  rawCompose: string,
+): void {
+  for (const name of PROTECTED_DOCKER_ENVIRONMENT_NAMES) {
+    const referencePattern = new RegExp(
+      `(?:\\$\\{${name}(?:[:?+\\-][^}]*)?\\}|\\$${name}\\b)`,
+    );
+    if (referencePattern.test(rawCompose)) {
+      throw new Error(
+        `Compose cannot interpolate protected Docker environment variable '${name}'`,
+      );
+    }
+  }
+}
 
 function volumeSource(value: unknown): string | undefined {
   if (typeof value === "string") {
@@ -16,7 +55,11 @@ function volumeSource(value: unknown): string | undefined {
 }
 
 function isHostNamespace(value: unknown): boolean {
-  return ["host", "container:host"].includes(String(value ?? ""));
+  return ["host", "container:host", "service:host"].includes(
+    String(value ?? "")
+      .trim()
+      .toLowerCase(),
+  );
 }
 
 function isInterpolated(value: string): boolean {
@@ -34,6 +77,255 @@ function isHostPath(value: string): boolean {
   );
 }
 
+function isUnsafeComposePath(value: string): boolean {
+  if (isHostPath(value)) return true;
+
+  // Compose resolves relative paths from the generated deployment directory.
+  // Do not let a user-controlled Compose document walk back into the control
+  // plane checkout or another deployment's files.
+  return value
+    .replaceAll("\\", "/")
+    .split("/")
+    .some((segment) => segment === "..");
+}
+
+function isRemoteBuildContext(value: string): boolean {
+  return REMOTE_BUILD_CONTEXT_PATTERN.test(value.trim());
+}
+
+function validateComposeBuildContext(
+  value: string,
+  resourceKind: string,
+  resourceName: string,
+): void {
+  if (isRemoteBuildContext(value)) {
+    throw new Error(
+      `Compose ${resourceKind} '${resourceName}' cannot use a remote build context`,
+    );
+  }
+  validateComposeScopedPath(value, resourceKind, resourceName);
+}
+
+function validateComposeScopedPath(
+  value: string,
+  resourceKind: string,
+  resourceName: string,
+): void {
+  if (!value || isUnsafeComposePath(value)) {
+    throw new Error(
+      `Compose ${resourceKind} '${resourceName}' uses an unsafe path`,
+    );
+  }
+}
+
+function isSensitiveComposeBuildArgument(name: string): boolean {
+  const normalized = name.trim().toLowerCase().replaceAll("-", "_");
+  return SENSITIVE_BUILD_ARGUMENT_MARKERS.some((marker) =>
+    normalized.includes(marker),
+  );
+}
+
+function validateComposeBuildArguments(
+  serviceName: string,
+  args: unknown,
+): void {
+  const names: string[] = [];
+  if (isUnknownRecord(args)) {
+    names.push(...Object.keys(args));
+  } else if (Array.isArray(args)) {
+    for (const entry of args) {
+      if (typeof entry !== "string") {
+        throw new Error(
+          `Compose service '${serviceName}' has an invalid build argument`,
+        );
+      }
+      const separator = entry.indexOf("=");
+      if (separator === -1 || entry.slice(separator + 1).includes("$")) {
+        throw new Error(
+          `Compose service '${serviceName}' build arguments must use literal values`,
+        );
+      }
+      names.push(entry.slice(0, separator).trim());
+    }
+  } else {
+    throw new Error(
+      `Compose service '${serviceName}' has invalid build arguments`,
+    );
+  }
+
+  if (names.length > 64) {
+    throw new Error(
+      `Compose service '${serviceName}' has too many build arguments`,
+    );
+  }
+  for (const name of names) {
+    if (!COMPOSE_BUILD_ARGUMENT_NAME_PATTERN.test(name)) {
+      throw new Error(
+        `Compose service '${serviceName}' has an invalid build argument name`,
+      );
+    }
+    // Docker records ARG values in image metadata/history; never accept a
+    // secret-like name through a path intended for public build data.
+    if (isSensitiveComposeBuildArgument(name)) {
+      throw new Error(
+        `Compose service '${serviceName}' uses secret-like build argument '${name}', which is not allowed`,
+      );
+    }
+  }
+
+  if (isUnknownRecord(args)) {
+    for (const [name, value] of Object.entries(args)) {
+      if (
+        value === null ||
+        (typeof value === "object" && !Array.isArray(value)) ||
+        Array.isArray(value) ||
+        (typeof value === "string" && value.includes("$"))
+      ) {
+        throw new Error(
+          `Compose service '${serviceName}' build argument '${name}' must use a literal value`,
+        );
+      }
+    }
+  }
+}
+
+function validateComposeBuild(serviceName: string, build: unknown): void {
+  if (typeof build === "string") {
+    validateComposeBuildContext(build, "service build context", serviceName);
+    return;
+  }
+  if (!isUnknownRecord(build)) return;
+
+  if (typeof build.context === "string") {
+    validateComposeBuildContext(
+      build.context,
+      "service build context",
+      serviceName,
+    );
+  }
+  if (typeof build.dockerfile === "string") {
+    validateComposeScopedPath(
+      build.dockerfile,
+      "service Dockerfile",
+      serviceName,
+    );
+  }
+  if (build.args !== undefined) {
+    validateComposeBuildArguments(serviceName, build.args);
+  }
+  if (build.ssh !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' requests SSH agent forwarding during build, which is not allowed`,
+    );
+  }
+  if (build.secrets !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' requests build secrets, which are not allowed; use Upstand-managed build secrets instead`,
+    );
+  }
+  if (build.cache_from !== undefined || build.cache_to !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' configures an external build cache, which is not allowed`,
+    );
+  }
+  if (
+    typeof build.network === "string" &&
+    build.network.trim().toLowerCase() === "host"
+  ) {
+    throw new Error(
+      `Compose service '${serviceName}' requests host networking during build, which is not allowed`,
+    );
+  }
+  if (Array.isArray(build.entitlements) && build.entitlements.length > 0) {
+    throw new Error(
+      `Compose service '${serviceName}' requests build entitlements, which is not allowed`,
+    );
+  }
+  if (isUnknownRecord(build.additional_contexts)) {
+    for (const [contextName, rawContext] of Object.entries(
+      build.additional_contexts,
+    )) {
+      if (typeof rawContext === "string") {
+        validateComposeBuildContext(
+          rawContext,
+          `service build context '${contextName}'`,
+          serviceName,
+        );
+      }
+    }
+  } else if (Array.isArray(build.additional_contexts)) {
+    for (const rawContext of build.additional_contexts) {
+      if (typeof rawContext !== "string") continue;
+      const separator = rawContext.indexOf("=");
+      const context =
+        separator === -1 ? rawContext : rawContext.slice(separator + 1);
+      validateComposeBuildContext(
+        context,
+        "service additional build context",
+        serviceName,
+      );
+    }
+  }
+}
+
+function validateComposeEnvFile(serviceName: string, envFile: unknown): void {
+  const paths = Array.isArray(envFile) ? envFile : [envFile];
+  for (const entry of paths) {
+    const value =
+      typeof entry === "string"
+        ? entry
+        : isUnknownRecord(entry) && typeof entry.path === "string"
+          ? entry.path
+          : undefined;
+    if (value === undefined) continue;
+    validateComposeScopedPath(value, "env_file", serviceName);
+  }
+}
+
+function validateComposeDeploySecurity(
+  serviceName: string,
+  deploy: unknown,
+): void {
+  if (!isUnknownRecord(deploy)) return;
+
+  if (deploy.privileged === true || deploy.privileged === "true") {
+    throw new Error(
+      `Compose service '${serviceName}' requests privileged deployment mode, which is not allowed`,
+    );
+  }
+
+  for (const field of [
+    "cap_add",
+    "devices",
+    "device_cgroup_rules",
+    "security_opt",
+    "sysctls",
+  ]) {
+    const value = deploy[field];
+    if (
+      (Array.isArray(value) && value.length > 0) ||
+      (isUnknownRecord(value) && Object.keys(value).length > 0)
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests unsafe deploy.${field}, which is not allowed`,
+      );
+    }
+  }
+
+  const resources = isUnknownRecord(deploy.resources)
+    ? deploy.resources
+    : undefined;
+  const reservations =
+    resources && isUnknownRecord(resources.reservations)
+      ? resources.reservations
+      : undefined;
+  if (reservations?.devices !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' requests reserved host devices, which is not allowed`,
+    );
+  }
+}
+
 function isExternalResourceDefinition(value: unknown): boolean {
   return (
     value === true ||
@@ -42,11 +334,49 @@ function isExternalResourceDefinition(value: unknown): boolean {
   );
 }
 
+function validateComposeFileBackedResources(
+  parsed: Record<string, unknown>,
+  resourceKind: "configs" | "secrets",
+): void {
+  const definitions = parsed[resourceKind];
+  if (!isUnknownRecord(definitions)) return;
+
+  for (const [resourceName, rawDefinition] of Object.entries(definitions)) {
+    if (!COMPOSE_RESOURCE_KEY_PATTERN.test(resourceName)) {
+      throw new Error(
+        `Compose ${resourceKind.slice(0, -1)} '${resourceName}' has an invalid resource name`,
+      );
+    }
+    if (isExternalResourceDefinition(rawDefinition)) {
+      throw new Error(
+        `Compose ${resourceKind.slice(0, -1)} '${resourceName}' cannot be external; resources must be provisioned inside the resource boundary`,
+      );
+    }
+    if (!isUnknownRecord(rawDefinition)) continue;
+
+    for (const field of ["name", "file"] as const) {
+      const value = rawDefinition[field];
+      if (typeof value !== "string") continue;
+      if (
+        isHostPath(value) ||
+        value.includes("/../") ||
+        value.includes("\\..\\")
+      ) {
+        throw new Error(
+          `Compose ${resourceKind.slice(0, -1)} '${resourceName}' uses an unsafe ${field} path`,
+        );
+      }
+    }
+  }
+}
+
 /**
  * Reject Compose features that can escape the workload's isolation boundary.
  * This applies to raw Compose resources as well as user-created templates.
  */
 export function validateComposeSecurity(rawCompose: string): void {
+  validateProtectedDockerEnvironmentReferences(rawCompose);
+
   let parsed: unknown;
   try {
     parsed = yaml.parse(rawCompose);
@@ -150,11 +480,57 @@ export function validateComposeSecurity(rawCompose: string): void {
     }
   }
 
+  validateComposeFileBackedResources(parsed, "configs");
+  validateComposeFileBackedResources(parsed, "secrets");
+
+  if (parsed.include !== undefined) {
+    throw new Error(
+      "Compose include files are not allowed; deployments must use a self-contained Compose document",
+    );
+  }
+
   if (!isUnknownRecord(parsed.services)) return;
 
   for (const [serviceName, rawService] of Object.entries(parsed.services)) {
     if (!isUnknownRecord(rawService)) continue;
     const service = rawService;
+
+    if (service.build !== undefined) {
+      validateComposeBuild(serviceName, service.build);
+    }
+    if (service.runtime !== undefined) {
+      throw new Error(
+        `Compose service '${serviceName}' requests a custom container runtime, which is not allowed`,
+      );
+    }
+    if (service.gpus !== undefined) {
+      throw new Error(
+        `Compose service '${serviceName}' requests host GPU devices, which is not allowed`,
+      );
+    }
+    if (
+      (Array.isArray(service.device_cgroup_rules) &&
+        service.device_cgroup_rules.length > 0) ||
+      (Array.isArray(service.devices) && service.devices.length > 0)
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests host devices, which is not allowed`,
+      );
+    }
+    if (service.env_file !== undefined) {
+      validateComposeEnvFile(serviceName, service.env_file);
+    }
+    validateComposeDeploySecurity(serviceName, service.deploy);
+    if (
+      isUnknownRecord(service.extends) &&
+      typeof service.extends.file === "string"
+    ) {
+      validateComposeScopedPath(
+        service.extends.file,
+        "extends file",
+        serviceName,
+      );
+    }
 
     if (service.privileged === true) {
       throw new Error(
@@ -181,11 +557,6 @@ export function validateComposeSecurity(rawCompose: string): void {
     if (Array.isArray(service.cap_add) && service.cap_add.length > 0) {
       throw new Error(
         `Compose service '${serviceName}' requests added Linux capabilities, which is not allowed`,
-      );
-    }
-    if (Array.isArray(service.devices) && service.devices.length > 0) {
-      throw new Error(
-        `Compose service '${serviceName}' requests host devices, which is not allowed`,
       );
     }
     if (Array.isArray(service.security_opt)) {
