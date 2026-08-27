@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -495,6 +496,9 @@ func authorizeServiceResourcePayload(
 // workload, but it must not use a raw Swarm service payload to request a host
 // namespace, custom runtime, device, capability, or security escape.
 func validateRawServiceSecurity(payload map[string]any) error {
+	if err := validateServiceEndpointSpec(payload); err != nil {
+		return err
+	}
 	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
 	if !hasTaskTemplate {
 		return nil
@@ -572,6 +576,97 @@ func validateRawServiceSecurity(payload map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// validateServiceEndpointSpec keeps raw and typed service mutations from
+// turning a resource-scoped service into an arbitrary host port or endpoint
+// configuration primitive. Compose and Swarm both use the Docker service
+// EndpointSpec shape after translation.
+func validateServiceEndpointSpec(payload map[string]any) error {
+	rawEndpoint, ok := dockerObjectField(payload, "EndpointSpec")
+	if !ok || rawEndpoint == nil {
+		return nil
+	}
+	endpoint, ok := rawEndpoint.(map[string]any)
+	if !ok {
+		return errors.New("service EndpointSpec is not an object")
+	}
+	for field := range endpoint {
+		switch strings.ToLower(strings.TrimSpace(field)) {
+		case "mode", "ports":
+		default:
+			return fmt.Errorf("service EndpointSpec field %q is not allowed", field)
+		}
+	}
+	if mode := strings.ToLower(dockerStringField(endpoint, "Mode")); mode != "" && mode != "vip" && mode != "dnsrr" {
+		return errors.New("service EndpointSpec mode is outside the broker contract")
+	}
+	rawPorts, ok := dockerObjectField(endpoint, "Ports")
+	if !ok || rawPorts == nil {
+		return nil
+	}
+	ports, ok := rawPorts.([]any)
+	if !ok || len(ports) > 64 {
+		return errors.New("service EndpointSpec ports are invalid or unbounded")
+	}
+	for index, rawPort := range ports {
+		port, ok := rawPort.(map[string]any)
+		if !ok {
+			return fmt.Errorf("service EndpointSpec port %d is invalid", index)
+		}
+		for field := range port {
+			switch strings.ToLower(strings.TrimSpace(field)) {
+			case "name", "protocol", "targetport", "publishedport", "publishmode":
+			default:
+				return fmt.Errorf("service EndpointSpec port %d field %q is not allowed", index, field)
+			}
+		}
+		if name := dockerStringField(port, "Name"); len(name) > 64 || hasControlCharacter(name) {
+			return fmt.Errorf("service EndpointSpec port %d name is invalid", index)
+		}
+		protocol := strings.ToLower(dockerStringField(port, "Protocol"))
+		if protocol != "" && protocol != "tcp" && protocol != "udp" && protocol != "sctp" {
+			return fmt.Errorf("service EndpointSpec port %d protocol is invalid", index)
+		}
+		publishMode := strings.ToLower(dockerStringField(port, "PublishMode"))
+		if publishMode != "" && publishMode != "ingress" {
+			return fmt.Errorf("service EndpointSpec port %d publish mode is not allowed", index)
+		}
+		for _, field := range []string{"TargetPort", "PublishedPort"} {
+			value, exists := dockerObjectField(port, field)
+			if !exists {
+				return fmt.Errorf("service EndpointSpec port %d is missing %s", index, field)
+			}
+			if _, valid := dockerPortNumber(value); !valid {
+				return fmt.Errorf("service EndpointSpec port %d %s is invalid", index, field)
+			}
+		}
+	}
+	return nil
+}
+
+func dockerPortNumber(value any) (int64, bool) {
+	var number float64
+	switch typed := value.(type) {
+	case float64:
+		number = typed
+	case float32:
+		number = float64(typed)
+	case int:
+		number = float64(typed)
+	case int64:
+		number = float64(typed)
+	case uint:
+		number = float64(typed)
+	case uint64:
+		number = float64(typed)
+	default:
+		return 0, false
+	}
+	if number < 1 || number > 65535 || number != math.Trunc(number) {
+		return 0, false
+	}
+	return int64(number), true
 }
 
 func dockerFieldIsNonEmpty(object map[string]any, wanted string) bool {

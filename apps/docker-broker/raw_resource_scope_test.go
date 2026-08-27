@@ -179,6 +179,42 @@ func TestRawServiceSecurityRejectsIsolationEscapes(t *testing.T) {
 	}
 
 	for _, test := range []struct {
+		name     string
+		endpoint map[string]any
+	}{
+		{
+			name: "host publish mode",
+			endpoint: map[string]any{
+				"Ports": []any{map[string]any{"Protocol": "tcp", "TargetPort": 8080, "PublishedPort": 8080, "PublishMode": "host"}},
+			},
+		},
+		{
+			name: "invalid port range",
+			endpoint: map[string]any{
+				"Ports": []any{map[string]any{"Protocol": "tcp", "TargetPort": 70000, "PublishedPort": 8080}},
+			},
+		},
+		{
+			name:     "unknown endpoint field",
+			endpoint: map[string]any{"HostIP": "0.0.0.0"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateRawServiceSecurity(map[string]any{"EndpointSpec": test.endpoint}); err == nil {
+				t.Fatalf("expected endpoint policy to reject %s", test.name)
+			}
+		})
+	}
+	if err := validateRawServiceSecurity(map[string]any{
+		"EndpointSpec": map[string]any{
+			"Mode":  "vip",
+			"Ports": []any{map[string]any{"Name": "http", "Protocol": "tcp", "TargetPort": 8080, "PublishedPort": 8080, "PublishMode": "ingress"}},
+		},
+	}); err != nil {
+		t.Fatalf("expected a bounded ingress endpoint to remain allowed: %v", err)
+	}
+
+	for _, test := range []struct {
 		name    string
 		payload map[string]any
 	}{

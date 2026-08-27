@@ -130,6 +130,14 @@ official Railpack artifacts pass. Compose/service transport and secret-bearing
 build migration remain open findings, so the readiness scores and release
 verdict are intentionally unchanged.
 
+The latest service endpoint pass applies one shared policy to typed and raw
+service mutations: endpoint fields are allowlisted, endpoint modes are
+restricted to VIP/DNSRR, ports are bounded to the Docker port range, and only
+ingress publication is accepted. Direct typed and raw regressions cover host
+publication, custom endpoint fields, unsupported modes, invalid port ranges,
+and custom logging backends. This reduces service transport authority but does
+not close the broader raw Compose/service migration finding.
+
 Long-lived MCP clients now revalidate each request URL and its DNS answers
 before forwarding the request, so a hostname that changes from a public answer
 to a blocked address is rejected before the subsequent call. This is an

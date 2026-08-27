@@ -465,6 +465,33 @@ func TestResourceServiceOperationScopesCreateUpdateAndNetworkAttachment(t *testi
 	}
 }
 
+func TestTypedResourceServiceRejectsUnsafeEndpointSpec(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		spec string
+	}{
+		{
+			name: "host publish mode",
+			spec: `{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"EndpointSpec":{"Ports":[{"Protocol":"tcp","TargetPort":8080,"PublishedPort":8080,"PublishMode":"host"}]}}`,
+		},
+		{
+			name: "unsupported endpoint mode",
+			spec: `{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"EndpointSpec":{"Mode":"host"}}`,
+		},
+		{
+			name: "custom logging backend",
+			spec: `{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"LogDriver":{"Name":"syslog"}}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(`{"operation":"upsert","resource_id":"resource-1","service_name":"resource-1","spec":` + test.spec + `}`)
+			if _, err := validateTypedResourceServiceRequest(body); err == nil {
+				t.Fatalf("expected typed service policy to reject %s", test.name)
+			}
+		})
+	}
+}
+
 func TestResourceServiceOperationRejectsForeignFileBackedResources(t *testing.T) {
 	engine := &dockerEngineClient{httpClient: &http.Client{
 		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
