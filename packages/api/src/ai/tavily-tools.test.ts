@@ -75,5 +75,8 @@ describe("createTavilyToolsForOrg", () => {
     expect(result.tools).toHaveProperty("tavilyExtract");
     expect(result.tools).not.toHaveProperty("tavilyCrawl");
     expect(result.tools).toHaveProperty("tavilyMap");
+    expect(
+      (result.tools.tavilySearch as { outputSchema?: unknown }).outputSchema,
+    ).toBeDefined();
   });
 });

@@ -25,6 +25,7 @@ describe("UpGal instructions", () => {
     expect(instructions).toContain("server-verified");
     expect(instructions).toContain("client-reported application metadata");
     expect(instructions).toContain("Prefer named volumes");
+    expect(instructions).toContain("external-untrusted provenance envelope");
   });
 
   test("publishes deterministic Compose generation rules", () => {
