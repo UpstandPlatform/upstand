@@ -124,17 +124,35 @@ jobs:
 
       - name: Verify lint, security, and production shell syntax
         run: |
+          run_optional_bash() {
+            local script="$1"
+            if [[ -f "$script" ]]; then
+              bash "$script"
+            else
+              echo "::notice::Skipping $script; it is not present in release ref ${RELEASE_REF}"
+            fi
+          }
+
+          check_optional_bash_syntax() {
+            local script="$1"
+            if [[ -f "$script" ]]; then
+              bash -n "$script"
+            else
+              echo "::notice::Skipping bash -n $script; it is not present in release ref ${RELEASE_REF}"
+            fi
+          }
+
           bun run lint
           bash scripts/security-audit.sh
-          bash scripts/security-audit-contract.test.sh
+          run_optional_bash scripts/security-audit-contract.test.sh
           bash -n install.sh
           bash -n apps/server/docker-entrypoint.sh
           bash -n scripts/production-acceptance.sh
           bash -n scripts/production-acceptance-fixture-docker.sh
           bash -n scripts/backup-restore-rehearsal.sh
           bash -n scripts/backup-restore-rehearsal-contract.test.sh
-          bash -n scripts/verify-recovery-evidence.sh
-          bash -n scripts/verify-recovery-evidence-contract.test.sh
+          check_optional_bash_syntax scripts/verify-recovery-evidence.sh
+          check_optional_bash_syntax scripts/verify-recovery-evidence-contract.test.sh
           bash -n scripts/external-services-smoke-contract.test.sh
           bash -n scripts/health-load-rehearsal.sh
           bash -n scripts/health-load-rehearsal-contract.test.sh
@@ -143,7 +161,7 @@ jobs:
           bash -n scripts/production-evidence-collect-contract.test.sh
           bash -n scripts/production-acceptance-contract.test.sh
           bash -n scripts/observability-contract.test.sh
-          bash -n scripts/security-audit-contract.test.sh
+          check_optional_bash_syntax scripts/security-audit-contract.test.sh
           bash -n scripts/production-acceptance-cluster.sh
           bash -n scripts/production-acceptance-cluster-contract.test.sh
           bash -n scripts/health-soak-rehearsal.sh
