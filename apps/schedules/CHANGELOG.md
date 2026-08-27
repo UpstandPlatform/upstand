@@ -1,5 +1,15 @@
 # schedules
 
+## 0.2.26
+
+### Patch Changes
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Reserve UpGal token and cost ceilings atomically so rejected cost admission cannot consume token quota without a model call.
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Reject interpolated and long-syntax host bind mounts plus host-backed Compose volume/network driver options before deployment. Typed resource service mutations now accept only safe named Docker volumes, and production Compose defaults installation-specific disaster-recovery acceptance to fail closed.
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Retry failed preview-service cleanup from durable cleanup-pending records with resource-scoped local and remote Docker capabilities.
+
 ## 0.2.25
 
 ## 0.2.24
