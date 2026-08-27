@@ -95,6 +95,7 @@ export * from "./resource/compose-security";
 export * from "./resource/container-file-manager.usecase";
 export * from "./resource/control-container.usecase";
 export * from "./resource/control-resource.usecase";
+export * from "./resource/create-preview-deployment.usecase";
 // Resources
 export * from "./resource/create-resource.usecase";
 export * from "./resource/database-command.usecase";

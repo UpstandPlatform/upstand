@@ -3,6 +3,7 @@ import { parseDomainMappings } from "@upstand/domain";
 import { redis, withRedisTimeout } from "@upstand/redis";
 import type { WebhookDeliveryStore } from "@upstand/usecases";
 import {
+  CreatePreviewDeploymentUseCase,
   gitProviderOAuthManifestWebhookKey,
   ProcessSourceWebhookUseCase,
   parseResourceCredentials,
@@ -290,37 +291,25 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
             const generatedDomain = domain;
 
             try {
-              let limitReached = false;
-              preview = await uow.transaction(async (tx) => {
-                await tx.resourceRepository.lockById?.(resource.id);
-                const existingPreviews =
-                  await tx.previewDeploymentRepository.findByResourceId(
-                    resource.id,
-                  );
-                if (
-                  existingPreviews.filter(
-                    (candidate) => candidate.status !== "failed",
-                  ).length >= previewLimit
-                ) {
-                  limitReached = true;
-                  return null;
-                }
-                return tx.previewDeploymentRepository.create({
-                  resourceId: resource.id,
-                  pullRequestId: prNumber,
-                  branchName,
-                  appName: generatedAppName,
-                  status: "idle",
-                  domain: generatedDomain,
-                });
+              const result = await new CreatePreviewDeploymentUseCase(
+                uow,
+              ).execute({
+                resourceId: resource.id,
+                pullRequestId: prNumber,
+                branchName,
+                appName: generatedAppName,
+                status: "idle",
+                domain: generatedDomain,
+                previewLimit,
               });
-              if (limitReached) {
+              if (result.limitReached) {
                 c.get("log").warn("Preview deployment limit reached", {
                   resourceId: resource.id,
                   previewLimit,
                 });
                 continue;
               }
+              preview = result.preview;
               if (!preview) throw new Error("Preview creation returned no row");
             } catch {
               // A concurrent delivery may have won the unique PR claim.
