@@ -314,7 +314,9 @@ and import instead of normalizing one side only. Focused server tests cover
 unknown-field rejection, exact confirmations, bounded IDs, passphrase bounds,
 and whitespace-preserving round trips. This closes a concrete malformed-input
 and transfer-compatibility gap; live owner transfer/repair evidence remains an
-operational requirement.
+operational requirement. The same passphrase bounds and exact-character
+behavior are now enforced again inside the portable-secret-bundle KDF, covering
+non-HTTP callers such as CLI and internal transfer services.
 
 ## Production Readiness Scorecard
 
@@ -771,6 +773,7 @@ Concerning or operationally incomplete:
 - The DMG maker is no longer produced; macOS release validation must continue to verify the supported ZIP artifact.
 - TESTING.md is referenced by repository guidance but is absent at the repository root; package READMEs and CI/test configuration were used instead.
 - control-plane transfer HTTP boundary validation tests covering strict owner/export schemas, bounded passphrases, exact confirmations, bounded target IDs, and whitespace-preserving import/export passphrases
+- portable secret-bundle tests covering KDF passphrase bounds, whitespace-only rejection, and exact-character encryption/decryption
 
 The existing security_best_practices_report.md was treated as historical evidence only because it targets an older canary snapshot. A pre-existing unrelated modification to .codex/config.toml was preserved.
 

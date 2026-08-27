@@ -10,6 +10,8 @@ const SCRYPT_COST = 32_768;
 const SCRYPT_BLOCK_SIZE = 8;
 const SCRYPT_PARALLELISM = 1;
 const KEY_LENGTH = 32;
+const MIN_PASSPHRASE_LENGTH = 12;
+const MAX_PASSPHRASE_LENGTH = 256;
 
 export interface PortableSecretBundleDescriptor {
   algorithm: "aes-256-gcm";
@@ -37,8 +39,14 @@ function deriveKey(
     "cost" | "blockSize" | "parallelism" | "keyLength"
   >,
 ): Promise<Buffer> {
-  if (passphrase.length < 12) {
-    throw new Error("Transfer passphrase must contain at least 12 characters");
+  if (
+    passphrase.length < MIN_PASSPHRASE_LENGTH ||
+    passphrase.length > MAX_PASSPHRASE_LENGTH ||
+    passphrase.trim().length === 0
+  ) {
+    throw new Error(
+      "Transfer passphrase must be 12 to 256 characters and not whitespace-only",
+    );
   }
   return new Promise((resolve, reject) => {
     scrypt(
