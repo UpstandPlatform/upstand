@@ -90,7 +90,11 @@ func TestAuthorizeDeploymentWorkerScopeTokenRejectsMissingExpiredAndTamperedGran
 		ExpiresAt:    now.Add(time.Hour).UnixMilli(),
 		Nonce:        "nonce-1",
 	})
-	request.Header.Set(deploymentScopeHeader, valid[:len(valid)-1]+"A")
+	tamperedSuffix := byte('A')
+	if valid[len(valid)-1] == tamperedSuffix {
+		tamperedSuffix = 'B'
+	}
+	request.Header.Set(deploymentScopeHeader, valid[:len(valid)-1]+string(tamperedSuffix))
 	if err := authorizeDeploymentWorkerScopeToken("deployment-worker", request, nil, secret); err == nil {
 		t.Fatal("expected a tampered grant to be rejected")
 	}
