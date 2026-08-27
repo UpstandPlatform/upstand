@@ -607,7 +607,7 @@ services:
     volumes: [data:/var/lib/data]
 networks:
   private:
-      volumes:
+volumes:
   data:
 `,
       () => {},
