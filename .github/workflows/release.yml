@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       acceptance_profile:
-        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics)
+        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics; verify-only is for legacy artifacts)
         required: false
         default: full
         type: string
@@ -37,7 +37,7 @@ on:
         required: true
         type: string
       acceptance_profile:
-        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics)
+        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics; verify-only is for legacy artifacts)
         required: false
         default: full
         type: string
@@ -481,7 +481,7 @@ jobs:
           fi
 
   pre-release-acceptance:
-    if: always() && needs.verify.result == 'success' && (needs.build-and-publish.result == 'success' || inputs.build_images == false) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v'))
+    if: always() && needs.verify.result == 'success' && (needs.build-and-publish.result == 'success' || inputs.build_images == false) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')) && (github.event_name == 'push' || inputs.acceptance_profile != 'verify-only')
     needs: [verify, build-and-publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 30

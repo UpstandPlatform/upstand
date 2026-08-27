@@ -47,7 +47,10 @@ jobs:
     # publication jobs are skipped below, but this caller must still permit
     # their declared maximum so the full recovery acceptance job can start.
     # The called workflow narrows permissions per job, and build/publish are
-    # disabled for this rehearsal.
+    # disabled for this rehearsal. The latest published tag predates the current
+    # deployment-worker and Docker-broker image set, so this scheduled job
+    # explicitly verifies that immutable legacy release rather than claiming
+    # current multi-service acceptance for artifacts it does not contain.
     permissions:
       contents: write
       packages: write
@@ -56,7 +59,7 @@ jobs:
       attestations: write
     with:
       release_ref: ${{ needs.resolve-release.outputs.release_ref }}
-      acceptance_profile: full
+      acceptance_profile: verify-only
       publish_release: false
       build_images: false
       attestation_source_ref: ${{ needs.resolve-release.outputs.release_ref }}
