@@ -57,6 +57,7 @@ jobs:
       actions: write
       id-token: write
       attestations: write
+      artifact-metadata: write
     with:
       release_ref: ${{ needs.resolve-release.outputs.release_ref }}
       acceptance_profile: verify-only
