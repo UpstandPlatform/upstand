@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: release candidate `feat/cache-gate-reliability` (latest code commit `4b7b36d9`)
+Revision: release candidate `feat/cache-gate-reliability` (latest code commit `9002783d`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -9,6 +9,12 @@ Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, 
 Verdict: **NOT PRODUCTION READY**.
 
 The codebase has meaningful hardening: package boundaries are clear, centralized authorization is widely used, secure-cookie defaults and CSP exist, production Compose enforces non-root/read-only/capability-drop contracts, and the installer fails closed for several dangerous choices. The latest iteration also adds a deny-by-default Docker API allowlist with caller/operation audit events, fail-closed legacy instance ownership, protected API RED telemetry, composite backup tenant constraints, complete web-server artifact verification before a backup is marked restore-tested, typed ownership-checked isolated-network cleanup, and broker-owned Caddy provisioning/configuration with bounded archive, validation, reload, and rollback behavior.
+
+The current web security iteration additionally prevents server-rendered
+session requests from deriving their API destination from forwarded headers
+or arbitrary public Host values. Normal SSR uses the configured API origin;
+only a validated direct-IP Host is used for the explicit bootstrap path, with
+regression coverage for spoofed forwarding headers.
 
 The current infrastructure iteration additionally requires a validated
 resource scope for production deployment-worker image builds and Swarm service
@@ -470,6 +476,17 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Impact:** Credential, session, and verification endpoints have a bounded request cost and fail through the same limiter availability policy as other sensitive traffic.
 - **Recommended Fix:** Retain the layered limiter and exercise the new production auth-failure/lockout telemetry through a paging runbook.
 
+### F-019 — Server-rendered API origin trusted forwarded request headers (resolved)
+
+- **File:** apps/web/src/lib/server-url.ts:42-61, 184-211
+- **Function/Class:** `getServerUrlFromHeaders`
+- **Severity:** Major
+- **Category:** SSRF / proxy-header trust / authentication session routing
+- **Problem:** Server-rendered dashboard session requests previously preferred `X-Forwarded-Host` and `X-Forwarded-Proto`, then inferred a sibling API origin from the resulting value. Without an application-visible trusted-proxy boundary, an attacker-controlled header or Host could redirect the server-side session fetch.
+- **Evidence:** Host parsing now rejects malformed authority values; normal SSR uses `UPSTAND_SERVER_INTERNAL_URL` or the configured public API origin, and only a validated direct-IP `Host` is used for the explicit direct bootstrap path. `apps/web/src/lib/server-url.test.ts` covers spoofed forwarded host/protocol headers, arbitrary public Host fallback, and direct-IP forwarding-header spoofing.
+- **Impact:** The web server no longer makes server-rendered session requests to an attacker-selected sibling domain through forwarded-header inference.
+- **Recommended Fix:** Retain the configured-origin requirement and verify the production proxy preserves the canonical `Host` header; do not reintroduce forwarded-header inference without an explicit trusted-proxy contract.
+
 ## Iteration Status (2026-08-27)
 
 | Finding | Current status |
@@ -490,6 +507,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-016 | Remediated — CodeQL now analyzes JavaScript/TypeScript and Go, and CI runs `govulncheck` for both Go production services. |
 | F-017 | Remediated in code — docs-chat messages, parts, text, search query, and output are bounded. |
 | F-018 | Remediated in code — Better Auth routes now have shared distributed request limiting and a 256 KiB body cap; protected HTTP middleware records low-cardinality authentication outcomes and Prometheus alerts on sustained rejection rates; live auth-failure paging evidence remains. |
+| F-019 | Remediated in code — server-rendered session routing validates the Host authority, ignores forwarded host/protocol headers, uses configured/internal origins for normal domains, and preserves only the explicit validated direct-IP bootstrap path; focused URL-resolution tests pass. |
 
 ## Security Risk Matrix
 
@@ -503,6 +521,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | Preview cleanup/reconciliation gap | Medium | Resource exhaustion | Major |
 | Unverified control-plane restore/key recovery | Medium | Organization/control-plane data loss | Major |
 | Missing API/control-plane telemetry | High | Slow detection/incident response | Major |
+| Server-rendered Host-header API origin spoofing | Low | SSR session fetch redirection | Minor residual |
 
 ## Technical Debt Matrix
 
@@ -627,6 +646,7 @@ Passed:
 - operational-status rehearsal restore-verification gate test and internal Docker-control-network acceptance contracts
 - stable tag release acceptance defaulting to the full recovery/load profile, with a contract test preventing smoke from becoming the tag-push default
 - Changesets release metadata validation reporting the fixed deployable set (`server`, `schedules`, `web`, and `fumadocs`) for the next patch release
+- server URL-resolution tests covering malformed Host authorities, spoofed forwarded host/protocol headers, arbitrary public Host fallback, and direct-IP bootstrap routing
 
 Concerning or operationally incomplete:
 
