@@ -179,6 +179,12 @@ func main() {
 			http.Error(w, "Docker operation denied by Upstand policy", http.StatusForbidden)
 			return
 		}
+		if err := authorizeDeploymentWorkerRawResourceScope(r.Context(), audit.caller, r, body, newDockerEngineClient(socketPath)); err != nil {
+			audit.finish(http.StatusForbidden)
+			log.Printf("Docker broker denied raw resource scope for %s %s: %v", r.Method, r.URL.Path, err)
+			http.Error(w, "Docker operation denied by Upstand resource policy", http.StatusForbidden)
+			return
+		}
 		if body != nil {
 			r.Body = io.NopCloser(bytes.NewReader(body))
 			r.ContentLength = int64(len(body))
@@ -936,7 +942,9 @@ func isJSONPolicyPath(path string) bool {
 		strings.HasSuffix(path, "/services/create") ||
 		strings.Contains(path, "/services/") && strings.HasSuffix(path, "/update") ||
 		strings.HasSuffix(path, "/volumes/create") ||
-		strings.HasSuffix(path, "/networks/create")
+		strings.HasSuffix(path, "/networks/create") ||
+		resourceActionPath(path, "networks", "connect") ||
+		resourceActionPath(path, "networks", "disconnect")
 }
 
 func rejectHostEscapeJSON(body []byte) error {
