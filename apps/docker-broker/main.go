@@ -984,9 +984,22 @@ func walkHostEscape(value any, location string) error {
 				} else if text, ok := child.(string); ok && isHostMode(text) {
 					return fmt.Errorf("%s requests host mode", keyLocation)
 				}
-			case "capadd", "devices", "devicerequests", "devicecgrouprules":
+			// Container and Swarm APIs use different names for equivalent
+			// capability/device controls; reject both to preserve the host boundary.
+			case "capadd", "capabilityadd", "devices", "devicerequests", "devicecgrouprules":
 				if list, ok := child.([]any); ok && len(list) > 0 {
 					return fmt.Errorf("%s injects host capabilities or devices", keyLocation)
+				}
+			case "sysctls":
+				switch sysctls := child.(type) {
+				case []any:
+					if len(sysctls) > 0 {
+						return fmt.Errorf("%s injects host or kernel sysctls", keyLocation)
+					}
+				case map[string]any:
+					if len(sysctls) > 0 {
+						return fmt.Errorf("%s injects host or kernel sysctls", keyLocation)
+					}
 				}
 			case "driveropts":
 				if options, ok := child.(map[string]any); ok && len(options) > 0 {
@@ -1068,7 +1081,8 @@ func isHostMode(value string) bool {
 		value == "hostipc" ||
 		value == "hostpid" ||
 		value == "hostnetwork" ||
-		strings.HasPrefix(value, "container:")
+		strings.HasPrefix(value, "container:") ||
+		strings.HasPrefix(value, "service:")
 }
 
 func unsafeSecurityOption(value string) bool {

@@ -877,6 +877,9 @@ func TestProductionDeploymentWorkerPolicyMatchesDockerJSONCaseInsensitively(t *t
 		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"privileged":true}}`,
 		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"networkmode":"container:other-resource"}}`,
 		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"securityopt":["no-new-privileges=false"]}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"tasktemplate":{"containerspec":{"capabilityadd":["SYS_ADMIN"]}}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"tasktemplate":{"containerspec":{"sysctls":{"net.ipv4.ip_forward":"1"}}}}`,
+		`{"labels":{"com.upstand.resource-id":"resource-1"},"hostconfig":{"networkmode":"service:host"}}`,
 	} {
 		request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(body))
 		request.Header.Set("X-Upstand-Resource-ID", "resource-1")
