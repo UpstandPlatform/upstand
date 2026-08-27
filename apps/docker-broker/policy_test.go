@@ -17,6 +17,18 @@ func TestAuthorizeDockerRequestAllowsNormalContainerLifecycle(t *testing.T) {
 	}
 }
 
+func TestValidateRawDockerBuildContentLength(t *testing.T) {
+	if err := validateRawDockerBuildContentLength(http.MethodPost, "/build", maxResourceBuildContext); err != nil {
+		t.Fatalf("expected a build at the limit to be allowed: %v", err)
+	}
+	if err := validateRawDockerBuildContentLength(http.MethodPost, "/build", maxResourceBuildContext+1); err == nil {
+		t.Fatal("expected an oversized raw build context to be rejected")
+	}
+	if err := validateRawDockerBuildContentLength(http.MethodGet, "/build", maxResourceBuildContext+1); err != nil {
+		t.Fatalf("expected non-build methods to be unaffected: %v", err)
+	}
+}
+
 func TestAuthorizeTypedResourceBuildRequiresScopedHeaders(t *testing.T) {
 	request, err := http.NewRequest(http.MethodPost, "http://broker/upstand/v1/server/resource-build", nil)
 	if err != nil {

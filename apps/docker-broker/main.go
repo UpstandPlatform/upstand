@@ -136,6 +136,18 @@ func main() {
 
 		var body []byte
 		normalizedPath := normalizeDockerPath(r.URL.Path)
+		if err := validateRawDockerBuildContentLength(r.Method, normalizedPath, r.ContentLength); err != nil {
+			audit.finish(http.StatusRequestEntityTooLarge)
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		if r.Method == http.MethodPost && normalizedPath == "/build" && r.Body != nil {
+			// Legacy secret-bearing/toolchain builds still need streaming, but
+			// must not be allowed to stream an unbounded context through the
+			// broker into the Docker daemon. Typed builds use the same limit in
+			// resource_build.go; MaxBytesReader also covers chunked requests.
+			r.Body = http.MaxBytesReader(w, r.Body, maxResourceBuildContext)
+		}
 		if (isTypedDockerPath(normalizedPath) && normalizedPath != typedResourceBuildPath) || isJSONPolicyPath(normalizedPath) {
 			var err error
 			body, err = readPolicyBody(r)
@@ -194,6 +206,13 @@ func main() {
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatal(serveErr)
 	}
+}
+
+func validateRawDockerBuildContentLength(method, path string, contentLength int64) error {
+	if method == http.MethodPost && path == "/build" && contentLength > maxResourceBuildContext {
+		return fmt.Errorf("Docker build context exceeds the %d-byte size limit", maxResourceBuildContext)
+	}
+	return nil
 }
 
 func loadBrokerTLSConfig() (*tls.Config, error) {
