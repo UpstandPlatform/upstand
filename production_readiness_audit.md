@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: follow-up infrastructure hardening branch `feat/compose-namespace-isolation` (PR #344)
+Revision: follow-up infrastructure hardening branch `feat/service-volume-ownership` (PR #350)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
