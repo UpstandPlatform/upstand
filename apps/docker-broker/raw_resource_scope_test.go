@@ -102,6 +102,78 @@ func TestRawServiceMutationIdentity(t *testing.T) {
 	}
 }
 
+func TestRawServiceSecurityRejectsIsolationEscapes(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		field        string
+		value        any
+		taskTemplate bool
+	}{
+		{name: "custom runtime", field: "Runtime", value: "gvisor", taskTemplate: true},
+		{name: "host config", field: "HostConfig", value: map[string]any{"NetworkMode": "host"}, taskTemplate: true},
+		{name: "privileged mode", field: "Privileged", value: true},
+		{name: "host network namespace", field: "NetworkMode", value: "host"},
+		{name: "shared pid namespace", field: "PidMode", value: "host"},
+		{name: "shared ipc namespace", field: "IpcMode", value: "host"},
+		{name: "shared uts namespace", field: "UTSMode", value: "host"},
+		{name: "custom user namespace", field: "UsernsMode", value: "host"},
+		{name: "custom cgroup namespace", field: "CgroupnsMode", value: "host"},
+		{name: "custom isolation", field: "Isolation", value: "hyperv"},
+		{name: "added capabilities", field: "CapAdd", value: []any{"SYS_ADMIN"}},
+		{name: "devices", field: "Devices", value: []any{map[string]any{"PathOnHost": "/dev/null"}}},
+		{name: "device requests", field: "DeviceRequests", value: []any{map[string]any{"Capabilities": []any{"gpu"}}}},
+		{name: "security options", field: "SecurityOpt", value: []any{"seccomp=unconfined"}},
+		{name: "sysctls", field: "Sysctls", value: map[string]any{"kernel.shm_rmid_forced": "1"}},
+		{name: "cgroup parent", field: "CgroupParent", value: "host.slice"},
+		{name: "storage options", field: "StorageOpt", value: map[string]any{"size": "1G"}},
+		{name: "block IO options", field: "BlkioConfig", value: map[string]any{"Weight": 1}},
+		{name: "shared volumes", field: "VolumesFrom", value: []any{"other-service"}},
+		{name: "privilege specification", field: "Privileges", value: map[string]any{"CredentialSpec": map[string]any{"Config": "host"}}},
+		{name: "credential specification", field: "CredentialSpec", value: map[string]any{"Config": "host"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			taskPayload := map[string]any{}
+			if test.taskTemplate {
+				taskPayload[test.field] = test.value
+			} else {
+				taskPayload["ContainerSpec"] = map[string]any{test.field: test.value}
+			}
+			payload := map[string]any{
+				"TaskTemplate": taskPayload,
+			}
+			if err := validateRawServiceSecurity(payload); err == nil {
+				t.Fatalf("expected raw service field %q to be rejected", test.field)
+			}
+		})
+	}
+
+	if err := validateRawServiceSecurity(map[string]any{
+		"TaskTemplate": map[string]any{
+			"ContainerSpec": map[string]any{
+				"Image":    "example/app:latest",
+				"ReadOnly": true,
+				"Init":     true,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("expected ordinary service security fields to remain allowed: %v", err)
+	}
+}
+
+func TestRawServiceMutationAppliesSecurityPolicyBeforeDockerInspection(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	engine := rawScopeTestEngine(func(*http.Request) *http.Response {
+		t.Fatal("unsafe service payload must be rejected before Docker inspection")
+		return nil
+	})
+	body := []byte(`{"Name":"service-1","TaskTemplate":{"Runtime":"gvisor"}}`)
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, engine); err == nil {
+		t.Fatal("expected the raw service security policy to reject a custom runtime")
+	}
+}
+
 func TestDeploymentWorkerRawServiceMutationRequiresAuthorizedEncryptedNetworks(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	t.Setenv("UPSTAND_DOCKER_NETWORK", "shared-net")

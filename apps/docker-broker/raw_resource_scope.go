@@ -465,15 +465,17 @@ func authorizeServiceResourcePayload(
 	resourceID string,
 	engine *dockerEngineClient,
 ) error {
-	if err := authorizeServiceNetworkPayload(ctx, body, resourceID, engine); err != nil {
-		return err
-	}
-
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return fmt.Errorf("service payload is invalid: %w", err)
 	}
 	payload = dockerServiceSpecPayload(payload)
+	if err := validateRawServiceSecurity(payload); err != nil {
+		return err
+	}
+	if err := authorizeServiceNetworkPayload(ctx, body, resourceID, engine); err != nil {
+		return err
+	}
 	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
 	if !hasTaskTemplate {
 		return nil
@@ -486,6 +488,80 @@ func authorizeServiceResourcePayload(
 		return err
 	}
 	return authorizeServiceVolumePayload(ctx, taskTemplateObject, resourceID, engine)
+}
+
+// validateRawServiceSecurity keeps the legacy service endpoint aligned with
+// the Compose isolation policy. A resource-scoped caller may control its own
+// workload, but it must not use a raw Swarm service payload to request a host
+// namespace, custom runtime, device, capability, or security escape.
+func validateRawServiceSecurity(payload map[string]any) error {
+	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
+	if !hasTaskTemplate {
+		return nil
+	}
+	taskTemplateObject, ok := taskTemplate.(map[string]any)
+	if !ok {
+		return errors.New("service TaskTemplate is not an object")
+	}
+	for _, field := range []string{"Runtime", "HostConfig"} {
+		if dockerFieldIsNonEmpty(taskTemplateObject, field) {
+			return fmt.Errorf("service TaskTemplate field %q is not allowed", field)
+		}
+	}
+
+	containerSpec, hasContainerSpec := dockerObjectField(taskTemplateObject, "ContainerSpec")
+	if !hasContainerSpec {
+		return nil
+	}
+	containerSpecObject, ok := containerSpec.(map[string]any)
+	if !ok {
+		return errors.New("service ContainerSpec is not an object")
+	}
+	for _, field := range []string{
+		"Privileged",
+		"NetworkMode",
+		"PidMode",
+		"IpcMode",
+		"UTSMode",
+		"UsernsMode",
+		"CgroupnsMode",
+		"Isolation",
+		"CapAdd",
+		"Devices",
+		"DeviceRequests",
+		"SecurityOpt",
+		"Sysctls",
+		"CgroupParent",
+		"StorageOpt",
+		"BlkioConfig",
+		"VolumesFrom",
+		"Privileges",
+		"CredentialSpec",
+	} {
+		if dockerFieldIsNonEmpty(containerSpecObject, field) {
+			return fmt.Errorf("service ContainerSpec field %q is not allowed", field)
+		}
+	}
+	return nil
+}
+
+func dockerFieldIsNonEmpty(object map[string]any, wanted string) bool {
+	value, ok := dockerObjectField(object, wanted)
+	if !ok || value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []any:
+		return len(typed) > 0
+	case map[string]any:
+		return len(typed) > 0
+	default:
+		return true
+	}
 }
 
 // authorizeServiceVolumePayload verifies the live Docker metadata for every
