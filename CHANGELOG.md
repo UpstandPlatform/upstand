@@ -46,6 +46,14 @@ Scope deployment-worker Docker exec and container inspection access to the ownin
 
 Bind deployment-worker Docker broker grants to their signed deployment and server targets across typed, Dockerode, and Docker CLI transports.
 
+Grant image-publishing workflows the GitHub artifact metadata permission required for registry provenance records.
+
+Reject Compose namespace sharing, inherited container volumes, and external container links that could cross workload isolation boundaries, and preserve resource ownership labels on Swarm service metadata.
+
+Bound portable control-plane transfer passphrases at the cryptographic KDF boundary and preserve exact passphrase characters across encryption and decryption.
+
+Make the Changesets release workflow consume pending notes and update existing release sections idempotently.
+
 ## 0.2.26 - 2026-08-27
 
 Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
