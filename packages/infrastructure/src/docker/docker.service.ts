@@ -1837,7 +1837,9 @@ export class DockerService implements DockerSwarmManagementPort {
 
       let immutableImageReference = buildImageName;
       if (onBuildResolved) {
-        const inspectedImage = await this.docker
+        const buildDocker =
+          this.resourceScopedDockerFactory?.(currentResource.id) ?? this.docker;
+        const inspectedImage = await buildDocker
           .getImage(buildImageName)
           .inspect();
         const imageId = inspectedImage.Id;
@@ -3695,6 +3697,8 @@ export class DockerService implements DockerSwarmManagementPort {
     ).databaseReplication;
     const primaryName = this.sanitizeName(resource.appName || resource.name);
     const replicaName = `${primaryName}-replica`;
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
     if (!config.enabled) {
       try {
         const removeResourceService =
@@ -3706,7 +3710,7 @@ export class DockerService implements DockerSwarmManagementPort {
             replicaName,
           );
         } else {
-          await this.docker.getService(replicaName).remove();
+          await scopedDocker.getService(replicaName).remove();
         }
       } catch (error: unknown) {
         if (errorStatusCode(error) !== 404) throw error;
@@ -4649,11 +4653,11 @@ export class DockerService implements DockerSwarmManagementPort {
 
       if (deleteVolumes && !removeResourceCompose) {
         try {
-          const volumesList = await this.docker.listVolumes();
+          const volumesList = await scopedDocker.listVolumes();
           const volumes = volumesList.Volumes || [];
           for (const vol of volumes) {
             if (vol.Name.startsWith(`${serviceName}_`)) {
-              await this.docker
+              await scopedDocker
                 .getVolume(vol.Name)
                 .remove()
                 .catch(() => {});
@@ -4680,7 +4684,7 @@ export class DockerService implements DockerSwarmManagementPort {
           serviceName,
         );
       } else {
-        const service = this.docker.getService(serviceName);
+        const service = scopedDocker.getService(serviceName);
         await service.remove();
       }
     } catch (err: unknown) {
@@ -4709,7 +4713,7 @@ export class DockerService implements DockerSwarmManagementPort {
             volumeName,
           );
         } else {
-          const volume = this.docker.getVolume(volumeName);
+          const volume = scopedDocker.getVolume(volumeName);
           await volume.remove().catch(() => {});
         }
       } catch (err: unknown) {
@@ -4737,6 +4741,8 @@ export class DockerService implements DockerSwarmManagementPort {
     }
 
     const serviceName = this.sanitizeName(resource.appName || resource.name);
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
     try {
       const removeResourceService =
         this.resourceCommandBroker?.removeResourceService;
@@ -4747,7 +4753,7 @@ export class DockerService implements DockerSwarmManagementPort {
           serviceName,
         );
       } else {
-        await this.docker.getService(serviceName).remove();
+        await scopedDocker.getService(serviceName).remove();
       }
     } catch (error: unknown) {
       if (errorStatusCode(error) !== 404) throw error;
@@ -4773,7 +4779,7 @@ export class DockerService implements DockerSwarmManagementPort {
           volumeName,
         );
       } else {
-        await this.docker.getVolume(volumeName).remove();
+        await scopedDocker.getVolume(volumeName).remove();
       }
     } catch (error: unknown) {
       if (errorStatusCode(error) !== 404) throw error;
@@ -4832,7 +4838,9 @@ export class DockerService implements DockerSwarmManagementPort {
       return;
     }
 
-    const network = this.docker.getNetwork(
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
+    const network = scopedDocker.getNetwork(
       getResourceOverlayNetworkName(resource.id),
     );
     for (let attempt = 0; attempt < 10; attempt += 1) {
