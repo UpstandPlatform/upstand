@@ -303,6 +303,48 @@ func TestDeploymentWorkerRawGlobalInventoryIsDenied(t *testing.T) {
 	}
 }
 
+func TestDeploymentWorkerRawContainerCreateRequiresManagedNetworks(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	ownedNetwork := `{"Id":"network-1","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`
+	foreignNetwork := `{"Id":"network-2","Name":"upstand-resource-resource-2","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-2"}}`
+	bodyFor := func(network string) []byte {
+		return []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"},"NetworkingConfig":{"EndpointsConfig":{"` + network + `":{}}}}`)
+	}
+	for _, test := range []struct {
+		name       string
+		body       []byte
+		network    string
+		inspection string
+		wantError  bool
+	}{
+		{name: "owned encrypted network", body: bodyFor("upstand-resource-resource-1"), network: "upstand-resource-resource-1", inspection: ownedNetwork},
+		{name: "foreign network", body: bodyFor("upstand-resource-resource-2"), network: "upstand-resource-resource-2", inspection: foreignNetwork, wantError: true},
+		{name: "implicit default bridge", body: []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"}}`), wantError: true},
+		{name: "explicit networkless mode", body: []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"},"HostConfig":{"NetworkMode":"none"}}`)},
+		{name: "explicit network-disabled mode", body: []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"},"NetworkDisabled":true}`)},
+		{name: "network-disabled with endpoints", body: []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"},"NetworkDisabled":true,"NetworkingConfig":{"EndpointsConfig":{"upstand-resource-resource-1":{}}}}`), network: "upstand-resource-resource-1", inspection: ownedNetwork, wantError: true},
+		{name: "none mode with endpoints", body: []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"},"HostConfig":{"NetworkMode":"none"},"NetworkingConfig":{"EndpointsConfig":{"upstand-resource-resource-1":{}}}}`), network: "upstand-resource-resource-1", inspection: ownedNetwork, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/containers/create", strings.NewReader(string(test.body)))
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			engine := rawScopeTestEngine(func(r *http.Request) *http.Response {
+				if test.network != "" && r.URL.Path == "/networks/"+test.network {
+					return dockerResponse(http.StatusOK, test.inspection)
+				}
+				return dockerResponse(http.StatusNotFound, `{}`)
+			})
+			err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, test.body, engine)
+			if test.wantError && err == nil {
+				t.Fatal("expected unsafe or foreign container network to be rejected")
+			}
+			if !test.wantError && err != nil {
+				t.Fatalf("expected container network policy to pass: %v", err)
+			}
+		})
+	}
+}
+
 func TestDeploymentWorkerRawServiceListingRequiresExactResourceFilter(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	for _, test := range []struct {

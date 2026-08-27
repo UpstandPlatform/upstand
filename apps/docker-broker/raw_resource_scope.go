@@ -39,6 +39,9 @@ func authorizeDeploymentWorkerRawResourceScope(
 	if r.Method == http.MethodGet && isDeploymentWorkerGlobalInventoryPath(path) {
 		return errors.New("deployment-worker global Docker inventory is not allowed")
 	}
+	if r.Method == http.MethodPost && path == "/containers/create" {
+		return authorizeDeploymentWorkerRawContainerResources(ctx, body, resourceID, engine)
+	}
 	if r.Method == http.MethodGet && path == "/containers/json" {
 		return authorizeDeploymentWorkerRawContainerList(r, resourceID)
 	}
@@ -108,6 +111,99 @@ func isDeploymentWorkerGlobalInventoryPath(path string) bool {
 	default:
 		return false
 	}
+}
+
+func authorizeDeploymentWorkerRawContainerResources(
+	ctx context.Context,
+	body []byte,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("container create payload is invalid: %w", err)
+	}
+
+	// A resource container must explicitly attach to an Upstand-managed
+	// network. The only networkless exceptions are the Docker API's explicit
+	// network-disabled and `none` modes; otherwise Docker would silently place
+	// a raw worker-created container on the daemon's default bridge.
+	hostConfig, _ := dockerObjectField(payload, "HostConfig")
+	hostConfigObject, _ := hostConfig.(map[string]any)
+	networkMode := strings.ToLower(dockerStringField(hostConfigObject, "NetworkMode"))
+	networkDisabled, _ := dockerObjectField(payload, "NetworkDisabled")
+	if disabled, ok := networkDisabled.(bool); ok && disabled {
+		if _, hasNetworkingConfig := dockerObjectField(payload, "NetworkingConfig"); hasNetworkingConfig {
+			return errors.New("network-disabled container cannot declare network endpoints")
+		}
+		return nil
+	}
+
+	networkingConfig, hasNetworkingConfig := dockerObjectField(payload, "NetworkingConfig")
+	if !hasNetworkingConfig {
+		if networkMode == "none" {
+			return nil
+		}
+		return errors.New("resource container create requires an explicit managed network")
+	}
+	networkingConfigObject, ok := networkingConfig.(map[string]any)
+	if !ok {
+		return errors.New("container NetworkingConfig is not an object")
+	}
+	endpoints, hasEndpoints := dockerObjectField(networkingConfigObject, "EndpointsConfig")
+	if !hasEndpoints {
+		if networkMode == "none" {
+			return nil
+		}
+		return errors.New("resource container create requires managed network endpoints")
+	}
+	endpointMap, ok := endpoints.(map[string]any)
+	if !ok || len(endpointMap) == 0 || len(endpointMap) > 32 {
+		return errors.New("container network endpoints are invalid or unbounded")
+	}
+	if networkMode == "none" {
+		return errors.New("network-disabled container cannot declare network endpoints")
+	}
+	for networkTarget, rawEndpoint := range endpointMap {
+		if !swarmNamePattern.MatchString(strings.TrimSpace(networkTarget)) {
+			return errors.New("container network identity is invalid")
+		}
+		if rawEndpoint != nil {
+			if _, ok := rawEndpoint.(map[string]any); !ok {
+				return errors.New("container network endpoint is invalid")
+			}
+		}
+		networkBody, _, err := engine.request(
+			ctx,
+			http.MethodGet,
+			"/networks/"+url.PathEscape(strings.TrimSpace(networkTarget)),
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("container network %q could not be inspected: %w", networkTarget, err)
+		}
+		var network struct {
+			ID     string            `json:"Id"`
+			Name   string            `json:"Name"`
+			Labels map[string]string `json:"Labels"`
+		}
+		if err := json.Unmarshal(networkBody, &network); err != nil {
+			return fmt.Errorf("container network %q inspection is invalid: %w", networkTarget, err)
+		}
+		if network.ID == "" || network.Name == "" {
+			return fmt.Errorf("container network %q inspection is incomplete", networkTarget)
+		}
+		if network.Name != strings.TrimSpace(networkTarget) {
+			return fmt.Errorf("container network %q identity does not match the request", networkTarget)
+		}
+		if err := validateManagedSwarmNetwork(networkBody); err != nil {
+			return fmt.Errorf("container network %q is not an encrypted attachable network: %w", networkTarget, err)
+		}
+		if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
+			return fmt.Errorf("container network %q is not owned by the requested Upstand resource", networkTarget)
+		}
+	}
+	return nil
 }
 
 func authorizeDeploymentWorkerRawVolumeInspection(
