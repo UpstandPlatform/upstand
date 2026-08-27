@@ -94,5 +94,8 @@ done
 require_text "$RELEASE_WORKFLOW" 'scope=release-${{ matrix.scope }}'
 require_text "$ROOT_DIR/.github/workflows/canary.yml" 'scope: canary-upstand-server'
 require_text "$ROOT_DIR/.github/workflows/ci.yml" 'scope=ci-${{ github.event_name }}-${{ matrix.name }}'
+require_text "$ROOT_DIR/.github/workflows/canary.yml" 'artifact-metadata: write'
+require_text "$ROOT_DIR/.github/workflows/release-dispatch.yml" 'artifact-metadata: write'
+require_text "$ROOT_DIR/.github/workflows/release-recovery-rehearsal.yml" 'artifact-metadata: write'
 
 echo "release-orchestration-contract: passed"
