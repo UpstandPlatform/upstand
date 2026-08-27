@@ -11,6 +11,7 @@ import {
   type ResourceRoutingProjection,
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
+import { withDeploymentScopeToken } from "@upstand/platform/crypto/deployment-scope";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { closeRedis, createRedis, type Redis, redis } from "@upstand/redis";
 import { DelayedError, type Job, Worker } from "bullmq";
@@ -287,7 +288,14 @@ export class DeploymentWorker {
                 },
               },
             },
-            () => this.processJob(job),
+            () => {
+              const scopeToken = isRecord(job.data)
+                ? stringField(job.data, "dockerScopeToken")
+                : undefined;
+              return withDeploymentScopeToken(scopeToken, () =>
+                this.processJob(job),
+              );
+            },
           );
         },
         {
@@ -422,6 +430,7 @@ export class DeploymentWorker {
       sourceRevision?: string;
       retryBaseSeconds?: number;
       retryMaxSeconds?: number;
+      dockerScopeToken?: string;
     };
     if (!resourceId || !deploymentId) {
       throw new Error("Deployment job is missing resourceId or deploymentId");

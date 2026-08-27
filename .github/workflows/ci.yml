@@ -356,6 +356,23 @@ jobs:
               raise SystemExit("schedules must use its caller-specific Docker broker secret")
           if services["deployment-worker"]["environment"].get("UPSTAND_DOCKER_BROKER_TOKEN_FILE") != "/run/secrets/docker_broker_deployment_worker_token":
               raise SystemExit("deployment-worker must use its caller-specific Docker broker secret")
+          for name in ("server", "schedules"):
+              if services[name]["environment"].get("UPSTAND_DOCKER_BROKER_SCOPE_SECRET_FILE") != "/run/secrets/docker_broker_scope_secret":
+                  raise SystemExit(f"{name} must receive the Docker broker scope signing secret")
+              if "docker_broker_scope_secret" not in {
+                  entry.get("source") if isinstance(entry, dict) else entry
+                  for entry in services[name].get("secrets", [])
+              }:
+                  raise SystemExit(f"{name} must mount the Docker broker scope signing secret")
+          if services["deployment-worker"]["environment"].get("UPSTAND_DOCKER_BROKER_SCOPE_SECRET_FILE"):
+              raise SystemExit("deployment-worker must not receive the Docker broker scope signing secret")
+          if "docker_broker_scope_secret" in {
+              entry.get("source") if isinstance(entry, dict) else entry
+              for entry in services["deployment-worker"].get("secrets", [])
+          }:
+              raise SystemExit("deployment-worker must not mount the Docker broker scope signing secret")
+          if services["docker-broker"]["environment"].get("UPSTAND_DOCKER_BROKER_SCOPE_SECRET_FILE") != "/run/secrets/docker_broker_scope_secret":
+              raise SystemExit("docker-broker must load the Docker broker scope signing secret")
           if services["schedules"]["environment"].get("UPSTAND_SCHEDULES_ROLE") != "orchestrator":
               raise SystemExit("schedules must run only the orchestrator role in production")
           if services["deployment-worker"]["environment"].get("UPSTAND_SCHEDULES_ROLE") != "deployment-worker":

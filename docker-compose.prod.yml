@@ -224,6 +224,7 @@ services:
       UPSTAND_DOCKER_BROKER_SERVER_TOKEN_FILE: /run/secrets/docker_broker_server_token
       UPSTAND_DOCKER_BROKER_SCHEDULES_TOKEN_FILE: /run/secrets/docker_broker_schedules_token
       UPSTAND_DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN_FILE: /run/secrets/docker_broker_deployment_worker_token
+      UPSTAND_DOCKER_BROKER_SCOPE_SECRET_FILE: /run/secrets/docker_broker_scope_secret
       UPSTAND_DOCKER_BROKER_ALLOWED_CALLERS: server,schedules,deployment-worker
       UPSTAND_DOCKER_BROKER_MAX_INFLIGHT: ${UPSTAND_DOCKER_BROKER_MAX_INFLIGHT:-64}
       UPSTAND_DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
@@ -238,6 +239,7 @@ services:
       - docker_broker_server_token
       - docker_broker_schedules_token
       - docker_broker_deployment_worker_token
+      - docker_broker_scope_secret
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -345,6 +347,7 @@ services:
       UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/docker_broker_ca
       UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_server_client_cert
       UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE: /run/secrets/docker_broker_server_client_key
+      UPSTAND_DOCKER_BROKER_SCOPE_SECRET_FILE: /run/secrets/docker_broker_scope_secret
       UPSTAND_METRICS_TOKEN_FILE: /run/secrets/metrics_token
       UPGAL_DAILY_TOKEN_LIMIT: ${UPGAL_DAILY_TOKEN_LIMIT:-1000000}
       UPGAL_DAILY_COST_LIMIT_USD: ${UPGAL_DAILY_COST_LIMIT_USD:-100}
@@ -367,6 +370,7 @@ services:
         target: key.pem
       - docker_broker_server_token
       - metrics_token
+      - docker_broker_scope_secret
     volumes:
       - type: tmpfs
         target: /tmp
@@ -475,6 +479,7 @@ services:
       UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/docker_broker_ca
       UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_schedules_client_cert
       UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE: /run/secrets/docker_broker_schedules_client_key
+      UPSTAND_DOCKER_BROKER_SCOPE_SECRET_FILE: /run/secrets/docker_broker_scope_secret
       DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
       DOCKER_CONTROL_NETWORK: ${DOCKER_CONTROL_NETWORK:-upstand-docker-control}
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000
@@ -513,6 +518,7 @@ services:
       - source: docker_broker_schedules_client_key
         target: key.pem
       - docker_broker_schedules_token
+      - docker_broker_scope_secret
     volumes:
       - type: tmpfs
         target: /tmp
@@ -888,6 +894,8 @@ secrets:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_schedules_token
   docker_broker_deployment_worker_token:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_deployment_worker_token
+  docker_broker_scope_secret:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_scope_secret
   docker_broker_ca:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_ca
   docker_broker_server_cert:

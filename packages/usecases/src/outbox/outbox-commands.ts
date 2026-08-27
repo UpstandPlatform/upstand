@@ -15,6 +15,8 @@ export type DeployOutboxPayload = CorrelatedOutboxPayload & {
   resourceId: string;
   deploymentId: string;
   serverId: string;
+  /** Server-issued grant required for Docker broker resource operations. */
+  dockerScopeToken?: string;
   previewDeploymentId?: string;
   sourceRevision?: string;
   maxAttempts?: number;

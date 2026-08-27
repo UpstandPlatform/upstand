@@ -17,6 +17,7 @@ import {
   type ResourceAdvancedConfig,
 } from "@upstand/domain";
 import { env, getInheritedEnv } from "@upstand/env/server";
+import { readDeploymentScopeToken } from "@upstand/platform/crypto/deployment-scope";
 import { isBlockedAddress } from "@upstand/platform/network/outbound";
 import { redis } from "@upstand/redis";
 import {
@@ -2979,12 +2980,15 @@ export class DockerService implements DockerSwarmManagementPort {
       .filter(
         (header) =>
           header.length > 0 &&
-          !header.toLowerCase().startsWith("x-upstand-resource-id="),
+          !header.toLowerCase().startsWith("x-upstand-resource-id=") &&
+          !header.toLowerCase().startsWith("x-upstand-docker-scope="),
       );
+    const scopeToken = readDeploymentScopeToken();
     return {
       DOCKER_CUSTOM_HEADERS: [
         ...inheritedHeaders,
         `X-Upstand-Resource-ID=${resourceId}`,
+        ...(scopeToken ? [`X-Upstand-Docker-Scope=${scopeToken}`] : []),
       ].join(","),
     };
   }

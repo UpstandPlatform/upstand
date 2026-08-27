@@ -124,6 +124,7 @@ const validatedEnv = createEnv({
     SCHEDULES_PORT: z.coerce.number().int().min(1).max(65_535).default(3002),
     UPSTAND_DOCKER_GID: z.coerce.number().int().min(0).optional(),
     UPSTAND_DOCKER_BROKER_TOKEN_FILE: z.string().min(1).optional(),
+    UPSTAND_DOCKER_BROKER_SCOPE_SECRET_FILE: z.string().min(1).optional(),
     UPSTAND_DOCKER_BROKER_CALLER: z
       .enum(["server", "schedules", "deployment-worker"])
       .optional(),

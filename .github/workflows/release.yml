@@ -621,7 +621,7 @@ jobs:
               docker stack services "$STACK_NAME" >/dev/null 2>&1 || break
               sleep 1
             done
-            for secret in postgres_password redis_password better_auth_secret upgal_tool_approval_secret encryption_key database_url redis_url docker_broker_server_token docker_broker_schedules_token docker_broker_deployment_worker_token docker_broker_ca docker_broker_server_cert docker_broker_server_key docker_broker_server_client_cert docker_broker_server_client_key docker_broker_schedules_client_cert docker_broker_schedules_client_key docker_broker_deployment_worker_client_cert docker_broker_deployment_worker_client_key metrics_token; do
+            for secret in postgres_password redis_password better_auth_secret upgal_tool_approval_secret encryption_key database_url redis_url docker_broker_server_token docker_broker_schedules_token docker_broker_deployment_worker_token docker_broker_scope_secret docker_broker_ca docker_broker_server_cert docker_broker_server_key docker_broker_server_client_cert docker_broker_server_client_key docker_broker_schedules_client_cert docker_broker_schedules_client_key docker_broker_deployment_worker_client_cert docker_broker_deployment_worker_client_key metrics_token; do
               docker secret rm "${STACK_NAME}_${secret}" >/dev/null 2>&1 || true
             done
           }
@@ -640,6 +640,7 @@ jobs:
           mkdir -p "$UPSTAND_SECRETS_DIR"
           mkdir -p "$ACCEPTANCE_EVIDENCE_DIR"
           chmod 700 "$ACCEPTANCE_EVIDENCE_DIR"
+          umask 077
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/postgres_password"
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/redis_password"
           printf '%s' 'upstand-ci-auth-secret-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/better_auth_secret"
@@ -650,8 +651,8 @@ jobs:
           printf '%s' 'upstand-ci-docker-broker-server-token-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/docker_broker_server_token"
           printf '%s' 'upstand-ci-docker-broker-schedules-token-0123456789012345678901' > "$UPSTAND_SECRETS_DIR/docker_broker_schedules_token"
           printf '%s' 'upstand-ci-docker-broker-deployment-worker-token-012345678901234567890' > "$UPSTAND_SECRETS_DIR/docker_broker_deployment_worker_token"
+          printf '%s' 'upstand-ci-docker-broker-scope-secret-012345678901234567890123456789' > "$UPSTAND_SECRETS_DIR/docker_broker_scope_secret"
           printf '%s' 'upstand-ci-metrics-token-012345678901234567890123456789' > "$UPSTAND_SECRETS_DIR/metrics_token"
-          umask 077
           openssl genrsa -out "$UPSTAND_SECRETS_DIR/docker_broker_ca_key" 4096 >/dev/null 2>&1
           openssl req -x509 -new -sha256 -key "$UPSTAND_SECRETS_DIR/docker_broker_ca_key" -out "$UPSTAND_SECRETS_DIR/docker_broker_ca" -days 3650 -subj '/CN=Upstand Docker Broker CA' >/dev/null 2>&1
           issue_broker_certificate() {

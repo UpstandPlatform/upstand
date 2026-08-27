@@ -932,6 +932,7 @@ write_environment() {
   [[ -r "$INSTALL_DIR/secrets/docker_broker_server_token" ]] && DOCKER_BROKER_SERVER_TOKEN="$(cat "$INSTALL_DIR/secrets/docker_broker_server_token")"
   [[ -r "$INSTALL_DIR/secrets/docker_broker_schedules_token" ]] && DOCKER_BROKER_SCHEDULES_TOKEN="$(cat "$INSTALL_DIR/secrets/docker_broker_schedules_token")"
   [[ -r "$INSTALL_DIR/secrets/docker_broker_deployment_worker_token" ]] && DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN="$(cat "$INSTALL_DIR/secrets/docker_broker_deployment_worker_token")"
+  [[ -r "$INSTALL_DIR/secrets/docker_broker_scope_secret" ]] && DOCKER_BROKER_SCOPE_SECRET="$(cat "$INSTALL_DIR/secrets/docker_broker_scope_secret")"
   DATABASE_URL="${requested_database_url:-${DATABASE_URL:-}}"
   REDIS_URL="${requested_redis_url:-${REDIS_URL:-}}"
   if [[ -n "$DATABASE_URL" || -n "$REDIS_URL" ]]; then
@@ -978,6 +979,7 @@ write_environment() {
   DOCKER_BROKER_SERVER_TOKEN="${DOCKER_BROKER_SERVER_TOKEN:-$(openssl rand -hex 32)}"
   DOCKER_BROKER_SCHEDULES_TOKEN="${DOCKER_BROKER_SCHEDULES_TOKEN:-$(openssl rand -hex 32)}"
   DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN="${DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN:-$(openssl rand -hex 32)}"
+  DOCKER_BROKER_SCOPE_SECRET="${DOCKER_BROKER_SCOPE_SECRET:-$(openssl rand -hex 32)}"
   METRICS_TOKEN="${METRICS_TOKEN:-$(openssl rand -hex 32)}"
   ENCRYPTION_KEY_V1="${ENCRYPTION_KEY_V1:-${SSH_KEY_ENCRYPTION_KEY_V1:-$(openssl rand -base64 32 | tr -d '\n')}}"
   ensure_docker_broker_mtls
@@ -988,6 +990,7 @@ write_environment() {
   printf '%s' "$DOCKER_BROKER_SERVER_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_server_token"
   printf '%s' "$DOCKER_BROKER_SCHEDULES_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_schedules_token"
   printf '%s' "$DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_deployment_worker_token"
+  printf '%s' "$DOCKER_BROKER_SCOPE_SECRET" >"$INSTALL_DIR/secrets/docker_broker_scope_secret"
   printf '%s' "$METRICS_TOKEN" >"$INSTALL_DIR/secrets/metrics_token"
   printf '%s' "$ENCRYPTION_KEY_V1" >"$INSTALL_DIR/secrets/encryption_key"
   printf '%s' "$DATABASE_URL" >"$INSTALL_DIR/secrets/database_url"

@@ -52,6 +52,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	scopeSecret, err := loadDockerScopeSecret()
+	if err != nil {
+		log.Fatal(err)
+	}
 	requestSlots := make(chan struct{}, loadMaxInflightRequests())
 
 	backend, _ := url.Parse("http://docker-engine")
@@ -156,6 +160,12 @@ func main() {
 				http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 				return
 			}
+		}
+		if err := authorizeDeploymentWorkerScopeToken(audit.caller, r, body, scopeSecret); err != nil {
+			audit.finish(http.StatusForbidden)
+			log.Printf("Docker broker denied deployment scope for %s %s: %v", r.Method, r.URL.Path, err)
+			http.Error(w, "Docker operation denied by Upstand deployment scope policy", http.StatusForbidden)
+			return
 		}
 		if isTypedDockerPath(normalizedPath) {
 			if err := authorizeTypedDockerRequest(audit.caller, r, body); err != nil {

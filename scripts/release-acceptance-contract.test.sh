@@ -145,6 +145,7 @@ require_workflow_text "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > \"\$UPSTA
 require_workflow_text "docker_broker_server_token"
 require_workflow_text "docker_broker_schedules_token"
 require_workflow_text "docker_broker_deployment_worker_token"
+require_workflow_text "docker_broker_scope_secret"
 require_workflow_text "upgal_tool_approval_secret"
 require_workflow_text "metrics_token"
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"
