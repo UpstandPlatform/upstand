@@ -21,7 +21,7 @@ services:
       );
     });
 
-    test("rejects host-level namespace escapes (pid: host, ipc: host, network_mode: host)", () => {
+    test("rejects host-level and cross-container namespace escapes", () => {
       const composePid = `
 services:
   web:
@@ -36,11 +36,26 @@ services:
 `;
 
       expect(() => validateComposeSecurity(composePid)).toThrow(
-        "requests host-level namespace access",
+        "requests shared or host-level namespace access",
       );
       expect(() => validateComposeSecurity(composeIpc)).toThrow(
-        "requests host-level namespace access",
+        "requests shared or host-level namespace access",
       );
+
+      for (const namespace of [
+        "network_mode: container:foreign-container",
+        "pid: service:foreign-service",
+        "ipc: container:foreign-container",
+      ]) {
+        expect(() =>
+          validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    ${namespace}
+`),
+        ).toThrow("requests shared or host-level namespace access");
+      }
     });
 
     test("rejects container_name definitions to prevent global container naming collisions", () => {
@@ -476,7 +491,29 @@ services:
     image: nginx
     pid: service:host
 `),
-      ).toThrow("requests host-level namespace access");
+      ).toThrow("requests shared or host-level namespace access");
+    });
+
+    test("rejects cross-container volume inheritance and external links", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    volumes_from:
+      - foreign-container
+`),
+      ).toThrow("requests volumes_from");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    external_links:
+      - foreign-container:database
+`),
+      ).toThrow("requests external_links");
     });
 
     test("rejects interpolation of Docker transport credentials", () => {

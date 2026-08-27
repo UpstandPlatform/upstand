@@ -62,6 +62,17 @@ function isHostNamespace(value: unknown): boolean {
   );
 }
 
+function isSharedContainerNamespace(value: unknown): boolean {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return (
+    isHostNamespace(value) ||
+    normalized.startsWith("container:") ||
+    normalized.startsWith("service:")
+  );
+}
+
 function isInterpolated(value: string): boolean {
   // Compose expands environment variables before asking Docker to create
   // mounts and networks. An apparently harmless named source such as
@@ -532,21 +543,26 @@ export function validateComposeSecurity(rawCompose: string): void {
       );
     }
 
-    if (service.privileged === true) {
+    if (
+      service.privileged === true ||
+      String(service.privileged ?? "")
+        .trim()
+        .toLowerCase() === "true"
+    ) {
       throw new Error(
         `Compose service '${serviceName}' requests privileged mode, which is not allowed`,
       );
     }
     if (
-      isHostNamespace(service.network_mode) ||
-      isHostNamespace(service.pid) ||
-      isHostNamespace(service.ipc) ||
-      isHostNamespace(service.uts) ||
-      isHostNamespace(service.userns_mode) ||
-      isHostNamespace(service.cgroupns)
+      isSharedContainerNamespace(service.network_mode) ||
+      isSharedContainerNamespace(service.pid) ||
+      isSharedContainerNamespace(service.ipc) ||
+      isSharedContainerNamespace(service.uts) ||
+      isSharedContainerNamespace(service.userns_mode) ||
+      isSharedContainerNamespace(service.cgroupns)
     ) {
       throw new Error(
-        `Compose service '${serviceName}' requests host-level namespace access, which is not allowed`,
+        `Compose service '${serviceName}' requests shared or host-level namespace access, which is not allowed`,
       );
     }
     if (service.container_name !== undefined) {
@@ -557,6 +573,25 @@ export function validateComposeSecurity(rawCompose: string): void {
     if (Array.isArray(service.cap_add) && service.cap_add.length > 0) {
       throw new Error(
         `Compose service '${serviceName}' requests added Linux capabilities, which is not allowed`,
+      );
+    }
+    if (
+      (Array.isArray(service.volumes_from) &&
+        service.volumes_from.length > 0) ||
+      (typeof service.volumes_from === "string" && service.volumes_from.trim())
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests volumes_from, which is not allowed for isolated deployments`,
+      );
+    }
+    if (
+      (Array.isArray(service.external_links) &&
+        service.external_links.length > 0) ||
+      (typeof service.external_links === "string" &&
+        service.external_links.trim())
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests external_links, which is not allowed for isolated deployments`,
       );
     }
     if (Array.isArray(service.security_opt)) {
