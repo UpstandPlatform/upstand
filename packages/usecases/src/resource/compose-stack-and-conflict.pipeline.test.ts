@@ -46,6 +46,7 @@ services:
         "network_mode: container:foreign-container",
         "pid: service:foreign-service",
         "ipc: container:foreign-container",
+        "cgroup: host",
       ]) {
         expect(() =>
           validateComposeSecurity(`
@@ -228,6 +229,112 @@ volumes:
   \${VOLUME_NAME}: {}
 `),
       ).toThrow("invalid resource name");
+    });
+
+    test("rejects unknown future Compose fields at every control boundary", () => {
+      expect(() =>
+        validateComposeSecurity(`
+future_deployment_policy: unrestricted
+services:
+  web:
+    image: nginx
+`),
+      ).toThrow(
+        "Compose document contains unsupported field 'future_deployment_policy'",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    future_runtime_control: true
+`),
+      ).toThrow(
+        "Compose service 'web' contains unsupported field 'future_runtime_control'",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    build:
+      context: .
+      future_cache_policy: host
+`),
+      ).toThrow(
+        "Compose service 'web' build contains unsupported field 'future_cache_policy'",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      update_config:
+        future_rollout_control: true
+`),
+      ).toThrow(
+        "Compose service 'web' deploy.update_config contains unsupported field 'future_rollout_control'",
+      );
+    });
+
+    test("accepts a bounded standard Compose deployment shape", () => {
+      expect(() =>
+        validateComposeSecurity(`
+name: bounded-app
+services:
+  web:
+    image: nginx:1.27
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_ENV: production
+    environment:
+      APP_ENV: production
+    ports:
+      - "8080:8080"
+    volumes:
+      - app-data:/var/lib/app
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+networks:
+  app:
+    driver: overlay
+volumes:
+  app-data:
+    driver: local
+`),
+      ).not.toThrow();
     });
 
     test("rejects unsafe security options (seccomp:unconfined, apparmor:unconfined)", () => {
