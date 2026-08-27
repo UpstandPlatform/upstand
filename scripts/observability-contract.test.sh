@@ -21,6 +21,8 @@ grep -Fq 'upstand_schedules_collection_success' "$METRICS_FILE"
 grep -Fq 'upstand_schedules_queue_waiting' "$METRICS_FILE"
 grep -Fq 'upstand_schedules_outbox_dead_letter' "$METRICS_FILE"
 grep -Fq 'upstand_schedules_backup_age_seconds' "$METRICS_FILE"
+grep -Fq 'upstand_schedules_job_executions_total' "$METRICS_FILE"
+grep -Fq 'upstand_schedules_job_duration_seconds_total' "$METRICS_FILE"
 grep -Fq 'schedules:3002' "$PROMETHEUS_CONFIG"
 grep -Fq 'server:3000' "$PROMETHEUS_CONFIG"
 grep -Fq '/_internal/metrics' "$SERVER_ROUTE_FILE"
@@ -44,6 +46,7 @@ grep -Fq 'UpstandAIBudgetRejectionsHigh' "$ALERT_RULES"
 grep -Fq 'UpstandAIUsageUnpriced' "$ALERT_RULES"
 grep -Fq 'UpstandServerRouteLatencyHigh' "$ALERT_RULES"
 grep -Fq 'UpstandDeploymentRouteLatencyHigh' "$ALERT_RULES"
+grep -Fq 'UpstandBackgroundJobFailuresHigh' "$ALERT_RULES"
 
 for metric in \
   upstand_schedules_collection_success \

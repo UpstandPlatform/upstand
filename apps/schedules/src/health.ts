@@ -2,6 +2,7 @@ import type { OutboxOperationalSummary } from "@upstand/domain";
 import { pingRedis, redis } from "@upstand/redis";
 import {
   BACKUP_RUN_QUEUE,
+  getJobTelemetryMetrics,
   NOTIFICATION_DELIVERY_QUEUE,
 } from "@upstand/usecases";
 import { type Context, Hono } from "hono";
@@ -95,6 +96,26 @@ export function renderOperationalMetrics(
     metric("upstand_schedules_queue_healthy", queue.isHealthy, labels);
     metric("upstand_schedules_queue_waiting", queue.waitingCount, labels);
     metric("upstand_schedules_queue_failed", queue.failedCount, labels);
+  }
+
+  help(
+    "upstand_schedules_job_executions_total",
+    "Background job executions by bounded operation and outcome.",
+    "counter",
+  );
+  help(
+    "upstand_schedules_job_duration_seconds_total",
+    "Total background job execution time by bounded operation and outcome.",
+    "counter",
+  );
+  for (const job of getJobTelemetryMetrics()) {
+    const labels = `operation="${escapePrometheusLabel(job.operation)}",outcome="${job.outcome}"`;
+    metric("upstand_schedules_job_executions_total", job.count, labels);
+    metric(
+      "upstand_schedules_job_duration_seconds_total",
+      job.durationSeconds,
+      labels,
+    );
   }
 
   help(

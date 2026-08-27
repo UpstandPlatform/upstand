@@ -142,6 +142,16 @@ groups:
   - name: upstand-schedules
     interval: 30s
     rules:
+      - alert: UpstandBackgroundJobFailuresHigh
+        expr: sum by (operation) (rate(upstand_schedules_job_executions_total{job="upstand-schedules",outcome="failure"}[10m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand background jobs are failing continuously
+          description: A bounded background-job operation is failing; inspect deployment, backup, notification, migration, and outbox logs and reconcile durable state before retrying manually.
+
       - alert: UpstandSchedulesMetricsUnavailable
         expr: upstand_schedules_collection_success == 0
         for: 5m
