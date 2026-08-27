@@ -272,6 +272,12 @@ It applied the complete migration set to disposable external PostgreSQL,
 applied it again as the upgraded/no-op path, and passed the live server health
 check with external Redis; its disposable containers were cleaned up.
 
+The stable-release workflow now requires the `full` acceptance profile before
+the publish job can run on manual dispatch. The `smoke` profile remains
+available for diagnostics, but it cannot publish release artifacts; tag pushes
+continue to force the full profile. The release contract test covers this
+invariant.
+
 This iteration has remediated several findings without weakening the gate: production
 services now enforce `no-new-privileges`, server/schedules no longer receive the
 unnecessary host-gateway alias, direct-IP origin and cookie handling require explicit
@@ -763,6 +769,7 @@ Passed:
 - backup-restore rehearsal contract, synthetic evidence-scope contract, and synthetic secret-key recovery contract
 - recovery-evidence verifier contract; release acceptance invokes schema, scope, assertion, fingerprint, and budget validation
 - installation recovery evidence contract; Ed25519 signature, freshness, objective, reference-binding, and release-artifact hash checks
+- release workflow contract proving manual `smoke` acceptance cannot publish a release
 - deployment capability adapter regression tests (worker, migration, and autoscaling surfaces exclude unrelated Docker methods)
 - Swarm/network capability regression tests and use-case SDK-boundary scan (no Docker SDK import remains in `packages/usecases/src`)
 - Better Auth route edge limiter/body-cap checks plus server type/lint verification
