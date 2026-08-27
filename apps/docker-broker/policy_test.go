@@ -272,6 +272,7 @@ func TestAuthorizeDockerRequestAppliesCallerSpecificCapabilities(t *testing.T) {
 		{caller: "schedules", method: http.MethodPost, path: "/v1.43/containers/create", allow: false},
 		{caller: "schedules", method: http.MethodPost, path: "/v1.43/images/create", allow: false},
 		{caller: "deployment-worker", method: http.MethodPost, path: "/v1.43/build", allow: true},
+		{caller: "deployment-worker", method: http.MethodGet, path: "/v1.43/info", allow: false},
 		{caller: "deployment-worker", method: http.MethodPost, path: "/v1.43/images/prune", allow: false},
 		{caller: "deployment-worker", method: http.MethodDelete, path: "/v1.43/images/sha256:abc", allow: false},
 		{caller: "server", method: http.MethodPost, path: "/v1.43/containers/prune", allow: true},
@@ -621,6 +622,14 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			method: http.MethodPost,
 			path:   "/upstand/v1/server/swarm",
 			body:   `{"operation":"ensure_network","network_name":"upstand-network"}`,
+			allow:  true,
+		},
+		{
+			name:   "deployment worker may read bounded typed Swarm info",
+			caller: "deployment-worker",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/swarm",
+			body:   `{"operation":"info"}`,
 			allow:  true,
 		},
 		{

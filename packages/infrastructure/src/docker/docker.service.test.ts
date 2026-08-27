@@ -13,6 +13,37 @@ import {
 import type { DockerResourceCommandBrokerPort } from "./docker-broker-client";
 
 describe("deployment command log safety", () => {
+  test("uses typed bounded Swarm info instead of raw worker daemon info", async () => {
+    const getSwarmInfo = mock(async () => ({
+      localNodeState: "active",
+      controlAvailable: true,
+      nodeId: "manager-1",
+      nodeAddress: "10.0.0.1",
+      nodeCount: 1,
+    }));
+    const docker = {
+      info: mock(() => {
+        throw new Error("raw daemon info must not be used");
+      }),
+    };
+    const service = new DockerService(docker as never, {}, {
+      getSwarmInfo,
+    } as unknown as DockerResourceCommandBrokerPort);
+
+    await expect(service.getInfo()).resolves.toEqual({
+      localNodeState: "active",
+      controlAvailable: true,
+      nodeId: "manager-1",
+      nodeAddress: "10.0.0.1",
+      nodeCount: 1,
+    });
+    await expect(
+      service.initializeSwarm(docker as never),
+    ).resolves.toBeUndefined();
+    expect(getSwarmInfo).toHaveBeenCalledTimes(2);
+    expect(docker.info).not.toHaveBeenCalled();
+  });
+
   test("does not let build variables redirect Docker transport", () => {
     const service = new DockerService(
       {} as never,

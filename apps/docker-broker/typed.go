@@ -141,14 +141,17 @@ func authorizeTypedDockerRequest(caller string, r *http.Request, body []byte) er
 		if err := decodeTypedJSON(body, &input); err != nil {
 			return err
 		}
-		if input.Operation != `ensure_network` {
-			return errors.New(`deployment-worker may only ensure the shared Upstand network`)
+		if input.Operation != `ensure_network` && input.Operation != `info` {
+			return errors.New(`deployment-worker may only read Swarm info or ensure the shared Upstand network`)
 		}
 		if err := validateTypedSwarmFieldSet(body, input.Operation); err != nil {
 			return err
 		}
 		if err := validateTypedSwarmRequest(input); err != nil {
 			return err
+		}
+		if input.Operation == `info` {
+			return nil
 		}
 		if input.NetworkName != configuredSharedNetworkName() {
 			return errors.New(`deployment-worker may only ensure the configured shared Upstand network`)

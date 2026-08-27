@@ -131,6 +131,7 @@ export type DockerResourceFileBrokerPort = ContainerFileSystemPort;
 
 export type DockerResourceCommandBrokerPort = {
   ensureUpstandNetwork?(): Promise<{ id: string; created: boolean }>;
+  getSwarmInfo?(): Promise<DockerSwarmInfoPort>;
   buildResourceDockerfile?(
     target: DockerInspectionTarget,
     resourceId: string,
@@ -1399,6 +1400,17 @@ export function createDockerResourceCommandBrokerClient():
   };
 
   return {
+    async getSwarmInfo(): Promise<DockerSwarmInfoPort> {
+      return swarmInfoSchema.parse(
+        await callBrokerValue(
+          configuration,
+          "POST",
+          "/upstand/v1/server/swarm",
+          { operation: "info" },
+        ),
+      );
+    },
+
     async buildResourceDockerfile(
       target,
       resourceId,

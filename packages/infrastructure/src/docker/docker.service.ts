@@ -72,6 +72,7 @@ import { LIBSQL_CONTAINER_PORTS } from "@upstand/usecases/resource/libsql-settin
 import { parseResourceCredentials } from "@upstand/usecases/resource/resource-credentials";
 import { parseResourceEnvironmentVariables } from "@upstand/usecases/resource/resource-environment";
 import {
+  type DockerSwarmInfo,
   ensureResourceOverlayNetwork,
   ensureUpstandOverlayNetwork,
   getResourceOverlayNetworkName,
@@ -609,6 +610,10 @@ export class DockerService implements DockerSwarmManagementPort {
   }
 
   async getInfo(): Promise<DockerSwarmInfoPort> {
+    const getSwarmInfo = this.resourceCommandBroker?.getSwarmInfo;
+    if (getSwarmInfo && Object.keys(this.commandEnvironment).length === 0) {
+      return getSwarmInfo();
+    }
     const info = await this.docker.info();
     return {
       localNodeState: info.Swarm?.LocalNodeState || "inactive",
@@ -1249,7 +1254,7 @@ export class DockerService implements DockerSwarmManagementPort {
 
   async initializeSwarm(targetDocker?: Docker): Promise<void> {
     const docker = targetDocker || this.docker;
-    let info = await docker.info();
+    let info = await this.getRawSwarmInfo(docker);
     if (!isSwarmActive(info)) {
       if (env.NODE_ENV === "development") {
         try {
@@ -1257,7 +1262,7 @@ export class DockerService implements DockerSwarmManagementPort {
             AdvertiseAddr: "127.0.0.1",
             ListenAddr: "0.0.0.0:2377",
           });
-          info = await docker.info();
+          info = await this.getRawSwarmInfo(docker);
         } catch (error) {
           throw new ConflictError(
             `Docker Swarm is inactive and auto-initialization failed: ${
@@ -1276,6 +1281,23 @@ export class DockerService implements DockerSwarmManagementPort {
         "This Upstand instance is attached to a Swarm worker. Deployments must run through a reachable manager Docker API.",
       );
     }
+  }
+
+  private async getRawSwarmInfo(docker: Docker): Promise<DockerSwarmInfo> {
+    const getSwarmInfo = this.resourceCommandBroker?.getSwarmInfo;
+    if (getSwarmInfo && Object.keys(this.commandEnvironment).length === 0) {
+      const info = await getSwarmInfo();
+      return {
+        Swarm: {
+          LocalNodeState: info.localNodeState,
+          ControlAvailable: info.controlAvailable,
+          NodeID: info.nodeId,
+          NodeAddr: info.nodeAddress,
+          Nodes: info.nodeCount,
+        },
+      };
+    }
+    return docker.info();
   }
 
   async ensureNetwork(targetDocker?: Docker): Promise<string> {

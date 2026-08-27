@@ -749,6 +749,9 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 	if caller == "deployment-worker" {
 		// The deployment worker must deploy and build, but it has no reason to
 		// run global cleanup or delete/tag arbitrary images.
+		if method == http.MethodGet && path == "/info" {
+			return false
+		}
 		if (method == http.MethodPost && (path == "/containers/prune" || path == "/images/prune" || path == "/build/prune")) ||
 			(method == http.MethodPost && path == "/images/create") ||
 			(method == http.MethodPost && (path == "/networks/create" || path == "/volumes/create")) ||
