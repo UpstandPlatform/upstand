@@ -307,7 +307,7 @@ services:
       );
     });
 
-    test("allows bounded local or remote build contexts", () => {
+    test("allows only bounded local build contexts", () => {
       expect(() =>
         validateComposeSecurity(`
 services:
@@ -315,10 +315,52 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+`),
+      ).not.toThrow();
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
   remote:
     build: https://github.com/example/project.git
 `),
-      ).not.toThrow();
+      ).toThrow("cannot use a remote build context");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build:
+      context: https://example.invalid/context.tar.gz
+`),
+      ).toThrow("cannot use a remote build context");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build: git://example.invalid/repository.git
+`),
+      ).toThrow("cannot use a remote build context");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build: git@example.invalid:repository.git
+`),
+      ).toThrow("cannot use a remote build context");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  remote:
+    build:
+      context: .
+      additional_contexts:
+        dependencies: https://example.invalid/dependencies.git
+`),
+      ).toThrow("cannot use a remote build context");
     });
   });
 

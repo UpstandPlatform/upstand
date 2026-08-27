@@ -9,6 +9,8 @@ const PROTECTED_DOCKER_ENVIRONMENT_NAMES = [
   "DOCKER_HOST",
   "DOCKER_TLS_VERIFY",
 ] as const;
+const REMOTE_BUILD_CONTEXT_PATTERN =
+  /^(?:[a-z][a-z0-9+.-]*:\/\/|[^/\\\s:@]+@[^/\\\s:]+:)/i;
 
 function validateProtectedDockerEnvironmentReferences(
   rawCompose: string,
@@ -68,12 +70,20 @@ function isUnsafeComposePath(value: string): boolean {
 }
 
 function isRemoteBuildContext(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return ["http:", "https:"].includes(url.protocol);
-  } catch {
-    return false;
+  return REMOTE_BUILD_CONTEXT_PATTERN.test(value.trim());
+}
+
+function validateComposeBuildContext(
+  value: string,
+  resourceKind: string,
+  resourceName: string,
+): void {
+  if (isRemoteBuildContext(value)) {
+    throw new Error(
+      `Compose ${resourceKind} '${resourceName}' cannot use a remote build context`,
+    );
   }
+  validateComposeScopedPath(value, resourceKind, resourceName);
 }
 
 function validateComposeScopedPath(
@@ -90,18 +100,13 @@ function validateComposeScopedPath(
 
 function validateComposeBuild(serviceName: string, build: unknown): void {
   if (typeof build === "string") {
-    if (!isRemoteBuildContext(build)) {
-      validateComposeScopedPath(build, "service build context", serviceName);
-    }
+    validateComposeBuildContext(build, "service build context", serviceName);
     return;
   }
   if (!isUnknownRecord(build)) return;
 
-  if (
-    typeof build.context === "string" &&
-    !isRemoteBuildContext(build.context)
-  ) {
-    validateComposeScopedPath(
+  if (typeof build.context === "string") {
+    validateComposeBuildContext(
       build.context,
       "service build context",
       serviceName,
@@ -123,14 +128,13 @@ function validateComposeBuild(serviceName: string, build: unknown): void {
     for (const [contextName, rawContext] of Object.entries(
       build.additional_contexts,
     )) {
-      if (typeof rawContext !== "string" || isRemoteBuildContext(rawContext)) {
-        continue;
+      if (typeof rawContext === "string") {
+        validateComposeBuildContext(
+          rawContext,
+          `service build context '${contextName}'`,
+          serviceName,
+        );
       }
-      validateComposeScopedPath(
-        rawContext,
-        `service build context '${contextName}'`,
-        serviceName,
-      );
     }
   } else if (Array.isArray(build.additional_contexts)) {
     for (const rawContext of build.additional_contexts) {
@@ -138,13 +142,11 @@ function validateComposeBuild(serviceName: string, build: unknown): void {
       const separator = rawContext.indexOf("=");
       const context =
         separator === -1 ? rawContext : rawContext.slice(separator + 1);
-      if (!isRemoteBuildContext(context)) {
-        validateComposeScopedPath(
-          context,
-          "service additional build context",
-          serviceName,
-        );
-      }
+      validateComposeBuildContext(
+        context,
+        "service additional build context",
+        serviceName,
+      );
     }
   }
 }
