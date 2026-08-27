@@ -272,9 +272,11 @@ Production acceptance additionally requires an installation-specific JSON
 evidence record, detached Ed25519 signature, and public key supplied with
 `--dr-evidence-file`, `--dr-evidence-signature-file`, and
 `--dr-evidence-public-key-file` (or their environment variables). The verifier
-checks the signed schema, data assertion, off-site destination, immutable
-retention, key escrow, measured RPO/RTO, and evidence freshness. The release
-installer verifies the verifier script against the signed release manifest.
+checks the signed schema, installation/backup-artifact/restore-target/release
+references, backup recovery point, data assertion, off-site destination,
+immutable retention, key escrow, measured RPO/RTO, and evidence freshness. The
+release installer verifies the verifier script against the signed release
+manifest.
 
 Backup execution leases are five minutes and are renewed while a worker is
 active. BullMQ retries an unclaimed delivery, and the schedules service
