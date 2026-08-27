@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 )
+
+var deploymentWorkerVolumeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$`)
 
 // authorizeDeploymentWorkerRawResourceScope closes the remaining confused-
 // deputy gap in the legacy Docker API. The caller certificate and resource
@@ -44,6 +47,9 @@ func authorizeDeploymentWorkerRawResourceScope(
 	}
 	if r.Method == http.MethodGet && path == "/networks" {
 		return authorizeDeploymentWorkerRawResourceList(r, resourceID, "networks")
+	}
+	if r.Method == http.MethodGet && resourceItemPath(path, "volumes") {
+		return authorizeDeploymentWorkerRawVolumeInspection(ctx, path, resourceID, engine)
 	}
 	if r.Method == http.MethodGet && resourceItemPath(path, "services") {
 		parts, ok := splitResourcePath(path, "services")
@@ -88,6 +94,54 @@ func authorizeDeploymentWorkerRawResourceScope(
 	if r.Method == http.MethodPost &&
 		(resourceActionPath(path, "networks", "connect") || resourceActionPath(path, "networks", "disconnect")) {
 		return authorizeDeploymentWorkerRawNetwork(ctx, path, body, resourceID, engine)
+	}
+	return nil
+}
+
+func authorizeDeploymentWorkerRawVolumeInspection(
+	ctx context.Context,
+	path string,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	parts, ok := splitResourcePath(path, "volumes")
+	if !ok || !deploymentWorkerVolumeNamePattern.MatchString(parts[1]) {
+		return errors.New("deployment-worker volume identity is invalid")
+	}
+
+	body, _, err := engine.request(ctx, http.MethodGet, "/volumes/"+url.PathEscape(parts[1]), nil)
+	if err != nil {
+		return err
+	}
+	var inspection struct {
+		Name    string            `json:"Name"`
+		Driver  string            `json:"Driver"`
+		Options map[string]string `json:"Options"`
+		Labels  map[string]string `json:"Labels"`
+	}
+	if err := json.Unmarshal(body, &inspection); err != nil {
+		return fmt.Errorf("invalid Docker volume inspection: %w", err)
+	}
+	if inspection.Name == "" || inspection.Name != parts[1] {
+		return errors.New("Docker volume inspection has no matching identity")
+	}
+	if inspection.Driver != "local" || len(inspection.Options) != 0 {
+		return errors.New("Docker volume is not an unconfigured local volume")
+	}
+	if !isDeploymentWorkerOwnedVolume(inspection.Name, resourceID) {
+		return errors.New("Docker volume is not owned by the requested Upstand resource")
+	}
+
+	// Database volumes predate the typed resource-volume path and are identified
+	// by their exact resource-bound name. Compose volumes are newer and must
+	// also carry the managed labels checked by the typed volume provisioner.
+	if inspection.Name == "upstand-db-data-"+resourceID {
+		return nil
+	}
+	if inspection.Labels["com.upstand.managed"] != "true" ||
+		inspection.Labels["com.upstand.purpose"] != "resource-isolation" ||
+		inspection.Labels["com.upstand.resource-id"] != resourceID {
+		return errors.New("Docker volume is missing the managed resource ownership labels")
 	}
 	return nil
 }
