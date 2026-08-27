@@ -33,6 +33,13 @@ func authorizeDeploymentWorkerRawResourceScope(
 	}
 
 	path := normalizeDockerPath(r.URL.Path)
+	if r.Method == http.MethodPost && resourceActionPath(path, "services", "update") {
+		parts, ok := splitResourcePath(path, "services")
+		if !ok || !swarmNamePattern.MatchString(parts[1]) {
+			return errors.New("deployment-worker service identity is invalid")
+		}
+		return engine.authorizeResourceService(ctx, parts[1], resourceID)
+	}
 	if isRawContainerMutation(r.Method, path) {
 		parts, ok := splitResourcePath(path, "containers")
 		if !ok || !swarmNamePattern.MatchString(parts[1]) {
@@ -43,6 +50,25 @@ func authorizeDeploymentWorkerRawResourceScope(
 	if r.Method == http.MethodPost &&
 		(resourceActionPath(path, "networks", "connect") || resourceActionPath(path, "networks", "disconnect")) {
 		return authorizeDeploymentWorkerRawNetwork(ctx, path, body, resourceID, engine)
+	}
+	return nil
+}
+
+func (engine *dockerEngineClient) authorizeResourceService(ctx context.Context, serviceID, resourceID string) error {
+	body, _, err := engine.request(ctx, http.MethodGet, "/services/"+url.PathEscape(serviceID), nil)
+	if err != nil {
+		return err
+	}
+	var inspection struct {
+		Spec struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Spec"`
+	}
+	if err := json.Unmarshal(body, &inspection); err != nil {
+		return fmt.Errorf("invalid Docker service inspection: %w", err)
+	}
+	if inspection.Spec.Labels["com.upstand.resource-id"] != resourceID {
+		return errors.New("service is not owned by the requested Upstand resource")
 	}
 	return nil
 }

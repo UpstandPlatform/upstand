@@ -31,6 +31,26 @@ func TestDeploymentWorkerRawContainerMutationRequiresDaemonOwnership(t *testing.
 	}
 }
 
+func TestDeploymentWorkerRawServiceUpdateRequiresDaemonOwnership(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/service-1/update", strings.NewReader(`{"Labels":{"com.upstand.resource-id":"resource-1"}}`))
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	body := []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"}}`)
+	owned := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"resource-1"}}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, owned); err != nil {
+		t.Fatalf("expected an owned service update to be allowed: %v", err)
+	}
+
+	foreign := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"other-resource"}}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, foreign); err == nil {
+		t.Fatal("expected a cross-resource service update to be rejected")
+	}
+}
+
 func TestDeploymentWorkerRawNetworkAttachmentRequiresOwnedNetworkAndContainer(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	body := []byte(`{"Container":"container-1"}`)
