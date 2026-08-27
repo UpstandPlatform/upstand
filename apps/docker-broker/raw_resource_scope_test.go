@@ -282,7 +282,7 @@ func TestDeploymentWorkerRawContainerListingRequiresExactResourceFilter(t *testi
 
 func TestDeploymentWorkerRawGlobalInventoryIsDenied(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
-	for _, path := range []string{"/info", "/images/json", "/nodes", "/system/df"} {
+	for _, path := range []string{"/info", "/images/json", "/nodes", "/system/df", "/volumes"} {
 		t.Run(path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43"+path, nil)
 			request.Header.Set("X-Upstand-Resource-ID", "resource-1")

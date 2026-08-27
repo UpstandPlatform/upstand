@@ -106,7 +106,7 @@ func authorizeDeploymentWorkerRawResourceScope(
 
 func isDeploymentWorkerGlobalInventoryPath(path string) bool {
 	switch path {
-	case "/info", "/images/json", "/nodes", "/system/df":
+	case "/info", "/images/json", "/nodes", "/system/df", "/volumes":
 		return true
 	default:
 		return false
