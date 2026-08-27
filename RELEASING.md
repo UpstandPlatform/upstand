@@ -30,14 +30,13 @@ published only from the stable branch.
    preserves its per-user data at `%APPDATA%\\desktop` across updates and
    uninstall so local control-plane data and connection settings are retained.
 
-The stable release workflow uses the `smoke` acceptance profile by default. It
-verifies the immutable images and attestations, deploys the bundled and
-external-data production-shaped Swarm topologies, and runs the node-local
-health, security, and observability checks required for publication. The
-failure-injection, backup/restore, load, and soak rehearsals are intentionally
-not on the publication critical path because they require a much longer-lived
-disposable environment and are operational readiness tests rather than release
-identity checks.
+The stable release workflow uses the `full` acceptance profile for every tag
+push. It verifies the immutable images and attestations, deploys the bundled
+and external-data production-shaped Swarm topologies, runs node-local health,
+security, and observability checks, and executes the failure-injection,
+backup/restore, load, and soak rehearsals before publication. An explicitly
+selected `smoke` profile remains available only for manual diagnostic retries;
+it must not be used as the publication gate.
 
 Run the complete recovery rehearsal separately when validating an operational
 change or before a major infrastructure change. It never creates or modifies

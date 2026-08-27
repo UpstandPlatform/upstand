@@ -163,6 +163,8 @@ const baseEnvironment: NodeJS.ProcessEnv = {
   DB_MIGRATIONS_PATH: migrations,
   // Disposable values for this isolated runtime check. They are never logged.
   BETTER_AUTH_SECRET: "desktop-runtime-test-secret-at-least-32-characters",
+  UPGAL_TOOL_APPROVAL_SECRET:
+    "desktop-runtime-test-approval-secret-at-least-32-characters",
   ENCRYPTION_KEY_V1: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
   HOST: "127.0.0.1",
   REDIS_URL: "",

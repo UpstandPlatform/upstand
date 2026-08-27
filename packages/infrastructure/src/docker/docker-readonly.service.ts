@@ -31,6 +31,14 @@ import {
 } from "@upstand/usecases/resource/docker-log-filter";
 import type Docker from "dockerode";
 import { Client } from "ssh2";
+import {
+  createDockerInspectionBrokerClient,
+  createDockerResourceCommandBrokerClient,
+  createDockerResourceFileBrokerClient,
+  type DockerInspectionBrokerPort,
+  type DockerResourceCommandBrokerPort,
+  type DockerResourceFileBrokerPort,
+} from "./docker-broker-client";
 import { DockerCleanupService } from "./docker-cleanup.service";
 import { getDockerInstance } from "./docker-client";
 
@@ -201,12 +209,31 @@ function parentFileGuard(): string {
 export class DockerReadOnlyService
   implements DockerExecPort, ContainerFileSystemPort
 {
-  constructor(private readonly docker: Docker = getDockerInstance()) {}
+  constructor(
+    private readonly docker: Docker = getDockerInstance(),
+    private readonly broker:
+      | DockerInspectionBrokerPort
+      | undefined = createDockerInspectionBrokerClient(),
+    private readonly resourceFileBroker:
+      | DockerResourceFileBrokerPort
+      | undefined = createDockerResourceFileBrokerClient(),
+    private readonly resourceCommandBroker:
+      | DockerResourceCommandBrokerPort
+      | undefined = createDockerResourceCommandBrokerClient(),
+  ) {}
 
   async getContainerMounts(
     target: DockerInspectionTarget,
     containerId: string,
+    resourceId: string,
   ): Promise<ContainerVolumeMount[]> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      return this.resourceFileBroker.getContainerMounts(
+        target,
+        containerId,
+        resourceId,
+      );
+    }
     assertIdentifier(containerId, "Container");
     if (target.kind === "local") {
       const inspected = await this.docker.getContainer(containerId).inspect();
@@ -228,7 +255,17 @@ export class DockerReadOnlyService
     containerId: string,
     mountPath: string,
     filePath: string,
+    resourceId: string,
   ): Promise<ContainerFileItem[]> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      return this.resourceFileBroker.listFiles(
+        target,
+        containerId,
+        mountPath,
+        filePath,
+        resourceId,
+      );
+    }
     const command = [
       fileContext(mountPath, filePath),
       'test -d "$target"',
@@ -283,7 +320,18 @@ export class DockerReadOnlyService
     mountPath: string,
     filePath: string,
     _encoding: "text" | "base64",
+    resourceId: string,
   ): Promise<{ content: string }> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      return this.resourceFileBroker.readFile(
+        target,
+        containerId,
+        mountPath,
+        filePath,
+        "base64",
+        resourceId,
+      );
+    }
     const command = [
       fileContext(mountPath, filePath),
       existingFileGuard(),
@@ -303,7 +351,19 @@ export class DockerReadOnlyService
     mountPath: string,
     filePath: string,
     contentBase64: string,
+    resourceId: string,
   ): Promise<void> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      await this.resourceFileBroker.writeFile(
+        target,
+        containerId,
+        mountPath,
+        filePath,
+        contentBase64,
+        resourceId,
+      );
+      return;
+    }
     assertMutableContainerPath(filePath, "File path");
     const command = [
       fileContext(mountPath, filePath),
@@ -327,7 +387,19 @@ export class DockerReadOnlyService
     mountPath: string,
     filePath: string,
     type: "file" | "directory",
+    resourceId: string,
   ): Promise<void> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      await this.resourceFileBroker.createItem(
+        target,
+        containerId,
+        mountPath,
+        filePath,
+        type,
+        resourceId,
+      );
+      return;
+    }
     assertMutableContainerPath(filePath, "File path");
     const command = [
       fileContext(mountPath, filePath),
@@ -344,7 +416,19 @@ export class DockerReadOnlyService
     mountPath: string,
     oldPath: string,
     newPath: string,
+    resourceId: string,
   ): Promise<void> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      await this.resourceFileBroker.renameItem(
+        target,
+        containerId,
+        mountPath,
+        oldPath,
+        newPath,
+        resourceId,
+      );
+      return;
+    }
     assertMutableContainerPath(oldPath, "Original path");
     assertMutableContainerPath(newPath, "New path");
     const oldContext = fileContext(mountPath, oldPath);
@@ -371,7 +455,18 @@ export class DockerReadOnlyService
     containerId: string,
     mountPath: string,
     filePath: string,
+    resourceId: string,
   ): Promise<void> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      await this.resourceFileBroker.deleteItem(
+        target,
+        containerId,
+        mountPath,
+        filePath,
+        resourceId,
+      );
+      return;
+    }
     assertMutableContainerPath(filePath, "Delete path");
     const command = [
       fileContext(mountPath, filePath),
@@ -387,7 +482,19 @@ export class DockerReadOnlyService
     mountPath: string,
     filePath: string,
     mode: string,
+    resourceId: string,
   ): Promise<void> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      await this.resourceFileBroker.changePermissions(
+        target,
+        containerId,
+        mountPath,
+        filePath,
+        mode,
+        resourceId,
+      );
+      return;
+    }
     assertMutableContainerPath(filePath, "File path");
     if (!/^[0-7]{3,4}$/.test(mode)) {
       throw new Error("Permission mode must be an octal string.");
@@ -406,7 +513,18 @@ export class DockerReadOnlyService
     mountPath: string,
     filePath: string,
     query: string,
+    resourceId: string,
   ): Promise<ContainerFileItem[]> {
+    if (target.kind === "local" && this.resourceFileBroker) {
+      return this.resourceFileBroker.searchFiles(
+        target,
+        containerId,
+        mountPath,
+        filePath,
+        query,
+        resourceId,
+      );
+    }
     if (hasUnsupportedControlCharacters(query)) {
       throw new Error("Search query contains unsupported control characters.");
     }
@@ -459,6 +577,9 @@ export class DockerReadOnlyService
     containerId: string,
     command: DockerContainerCommand,
   ): Promise<{ success: true }> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.controlContainer(target, containerId, command);
+    }
     assertIdentifier(containerId, "Container");
     if (target.kind === "local") {
       const container = this.docker.getContainer(containerId);
@@ -482,6 +603,9 @@ export class DockerReadOnlyService
     resourceId: string,
     command: DockerResourceCommand,
   ): Promise<{ success: true }> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.controlResource(target, resourceId, command);
+    }
     if (command === "remove-image") {
       if (
         !/^[a-zA-Z0-9][a-zA-Z0-9_.:/@-]{0,255}$/.test(resourceId) ||
@@ -518,6 +642,9 @@ export class DockerReadOnlyService
     type: DockerPruneType,
     options: DockerPruneOptions = {},
   ): Promise<{ success: true; output: string[] }> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.prune(target, type, options);
+    }
     const imageFilter =
       options.preserveRollbackImages !== false
         ? " --filter 'label!=com.upstand.rollback.keep=true'"
@@ -564,7 +691,17 @@ export class DockerReadOnlyService
     containerId: string,
     command: string,
     options?: { timeoutSeconds?: number; onLog?: (chunk: string) => void },
+    resourceId?: string,
   ): Promise<{ output: string; exitCode?: number }> {
+    if (target.kind === "local" && this.resourceCommandBroker && resourceId) {
+      return this.resourceCommandBroker.execContainerCommand(
+        target,
+        containerId,
+        command,
+        options,
+        resourceId,
+      );
+    }
     assertIdentifier(containerId, "Container");
     if (target.kind === "local") {
       const container = this.docker.getContainer(containerId);
@@ -759,6 +896,9 @@ export class DockerReadOnlyService
   }
 
   async getInfo(target: DockerInspectionTarget): Promise<DockerInfo> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.getInfo(target);
+    }
     if (target.kind === "local") return dockerInfo(await this.docker.info());
     const raw = await this.executeRemote(
       target,
@@ -778,6 +918,9 @@ export class DockerReadOnlyService
       isLocalNode?: boolean;
     }>
   > {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.listSwarmNodes(target);
+    }
     if (target.kind === "local") {
       const info = await this.docker.info();
       if (info.Swarm?.LocalNodeState !== "active") return [];
@@ -810,6 +953,9 @@ export class DockerReadOnlyService
   async getHostTime(
     target: DockerInspectionTarget,
   ): Promise<{ epochSeconds: number; iso: string }> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.getHostTime(target);
+    }
     if (target.kind === "local") {
       const now = Date.now();
       return {
@@ -829,6 +975,9 @@ export class DockerReadOnlyService
     target: DockerInspectionTarget,
     filter?: { search?: string; state?: string },
   ): Promise<DockerContainer[]> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.listContainers(target, filter);
+    }
     if (target.kind === "local") {
       const containers = await this.docker.listContainers({ all: true });
       return containers
@@ -900,6 +1049,9 @@ export class DockerReadOnlyService
   }
 
   async listImages(target: DockerInspectionTarget): Promise<DockerImage[]> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.listImages(target);
+    }
     if (target.kind === "local") {
       const images = await this.docker.listImages({ all: true });
       return images.map((image) => ({
@@ -928,6 +1080,9 @@ export class DockerReadOnlyService
   }
 
   async listVolumes(target: DockerInspectionTarget): Promise<DockerVolume[]> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.listVolumes(target);
+    }
     if (target.kind === "local") {
       const result = await this.docker.listVolumes();
       return (result.Volumes || []).map((volume) => ({
@@ -950,6 +1105,9 @@ export class DockerReadOnlyService
   }
 
   async listNetworks(target: DockerInspectionTarget): Promise<DockerNetwork[]> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.listNetworks(target);
+    }
     if (target.kind === "local") {
       const networks = await this.docker.listNetworks();
       return networks.map((network) => ({
@@ -980,6 +1138,9 @@ export class DockerReadOnlyService
   async listServices(
     target: DockerInspectionTarget,
   ): Promise<DockerServiceSummary[]> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.listServices(target);
+    }
     if (target.kind === "local") {
       const services = await this.docker.listServices();
       return services.map((service) => {
@@ -1022,6 +1183,9 @@ export class DockerReadOnlyService
     target: DockerInspectionTarget,
     request: DockerLogRequest,
   ): Promise<string> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.getLogs(target, request);
+    }
     if (!request.containerId && !request.serviceName) {
       throw new Error("A container ID or service name is required.");
     }
@@ -1061,6 +1225,9 @@ export class DockerReadOnlyService
     target: DockerInspectionTarget,
     containerId: string,
   ): Promise<DockerContainerStats> {
+    if (target.kind === "local" && this.broker) {
+      return this.broker.getContainerStats(target, containerId);
+    }
     assertIdentifier(containerId, "Docker container");
     if (target.kind === "remote") {
       const safeContainer = shellQuote(containerId);

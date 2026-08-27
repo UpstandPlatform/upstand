@@ -1,5 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import type {
+  DockerInspectionBrokerPort,
+  DockerResourceCommandBrokerPort,
+  DockerResourceFileBrokerPort,
+} from "./docker-broker-client";
 import { DockerCleanupService } from "./docker-cleanup.service";
 import { DockerReadOnlyService } from "./docker-readonly.service";
 
@@ -38,6 +43,7 @@ describe("Docker explorer image controls", () => {
       service.getContainerMounts(
         { kind: "local", name: "test" },
         "container-1",
+        "resource-1",
       ),
     ).resolves.toEqual([
       {
@@ -274,5 +280,113 @@ describe("Docker explorer image controls", () => {
       "docker builder prune --all --force",
       "docker system prune --all --force --filter 'label!=com.upstand.rollback.keep=true'",
     ]);
+  });
+
+  test("uses the typed broker for local inventory and resource control", async () => {
+    const listContainers = mock(() =>
+      Promise.resolve([
+        {
+          id: "container-1",
+          name: "upstand_server",
+          image: "upstand-server@sha256:abc",
+          state: "running",
+          status: "Up",
+          ports: "",
+          mounts: [],
+          networks: ["upstand-network"],
+          labels: ["com.upstand.managed=true"],
+          createdAt: null,
+        },
+      ]),
+    );
+    const controlResource = mock(() =>
+      Promise.resolve({ success: true as const }),
+    );
+    const broker = {
+      listContainers,
+      controlResource,
+    } as unknown as DockerInspectionBrokerPort;
+    const service = new DockerReadOnlyService({} as never, broker);
+
+    await expect(
+      service.listContainers({ kind: "local", name: "Local Docker" }),
+    ).resolves.toEqual([
+      expect.objectContaining({ id: "container-1", name: "upstand_server" }),
+    ]);
+    await service.controlResource(
+      { kind: "local", name: "Local Docker" },
+      "upstand-network",
+      "remove-network",
+    );
+
+    expect(listContainers).toHaveBeenCalledTimes(1);
+    expect(controlResource).toHaveBeenCalledWith(
+      { kind: "local", name: "Local Docker" },
+      "upstand-network",
+      "remove-network",
+    );
+  });
+
+  test("uses the resource-scoped typed broker for local file operations", async () => {
+    const readFile = mock(() => Promise.resolve({ content: "aGk=" }));
+    const resourceFileBroker = {
+      readFile,
+    } as unknown as DockerResourceFileBrokerPort;
+    const service = new DockerReadOnlyService(
+      {} as never,
+      undefined,
+      resourceFileBroker,
+    );
+
+    await expect(
+      service.readFile(
+        { kind: "local", name: "Local Docker" },
+        "container-1",
+        "/data",
+        "/config.txt",
+        "base64",
+        "resource-1",
+      ),
+    ).resolves.toEqual({ content: "aGk=" });
+    expect(readFile).toHaveBeenCalledWith(
+      { kind: "local", name: "Local Docker" },
+      "container-1",
+      "/data",
+      "/config.txt",
+      "base64",
+      "resource-1",
+    );
+  });
+
+  test("uses the resource-scoped typed broker for local container commands", async () => {
+    const execContainerCommand = mock(() =>
+      Promise.resolve({ output: "ok", exitCode: 0 }),
+    );
+    const resourceCommandBroker = {
+      execContainerCommand,
+    } as unknown as DockerResourceCommandBrokerPort;
+    const service = new DockerReadOnlyService(
+      {} as never,
+      undefined,
+      undefined,
+      resourceCommandBroker,
+    );
+
+    await expect(
+      service.execContainerCommand(
+        { kind: "local", name: "Local Docker" },
+        "container-1",
+        "printf ok",
+        undefined,
+        "resource-1",
+      ),
+    ).resolves.toEqual({ output: "ok", exitCode: 0 });
+    expect(execContainerCommand).toHaveBeenCalledWith(
+      { kind: "local", name: "Local Docker" },
+      "container-1",
+      "printf ok",
+      undefined,
+      "resource-1",
+    );
   });
 });

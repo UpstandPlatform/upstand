@@ -7,15 +7,29 @@ import type { ContainerFileSystemPort } from "./ports/container-file-system";
 import type { DatabaseHealthPort } from "./ports/database-health";
 import type {
   DockerArchiveTransferPort,
+  DockerAutoscalingPort,
+  DockerCommandPort,
   DockerContainerControllerPort,
+  DockerContainerControlPort,
+  DockerDatabaseDeploymentPort,
+  DockerDeploymentPort,
   DockerExecPort,
+  DockerHostMaintenancePort,
   DockerInventoryReaderPort,
+  DockerPreviewCleanupPort,
   DockerPrunePort,
   DockerResourceControllerPort,
+  DockerResourceControlPort,
+  DockerResourceReadPort,
+  DockerSelfUpdatePort,
+  DockerServerStatsPort,
   DockerServicePort,
+  DockerWebServerMaintenancePort,
+  DockerWorkloadMigrationPort,
 } from "./ports/docker";
 import type { ExternalSecretProviderPort } from "./ports/external-secrets";
 import type { ManagedUserProvisioner } from "./ports/managed-user-provisioner";
+import type { DockerSwarmManagementPort } from "./ports/swarm";
 
 // Application composition token. The domain exposes the IUnitOfWork contract,
 // while the DI token belongs to the outer composition layer.
@@ -86,6 +100,42 @@ export const RunDueSecretRotationsUseCaseToken =
 export const CaddyServiceToken = createToken<CaddyServicePort>("CaddyService");
 export const DockerServiceToken =
   createToken<DockerServicePort>("DockerService");
+export const DockerDeploymentToken =
+  createToken<DockerDeploymentPort>("DockerDeployment");
+export const DockerResourceControlPortToken =
+  createToken<DockerResourceControlPort>("DockerResourceControlPort");
+export const DockerResourceReadPortToken = createToken<DockerResourceReadPort>(
+  "DockerResourceReadPort",
+);
+export const DockerPreviewCleanupPortToken =
+  createToken<DockerPreviewCleanupPort>("DockerPreviewCleanupPort");
+export const ReconcilePreviewCleanupsUseCaseToken =
+  createToken<UseCases.ReconcilePreviewCleanupsUseCase>(
+    "ReconcilePreviewCleanupsUseCase",
+  );
+export const DockerContainerControlPortToken =
+  createToken<DockerContainerControlPort>("DockerContainerControlPort");
+export const DockerDatabaseDeploymentPortToken =
+  createToken<DockerDatabaseDeploymentPort>("DockerDatabaseDeploymentPort");
+export const DockerCommandPortToken =
+  createToken<DockerCommandPort>("DockerCommandPort");
+export const DockerServerStatsPortToken = createToken<DockerServerStatsPort>(
+  "DockerServerStatsPort",
+);
+export const DockerSelfUpdatePortToken = createToken<DockerSelfUpdatePort>(
+  "DockerSelfUpdatePort",
+);
+export const DockerWebServerMaintenancePortToken =
+  createToken<DockerWebServerMaintenancePort>("DockerWebServerMaintenancePort");
+export const DockerSwarmManagementPortToken =
+  createToken<DockerSwarmManagementPort>("DockerSwarmManagementPort");
+export const DockerHostMaintenancePortToken =
+  createToken<DockerHostMaintenancePort>("DockerHostMaintenancePort");
+export const DockerWorkloadMigrationPortToken =
+  createToken<DockerWorkloadMigrationPort>("DockerWorkloadMigrationPort");
+export const DockerAutoscalingPortToken = createToken<DockerAutoscalingPort>(
+  "DockerAutoscalingPort",
+);
 export const DatabaseCommandUseCaseToken =
   createToken<UseCases.DatabaseCommandUseCase>("DatabaseCommandUseCase");
 export const RunDatabaseMigrationUseCaseToken =

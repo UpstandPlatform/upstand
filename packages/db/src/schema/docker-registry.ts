@@ -1,5 +1,11 @@
 import { relations } from "drizzle-orm";
-import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  foreignKey,
+  index,
+  pgTable,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 import { organization } from "./auth";
 import { server } from "./server";
 
@@ -27,6 +33,11 @@ export const dockerRegistry = pgTable(
   (table) => [
     index("docker_registry_organization_idx").on(table.organizationId),
     index("docker_registry_server_idx").on(table.serverId),
+    foreignKey({
+      columns: [table.organizationId, table.serverId],
+      foreignColumns: [server.organizationId, server.id],
+      name: "docker_registry_organization_server_fk",
+    }),
   ],
 );
 

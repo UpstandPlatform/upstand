@@ -11,10 +11,11 @@ import {
 import {
   BackupSchedulerToken,
   CaddyServiceToken,
-  DockerServiceToken,
+  DockerAutoscalingPortToken,
   GeneralSchedulerToken,
   GetUpdateStatusUseCaseToken,
   PublishNotificationUseCaseToken,
+  ReconcilePreviewCleanupsUseCaseToken,
   ReconcileStaleDeploymentsUseCaseToken,
   RunDueSecretRotationsUseCaseToken,
   UnitOfWorkToken,
@@ -373,7 +374,7 @@ export class AutoscalingRuntime {
     try {
       const decisions = await new AutoscalingService(
         scope.resolve(UnitOfWorkToken),
-        scope.resolve(DockerServiceToken),
+        scope.resolve(DockerAutoscalingPortToken),
         this.lastScaledAt,
         scope.resolve(CaddyServiceToken),
       ).reconcileAll();
@@ -472,6 +473,66 @@ export class StaleDeploymentScheduler {
   }
 }
 
+export class PreviewCleanupScheduler {
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private running = false;
+
+  start(): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => {
+      this.run().catch((error: unknown) => {
+        log.error({
+          message: "Unhandled error in PreviewCleanupScheduler timer",
+          err: error,
+        });
+      });
+    }, 60_000);
+    this.timer.unref?.();
+    void this.run().catch((error: unknown) => {
+      log.error({
+        message: "Unhandled error in PreviewCleanupScheduler initial run",
+        err: error,
+      });
+    });
+  }
+
+  stop(): void {
+    if (!this.timer) return;
+    clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  async run(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+    const scope = getServiceProvider().createScope();
+    try {
+      const result = await scope
+        .resolve(ReconcilePreviewCleanupsUseCaseToken)
+        .execute({ limit: 100 });
+      if (result.failed > 0 || result.skipped > 0) {
+        log.warn({
+          message: "Preview cleanup reconciliation found unresolved records",
+          ...result,
+        });
+      } else if (result.cleaned > 0) {
+        log.info({
+          message: "Preview cleanup reconciliation completed",
+          ...result,
+        });
+      }
+    } catch (error: unknown) {
+      log.warn({
+        message: "Preview cleanup reconciliation failed",
+        err: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.running = false;
+      await scope.dispose();
+    }
+  }
+}
+
 export class SchedulerManager {
   private secretRotationTimer: ReturnType<typeof setInterval> | null = null;
   private readonly scheduledDockerCleanup = new ScheduledDockerCleanup();
@@ -479,6 +540,7 @@ export class SchedulerManager {
     new UpstandUpdateNotificationScheduler();
   private readonly autoscalingRuntime = new AutoscalingRuntime();
   private readonly staleDeploymentScheduler = new StaleDeploymentScheduler();
+  private readonly previewCleanupScheduler = new PreviewCleanupScheduler();
   private accessLogCleanupScheduler: AccessLogCleanupScheduler | null = null;
 
   async start(): Promise<void> {
@@ -519,6 +581,7 @@ export class SchedulerManager {
     await this.accessLogCleanupScheduler.start();
     this.autoscalingRuntime.start();
     this.staleDeploymentScheduler.start();
+    this.previewCleanupScheduler.start();
     this.scheduledDockerCleanup.start();
     this.upstandUpdateNotifications.start();
 
@@ -552,6 +615,7 @@ export class SchedulerManager {
     this.upstandUpdateNotifications.stop();
     this.autoscalingRuntime.stop();
     this.staleDeploymentScheduler.stop();
+    this.previewCleanupScheduler.stop();
     if (this.secretRotationTimer) {
       clearInterval(this.secretRotationTimer);
       this.secretRotationTimer = null;

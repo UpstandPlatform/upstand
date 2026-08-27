@@ -445,18 +445,27 @@ describe("Permissions and Security System Tests", () => {
       });
     });
 
-    it("falls back to the first database user when env override is not set", async () => {
-      delete process.env.UPSTAND_INSTANCE_OWNER_USER_ID;
-      mockDbRows = [{ id: "first-registered-user" }];
+    it("keeps the persisted owner authoritative over environment overrides", async () => {
+      process.env.UPSTAND_INSTANCE_OWNER_USER_ID = "env-owner-123";
+      mockDbRows = [{ ownerUserId: "persisted-owner" }];
 
-      // Oldest user in DB is allowed
+      await expect(
+        requireInstanceOwner("env-owner-123", "session"),
+      ).rejects.toMatchObject({
+        code: "FORBIDDEN",
+        message: "Instance owner permission required",
+      });
+      await expect(
+        requireInstanceOwner("persisted-owner", "session"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("fails closed when the persisted owner is missing", async () => {
+      delete process.env.UPSTAND_INSTANCE_OWNER_USER_ID;
+      mockDbRows = [];
+
       await expect(
         requireInstanceOwner("first-registered-user", "session"),
-      ).resolves.toBeUndefined();
-
-      // Other user is blocked
-      expect(
-        requireInstanceOwner("second-registered-user", "session"),
       ).rejects.toMatchObject({
         code: "FORBIDDEN",
         message: "Instance owner permission required",

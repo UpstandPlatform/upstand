@@ -49,6 +49,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Audit dependencies
         run: bash scripts/security-audit.sh
+      - name: Audit exception contract
+        run: bash scripts/security-audit-contract.test.sh
       - name: Restore Turbo cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
@@ -91,6 +93,7 @@ jobs:
           BETTER_AUTH_URL: http://localhost:3000
           CORS_ORIGIN: http://localhost:3001
           BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+          UPGAL_TOOL_APPROVAL_SECRET: ci-only-approval-secret-that-is-at-least-32-characters-long
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/upstand
         run: |
           bun run db:generate
@@ -101,6 +104,10 @@ jobs:
           bash -n scripts/production-acceptance.sh
           bash -n scripts/backup-restore-rehearsal.sh
           bash -n scripts/backup-restore-rehearsal-contract.test.sh
+          bash -n scripts/verify-recovery-evidence.sh
+          bash -n scripts/verify-recovery-evidence-contract.test.sh
+          bash -n scripts/secret-key-recovery-rehearsal.sh
+          bash -n scripts/secret-key-recovery-rehearsal-contract.test.sh
           bash -n scripts/external-services-smoke-contract.test.sh
           bash -n scripts/health-load-rehearsal.sh
           bash -n scripts/health-load-rehearsal-contract.test.sh
@@ -115,6 +122,8 @@ jobs:
           bash -n scripts/release-orchestration-contract.test.sh
           bash scripts/installer-contract.test.sh
           bash scripts/backup-restore-rehearsal-contract.test.sh
+          bash scripts/verify-recovery-evidence-contract.test.sh
+          bash scripts/secret-key-recovery-rehearsal-contract.test.sh
           bash scripts/external-services-smoke-contract.test.sh
           bun test scripts/operational-status-rehearsal.test.ts
           bash scripts/health-load-rehearsal-contract.test.sh
@@ -128,11 +137,29 @@ jobs:
           bash scripts/release-acceptance-contract.test.sh
       - name: Check diff integrity
         run: git diff --check
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.25.13
+          check-latest: true
       - name: Test monitoring service
         working-directory: apps/monitoring
         run: |
           go test ./...
+          go test -race ./...
           go vet ./...
+      - name: Test Docker broker with race detector
+        working-directory: apps/docker-broker
+        run: |
+          go test ./...
+          go test -race ./...
+          go vet ./...
+      - name: Scan monitoring dependencies for known vulnerabilities
+        working-directory: apps/monitoring
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Scan Docker broker for known vulnerabilities
+        working-directory: apps/docker-broker
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: Check affected types
         if: >-
           github.event_name == 'pull_request' &&
@@ -177,12 +204,15 @@ jobs:
         env:
           UPSTAND_SERVER_IMAGE: ghcr.io/upstand/server@sha256:0000000000000000000000000000000000000000000000000000000000000000
           UPSTAND_SCHEDULES_IMAGE: ghcr.io/upstand/schedules@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          UPSTAND_DEPLOYMENT_WORKER_IMAGE: ghcr.io/upstand/deployment-worker@sha256:0000000000000000000000000000000000000000000000000000000000000000
           UPSTAND_WEB_IMAGE: ghcr.io/upstand/web@sha256:0000000000000000000000000000000000000000000000000000000000000000
           UPSTAND_DOCS_IMAGE: ghcr.io/upstand/fumadocs@sha256:0000000000000000000000000000000000000000000000000000000000000000
           UPSTAND_MONITORING_IMAGE: ghcr.io/upstand/monitoring@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          UPSTAND_DOCKER_BROKER_IMAGE: ghcr.io/upstand/docker-broker@sha256:0000000000000000000000000000000000000000000000000000000000000000
           UPSTAND_DOCKER_GID: 0
           UPSTAND_MIGRATION_ID: ci-validation
           DOCKER_NETWORK: ci-upstand-network
+          DOCKER_CONTROL_NETWORK: ci-upstand-docker-control
           BETTER_AUTH_URL: https://api.example.invalid
           CORS_ORIGIN: https://app.example.invalid
           NEXT_PUBLIC_SERVER_URL: https://api.example.invalid
@@ -197,26 +227,33 @@ jobs:
 
           expected = {"spread": "node.id"}
           expected_network = "ci-upstand-network"
-          for name in ("server", "schedules", "web", "fumadocs"):
+          if services["schedules"].get("image") == services["deployment-worker"].get("image"):
+              raise SystemExit("schedules and deployment-worker must use distinct images")
+          for name in ("server", "schedules", "deployment-worker", "web", "fumadocs"):
               preferences = services[name]["deploy"]["placement"].get("preferences", [])
               if preferences != [expected]:
                   raise SystemExit(
                       f"{name} must spread stateless replicas across node.id: {preferences!r}"
                   )
-          for name in ("migrate", "server", "schedules"):
+          for name in ("migrate", "server", "schedules", "deployment-worker"):
               configured_network = services[name]["environment"].get("DOCKER_NETWORK")
               if name != "migrate" and configured_network != expected_network:
                   raise SystemExit(
                       f"{name} must receive the configured Docker network name: {configured_network!r}"
                   )
-              if services[name].get("user") != "10001:0":
+              expected_user = "10001:10001" if name in ("server", "schedules", "deployment-worker") else "10001:0"
+              if services[name].get("user") != expected_user:
                   raise SystemExit(
                       f"{name} must use the Swarm-compatible non-root runtime user: {services[name].get('user')!r}"
                   )
-          for name in ("postgres", "redis", "migrate", "server", "schedules", "web", "fumadocs"):
+          for name in ("postgres", "redis", "migrate", "docker-broker", "server", "schedules", "deployment-worker", "web", "fumadocs"):
               if services[name].get("cap_drop") != ["ALL"]:
                   raise SystemExit(
                       f"{name} must drop all Linux capabilities: {services[name].get('cap_drop')!r}"
+                  )
+              if services[name].get("security_opt") != ["no-new-privileges:true"]:
+                  raise SystemExit(
+                      f"{name} must enforce no-new-privileges: {services[name].get('security_opt')!r}"
                   )
           def tmpfs_mount(service_name, target):
               return next(
@@ -230,9 +267,106 @@ jobs:
                   None,
               )
 
-          for name in ("server", "schedules", "web", "fumadocs"):
+          for name in ("server", "schedules", "deployment-worker", "web", "fumadocs"):
               if services[name].get("read_only") is not True:
                   raise SystemExit(f"{name} must keep its production filesystem read-only")
+          for name in ("server", "schedules", "deployment-worker"):
+              if services[name]["environment"].get("DOCKER_HOST") != "https://docker-broker:2375":
+                  raise SystemExit(f"{name} must use the HTTPS constrained Docker broker")
+              if services[name]["environment"].get("DOCKER_TLS_VERIFY") not in ("1", 1, True):
+                  raise SystemExit(f"{name} Docker CLI must verify the broker TLS certificate")
+              if services[name]["environment"].get("DOCKER_CERT_PATH") != "/run/secrets":
+                  raise SystemExit(f"{name} Docker CLI must use the mounted broker client certificate directory")
+              secret_targets = {
+                  entry.get("source"): entry.get("target")
+                  for entry in services[name].get("secrets", [])
+                  if isinstance(entry, dict)
+              }
+              expected_tls_secrets = {
+                  "docker_broker_ca": "ca.pem",
+                  (
+                      "docker_broker_server_client_cert"
+                      if name == "server"
+                      else "docker_broker_schedules_client_cert"
+                      if name == "schedules"
+                      else "docker_broker_deployment_worker_client_cert"
+                  ): "cert.pem",
+                  (
+                      "docker_broker_server_client_key"
+                      if name == "server"
+                      else "docker_broker_schedules_client_key"
+                      if name == "schedules"
+                      else "docker_broker_deployment_worker_client_key"
+                  ): "key.pem",
+              }
+              for source, target in expected_tls_secrets.items():
+                  if secret_targets.get(source) != target:
+                      raise SystemExit(
+                          f"{name} must mount {source} as the Docker CLI TLS file {target!r}"
+                      )
+              expected_broker_secret = {
+                  "server": "/run/secrets/docker_broker_server_token",
+                  "schedules": "/run/secrets/docker_broker_schedules_token",
+                  "deployment-worker": "/run/secrets/docker_broker_deployment_worker_token",
+              }[name]
+              if services[name]["environment"].get("UPSTAND_DOCKER_BROKER_TOKEN_FILE") != expected_broker_secret:
+                  raise SystemExit(f"{name} must authenticate to the Docker broker with its caller-specific Swarm secret")
+              if services[name].get("volumes") and any(
+                  (volume.get("source") if isinstance(volume, dict) else volume) == "/var/run/docker.sock"
+                  for volume in services[name].get("volumes", [])
+              ):
+                  raise SystemExit(f"{name} must not receive the host Docker socket")
+              expected_client_cert = {
+                  "server": "/run/secrets/docker_broker_server_client_cert",
+                  "schedules": "/run/secrets/docker_broker_schedules_client_cert",
+                  "deployment-worker": "/run/secrets/docker_broker_deployment_worker_client_cert",
+              }[name]
+              expected_client_key = {
+                  "server": "/run/secrets/docker_broker_server_client_key",
+                  "schedules": "/run/secrets/docker_broker_schedules_client_key",
+                  "deployment-worker": "/run/secrets/docker_broker_deployment_worker_client_key",
+              }[name]
+              if services[name]["environment"].get("UPSTAND_DOCKER_BROKER_CA_FILE") != "/run/secrets/docker_broker_ca":
+                  raise SystemExit(f"{name} must trust the Docker broker CA secret")
+              if services[name]["environment"].get("UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE") != expected_client_cert:
+                  raise SystemExit(f"{name} must use its caller-specific Docker broker client certificate")
+              if services[name]["environment"].get("UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE") != expected_client_key:
+                  raise SystemExit(f"{name} must use its caller-specific Docker broker client key")
+          if services["docker-broker"]["environment"].get("UPSTAND_DOCKER_BROKER_SERVER_TOKEN_FILE") != "/run/secrets/docker_broker_server_token":
+              raise SystemExit("docker-broker must load the server-specific Swarm secret")
+          if services["docker-broker"]["environment"].get("UPSTAND_DOCKER_BROKER_SCHEDULES_TOKEN_FILE") != "/run/secrets/docker_broker_schedules_token":
+              raise SystemExit("docker-broker must load the schedules-specific Swarm secret")
+          if services["docker-broker"]["environment"].get("UPSTAND_DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN_FILE") != "/run/secrets/docker_broker_deployment_worker_token":
+              raise SystemExit("docker-broker must load the deployment-worker-specific Swarm secret")
+          if services["docker-broker"]["environment"].get("UPSTAND_DOCKER_BROKER_TLS_REQUIRED") not in ("true", True):
+              raise SystemExit("docker-broker must require mutually authenticated TLS")
+          if services["docker-broker"]["environment"].get("UPSTAND_DOCKER_BROKER_CA_FILE") != "/run/secrets/docker_broker_ca":
+              raise SystemExit("docker-broker must load its private CA secret")
+          if services["docker-broker"]["environment"].get("UPSTAND_DOCKER_BROKER_CERT_FILE") != "/run/secrets/docker_broker_server_cert":
+              raise SystemExit("docker-broker must load its server certificate secret")
+          if services["docker-broker"]["environment"].get("UPSTAND_DOCKER_BROKER_KEY_FILE") != "/run/secrets/docker_broker_server_key":
+              raise SystemExit("docker-broker must load its server key secret")
+          if services["server"]["environment"].get("UPSTAND_DOCKER_BROKER_TOKEN_FILE") != "/run/secrets/docker_broker_server_token":
+              raise SystemExit("server must use its caller-specific Docker broker secret")
+          if services["schedules"]["environment"].get("UPSTAND_DOCKER_BROKER_TOKEN_FILE") != "/run/secrets/docker_broker_schedules_token":
+              raise SystemExit("schedules must use its caller-specific Docker broker secret")
+          if services["deployment-worker"]["environment"].get("UPSTAND_DOCKER_BROKER_TOKEN_FILE") != "/run/secrets/docker_broker_deployment_worker_token":
+              raise SystemExit("deployment-worker must use its caller-specific Docker broker secret")
+          if services["schedules"]["environment"].get("UPSTAND_SCHEDULES_ROLE") != "orchestrator":
+              raise SystemExit("schedules must run only the orchestrator role in production")
+          if services["deployment-worker"]["environment"].get("UPSTAND_SCHEDULES_ROLE") != "deployment-worker":
+              raise SystemExit("deployment-worker must run only the deployment-worker role in production")
+          if services["server"]["environment"].get("UPSTAND_METRICS_TOKEN_FILE") != "/run/secrets/metrics_token":
+              raise SystemExit("server must protect API metrics with its Swarm secret")
+          if services["schedules"]["environment"].get("UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS") not in ("true", "1", True):
+              raise SystemExit("schedules must require a successful backup in its production freshness monitor")
+          if services["schedules"]["environment"].get("UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION") not in ("true", "1", True):
+              raise SystemExit("schedules must require restore verification in its production freshness monitor")
+          if int(services["schedules"]["environment"].get("UPSTAND_BACKUP_ALERT_MAX_AGE_MS", 0)) <= 0:
+              raise SystemExit("schedules must enforce a positive backup freshness threshold")
+          for name in ("server", "schedules", "deployment-worker", "web", "fumadocs"):
+              if services[name].get("extra_hosts"):
+                  raise SystemExit(f"{name} must not receive a host-gateway alias")
               if services[name]["environment"].get("EVLOG_FS_DIR") != "/tmp/.evlog/logs":
                   raise SystemExit(
                       f"{name} must route Evlog fallback logs to writable tmpfs: "
@@ -240,6 +374,11 @@ jobs:
                   )
               if tmpfs_mount(name, "/tmp") is None:
                   raise SystemExit(f"{name} must provide writable tmpfs for Evlog fallback logs")
+          for name in ("postgres", "redis", "migrate", "deployment-worker", "web", "fumadocs"):
+              for volume in services[name].get("volumes", []):
+                  source = volume.get("source") if isinstance(volume, dict) else volume
+                  if source == "/var/run/docker.sock":
+                      raise SystemExit(f"{name} must not receive the host Docker socket")
           for name in ("migrate",):
               if services[name].get("read_only") is not True:
                   raise SystemExit(f"{name} must keep its production filesystem read-only")
@@ -247,7 +386,7 @@ jobs:
                   raise SystemExit(f"{name} must provide a bounded writable /tmp tmpfs")
               if tmpfs_mount(name, "/home/upstand/.docker") is None:
                   raise SystemExit(f"{name} must provide a private non-root Docker CLI tmpfs")
-          for name in ("server", "schedules"):
+          for name in ("server", "schedules", "deployment-worker"):
               if tmpfs_mount(name, "/app/.builds") is None:
                   raise SystemExit(f"{name} must isolate build workspaces on tmpfs")
           print("compose-topology-contract: passed")
@@ -281,9 +420,16 @@ jobs:
           - name: schedules
             file: apps/schedules/Dockerfile
             build_args: ""
+          - name: deployment-worker
+            file: apps/schedules/Dockerfile.worker
+            build_args: ""
           - name: monitoring
             context: apps/monitoring
             file: apps/monitoring/Dockerfile
+            build_args: ""
+          - name: docker-broker
+            context: apps/docker-broker
+            file: apps/docker-broker/Dockerfile
             build_args: ""
     steps:
       - name: Checkout

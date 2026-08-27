@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { AI_FEATURES, AI_PROVIDERS } from "@upstand/domain";
+import { AI_FEATURES, AI_PROVIDERS, type AIProvider } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { redis } from "@upstand/redis";
 import { AIRepositoryToken } from "@upstand/repositories/tokens";
 import { z } from "zod";
+import { getUpGalProviderIdentity } from "../ai/provider";
 import {
   generateComposeTemplate,
   getConversationForUser,
@@ -15,7 +16,11 @@ import {
 } from "../ai/upgal";
 import { UpGalError } from "../ai/upgal-errors";
 import { UpGalPageContextSchema } from "../ai/upgal-page-context";
-import { incrementUpGalDailyBudget } from "../ai-budget";
+import {
+  reserveUpGalDailyRunTokenAndCostBudget,
+  upGalConservativeCostPerMillionTokensUsd,
+  upGalCostCentsForTokens,
+} from "../ai-budget";
 import {
   protectedProcedure,
   router,
@@ -41,12 +46,31 @@ const providerFormSchema = z.object({
 async function enforceAiDailyBudget(
   organizationId: string,
   log: { error(error: unknown, context?: Record<string, unknown>): void },
+  requestedTokens = 256,
+  model?: { provider: AIProvider; modelId: string },
 ): Promise<void> {
   if (env.NODE_ENV === "test") return;
 
-  let runCount: number;
+  const requestedCents = upGalCostCentsForTokens(
+    requestedTokens,
+    upGalConservativeCostPerMillionTokensUsd(
+      env.UPGAL_MAX_COST_PER_MILLION_TOKENS_USD,
+      model,
+    ),
+  );
+  let reservation: Awaited<
+    ReturnType<typeof reserveUpGalDailyRunTokenAndCostBudget>
+  >;
   try {
-    runCount = await incrementUpGalDailyBudget(redis, organizationId);
+    reservation = await reserveUpGalDailyRunTokenAndCostBudget(
+      redis,
+      organizationId,
+      env.UPGAL_DAILY_RUN_LIMIT,
+      requestedTokens,
+      env.UPGAL_DAILY_TOKEN_LIMIT,
+      requestedCents,
+      Math.round(env.UPGAL_DAILY_COST_LIMIT_USD * 100),
+    );
   } catch (error) {
     log.error(error instanceof Error ? error : String(error), {
       message: "Unable to enforce UpGal daily budget",
@@ -57,10 +81,10 @@ async function enforceAiDailyBudget(
       message: "UpGal is temporarily unavailable",
     });
   }
-  if (runCount > env.UPGAL_DAILY_RUN_LIMIT) {
+  if (!reservation) {
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
-      message: "UpGal daily organization run limit exceeded",
+      message: "UpGal daily organization run, token, or cost limit exceeded",
     });
   }
 }
@@ -104,7 +128,12 @@ export const aiRouter = router({
           );
         }
       }
-      await enforceAiDailyBudget(input.organizationId, ctx.log);
+      const model = await getUpGalProviderIdentity(
+        input.organizationId,
+        ctx.scope.resolve(AIRepositoryToken),
+        { feature: "template" },
+      );
+      await enforceAiDailyBudget(input.organizationId, ctx.log, 4096, model);
       return generateComposeTemplate(
         input.organizationId,
         ctx.scope,
@@ -241,7 +270,18 @@ export const aiRouter = router({
         input.organizationId,
         "ai:manage",
       );
-      await enforceAiDailyBudget(input.organizationId, ctx.log);
+      const model = await getUpGalProviderIdentity(
+        input.organizationId,
+        ctx.scope.resolve(AIRepositoryToken),
+        {
+          providerConfigId: input.id,
+          provider: input.provider,
+          model: input.model,
+          baseUrl: input.baseUrl,
+          apiKey: input.apiKey,
+        },
+      );
+      await enforceAiDailyBudget(input.organizationId, ctx.log, 256, model);
       return testUpGalProvider(
         input.organizationId,
         ctx.scope,

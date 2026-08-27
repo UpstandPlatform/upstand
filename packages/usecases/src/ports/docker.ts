@@ -5,6 +5,7 @@ import type {
 } from "@upstand/domain";
 import type { DockerLogLevel } from "../resource/docker-log-filter";
 import type { CaddyServicePort } from "./caddy";
+import type { DockerSwarmManagementPort } from "./swarm";
 
 export interface ContainerRuntimeStats {
   cpu: number;
@@ -88,6 +89,39 @@ export interface ConvergenceResult {
 }
 
 export interface DockerServicePort {
+  listServices(): Promise<DockerSelfUpdateServiceSummary[]>;
+  inspectService(serviceId: string): Promise<DockerSelfUpdateServiceInspection>;
+  updateService(
+    serviceId: string,
+    input: DockerSelfUpdateServiceUpdate,
+  ): Promise<void>;
+  removeServiceByName(serviceName: string, resourceId: string): Promise<void>;
+  forceServiceUpdate(serviceName: string): Promise<void>;
+  getServiceLogs(serviceName: string, tail: number): Promise<string>;
+  execServiceCommand(
+    serviceName: string,
+    command: readonly string[],
+  ): Promise<void>;
+  inspectNetwork(networkName: string): Promise<{
+    driver: string;
+    attachable: boolean;
+  }>;
+  getInfo(): ReturnType<DockerSwarmManagementPort["getInfo"]>;
+  inspectSwarm(): ReturnType<DockerSwarmManagementPort["inspectSwarm"]>;
+  listNodes(): ReturnType<DockerSwarmManagementPort["listNodes"]>;
+  listTasks(): ReturnType<DockerSwarmManagementPort["listTasks"]>;
+  initialize: DockerSwarmManagementPort["initialize"];
+  updateSwarm: DockerSwarmManagementPort["updateSwarm"];
+  inspectNode: DockerSwarmManagementPort["inspectNode"];
+  updateNode: DockerSwarmManagementPort["updateNode"];
+  removeNode: DockerSwarmManagementPort["removeNode"];
+  ensureUpstandNetwork: DockerSwarmManagementPort["ensureUpstandNetwork"];
+  cleanupDocker(
+    command: DockerCleanupCommand,
+    options: { preserveRollbackImages?: boolean; pruneNetworks?: boolean },
+  ): Promise<void>;
+  checkGpuStatus(): Promise<DockerGpuStatus>;
+  setupGpuSupport(): Promise<void>;
   sanitizeName(name: string): string;
   setCancellationKey(key: string | null): void;
   deployDatabase(
@@ -189,6 +223,7 @@ export interface DockerServicePort {
     serviceName: string,
     command: string,
     options?: { timeoutSeconds?: number; onLog?: (chunk: string) => void },
+    resourceId?: string,
   ): Promise<{ output?: string; stderr?: string; exitCode?: number }>;
   controlContainer(
     resource: Resource,
@@ -221,6 +256,87 @@ export interface DockerServicePort {
   ): Promise<string>;
 }
 
+export type DockerCleanupCommand =
+  | "images"
+  | "volumes"
+  | "containers"
+  | "builder"
+  | "system"
+  | "all";
+
+export interface DockerGpuStatus {
+  driverInstalled: boolean;
+  driverVersion?: string;
+  gpuModel?: string;
+  memoryInfo?: string;
+  runtimeInstalled: boolean;
+  runtimeConfigured: boolean;
+  cudaSupport: boolean;
+  cudaVersion?: string;
+  availableGPUs: number;
+  swarmEnabled: boolean;
+  gpuResources: number;
+}
+
+export interface DockerHostMaintenancePort {
+  cleanupDocker(
+    command: DockerCleanupCommand,
+    options: { preserveRollbackImages?: boolean; pruneNetworks?: boolean },
+  ): Promise<void>;
+  checkGpuStatus(): Promise<DockerGpuStatus>;
+  setupGpuSupport(): Promise<void>;
+}
+
+export type DockerCleanupPort = Pick<
+  DockerHostMaintenancePort,
+  "cleanupDocker"
+>;
+
+export interface DockerSelfUpdateServiceSummary {
+  id: string;
+  name: string;
+}
+
+export interface DockerSelfUpdateTaskTemplate {
+  [key: string]: unknown;
+  ContainerSpec?: {
+    [key: string]: unknown;
+    Image?: string;
+    Env?: string[];
+  };
+  ForceUpdate?: number;
+}
+
+export interface DockerSelfUpdateServiceInspection {
+  version: number;
+  name: string;
+  taskTemplate: DockerSelfUpdateTaskTemplate;
+  updateConfig?: Record<string, unknown>;
+  rollbackConfig?: Record<string, unknown>;
+  endpointSpec?: Record<string, unknown>;
+}
+
+export interface DockerSelfUpdateServiceUpdate {
+  version: number;
+  name: string;
+  taskTemplate: DockerSelfUpdateTaskTemplate;
+  updateConfig?: Record<string, unknown>;
+  rollbackConfig?: Record<string, unknown>;
+  endpointSpec?: Record<string, unknown>;
+}
+
+export interface DockerSelfUpdateInput {
+  version: string;
+  repository: string;
+  images: {
+    server: string;
+    schedules: string;
+    web: string;
+    fumadocs: string;
+    monitoring: string;
+  };
+}
+
 /** Capabilities consumed by individual application workflows. */
 export type DockerDeploymentPort = Pick<
   DockerServicePort,
@@ -240,6 +356,7 @@ export type DockerDeploymentPort = Pick<
   | "configureDatabaseReplication"
   | "serviceExists"
   | "execContainerCommand"
+  | "runCommandInResourceContainer"
 >;
 export type DockerResourceReadPort = Pick<
   DockerServicePort,
@@ -264,6 +381,45 @@ export type DockerCommandPort = Pick<
 export type DockerServerStatsPort = Pick<
   DockerServicePort,
   "getServerRuntimeStats"
+>;
+export type DockerSelfUpdatePort = Pick<
+  DockerServicePort,
+  "listServices" | "inspectService" | "updateService"
+> & {
+  /** Typed broker path used for production self-update mutation. */
+  applySelfUpdate?: (
+    input: DockerSelfUpdateInput,
+  ) => Promise<{ updatedCount: number }>;
+};
+export type DockerPreviewCleanupPort = Pick<
+  DockerServicePort,
+  "removeServiceByName"
+>;
+export interface DockerWebServerMaintenancePort {
+  forceServiceUpdate(serviceName: string): Promise<void>;
+  getServiceLogs(serviceName: string, tail: number): Promise<string>;
+  execServiceCommand(
+    serviceName: string,
+    command: readonly string[],
+  ): Promise<void>;
+  inspectNetwork(networkName: string): Promise<{
+    driver: string;
+    attachable: boolean;
+  }>;
+}
+export type DockerWorkloadMigrationPort = Pick<
+  DockerServicePort,
+  | "sanitizeName"
+  | "deployAppImage"
+  | "waitForServiceConvergence"
+  | "runPostDeploySmokeTest"
+  | "removeResource"
+  | "getServerRuntimeStats"
+  | "serviceExists"
+>;
+export type DockerAutoscalingPort = Pick<
+  DockerServicePort,
+  "getContainers" | "scaleService"
 >;
 
 export type DockerInspectionTarget =
@@ -439,6 +595,8 @@ export interface DockerExecPort {
     target: DockerInspectionTarget,
     containerId: string,
     command: string,
+    options?: { timeoutSeconds?: number; onLog?: (chunk: string) => void },
+    resourceId?: string,
   ): Promise<{ output: string; stderr?: string; exitCode?: number }>;
   execServerTerminalCommand(
     target: DockerInspectionTarget,

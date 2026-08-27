@@ -555,6 +555,10 @@ export class BackupRuntimeService {
     resource?: Resource,
   ): Promise<void> {
     const storage = await this.resolveBackupStorageDestination(destination);
+    if (schedule.kind === "web-server") {
+      await this.verifyWebServerBackup(storage, fileKey);
+      return;
+    }
     if (schedule.kind !== "database") {
       await runRclone(storage, [
         "size",
@@ -1404,6 +1408,62 @@ export class BackupRuntimeService {
       throw new ValidationError("Web-server backup manifest is invalid");
     }
     return validateWebServerBackupManifest(parsed, manifestKey);
+  }
+
+  private async verifyWebServerBackup(
+    storage: ReturnType<typeof toBackupStorageDestination>,
+    manifestKey: string,
+  ): Promise<void> {
+    const manifest = await this.readWebServerManifest(storage, manifestKey);
+    const databaseKey = manifest.files.find((file) =>
+      file.endsWith("control-plane.dump"),
+    );
+    if (!databaseKey) {
+      throw new ValidationError(
+        "Web-server backup has no control-plane database dump",
+      );
+    }
+
+    await pipeProcesses(
+      "rclone",
+      ["cat", ...storage.rcloneFlags, rcloneRemote(storage, databaseKey)],
+      "docker",
+      [
+        "run",
+        "--rm",
+        "-i",
+        "--network",
+        "none",
+        "--entrypoint",
+        "sh",
+        CONTROL_PLANE_POSTGRES_CLIENT_IMAGE,
+        "-ec",
+        "cat > /tmp/upstand-control-plane.dump && pg_restore -l /tmp/upstand-control-plane.dump >/dev/null",
+      ],
+      { producer: storage.rcloneEnvironment },
+    );
+
+    for (const file of manifest.files) {
+      if (file === databaseKey) continue;
+      await pipeProcesses(
+        "rclone",
+        ["cat", ...storage.rcloneFlags, rcloneRemote(storage, file)],
+        "docker",
+        [
+          "run",
+          "--rm",
+          "-i",
+          "--network",
+          "none",
+          "--entrypoint",
+          "sh",
+          BACKUP_HELPER_ALPINE_IMAGE,
+          "-ec",
+          "tar -tzf - > /tmp/upstand-volume.list && test -s /tmp/upstand-volume.list && ! grep -Eq '(^/|(^|/)\\.\\.(/|$))' /tmp/upstand-volume.list",
+        ],
+        { producer: storage.rcloneEnvironment },
+      );
+    }
   }
 
   private async createVolumeBackup(

@@ -66,10 +66,12 @@ await waitForMigrationBarrier({
 
 let shuttingDown = false;
 
-const schedulerManager = new SchedulerManager();
-const workerManager = new WorkerManager();
+const schedulesRole = env.UPSTAND_SCHEDULES_ROLE;
+const schedulerManager =
+  schedulesRole === "deployment-worker" ? null : new SchedulerManager();
+const workerManager = new WorkerManager(schedulesRole);
 
-await schedulerManager.start();
+await schedulerManager?.start();
 await workerManager.start();
 
 const healthApp = createHealthServer(workerManager, () => shuttingDown, {
@@ -94,6 +96,8 @@ const healthApp = createHealthServer(workerManager, () => shuttingDown, {
       return {
         lastSucceededAt: succeeded[0]?.completedAt?.toISOString() ?? null,
         lastFailedAt: failed[0]?.completedAt?.toISOString() ?? null,
+        lastSucceededRestoreTestedAt:
+          succeeded[0]?.restoreTestedAt?.toISOString() ?? null,
       };
     } finally {
       await scope.dispose();
@@ -112,6 +116,8 @@ const operationalMonitor = createOperationalMonitor(
       outboxDeadLetter: env.UPSTAND_OUTBOX_ALERT_DEAD_LETTER_THRESHOLD,
       backupMaxAgeMs: env.UPSTAND_BACKUP_ALERT_MAX_AGE_MS,
       backupRequireSuccess: env.UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS,
+      backupRequireRestoreVerification:
+        env.UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION,
     },
     onAlert: (alert) => {
       log.error({
@@ -133,7 +139,7 @@ async function shutdown(signal: string): Promise<void> {
   });
 
   const drainWork = Promise.allSettled([
-    schedulerManager.stop(),
+    schedulerManager?.stop() ?? Promise.resolve(),
     workerManager.stop(),
   ]);
 

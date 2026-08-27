@@ -29,6 +29,7 @@ import {
 import { isStepUpAuthenticationSatisfied } from "../../step-up-auth";
 import { logRequestError } from "../error-logging";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
+import { recordWebhookRequest } from "../server-metrics";
 import type { AppEnv } from "../types";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -78,6 +79,18 @@ const DeploymentWebhookPayloadSchema = z
   .passthrough();
 
 export function registerDeploymentRoutes(app: Hono<AppEnv>): void {
+  app.use("/api/deploy/*", async (c, next) => {
+    const startedAt = performance.now();
+    try {
+      await next();
+    } finally {
+      recordWebhookRequest(
+        "deployment",
+        c.res.status,
+        performance.now() - startedAt,
+      );
+    }
+  });
   app.use(
     "/api/deploy/*",
     createHttpRateLimitMiddleware({

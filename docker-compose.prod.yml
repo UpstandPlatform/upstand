@@ -5,6 +5,8 @@
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
+    security_opt:
+      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
@@ -73,6 +75,8 @@ services:
 
   redis:
     image: ${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
+    security_opt:
+      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
@@ -146,6 +150,8 @@ services:
     image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
     init: true
     read_only: true
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - type: tmpfs
         target: /tmp
@@ -173,9 +179,11 @@ services:
       REDIS_HOST: ${UPSTAND_REDIS_HOST:-redis}
       REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
       REDIS_URL_FILE: /run/secrets/redis_url
+      UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
+      UPSTAND_DIRECT_ORIGINS: ${UPSTAND_DIRECT_ORIGINS:-false}
       UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: ${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}
       UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
       OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
@@ -187,6 +195,7 @@ services:
       - database_url
       - redis_url
       - better_auth_secret
+      - upgal_tool_approval_secret
       - encryption_key
     networks:
       upstand-network:
@@ -201,14 +210,74 @@ services:
           - node.labels.upstand.control-plane == true
     command: ["bun", "run", "apps/server/dist/migrate.mjs"]
 
+  docker-broker:
+    image: ${UPSTAND_DOCKER_BROKER_IMAGE:?UPSTAND_DOCKER_BROKER_IMAGE is required}
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
+    environment:
+      UPSTAND_DOCKER_SOCKET: /var/run/docker.sock
+      UPSTAND_DOCKER_BROKER_SERVER_TOKEN_FILE: /run/secrets/docker_broker_server_token
+      UPSTAND_DOCKER_BROKER_SCHEDULES_TOKEN_FILE: /run/secrets/docker_broker_schedules_token
+      UPSTAND_DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN_FILE: /run/secrets/docker_broker_deployment_worker_token
+      UPSTAND_DOCKER_BROKER_ALLOWED_CALLERS: server,schedules,deployment-worker
+      UPSTAND_DOCKER_BROKER_MAX_INFLIGHT: ${UPSTAND_DOCKER_BROKER_MAX_INFLIGHT:-64}
+      UPSTAND_DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
+      UPSTAND_DOCKER_BROKER_TLS_REQUIRED: "true"
+      UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/docker_broker_ca
+      UPSTAND_DOCKER_BROKER_CERT_FILE: /run/secrets/docker_broker_server_cert
+      UPSTAND_DOCKER_BROKER_KEY_FILE: /run/secrets/docker_broker_server_key
+    secrets:
+      - docker_broker_ca
+      - docker_broker_server_cert
+      - docker_broker_server_key
+      - docker_broker_server_token
+      - docker_broker_schedules_token
+      - docker_broker_deployment_worker_token
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      docker-control:
+        aliases:
+          - docker-broker
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 0
+        window: 120s
+      resources:
+        reservations:
+          cpus: "0.10"
+          memory: 64M
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
   server:
     image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
     init: true
     stop_grace_period: 5m
     read_only: true
+    security_opt:
+      - no-new-privileges:true
     cap_drop:
       - ALL
-    user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
+    user: "10001:10001"
     environment:
       NODE_ENV: production
       DATABASE_HOST: ${UPSTAND_DATABASE_HOST:-postgres}
@@ -223,6 +292,7 @@ services:
       REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
       REDIS_URL_FILE: /run/secrets/redis_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
@@ -243,6 +313,7 @@ services:
       UPSTAND_FUMADOCS_UPSTREAM: http://fumadocs:4000
       UPSTAND_SERVER_IMAGE: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
       UPSTAND_MONITORING_IMAGE: ${UPSTAND_MONITORING_IMAGE:?UPSTAND_MONITORING_IMAGE is required}
+      DOCKER_CONTROL_NETWORK: ${DOCKER_CONTROL_NETWORK:-upstand-docker-control}
       UPSTAND_SCHEDULES_INTERNAL_URL: http://schedules:3002
       UPSTAND_VERSION: ${UPSTAND_VERSION:-}
       UPSTAND_AUTO_UPDATE: ${UPSTAND_AUTO_UPDATE:-false}
@@ -250,13 +321,35 @@ services:
       UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}
       UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}
       UPSTAND_BACKUP_COMMAND_TIMEOUT_MS: ${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-1800000}
+      UPSTAND_BACKUP_ALERT_MAX_AGE_MS: ${UPSTAND_BACKUP_ALERT_MAX_AGE_MS:-172800000}
+      UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS: ${UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS:-true}
+      UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION: ${UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION:-true}
+      UPSTAND_DR_READINESS_GATE: ${UPSTAND_DR_READINESS_GATE:-true}
+      UPSTAND_DR_OFFSITE_CONFIRMED: ${UPSTAND_DR_OFFSITE_CONFIRMED:-false}
+      UPSTAND_DR_KEY_ESCROW_CONFIRMED: ${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-false}
+      UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED: ${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-false}
+      UPSTAND_DR_RPO_SECONDS: ${UPSTAND_DR_RPO_SECONDS:-}
+      UPSTAND_DR_RTO_SECONDS: ${UPSTAND_DR_RTO_SECONDS:-}
+      UPSTAND_DR_EVIDENCE_REFERENCE: ${UPSTAND_DR_EVIDENCE_REFERENCE:-}
       UPSTAND_AUDIT_LOG_RETENTION_DAYS: ${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-365}
       OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
       UPSTAND_SKIP_MIGRATIONS: "true"
       UPSTAND_MIGRATION_ID: ${UPSTAND_MIGRATION_ID:?UPSTAND_MIGRATION_ID is required}
       EVLOG_FS_DIR: /tmp/.evlog/logs
       IS_CLOUD: ${IS_CLOUD:-false}
-      DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_HOST: https://docker-broker:2375
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /run/secrets
+      UPSTAND_DOCKER_BROKER_TOKEN_FILE: /run/secrets/docker_broker_server_token
+      UPSTAND_DOCKER_BROKER_CALLER: server
+      UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/docker_broker_ca
+      UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_server_client_cert
+      UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE: /run/secrets/docker_broker_server_client_key
+      UPSTAND_METRICS_TOKEN_FILE: /run/secrets/metrics_token
+      UPGAL_DAILY_TOKEN_LIMIT: ${UPGAL_DAILY_TOKEN_LIMIT:-1000000}
+      UPGAL_DAILY_COST_LIMIT_USD: ${UPGAL_DAILY_COST_LIMIT_USD:-100}
+      UPGAL_MAX_COST_PER_MILLION_TOKENS_USD: ${UPGAL_MAX_COST_PER_MILLION_TOKENS_USD:-100}
+      UPGAL_ALLOWED_MODELS: ${UPGAL_ALLOWED_MODELS:-}
       DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
     secrets:
       - postgres_password
@@ -264,7 +357,16 @@ services:
       - database_url
       - redis_url
       - better_auth_secret
+      - upgal_tool_approval_secret
       - encryption_key
+      - source: docker_broker_ca
+        target: ca.pem
+      - source: docker_broker_server_client_cert
+        target: cert.pem
+      - source: docker_broker_server_client_key
+        target: key.pem
+      - docker_broker_server_token
+      - metrics_token
     volumes:
       - type: tmpfs
         target: /tmp
@@ -281,14 +383,14 @@ services:
         tmpfs:
           size: 16777216
           mode: 1777
-      - /var/run/docker.sock:/var/run/docker.sock
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       upstand-network:
         aliases:
           - server
           - upstand_server
+      docker-control:
+        aliases:
+          - server-docker-control
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/health/live').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -338,11 +440,14 @@ services:
     init: true
     stop_grace_period: 2m
     read_only: true
+    security_opt:
+      - no-new-privileges:true
     cap_drop:
       - ALL
-    user: "10001:${UPSTAND_DOCKER_GID:?UPSTAND_DOCKER_GID is required}"
+    user: "10001:10001"
     environment:
       NODE_ENV: production
+      UPSTAND_SCHEDULES_ROLE: orchestrator
       DATABASE_HOST: ${UPSTAND_DATABASE_HOST:-postgres}
       DATABASE_PORT: ${UPSTAND_DATABASE_PORT:-5432}
       DATABASE_NAME: ${UPSTAND_DATABASE_NAME:-upstand}
@@ -355,19 +460,38 @@ services:
       REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
       REDIS_URL_FILE: /run/secrets/redis_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
       UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
       UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
       ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
       SSH_KEY_ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
-      DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_HOST: https://docker-broker:2375
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /run/secrets
+      UPSTAND_DOCKER_BROKER_TOKEN_FILE: /run/secrets/docker_broker_schedules_token
+      UPSTAND_DOCKER_BROKER_CALLER: schedules
+      UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/docker_broker_ca
+      UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_schedules_client_cert
+      UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE: /run/secrets/docker_broker_schedules_client_key
       DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
+      DOCKER_CONTROL_NETWORK: ${DOCKER_CONTROL_NETWORK:-upstand-docker-control}
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000
       UPSTAND_OUTBOUND_ALLOWED_HOSTS: ${UPSTAND_OUTBOUND_ALLOWED_HOSTS:-}
       UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}
       UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}
       UPSTAND_BACKUP_COMMAND_TIMEOUT_MS: ${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-1800000}
+      UPSTAND_BACKUP_ALERT_MAX_AGE_MS: ${UPSTAND_BACKUP_ALERT_MAX_AGE_MS:-172800000}
+      UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS: ${UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS:-true}
+      UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION: ${UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION:-true}
+      UPSTAND_DR_READINESS_GATE: ${UPSTAND_DR_READINESS_GATE:-true}
+      UPSTAND_DR_OFFSITE_CONFIRMED: ${UPSTAND_DR_OFFSITE_CONFIRMED:-false}
+      UPSTAND_DR_KEY_ESCROW_CONFIRMED: ${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-false}
+      UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED: ${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-false}
+      UPSTAND_DR_RPO_SECONDS: ${UPSTAND_DR_RPO_SECONDS:-}
+      UPSTAND_DR_RTO_SECONDS: ${UPSTAND_DR_RTO_SECONDS:-}
+      UPSTAND_DR_EVIDENCE_REFERENCE: ${UPSTAND_DR_EVIDENCE_REFERENCE:-}
       UPSTAND_AUDIT_LOG_RETENTION_DAYS: ${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-365}
       OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
       UPSTAND_SKIP_MIGRATIONS: "true"
@@ -380,7 +504,15 @@ services:
       - database_url
       - redis_url
       - better_auth_secret
+      - upgal_tool_approval_secret
       - encryption_key
+      - source: docker_broker_ca
+        target: ca.pem
+      - source: docker_broker_schedules_client_cert
+        target: cert.pem
+      - source: docker_broker_schedules_client_key
+        target: key.pem
+      - docker_broker_schedules_token
     volumes:
       - type: tmpfs
         target: /tmp
@@ -397,14 +529,14 @@ services:
         tmpfs:
           size: 16777216
           mode: 1777
-      - /var/run/docker.sock:/var/run/docker.sock
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       upstand-network:
         aliases:
           - schedules
           - upstand_schedules
+      docker-control:
+        aliases:
+          - schedules-docker-control
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3002/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -449,11 +581,149 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  deployment-worker:
+    image: ${UPSTAND_DEPLOYMENT_WORKER_IMAGE:?UPSTAND_DEPLOYMENT_WORKER_IMAGE is required}
+    init: true
+    stop_grace_period: 5m
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "10001:10001"
+    environment:
+      NODE_ENV: production
+      UPSTAND_SCHEDULES_ROLE: deployment-worker
+      DATABASE_HOST: ${UPSTAND_DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${UPSTAND_DATABASE_PORT:-5432}
+      DATABASE_NAME: ${UPSTAND_DATABASE_NAME:-upstand}
+      DATABASE_USER: ${UPSTAND_DATABASE_USER:-upstand}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      UPSTAND_DATABASE_POOL_MAX: ${UPSTAND_DATABASE_POOL_MAX:-20}
+      UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS: ${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-30000}
+      UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS: ${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-5000}
+      REDIS_HOST: ${UPSTAND_REDIS_HOST:-redis}
+      REDIS_PORT: ${UPSTAND_REDIS_PORT:-6379}
+      REDIS_URL_FILE: /run/secrets/redis_url
+      BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+      UPSTAND_ALLOW_INSECURE_BOOTSTRAP: ${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}
+      UPSTAND_ALLOW_UNOBSERVED_PRODUCTION: ${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}
+      ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
+      SSH_KEY_ENCRYPTION_KEY_V1_FILE: /run/secrets/encryption_key
+      DOCKER_HOST: https://docker-broker:2375
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /run/secrets
+      UPSTAND_DOCKER_BROKER_TOKEN_FILE: /run/secrets/docker_broker_deployment_worker_token
+      UPSTAND_DOCKER_BROKER_CALLER: deployment-worker
+      UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/docker_broker_ca
+      UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_deployment_worker_client_cert
+      UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE: /run/secrets/docker_broker_deployment_worker_client_key
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-upstand-network}
+      DOCKER_CONTROL_NETWORK: ${DOCKER_CONTROL_NETWORK:-upstand-docker-control}
+      UPSTAND_SERVER_INTERNAL_URL: http://server:3000
+      UPSTAND_OUTBOUND_ALLOWED_HOSTS: ${UPSTAND_OUTBOUND_ALLOWED_HOSTS:-}
+      UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}
+      UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS: ${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}
+      UPSTAND_BACKUP_COMMAND_TIMEOUT_MS: ${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-1800000}
+      UPSTAND_AUDIT_LOG_RETENTION_DAYS: ${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-365}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      UPSTAND_SKIP_MIGRATIONS: "true"
+      UPSTAND_MIGRATION_ID: ${UPSTAND_MIGRATION_ID:?UPSTAND_MIGRATION_ID is required}
+      SCHEDULES_PORT: 3003
+      EVLOG_FS_DIR: /tmp/.evlog/logs
+    secrets:
+      - postgres_password
+      - redis_password
+      - database_url
+      - redis_url
+      - better_auth_secret
+      - upgal_tool_approval_secret
+      - encryption_key
+      - source: docker_broker_ca
+        target: ca.pem
+      - source: docker_broker_deployment_worker_client_cert
+        target: cert.pem
+      - source: docker_broker_deployment_worker_client_key
+        target: key.pem
+      - docker_broker_deployment_worker_token
+    volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 536870912
+          mode: 1777
+      - type: tmpfs
+        target: /app/.builds
+        tmpfs:
+          size: 4294967296
+          mode: 1777
+      - type: tmpfs
+        target: /home/upstand/.docker
+        tmpfs:
+          size: 16777216
+          mode: 1777
+    networks:
+      upstand-network:
+        aliases:
+          - deployment-worker
+          - upstand_deployment_worker
+      docker-control:
+        aliases:
+          - deployment-worker-docker-control
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3003/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: ${UPSTAND_DEPLOYMENT_WORKER_REPLICAS:-1}
+      endpoint_mode: dnsrr
+      placement:
+        constraints:
+          - node.labels.upstand.control-plane == true
+        preferences:
+          - spread: node.id
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 0
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+        monitor: 45s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: start-first
+        failure_action: pause
+        monitor: 45s
+      resources:
+        reservations:
+          cpus: "0.15"
+          memory: 256M
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
 
   web:
     image: ${UPSTAND_WEB_IMAGE:?UPSTAND_WEB_IMAGE is required}
     stop_grace_period: 1m
     read_only: true
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - type: tmpfs
         target: /tmp
@@ -523,6 +793,8 @@ services:
     image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
     stop_grace_period: 1m
     read_only: true
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - type: tmpfs
         target: /tmp
@@ -602,14 +874,45 @@ secrets:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/redis_password
   better_auth_secret:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/better_auth_secret
+  upgal_tool_approval_secret:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/upgal_tool_approval_secret
   encryption_key:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/encryption_key
   database_url:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/database_url
   redis_url:
     file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/redis_url
+  docker_broker_server_token:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_server_token
+  docker_broker_schedules_token:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_schedules_token
+  docker_broker_deployment_worker_token:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_deployment_worker_token
+  docker_broker_ca:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_ca
+  docker_broker_server_cert:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_server_cert
+  docker_broker_server_key:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_server_key
+  docker_broker_server_client_cert:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_server_client_cert
+  docker_broker_server_client_key:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_server_client_key
+  docker_broker_schedules_client_cert:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_schedules_client_cert
+  docker_broker_schedules_client_key:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_schedules_client_key
+  docker_broker_deployment_worker_client_cert:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_deployment_worker_client_cert
+  docker_broker_deployment_worker_client_key:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/docker_broker_deployment_worker_client_key
+  metrics_token:
+    file: ${UPSTAND_SECRETS_DIR:-/etc/upstand/secrets}/metrics_token
 
 networks:
   upstand-network:
     external: true
     name: ${DOCKER_NETWORK:-upstand-network}
+  docker-control:
+    external: true
+    name: ${DOCKER_CONTROL_NETWORK:-upstand-docker-control}

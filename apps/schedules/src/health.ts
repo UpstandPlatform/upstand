@@ -18,6 +18,7 @@ export type HealthDependencies = {
 export type BackupOperationalSummary = {
   lastSucceededAt: string | null;
   lastFailedAt: string | null;
+  lastSucceededRestoreTestedAt?: string | null;
 };
 
 export type OperationalStatus = {
@@ -156,6 +157,17 @@ export function renderOperationalMetrics(
       ? Math.max(0, (now - lastSucceededAt) / 1000)
       : 0,
   );
+  help(
+    "upstand_schedules_backup_restore_verified",
+    "Whether the most recent successful backup has a recorded restore verification.",
+  );
+  metric(
+    "upstand_schedules_backup_restore_verified",
+    Boolean(
+      status.backup?.lastSucceededRestoreTestedAt &&
+        Number.isFinite(Date.parse(status.backup.lastSucceededRestoreTestedAt)),
+    ),
+  );
 
   return `${lines.join("\n")}\n`;
 }
@@ -176,6 +188,7 @@ export type OperationalAlertThresholds = {
   outboxDeadLetter: number;
   backupMaxAgeMs: number;
   backupRequireSuccess: boolean;
+  backupRequireRestoreVerification?: boolean;
 };
 
 export type OperationalAlert = {
@@ -190,7 +203,8 @@ export type OperationalAlert = {
     | "outbox_dead_letter_threshold"
     | "backup_failed"
     | "backup_missing"
-    | "backup_stale";
+    | "backup_stale"
+    | "backup_restore_unverified";
   message: string;
   details: Record<string, boolean | number | string>;
 };
@@ -297,6 +311,24 @@ export function evaluateOperationalAlerts(
         code: "backup_missing",
         message: "No successful backup has been recorded",
         details: {},
+      });
+    }
+    if (
+      thresholds.backupRequireRestoreVerification &&
+      Number.isFinite(lastSucceededAt) &&
+      !Number.isFinite(
+        status.backup.lastSucceededRestoreTestedAt
+          ? Date.parse(status.backup.lastSucceededRestoreTestedAt)
+          : Number.NaN,
+      )
+    ) {
+      alerts.push({
+        code: "backup_restore_unverified",
+        message:
+          "The most recent successful backup has not been restore-tested",
+        details: {
+          lastSucceededAt: status.backup.lastSucceededAt ?? "",
+        },
       });
     }
     if (

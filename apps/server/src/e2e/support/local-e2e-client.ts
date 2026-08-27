@@ -39,9 +39,12 @@ export const e2eContext: LocalE2eContext = {
   // to run without a server listening on localhost:3000.
   serverAvailable:
     env.E2E_SERVER_AVAILABLE || env.E2E_BASE_URL !== "http://localhost:3000",
-  resourceConfigured: true,
-  remoteServerConfigured: true,
-  organizationConfigured: true,
+  resourceConfigured:
+    env.E2E_SERVER_AVAILABLE || env.E2E_BASE_URL !== "http://localhost:3000",
+  remoteServerConfigured:
+    env.E2E_SERVER_AVAILABLE || env.E2E_BASE_URL !== "http://localhost:3000",
+  organizationConfigured:
+    env.E2E_SERVER_AVAILABLE || env.E2E_BASE_URL !== "http://localhost:3000",
   backupDestinationId: env.E2E_BACKUP_DESTINATION_ID,
 };
 

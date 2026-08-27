@@ -6,6 +6,7 @@ import type {
 } from "@upstand/domain";
 import { relations } from "drizzle-orm";
 import {
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -40,6 +41,10 @@ export const aiProviderConfig = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
+    uniqueIndex("ai_provider_config_org_id_uidx").on(
+      table.organizationId,
+      table.id,
+    ),
     index("ai_provider_config_org_idx").on(
       table.organizationId,
       table.createdAt,
@@ -67,6 +72,11 @@ export const aiFeatureAssignment = pgTable(
       table.feature,
     ),
     index("ai_feature_assignment_org_idx").on(table.organizationId),
+    foreignKey({
+      columns: [table.organizationId, table.providerConfigId],
+      foreignColumns: [aiProviderConfig.organizationId, aiProviderConfig.id],
+      name: "ai_feature_assignment_org_provider_config_fk",
+    }).onDelete("cascade"),
   ],
 );
 
@@ -87,6 +97,10 @@ export const aiConversation = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
+    uniqueIndex("ai_conversation_org_id_uidx").on(
+      table.organizationId,
+      table.id,
+    ),
     index("ai_conversation_org_idx").on(table.organizationId, table.updatedAt),
     index("ai_conversation_org_user_idx").on(
       table.organizationId,
@@ -132,12 +146,21 @@ export const aiRun = pgTable(
     status: text("status").notNull().default("running"),
     model: text("model").notNull(),
     stepCount: integer("step_count").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
     error: text("error"),
     startedAt: timestamp("started_at").defaultNow().notNull(),
     finishedAt: timestamp("finished_at"),
   },
   (table) => [
+    uniqueIndex("ai_run_org_id_uidx").on(table.organizationId, table.id),
     index("ai_run_conversation_idx").on(table.conversationId, table.startedAt),
+    foreignKey({
+      columns: [table.organizationId, table.conversationId],
+      foreignColumns: [aiConversation.organizationId, aiConversation.id],
+      name: "ai_run_org_conversation_fk",
+    }).onDelete("cascade"),
   ],
 );
 
@@ -168,6 +191,16 @@ export const aiApproval = pgTable(
   (table) => [
     uniqueIndex("ai_approval_tool_call_uidx").on(table.runId, table.toolCallId),
     index("ai_approval_org_idx").on(table.organizationId, table.status),
+    foreignKey({
+      columns: [table.organizationId, table.runId],
+      foreignColumns: [aiRun.organizationId, aiRun.id],
+      name: "ai_approval_org_run_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.conversationId],
+      foreignColumns: [aiConversation.organizationId, aiConversation.id],
+      name: "ai_approval_org_conversation_fk",
+    }).onDelete("cascade"),
   ],
 );
 

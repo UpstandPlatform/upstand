@@ -65,6 +65,7 @@ services:
       CHOKIDAR_USEPOLLING: "true"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-upstand-local-password}@postgres:5432/upstand
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-upstand-local-development-secret-that-is-at-least-32-characters}
+      UPGAL_TOOL_APPROVAL_SECRET: ${UPGAL_TOOL_APPROVAL_SECRET:-upgal-local-approval-secret-that-is-at-least-32-characters}
       BETTER_AUTH_URL: http://localhost:3000
       CORS_ORIGIN: http://localhost:3001
       REDIS_URL: redis://redis:6379
@@ -128,6 +129,7 @@ services:
       CHOKIDAR_USEPOLLING: "true"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-upstand-local-password}@postgres:5432/upstand
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-upstand-local-development-secret-that-is-at-least-32-characters}
+      UPGAL_TOOL_APPROVAL_SECRET: ${UPGAL_TOOL_APPROVAL_SECRET:-upgal-local-approval-secret-that-is-at-least-32-characters}
       REDIS_URL: redis://redis:6379
       SCHEDULES_PORT: 3002
       UPSTAND_SERVER_INTERNAL_URL: http://server:3000

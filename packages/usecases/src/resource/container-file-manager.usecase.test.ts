@@ -145,9 +145,10 @@ describe("ContainerFileManagerUseCase", () => {
       isBase64: false,
     });
     expect(context.calls[0]?.method).toBe("writeFile");
-    expect(context.calls[0]?.args.at(-1)).toBe(
+    expect(context.calls[0]?.args.at(-2)).toBe(
       Buffer.from("hello world", "utf8").toString("base64"),
     );
+    expect(context.calls[0]?.args.at(-1)).toBe(context.resourceId);
   });
 
   test("rejects traversal, missing mounts, and non-exact container identities", async () => {

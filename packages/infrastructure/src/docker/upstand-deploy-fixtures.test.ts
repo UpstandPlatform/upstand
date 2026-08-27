@@ -57,6 +57,7 @@ function createBuildHarness(): {
       environment?: NodeJS.ProcessEnv,
     ): Promise<void>;
     buildApplicationImage(
+      resourceId: string,
       clonePath: string,
       imageName: string,
       config: ApplicationBuildConfig,
@@ -80,6 +81,7 @@ function createBuildHarness(): {
     calls,
     build: (config, fixturePath) =>
       privateService.buildApplicationImage(
+        "fixture-resource",
         fixturePath,
         "upstand-fixture:test",
         config,
@@ -159,6 +161,8 @@ describe("Upstand deployment fixtures & auto build-configuration detection", () 
           "BUILDKIT_SYNTAX=ghcr.io/railwayapp/railpack-frontend:v0.15.4",
           "--secret",
           "type=env,id=PORT",
+          "--label",
+          "com.upstand.resource-id=fixture-resource",
           path.join(fixtureRoot, fixture),
         ]),
       });

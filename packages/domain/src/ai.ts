@@ -269,6 +269,13 @@ export interface IAIRepository {
     runId: string,
     organizationId: string,
     userId: string,
-    patch: { stepCount?: number; status?: string; finishedAt?: Date },
+    patch: {
+      stepCount?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+      status?: string;
+      finishedAt?: Date;
+    },
   ): Promise<void>;
 }

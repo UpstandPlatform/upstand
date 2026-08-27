@@ -4,7 +4,7 @@ import { log } from "evlog";
 import { z } from "zod";
 import type { NotificationPublisher } from "../notification/publish-notification.usecase";
 import { requiresRemoteServerPlacement } from "../platform/platform.types";
-import { getDockerInstance } from "../resource/docker-client";
+import type { DockerSelfUpdatePort } from "../ports/docker";
 import { GetUpdateStatusUseCase } from "./get-update-status.usecase";
 
 export const TriggerUpdateInputSchema = z.object({
@@ -51,9 +51,8 @@ export async function cleanupUpdateArtifacts(
 }
 
 export class TriggerUpdateUseCase {
-  private readonly docker = getDockerInstance();
-
   constructor(
+    private readonly docker: DockerSelfUpdatePort,
     private readonly notificationPublisher?: NotificationPublisher,
     private readonly dockerCleanup?: UpdateArtifactCleanup,
   ) {}
@@ -98,153 +97,161 @@ export class TriggerUpdateUseCase {
         });
 
         try {
-          const services = await this.docker.listServices();
-          const candidateServices = services.filter(({ Spec }) => {
-            const name = Spec?.Name || "";
-            return [
-              "upstand-server",
-              "upstand-schedules",
-              "upstand-web",
-              "upstand-fumadocs",
-              "upstand_server",
-              "upstand_schedules",
-              "upstand_web",
-              "upstand_fumadocs",
-            ].includes(name);
-          });
-          const inspectedServices = await Promise.all(
-            candidateServices.map(async (serviceSummary) => {
-              const service = this.docker.getService(serviceSummary.ID);
-              return service.inspect();
-            }),
-          );
-          for (const inspect of inspectedServices) {
-            const image = inspect.Spec.TaskTemplate?.ContainerSpec?.Image || "";
-            if (image.includes(":source-")) {
-              throw new Error(
-                "This installation was built from source. Run the GitHub installer to update it, or reinstall from a published release image.",
-              );
-            }
-          }
-
           // Reclaim artifacts left by previous releases before pulling the next
           // set of immutable images. Volumes are intentionally excluded because
           // they contain application data and are not build artifacts.
           await cleanupUpdateArtifacts(this.dockerCleanup, version);
 
           let updatedCount = 0;
-
-          for (const s of services) {
-            const name = s.Spec?.Name || "";
-            if (
-              name === "upstand-server" ||
-              name === "upstand-schedules" ||
-              name === "upstand-web" ||
-              name === "upstand-fumadocs" ||
-              name === "upstand_server" ||
-              name === "upstand_schedules" ||
-              name === "upstand_web" ||
-              name === "upstand_fumadocs"
-            ) {
-              const service = this.docker.getService(s.ID);
-              const inspect = await service.inspect();
-              const currentImage =
-                inspect.Spec.TaskTemplate?.ContainerSpec?.Image || "";
-
-              if (!currentImage) continue;
-
-              if (currentImage.includes(":source-")) {
+          if (this.docker.applySelfUpdate) {
+            ({ updatedCount } = await this.docker.applySelfUpdate({
+              version,
+              repository: env.GITHUB_REPOSITORY,
+              images: input.images,
+            }));
+          } else {
+            const services = await this.docker.listServices();
+            const candidateServices = services.filter(({ name }) => {
+              return [
+                "upstand-server",
+                "upstand-schedules",
+                "upstand-web",
+                "upstand-fumadocs",
+                "upstand_server",
+                "upstand_schedules",
+                "upstand_web",
+                "upstand_fumadocs",
+              ].includes(name);
+            });
+            const inspectedServices = await Promise.all(
+              candidateServices.map(({ id }) => this.docker.inspectService(id)),
+            );
+            for (const inspect of inspectedServices) {
+              const image = inspect.taskTemplate.ContainerSpec?.Image || "";
+              if (image.includes(":source-")) {
                 throw new Error(
                   "This installation was built from source. Run the GitHub installer to update it, or reinstall from a published release image.",
                 );
               }
+            }
 
-              let baseImage = currentImage;
-              if (baseImage.includes("@sha256:")) {
-                baseImage = baseImage.split("@sha256:")[0];
-              }
-              const digestSeparator = baseImage.lastIndexOf("@");
-              if (digestSeparator >= 0)
-                baseImage = baseImage.slice(0, digestSeparator);
-              const tagSeparator = baseImage.lastIndexOf(":");
-              if (tagSeparator > baseImage.lastIndexOf("/")) {
-                baseImage = baseImage.slice(0, tagSeparator);
-              }
-
-              const imageName = name.includes("fumadocs")
-                ? "fumadocs"
-                : name.includes("schedules")
-                  ? "schedules"
-                  : name.includes("web")
-                    ? "web"
-                    : "server";
-
+            for (const s of services) {
+              const name = s.name;
               if (
-                !baseImage.includes("/") ||
-                baseImage.startsWith("upstand-")
+                name === "upstand-server" ||
+                name === "upstand-schedules" ||
+                name === "upstand-web" ||
+                name === "upstand-fumadocs" ||
+                name === "upstand_server" ||
+                name === "upstand_schedules" ||
+                name === "upstand_web" ||
+                name === "upstand_fumadocs"
               ) {
-                const repo = env.GITHUB_REPOSITORY;
-                baseImage = `ghcr.io/${repo}-${imageName}`;
-              }
+                const inspect = await this.docker.inspectService(s.id);
+                const currentImage =
+                  inspect.taskTemplate.ContainerSpec?.Image || "";
 
-              const newImage = `${baseImage}@${input.images[imageName]}`;
-              const currentEnv = (inspect.Spec.TaskTemplate.ContainerSpec.Env ??
-                []) as string[];
-              let nextEnv = currentEnv.some((entry) =>
-                entry.startsWith("UPSTAND_VERSION="),
-              )
-                ? currentEnv.map((entry) =>
-                    entry.startsWith("UPSTAND_VERSION=")
-                      ? `UPSTAND_VERSION=${version}`
-                      : entry,
-                  )
-                : [...currentEnv, `UPSTAND_VERSION=${version}`];
-              nextEnv = nextEnv.some((entry) =>
-                entry.startsWith("UPSTAND_UPDATE_COMPLETION_VERSION="),
-              )
-                ? nextEnv.map((entry) =>
-                    entry.startsWith("UPSTAND_UPDATE_COMPLETION_VERSION=")
-                      ? `UPSTAND_UPDATE_COMPLETION_VERSION=${version}`
-                      : entry,
-                  )
-                : [...nextEnv, `UPSTAND_UPDATE_COMPLETION_VERSION=${version}`];
-              if (imageName === "server") {
-                const monitoringBaseImage = baseImage.replace(
-                  /-server$/,
-                  "-monitoring",
-                );
-                const monitoringImage = `${monitoringBaseImage}@${input.images.monitoring}`;
-                nextEnv = nextEnv.some((entry) =>
-                  entry.startsWith("UPSTAND_MONITORING_IMAGE="),
+                if (!currentImage) continue;
+
+                if (currentImage.includes(":source-")) {
+                  throw new Error(
+                    "This installation was built from source. Run the GitHub installer to update it, or reinstall from a published release image.",
+                  );
+                }
+
+                let baseImage = currentImage;
+                if (baseImage.includes("@sha256:")) {
+                  baseImage = baseImage.split("@sha256:")[0] ?? baseImage;
+                }
+                const digestSeparator = baseImage.lastIndexOf("@");
+                if (digestSeparator >= 0)
+                  baseImage = baseImage.slice(0, digestSeparator);
+                const tagSeparator = baseImage.lastIndexOf(":");
+                if (tagSeparator > baseImage.lastIndexOf("/")) {
+                  baseImage = baseImage.slice(0, tagSeparator);
+                }
+
+                const imageName = name.includes("fumadocs")
+                  ? "fumadocs"
+                  : name.includes("schedules")
+                    ? "schedules"
+                    : name.includes("web")
+                      ? "web"
+                      : "server";
+
+                if (
+                  !baseImage.includes("/") ||
+                  baseImage.startsWith("upstand-")
+                ) {
+                  const repo = env.GITHUB_REPOSITORY;
+                  baseImage = `ghcr.io/${repo}-${imageName}`;
+                }
+
+                const newImage = `${baseImage}@${input.images[imageName]}`;
+                const currentEnv =
+                  inspect.taskTemplate.ContainerSpec?.Env ?? [];
+                let nextEnv = currentEnv.some((entry) =>
+                  entry.startsWith("UPSTAND_VERSION="),
                 )
-                  ? nextEnv.map((entry) =>
-                      entry.startsWith("UPSTAND_MONITORING_IMAGE=")
-                        ? `UPSTAND_MONITORING_IMAGE=${monitoringImage}`
+                  ? currentEnv.map((entry) =>
+                      entry.startsWith("UPSTAND_VERSION=")
+                        ? `UPSTAND_VERSION=${version}`
                         : entry,
                     )
-                  : [...nextEnv, `UPSTAND_MONITORING_IMAGE=${monitoringImage}`];
-              }
-              log.info({
-                message: `Updating Swarm service '${name}' to use image '${newImage}'...`,
-              });
+                  : [...currentEnv, `UPSTAND_VERSION=${version}`];
+                nextEnv = nextEnv.some((entry) =>
+                  entry.startsWith("UPSTAND_UPDATE_COMPLETION_VERSION="),
+                )
+                  ? nextEnv.map((entry) =>
+                      entry.startsWith("UPSTAND_UPDATE_COMPLETION_VERSION=")
+                        ? `UPSTAND_UPDATE_COMPLETION_VERSION=${version}`
+                        : entry,
+                    )
+                  : [
+                      ...nextEnv,
+                      `UPSTAND_UPDATE_COMPLETION_VERSION=${version}`,
+                    ];
+                if (imageName === "server") {
+                  const monitoringBaseImage = baseImage.replace(
+                    /-server$/,
+                    "-monitoring",
+                  );
+                  const monitoringImage = `${monitoringBaseImage}@${input.images.monitoring}`;
+                  nextEnv = nextEnv.some((entry) =>
+                    entry.startsWith("UPSTAND_MONITORING_IMAGE="),
+                  )
+                    ? nextEnv.map((entry) =>
+                        entry.startsWith("UPSTAND_MONITORING_IMAGE=")
+                          ? `UPSTAND_MONITORING_IMAGE=${monitoringImage}`
+                          : entry,
+                      )
+                    : [
+                        ...nextEnv,
+                        `UPSTAND_MONITORING_IMAGE=${monitoringImage}`,
+                      ];
+                }
+                log.info({
+                  message: `Updating Swarm service '${name}' to use image '${newImage}'...`,
+                });
 
-              await service.update({
-                version: inspect.Version.Index,
-                Name: name,
-                TaskTemplate: {
-                  ...inspect.Spec.TaskTemplate,
-                  ContainerSpec: {
-                    ...inspect.Spec.TaskTemplate.ContainerSpec,
-                    Image: newImage,
-                    Env: nextEnv,
+                await this.docker.updateService(s.id, {
+                  version: inspect.version,
+                  name,
+                  taskTemplate: {
+                    ...inspect.taskTemplate,
+                    ContainerSpec: {
+                      ...inspect.taskTemplate.ContainerSpec,
+                      Image: newImage,
+                      Env: nextEnv,
+                    },
+                    ForceUpdate: (inspect.taskTemplate.ForceUpdate || 0) + 1,
                   },
-                  ForceUpdate: (inspect.Spec.TaskTemplate.ForceUpdate || 0) + 1,
-                },
-                UpdateConfig: inspect.Spec.UpdateConfig,
-                RollbackConfig: inspect.Spec.RollbackConfig,
-                EndpointSpec: inspect.Spec.EndpointSpec,
-              });
-              updatedCount++;
+                  updateConfig: inspect.updateConfig,
+                  rollbackConfig: inspect.rollbackConfig,
+                  endpointSpec: inspect.endpointSpec,
+                });
+                updatedCount++;
+              }
             }
           }
 

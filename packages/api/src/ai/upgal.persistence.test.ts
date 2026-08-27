@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageRecord, IAIRepository } from "@upstand/domain";
-import { saveIncomingMessages, validateAndRecoverUpGalMessages } from "./upgal";
+import {
+  finalizeUpGalRunFailure,
+  saveIncomingMessages,
+  validateAndRecoverUpGalMessages,
+} from "./upgal";
 
 function textMessage(id: string, role: "user" | "assistant", text: string) {
   return {
@@ -37,6 +41,23 @@ function createRepository() {
 }
 
 describe("UpGal message persistence", () => {
+  test("finalizes a failed run even when MCP cleanup fails", async () => {
+    const events: string[] = [];
+
+    await finalizeUpGalRunFailure(
+      async () => {
+        events.push("failed");
+      },
+      async () => {
+        events.push("close");
+        throw new Error("connection already closed");
+      },
+      () => events.push("close-error"),
+    );
+
+    expect(events).toEqual(["failed", "close", "close-error"]);
+  });
+
   test("keeps message timestamps stable when full history is replayed", async () => {
     const state = createRepository();
     const userMessage = textMessage("user-1", "user", "List projects");

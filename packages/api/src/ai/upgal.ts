@@ -81,6 +81,7 @@ import {
 import { log, type RequestLogger } from "evlog";
 import { createEvlogIntegration } from "evlog/ai";
 import { z } from "zod";
+import { recordUpGalUsage } from "../ai-budget";
 import type { RequestLog } from "../context";
 import { requireInstanceOwner } from "../instance-access";
 import { getSessionCapabilities } from "../permissions";
@@ -316,10 +317,6 @@ export const UPGAL_TOOL_METADATA = [
   ["list_tags", "Read all tags in the active organization.", false],
   ["get_resource_tags", "Read tags currently assigned to a resource.", false],
   ["search_web", "Search the public web and return cited result links.", false],
-  ["tavilySearch", "Search the public web using Tavily search.", false],
-  ["tavilyExtract", "Extract web page content using Tavily extract.", false],
-  ["tavilyCrawl", "Crawl website pages using Tavily crawl.", false],
-  ["tavilyMap", "Map website structure and links using Tavily map.", false],
   [
     "guide_upstand",
     "Return a bounded, ordered Upstand UI walkthrough using internal navigation and registered page targets.",
@@ -439,6 +436,31 @@ export const UPGAL_TOOL_CAPABILITIES = MCP_TOOL_CAPABILITIES satisfies Record<
   UpGalToolName,
   Capability
 >;
+
+/**
+ * Hard ceiling for interactive chat generations. Provider settings may lower
+ * this value, but an organization cannot accidentally configure an unbounded
+ * chat completion through the dashboard.
+ */
+export const UPGAL_MAX_CHAT_OUTPUT_TOKENS = 8_192;
+export const UPGAL_MAX_CHAT_TOTAL_TOKENS = 32_768;
+
+/** Finalize a failed run before releasing external model-tool connections. */
+export async function finalizeUpGalRunFailure(
+  updateRun: () => Promise<void>,
+  closeMcp: () => Promise<void>,
+  onCloseError: (error: unknown) => void,
+): Promise<void> {
+  try {
+    await updateRun();
+  } finally {
+    try {
+      await closeMcp();
+    } catch (error) {
+      onCloseError(error);
+    }
+  }
+}
 
 const emptySchema = z
   .object({})
@@ -821,10 +843,6 @@ export const UPGAL_TOOL_INPUT_SCHEMAS: Record<UpGalToolName, z.ZodType> = {
   list_tags: emptySchema,
   get_resource_tags: resourceTagSchema.pick({ resourceId: true }),
   search_web: webSearchSchema,
-  tavilySearch: z.unknown(),
-  tavilyExtract: z.unknown(),
-  tavilyCrawl: z.unknown(),
-  tavilyMap: z.unknown(),
   guide_upstand: guideUpstandSchema,
   create_project: createProjectSchema,
   create_template: templateLookupSchema,
@@ -2201,9 +2219,16 @@ export async function testUpGalProvider(
   const result = await generateText({
     model: provider.model,
     prompt: "Reply with OK.",
+    maxOutputTokens: Math.min(provider.maxOutputTokens ?? 256, 256),
     ...(requestLog
       ? { telemetry: { integrations: [createEvlogIntegration(requestLog)] } }
       : {}),
+  });
+  recordUpGalUsage({
+    provider: provider.provider,
+    modelId: provider.modelId,
+    inputTokens: result.usage.inputTokens ?? 0,
+    outputTokens: result.usage.outputTokens ?? 0,
   });
   return { ok: true, model: provider.modelId, text: result.text };
 }
@@ -2221,6 +2246,7 @@ export async function generateComposeTemplate(
   );
   const result = await generateText({
     model: provider.model,
+    maxOutputTokens: Math.min(provider.maxOutputTokens ?? 4096, 4096),
     prompt: [
       "You generate a safe Docker Compose template for Upstand.",
       ...UPGAL_TEMPLATE_GENERATION_RULES,
@@ -2231,6 +2257,12 @@ export async function generateComposeTemplate(
     ...(requestLog
       ? { telemetry: { integrations: [createEvlogIntegration(requestLog)] } }
       : {}),
+  });
+  recordUpGalUsage({
+    provider: provider.provider,
+    modelId: provider.modelId,
+    inputTokens: result.usage.inputTokens ?? 0,
+    outputTokens: result.usage.outputTokens ?? 0,
   });
   const fenced = result.text.match(/```(?:yaml|yml)?\s*([\s\S]*?)```/i);
   const composeFile = (fenced?.[1] ?? result.text).trim();
@@ -2256,8 +2288,16 @@ export async function createUpGalResponse(
     model: provider.modelId,
   });
   const mcpApps = await connectUpGalMCPApps(context.log);
+  const tokenUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+  };
   const updateRunSafely = async (patch: {
     stepCount?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
     status?: string;
     finishedAt?: Date;
   }) => {
@@ -2270,6 +2310,27 @@ export async function createUpGalResponse(
         err: error,
       });
     }
+  };
+
+  const finalizeFailedRun = async (error: unknown, message: string) => {
+    await finalizeUpGalRunFailure(
+      () => updateRunSafely({ status: "failed", finishedAt: new Date() }),
+      () => mcpApps.close(),
+      (closeError) =>
+        context.log.warn(
+          "Failed to close UpGal MCP connections after a failed run",
+          {
+            runId,
+            err: closeError,
+          },
+        ),
+    );
+    context.log.error(error instanceof Error ? error : String(error), {
+      message,
+      runId,
+      model: provider.modelId,
+      err: error,
+    });
   };
 
   const tavily = await createTavilyToolsForOrg(
@@ -2292,7 +2353,10 @@ export async function createUpGalResponse(
     id: "upgal",
     model: provider.model,
     temperature: provider.temperature,
-    maxOutputTokens: provider.maxOutputTokens,
+    maxOutputTokens: Math.min(
+      provider.maxOutputTokens ?? UPGAL_MAX_CHAT_OUTPUT_TOKENS,
+      UPGAL_MAX_CHAT_OUTPUT_TOKENS,
+    ),
     reasoning: provider.reasoningEnabled ? "provider-default" : "none",
     instructions: buildUpGalInstructions(context),
     tools: agentTools,
@@ -2301,16 +2365,47 @@ export async function createUpGalResponse(
       toolCall.toolName.startsWith("mcp_")
         ? "user-approval"
         : undefined,
+    // The SDK signs approval requests on issuance and verifies the signature
+    // when the browser sends the continuation back. This prevents a client
+    // from changing the tool name or arguments after the user approved them.
+    // The current ToolLoopAgent type omits this generateText option even
+    // though the runtime forwards unknown settings to generateText. Keep the
+    // spread typed as a generic settings record until the SDK exposes it on
+    // ToolLoopAgentSettings as well.
+    ...({
+      experimental_toolApprovalSecret: env.UPGAL_TOOL_APPROVAL_SECRET,
+    } satisfies Record<string, string | undefined>),
     toolsContext,
-    stopWhen: stepCountIs(env.UPGAL_MAX_STEPS),
+    stopWhen: [
+      stepCountIs(env.UPGAL_MAX_STEPS),
+      ({ steps }) =>
+        steps.reduce(
+          (total, step) => total + (step.usage.totalTokens ?? 0),
+          0,
+        ) >= UPGAL_MAX_CHAT_TOTAL_TOKENS,
+    ],
     maxRetries: 2,
     timeout: { stepMs: 120_000, toolMs: 45_000 },
     telemetry: {
       integrations: [createEvlogIntegration(context.log)],
     },
     runtimeContext: context,
-    onStepEnd: async ({ stepNumber }) => {
-      await updateRunSafely({ stepCount: stepNumber + 1 });
+    onStepEnd: async ({ stepNumber, usage }) => {
+      tokenUsage.inputTokens += usage.inputTokens ?? 0;
+      tokenUsage.outputTokens += usage.outputTokens ?? 0;
+      tokenUsage.totalTokens += usage.totalTokens ?? 0;
+      recordUpGalUsage({
+        provider: provider.provider,
+        modelId: provider.modelId,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+      });
+      await updateRunSafely({
+        stepCount: stepNumber + 1,
+        inputTokens: tokenUsage.inputTokens,
+        outputTokens: tokenUsage.outputTokens,
+        totalTokens: tokenUsage.totalTokens,
+      });
     },
     onFinish: async () => {
       await updateRunSafely({
@@ -2321,16 +2416,22 @@ export async function createUpGalResponse(
     },
   });
 
-  const agentStream = await createAgentUIStream({
-    agent,
-    uiMessages,
-    sendReasoning: provider.reasoningEnabled,
-    // Passing the original messages lets the UI stream treat an approval
-    // response as a continuation of the pending assistant message. Without
-    // it, every approved tool call is persisted as a second assistant turn.
-    originalMessages: uiMessages,
-    abortSignal: request.signal,
-  });
+  let agentStream: Awaited<ReturnType<typeof createAgentUIStream>>;
+  try {
+    agentStream = await createAgentUIStream({
+      agent,
+      uiMessages,
+      sendReasoning: provider.reasoningEnabled,
+      // Passing the original messages lets the UI stream treat an approval
+      // response as a continuation of the pending assistant message. Without
+      // it, every approved tool call is persisted as a second assistant turn.
+      originalMessages: uiMessages,
+      abortSignal: request.signal,
+    });
+  } catch (error) {
+    await finalizeFailedRun(error, "UpGal response stream setup failed");
+    throw error;
+  }
 
   // createAgentUIStreamResponse exposes the agent-level onStepEnd callback,
   // but not the UI-message-level callback needed for persistence. Wrap its UI
@@ -2391,14 +2492,7 @@ export async function createUpGalResponse(
       }
     },
     onError: (error) => {
-      void updateRunSafely({ status: "failed", finishedAt: new Date() });
-      void mcpApps.close();
-      context.log.error(error instanceof Error ? error : String(error), {
-        message: "UpGal response stream failed",
-        runId,
-        model: provider.modelId,
-        err: error,
-      });
+      void finalizeFailedRun(error, "UpGal response stream failed");
       return upGalStreamErrorMessage(error);
     },
   });

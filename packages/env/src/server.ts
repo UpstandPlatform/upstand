@@ -51,6 +51,12 @@ const validatedEnv = createEnv({
       .max(120_000)
       .default(5_000),
     BETTER_AUTH_SECRET: isTest ? z.string().optional() : z.string().min(32),
+    // Used by the AI SDK to HMAC-sign approval requests. Keep this separate
+    // from the authentication secret so approval replay protection has its
+    // own rotation boundary.
+    UPGAL_TOOL_APPROVAL_SECRET: isTest
+      ? z.string().optional()
+      : z.string().min(32),
     BETTER_AUTH_URL: isTest ? z.string().optional() : z.url(),
     CORS_ORIGIN: isTest ? z.string().optional() : z.url(),
     TRUSTED_PROXY_CIDRS: z.string().default(""),
@@ -61,6 +67,12 @@ const validatedEnv = createEnv({
       )
       .default(false),
     UPSTAND_ALLOW_INSECURE_BOOTSTRAP: z
+      .preprocess(
+        (value) => value === "true" || value === "1" || value === true,
+        z.boolean(),
+      )
+      .default(false),
+    UPSTAND_DIRECT_ORIGINS: z
       .preprocess(
         (value) => value === "true" || value === "1" || value === true,
         z.boolean(),
@@ -98,6 +110,9 @@ const validatedEnv = createEnv({
     UPSTAND_SERVER_IMAGE: z.string().min(1).optional(),
     UPSTAND_UPDATE_COMPLETION_VERSION: z.string().min(1).optional(),
     UPSTAND_SCHEDULES_INTERNAL_URL: z.url().optional(),
+    UPSTAND_SCHEDULES_ROLE: z
+      .enum(["all", "orchestrator", "deployment-worker"])
+      .default("all"),
     SERVER_ID: z.string().min(1).optional(),
     UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT: z
       .string()
@@ -108,6 +123,11 @@ const validatedEnv = createEnv({
     HOST_IP: z.string().trim().min(1).optional(),
     SCHEDULES_PORT: z.coerce.number().int().min(1).max(65_535).default(3002),
     UPSTAND_DOCKER_GID: z.coerce.number().int().min(0).optional(),
+    UPSTAND_DOCKER_BROKER_TOKEN_FILE: z.string().min(1).optional(),
+    UPSTAND_DOCKER_BROKER_CALLER: z
+      .enum(["server", "schedules", "deployment-worker"])
+      .optional(),
+    UPSTAND_METRICS_TOKEN_FILE: z.string().min(1).optional(),
     OTLP_ENDPOINT: z.url().optional(),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
     UPSTAND_MONITORING_IMAGE: z.string().min(1).optional(),
@@ -120,6 +140,25 @@ const validatedEnv = createEnv({
       )
       .default(false),
     UPGAL_DAILY_RUN_LIMIT: z.coerce.number().int().positive().default(100),
+    UPGAL_DAILY_TOKEN_LIMIT: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(100_000_000)
+      .default(1_000_000),
+    UPGAL_DAILY_COST_LIMIT_USD: z.coerce
+      .number()
+      .finite()
+      .positive()
+      .max(1_000_000)
+      .default(100),
+    UPGAL_MAX_COST_PER_MILLION_TOKENS_USD: z.coerce
+      .number()
+      .finite()
+      .positive()
+      .max(1_000_000)
+      .default(100),
+    UPGAL_ALLOWED_MODELS: z.string().max(4_096).optional(),
     UPGAL_MAX_STEPS: z.coerce.number().int().min(1).max(12).default(8),
     UPGAL_ALLOW_CUSTOM_BASE_URL: z
       .preprocess(
@@ -215,6 +254,12 @@ const validatedEnv = createEnv({
         z.boolean(),
       )
       .default(false),
+    UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION: z
+      .preprocess(
+        (value) => value === "true" || value === "1" || value === true,
+        z.boolean(),
+      )
+      .default(false),
     UPSTAND_AUDIT_LOG_RETENTION_DAYS: z.coerce
       .number()
       .int()
@@ -251,7 +296,9 @@ export const env = new Proxy(validatedEnv, {
           prop === "UPSTAND_AUTO_UPDATE" ||
           prop === "TRUSTED_PROXY_HEADERS" ||
           prop === "UPSTAND_ALLOW_INSECURE_BOOTSTRAP" ||
-          prop === "UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS"
+          prop === "UPSTAND_DIRECT_ORIGINS" ||
+          prop === "UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS" ||
+          prop === "UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION"
         ) {
           return val === "true" || val === "1";
         }

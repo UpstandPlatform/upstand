@@ -29,5 +29,6 @@ require_script_text 'assert_budget restore'
 require_script_text 'readiness_seconds='
 require_script_text 'restore_seconds='
 require_script_text 'backup-restore-rehearsal: passed'
+require_script_text '  "scope": "synthetic-disposable",'
 
 echo "backup-restore-rehearsal-contract: passed"

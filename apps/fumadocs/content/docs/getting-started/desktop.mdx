@@ -33,8 +33,10 @@ bun run --cwd apps/desktop make
 ```
 
 Electron Forge produces platform-native installer artifacts. Windows uses a
-Squirrel installer; macOS produces a DMG/ZIP; Linux produces Debian and ZIP
-packages when the respective maker prerequisites are present.
+Squirrel installer; macOS produces a ZIP archive; Linux produces Debian and
+ZIP packages when the respective maker prerequisites are present. The DMG
+maker is intentionally excluded because its upstream image parser has an
+unresolved denial-of-service advisory.
 
 ## Security model
 

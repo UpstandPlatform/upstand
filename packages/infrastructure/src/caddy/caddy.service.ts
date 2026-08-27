@@ -13,6 +13,8 @@ import {
 } from "@upstand/platform/network/outbound";
 import type {
   CaddyCertificate,
+  CaddyProvisioningInput,
+  CaddyProvisioningPort,
   CaddyResource,
   CaddySettings,
   CaddyStatus,
@@ -712,13 +714,16 @@ export class CaddyService {
   private readonly docker: Docker;
   private readonly networkName = env.DOCKER_NETWORK;
   private readonly outboundAllowlistedHosts: readonly string[];
+  private readonly provisioningBroker?: CaddyProvisioningPort;
 
   constructor(
     docker: Docker = getDockerInstance(),
     outboundAllowlistedHosts: readonly string[] = getOutboundAllowlistedHosts(),
+    provisioningBroker?: CaddyProvisioningPort,
   ) {
     this.docker = docker;
     this.outboundAllowlistedHosts = outboundAllowlistedHosts;
+    this.provisioningBroker = provisioningBroker;
   }
 
   private async serializeConfiguration<T>(work: () => Promise<T>): Promise<T> {
@@ -998,6 +1003,10 @@ export class CaddyService {
     forceRecreate = false,
   ): Promise<void> {
     await this.serializeConfiguration(async () => {
+      if (this.provisioningBroker) {
+        await this.initializeCaddyThroughBroker(settings, forceRecreate);
+        return;
+      }
       await this.ensureNetwork();
       await Promise.all([
         this.ensureVolume(CADDY_RUNTIME_VOLUME),
@@ -1112,6 +1121,57 @@ export class CaddyService {
       await network.connect({ Container: created.id });
       await created.start();
       log.info({ message: "Caddy container created and started." });
+    });
+  }
+
+  private async initializeCaddyThroughBroker(
+    settings: CaddySettings,
+    forceRecreate: boolean,
+  ): Promise<void> {
+    const provisioningBroker = this.provisioningBroker;
+    if (!provisioningBroker) {
+      throw new Error("Typed Caddy provisioning broker is unavailable");
+    }
+    const effectiveSettings = caddySettingsWithDefaults(settings);
+    const extraPorts = parseExtraPortMappings(settings.caddyPorts);
+    const ports: CaddyProvisioningInput["ports"] = [
+      {
+        protocol: "tcp",
+        targetPort: effectiveSettings.httpPort,
+        publishedPort: 80,
+      },
+      {
+        protocol: "tcp",
+        targetPort: effectiveSettings.httpsPort,
+        publishedPort: 443,
+      },
+    ];
+    if (effectiveSettings.enableHttp3) {
+      ports.push({
+        protocol: "udp",
+        targetPort: effectiveSettings.httpsPort,
+        publishedPort: 443,
+      });
+    }
+    ports.push(...extraPorts);
+
+    const caddyfileBase64 = Buffer.from(
+      generateCaddyfileContent(effectiveSettings),
+    ).toString("base64");
+    const environment = [
+      ...parseCaddyEnvironment(settings.caddyEnvironment),
+      `UPSTAND_CADDYFILE_B64=${caddyfileBase64}`,
+    ];
+
+    await provisioningBroker.ensureCaddyContainer({
+      networkName: this.networkName,
+      caddyfileBase64,
+      environment,
+      ports,
+      forceRecreate,
+    });
+    log.info({
+      message: "Caddy container provisioned through the typed broker.",
     });
   }
 
@@ -1243,6 +1303,14 @@ export class CaddyService {
           resources,
           certificates,
         );
+        if (this.provisioningBroker?.applyCaddyConfiguration) {
+          stage = "apply Caddy configuration through broker";
+          ({ changed } = await this.provisioningBroker.applyCaddyConfiguration({
+            caddyfileBase64: Buffer.from(caddyfile).toString("base64"),
+            certificates,
+          }));
+          return;
+        }
         stage = "locate Caddy container";
         const container = await this.findContainer();
         if (!container) throw new Error("Caddy container is not available");

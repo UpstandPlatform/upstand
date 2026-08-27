@@ -236,6 +236,7 @@ export NEXT_PUBLIC_SERVER_URL=https://api.example.com
 # Pin image digests
 export UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<digest>
 export UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<digest>
+export UPSTAND_DEPLOYMENT_WORKER_IMAGE=ghcr.io/upstandplatform/upstand-deployment-worker@sha256:<digest>
 export UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
 export UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
 export UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
@@ -264,6 +265,7 @@ export NEXT_PUBLIC_SERVER_URL=https://api.example.com
 # Pin all release images. Cloud mode is read from the server at runtime.
 export UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<digest>
 export UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<digest>
+export UPSTAND_DEPLOYMENT_WORKER_IMAGE=ghcr.io/upstandplatform/upstand-deployment-worker@sha256:<digest>
 export UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
 export UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
 export UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>

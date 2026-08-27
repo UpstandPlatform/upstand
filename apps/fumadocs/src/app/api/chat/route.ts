@@ -134,6 +134,7 @@ export const POST = withEvlog(
       model: openrouter.chat(
         env.OPENROUTER_MODEL || "anthropic/claude-3.5-sonnet",
       ),
+      maxOutputTokens: 1024,
       stopWhen: stepCountIs(5),
       tools: {
         search: searchTool,
@@ -168,7 +169,7 @@ export const POST = withEvlog(
 const searchTool = tool({
   description: "Search the docs content and return raw JSON results.",
   inputSchema: z.object({
-    query: z.string(),
+    query: z.string().trim().min(1).max(2_000),
     limit: z.number().int().min(1).max(100).default(10),
   }),
   async execute({ query, limit }) {

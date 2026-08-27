@@ -10,6 +10,7 @@ import type {
   ServerProvisioningPort,
   ServerProvisioningSession,
 } from "../ports/server-provisioning";
+import type { DockerSwarmManagementPort } from "../ports/swarm";
 import { GetSwarmJoinCommandsUseCase } from "../swarm/get-swarm-join-commands.usecase";
 import { getServerProvisioningPlan } from "./server-role";
 
@@ -23,6 +24,7 @@ export class SetupServerUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
     private readonly provisioning: ServerProvisioningPort,
+    private readonly swarm?: DockerSwarmManagementPort,
   ) {}
 
   async execute(
@@ -220,7 +222,10 @@ export class SetupServerUseCase {
         if (remoteSwarmStatus === "inactive") {
           let joinedCluster = false;
           try {
-            const joinInfo = await new GetSwarmJoinCommandsUseCase()
+            if (!this.swarm) {
+              throw new Error("Swarm management capability is not configured");
+            }
+            const joinInfo = await new GetSwarmJoinCommandsUseCase(this.swarm)
               .execute()
               .catch(() => null);
             if (

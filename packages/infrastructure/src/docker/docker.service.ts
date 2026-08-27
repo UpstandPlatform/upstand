@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { exec, execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import fs from "node:fs";
@@ -6,6 +6,7 @@ import { request as httpRequest, type RequestOptions } from "node:http";
 import { request as httpsRequest } from "node:https";
 import net from "node:net";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   type ApplicationBuildConfig,
   ConflictError,
@@ -35,9 +36,20 @@ import type {
   DockerInspectionTarget,
   DockerRegistryAuth,
   DockerResourceContainer,
+  DockerSelfUpdateServiceInspection,
+  DockerSelfUpdateServiceSummary,
+  DockerSelfUpdateServiceUpdate,
+  DockerSelfUpdateTaskTemplate,
   ResolvedBuildArtifact,
   ServerRuntimeStats,
 } from "@upstand/usecases/ports/docker";
+import type {
+  DockerSwarmInfoPort,
+  DockerSwarmInspectionPort,
+  DockerSwarmManagementPort,
+  DockerSwarmNodePort,
+  DockerSwarmTaskPort,
+} from "@upstand/usecases/ports/swarm";
 import { getApplicationBuildSecrets } from "@upstand/usecases/resource/application-build-secrets";
 import { randomizeComposeFile } from "@upstand/usecases/resource/compose-randomization";
 import {
@@ -68,6 +80,10 @@ import {
 import type Docker from "dockerode";
 import { log } from "evlog";
 import yaml from "yaml";
+import {
+  createDockerResourceCommandBrokerClient,
+  type DockerResourceCommandBrokerPort,
+} from "./docker-broker-client";
 import { getDockerInstance } from "./docker-client";
 import { createPinnedGitSshEnvironment, isSshGitUrl } from "./git-host-key";
 
@@ -89,6 +105,7 @@ function requireDockerTarget(value: DockerApiTarget): Docker {
 
 type DockerImageTarget = Pick<Docker, "loadImage">;
 type MutableContainerSpec = Docker.ContainerSpec & Record<string, unknown>;
+type ResourceScopedDockerFactory = (resourceId: string) => Docker;
 
 function isDockerImageTarget(value: unknown): value is DockerImageTarget {
   return isUnknownRecord(value) && typeof value.loadImage === "function";
@@ -118,6 +135,45 @@ function stopReadableStream(stream: NodeJS.ReadableStream): void {
 
 const DEFAULT_CONTAINER_COMMAND_TIMEOUT_SECONDS = 300;
 const MAX_CONTAINER_COMMAND_OUTPUT_BYTES = 50 * 1024 * 1024;
+const MAX_RESOURCE_COMMAND_BYTES = 32 * 1024;
+const MAX_WEB_SERVER_LOG_BYTES = 5 * 1024 * 1024;
+const WEB_SERVER_COMMAND_TIMEOUT_MS = 30_000;
+const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+async function readDockerStream(
+  stream: NodeJS.ReadableStream,
+  maxBytes: number,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      stopReadableStream(stream);
+      reject(error);
+    };
+    stream.on("data", (chunk: Buffer | string) => {
+      if (settled) return;
+      const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+      totalBytes += buffer.byteLength;
+      if (totalBytes > maxBytes) {
+        fail(new Error(`Docker stream exceeded the ${maxBytes}-byte limit`));
+        return;
+      }
+      chunks.push(buffer);
+    });
+    stream.on("end", () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    });
+    stream.on("error", fail);
+  });
+  return Buffer.concat(chunks);
+}
 const DOCKER_STATS_CONCURRENCY = 16;
 const DOCKER_STATS_TIMEOUT_MS = 10_000;
 
@@ -147,6 +203,7 @@ async function mapWithConcurrency<T, R>(
 interface DockerTaskStatus {
   State?: string;
   Err?: string;
+  Health?: string;
   ContainerStatus?: { ContainerID?: string };
 }
 
@@ -193,6 +250,14 @@ export function redactCommandOutput(
     );
 }
 
+function writePrivateDeploymentFile(filePath: string, content: string): void {
+  fs.writeFileSync(filePath, content, { encoding: "utf8", mode: 0o600 });
+  // Windows does not expose POSIX owner/group permissions. On Unix-like
+  // deployment hosts, make the restriction explicit even when the file was
+  // created previously with a broader mode.
+  if (process.platform !== "win32") fs.chmodSync(filePath, 0o600);
+}
+
 export function shouldSuppressComposeRestart(
   resource: Pick<Resource, "type" | "composeType">,
   command: string,
@@ -202,6 +267,67 @@ export function shouldSuppressComposeRestart(
     resource.type === "compose" &&
     resource.composeType === "compose"
   );
+}
+
+export function applyComposePlacementConstraints(
+  composeContent: string,
+  constraints: readonly string[],
+): string {
+  if (
+    constraints.some(
+      (constraint) =>
+        typeof constraint !== "string" || constraint.trim() === "",
+    )
+  ) {
+    throw new Error("Swarm placement constraints must be non-empty strings");
+  }
+
+  const parsed: unknown = yaml.parse(composeContent);
+  if (!isUnknownRecord(parsed) || !isUnknownRecord(parsed.services)) {
+    throw new Error("Compose document must contain a services object");
+  }
+
+  for (const [serviceName, rawService] of Object.entries(parsed.services)) {
+    if (!isUnknownRecord(rawService)) {
+      throw new Error(`Compose service '${serviceName}' is invalid`);
+    }
+
+    const deploy = rawService.deploy === undefined ? {} : rawService.deploy;
+    if (!isUnknownRecord(deploy)) {
+      throw new Error(
+        `Compose service '${serviceName}' has an invalid deploy section`,
+      );
+    }
+    rawService.deploy = deploy;
+
+    const placement = deploy.placement === undefined ? {} : deploy.placement;
+    if (!isUnknownRecord(placement)) {
+      throw new Error(
+        `Compose service '${serviceName}' has an invalid placement section`,
+      );
+    }
+    deploy.placement = placement;
+
+    const existingConstraints =
+      placement.constraints === undefined ? [] : placement.constraints;
+    if (
+      !Array.isArray(existingConstraints) ||
+      existingConstraints.some((constraint) => typeof constraint !== "string")
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' has invalid placement constraints`,
+      );
+    }
+    placement.constraints = existingConstraints;
+
+    for (const constraint of constraints) {
+      if (!existingConstraints.includes(constraint)) {
+        existingConstraints.push(constraint);
+      }
+    }
+  }
+
+  return yaml.stringify(parsed);
 }
 
 function getUrlRedactions(value: string): string[] {
@@ -257,7 +383,7 @@ function followProgressWithTimeout(
   });
 }
 
-export class DockerService {
+export class DockerService implements DockerSwarmManagementPort {
   private readonly docker: Docker;
   private readonly commandEnvironment: Record<string, string | undefined>;
   private readonly networkName = env.DOCKER_NETWORK;
@@ -266,17 +392,519 @@ export class DockerService {
   private dockerDiskUsageUpdatedAt = 0;
   private dockerDiskUsageRefresh: Promise<void> | undefined;
   private cancellationKey: string | null = null;
+  private readonly resourceCommandBroker:
+    | DockerResourceCommandBrokerPort
+    | undefined;
+  private readonly resourceScopedDockerFactory:
+    | ResourceScopedDockerFactory
+    | undefined;
 
   constructor(
     docker: Docker = getDockerInstance(),
     commandEnvironment: Record<string, string | undefined> = {},
+    resourceCommandBroker:
+      | DockerResourceCommandBrokerPort
+      | undefined = createDockerResourceCommandBrokerClient(),
+    resourceScopedDockerFactory?: ResourceScopedDockerFactory,
   ) {
     this.docker = docker;
     this.commandEnvironment = commandEnvironment;
+    this.resourceCommandBroker = resourceCommandBroker;
+    this.resourceScopedDockerFactory =
+      resourceScopedDockerFactory ??
+      (Object.keys(commandEnvironment).length === 0 &&
+      process.env.UPSTAND_DOCKER_BROKER_CALLER?.trim() === "deployment-worker"
+        ? (resourceId) =>
+            getDockerInstance({ "X-Upstand-Resource-ID": resourceId })
+        : undefined);
     // Remote services carry an SSH command environment and are recreated per
     // request. Cache the expensive disk-usage call for the long-lived local
     // service, while keeping remote responses complete and request-scoped.
     this.cacheDockerDiskUsage = Object.keys(commandEnvironment).length === 0;
+  }
+
+  async listServices(): Promise<DockerSelfUpdateServiceSummary[]> {
+    const services = await this.docker.listServices();
+    return services.flatMap((service) => {
+      const id = service.ID;
+      const name = service.Spec?.Name;
+      return id && name ? [{ id, name }] : [];
+    });
+  }
+
+  async inspectService(
+    serviceId: string,
+  ): Promise<DockerSelfUpdateServiceInspection> {
+    const inspection = await this.docker.getService(serviceId).inspect();
+    const name = inspection.Spec?.Name;
+    if (!name) throw new Error(`Docker service ${serviceId} has no name`);
+    return {
+      version: inspection.Version?.Index ?? 0,
+      name,
+      taskTemplate: (inspection.Spec?.TaskTemplate ??
+        {}) as unknown as DockerSelfUpdateTaskTemplate,
+      updateConfig: inspection.Spec?.UpdateConfig as
+        | Record<string, unknown>
+        | undefined,
+      rollbackConfig: inspection.Spec?.RollbackConfig as
+        | Record<string, unknown>
+        | undefined,
+      endpointSpec: inspection.Spec?.EndpointSpec as
+        | Record<string, unknown>
+        | undefined,
+    };
+  }
+
+  async updateService(
+    serviceId: string,
+    input: DockerSelfUpdateServiceUpdate,
+  ): Promise<void> {
+    const service = this.docker.getService(serviceId);
+    await service.update({
+      version: input.version,
+      Name: input.name,
+      TaskTemplate: input.taskTemplate,
+      UpdateConfig: input.updateConfig,
+      RollbackConfig: input.rollbackConfig,
+      EndpointSpec: input.endpointSpec,
+    } as Parameters<typeof service.update>[0]);
+  }
+
+  async removeServiceByName(
+    serviceName: string,
+    resourceId: string,
+  ): Promise<void> {
+    const normalizedServiceName = this.sanitizeName(serviceName);
+    if (!normalizedServiceName || normalizedServiceName !== serviceName) {
+      throw new Error("Preview service name is invalid");
+    }
+    if (!resourceId || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(resourceId)) {
+      throw new Error("Preview cleanup requires a valid resource ID");
+    }
+
+    const removeResourceService =
+      this.resourceCommandBroker?.removeResourceService;
+    if (removeResourceService && this.cacheDockerDiskUsage) {
+      await removeResourceService(
+        { kind: "local", name: "local" },
+        resourceId,
+        normalizedServiceName,
+      );
+      return;
+    }
+
+    const service = this.docker.getService(normalizedServiceName);
+    const inspection = await service.inspect();
+    if (inspection.Spec?.Labels?.["com.upstand.resource-id"] !== resourceId) {
+      throw new Error(
+        "Preview service does not belong to the requested resource",
+      );
+    }
+    await service.remove();
+  }
+
+  async getInfo(): Promise<DockerSwarmInfoPort> {
+    const info = await this.docker.info();
+    return {
+      localNodeState: info.Swarm?.LocalNodeState || "inactive",
+      controlAvailable: info.Swarm?.ControlAvailable === true,
+      nodeId: info.Swarm?.NodeID || "",
+      nodeAddress: info.Swarm?.NodeAddr || "",
+      nodeCount: info.Swarm?.Nodes || 0,
+    };
+  }
+
+  async inspectSwarm(): Promise<DockerSwarmInspectionPort> {
+    const swarm = await this.docker.swarmInspect();
+    return {
+      id: swarm.ID || "",
+      version: swarm.Version?.Index || 0,
+      createdAt: swarm.CreatedAt || null,
+      updatedAt: swarm.UpdatedAt || null,
+      dataPathPort: swarm.DataPathPort || null,
+      defaultAddressPools: swarm.DefaultAddrPool || [],
+      workerJoinToken: swarm.JoinTokens?.Worker,
+      managerJoinToken: swarm.JoinTokens?.Manager,
+    };
+  }
+
+  async listNodes(): Promise<DockerSwarmNodePort[]> {
+    const info = await this.docker.info();
+    if (info.Swarm?.LocalNodeState !== "active") return [];
+    const nodes = await this.docker.listNodes();
+    return nodes.map((node) => ({
+      id: node.ID || "",
+      hostname: node.Description?.Hostname || node.Spec?.Name || node.ID || "",
+      role: node.Spec?.Role || "worker",
+      labels: node.Spec?.Labels || {},
+      availability: node.Spec?.Availability || "active",
+      status: node.Status?.State || "unknown",
+      ip: node.Status?.Addr || "",
+      engineVersion: node.Description?.Engine?.EngineVersion || "unknown",
+      version: node.Version?.Index || 0,
+      leader: node.ManagerStatus?.Leader === true,
+      managerAddr: node.ManagerStatus?.Addr || "",
+      reachability: node.ManagerStatus?.Reachability || "",
+      isLocalNode: node.ID === info.Swarm?.NodeID,
+    }));
+  }
+
+  async listTasks(): Promise<DockerSwarmTaskPort[]> {
+    const tasks = await this.docker.listTasks();
+    return tasks.map((task) => ({
+      id: task.ID || "",
+      serviceId: task.ServiceID,
+      nodeId: task.NodeID,
+      slot: task.Slot || 0,
+      desiredState: task.DesiredState || "unknown",
+      currentState: task.Status?.State || "unknown",
+      message: task.Status?.Message || task.Status?.Err || "",
+      updatedAt: task.Status?.Timestamp || null,
+      image: task.Spec?.ContainerSpec?.Image || "unknown",
+    }));
+  }
+
+  async initialize(input: {
+    advertiseAddr: string;
+    dataPathAddr?: string;
+    defaultAddrPools: string[];
+    subnetSize: number;
+  }): Promise<void> {
+    await this.docker.swarmInit({
+      AdvertiseAddr: input.advertiseAddr,
+      ListenAddr: "0.0.0.0:2377",
+      ...(input.dataPathAddr ? { DataPathAddr: input.dataPathAddr } : {}),
+      DefaultAddrPool: input.defaultAddrPools,
+      SubnetSize: input.subnetSize,
+    });
+  }
+
+  async updateSwarm(input: {
+    version: number;
+    taskHistoryRetentionLimit?: number;
+    rotateWorkerToken?: boolean;
+    rotateManagerToken?: boolean;
+  }): Promise<void> {
+    await this.docker.swarmUpdate({
+      version: input.version,
+      ...(input.taskHistoryRetentionLimit === undefined
+        ? {}
+        : {
+            Spec: {
+              Orchestration: {
+                TaskHistoryRetentionLimit: input.taskHistoryRetentionLimit,
+              },
+            },
+          }),
+      ...(input.rotateWorkerToken ? { RotateWorkerToken: true } : {}),
+      ...(input.rotateManagerToken ? { RotateManagerToken: true } : {}),
+    });
+  }
+
+  async inspectNode(nodeId: string): Promise<DockerSwarmNodePort> {
+    const info = await this.docker.info();
+    const node = await this.docker.getNode(nodeId).inspect();
+    return {
+      id: node.ID || nodeId,
+      hostname:
+        node.Description?.Hostname || node.Spec?.Name || node.ID || nodeId,
+      role: node.Spec?.Role || "worker",
+      labels: node.Spec?.Labels || {},
+      availability: node.Spec?.Availability || "active",
+      status: node.Status?.State || "unknown",
+      ip: node.Status?.Addr || "",
+      engineVersion: node.Description?.Engine?.EngineVersion || "unknown",
+      version: node.Version?.Index || 0,
+      leader: node.ManagerStatus?.Leader === true,
+      managerAddr: node.ManagerStatus?.Addr || "",
+      reachability: node.ManagerStatus?.Reachability || "",
+      isLocalNode: node.ID === info.Swarm?.NodeID,
+    };
+  }
+
+  async updateNode(
+    nodeId: string,
+    input: {
+      version: number;
+      name: string;
+      labels: Record<string, string>;
+      role: "manager" | "worker";
+      availability: "active" | "drain" | "pause";
+    },
+  ): Promise<void> {
+    await this.docker.getNode(nodeId).update({
+      version: input.version,
+      Name: input.name,
+      Labels: input.labels,
+      Role: input.role,
+      Availability: input.availability,
+    });
+  }
+
+  async removeNode(nodeId: string, force: boolean): Promise<void> {
+    await this.docker.getNode(nodeId).remove({ force });
+  }
+
+  async ensureUpstandNetwork(): Promise<{ id: string; created: boolean }> {
+    return ensureUpstandOverlayNetwork(this.docker);
+  }
+
+  async cleanupDocker(
+    command: import("@upstand/usecases/ports/docker").DockerCleanupCommand,
+    options: { preserveRollbackImages?: boolean; pruneNetworks?: boolean },
+  ): Promise<void> {
+    const preserveRollbackImages = options.preserveRollbackImages !== false;
+    const imageFilter = preserveRollbackImages
+      ? ["--filter", "label!=com.upstand.rollback.keep=true"]
+      : [];
+    const actions: Record<
+      Exclude<
+        import("@upstand/usecases/ports/docker").DockerCleanupCommand,
+        "all"
+      >,
+      string[]
+    > = {
+      images: ["image", "prune", "--all", "--force", ...imageFilter],
+      volumes: ["volume", "prune", "--all", "--force"],
+      containers: ["container", "prune", "--force"],
+      builder: ["builder", "prune", "--all", "--force"],
+      system: ["system", "prune", "--all", "--force", ...imageFilter],
+    };
+    const commands =
+      command === "all"
+        ? [
+            actions.containers,
+            actions.images,
+            actions.volumes,
+            actions.builder,
+            actions.system,
+            ...(options.pruneNetworks ? [["network", "prune", "--force"]] : []),
+          ]
+        : [actions[command]];
+    for (const args of commands) {
+      await execFileAsync("docker", args, { maxBuffer: 2 * 1024 * 1024 });
+    }
+  }
+
+  async checkGpuStatus(): Promise<
+    import("@upstand/usecases/ports/docker").DockerGpuStatus
+  > {
+    let driverInstalled = false;
+    let driverVersion: string | undefined;
+    let gpuModel: string | undefined;
+    let memoryInfo: string | undefined;
+    let runtimeInstalled = false;
+    let runtimeConfigured = false;
+    let cudaSupport = false;
+    let cudaVersion: string | undefined;
+    let swarmEnabled = false;
+    let gpuResources = 0;
+
+    try {
+      const { stdout } = await execFileAsync("nvidia-smi", [
+        "--query-gpu=driver_version",
+        "--format=csv,noheader",
+      ]);
+      driverVersion = stdout.trim();
+      driverInstalled = !!driverVersion;
+    } catch {}
+
+    if (driverInstalled) {
+      try {
+        const { stdout } = await execFileAsync("nvidia-smi", [
+          "--query-gpu=gpu_name,memory.total",
+          "--format=csv,noheader",
+        ]);
+        const parts = stdout.split(",");
+        gpuModel = parts[0]?.trim();
+        memoryInfo = parts[1]?.trim();
+      } catch {}
+      try {
+        const { stdout } = await execFileAsync("nvidia-smi", ["-q"]);
+        const match = stdout.match(/CUDA Version\s*:\s*([\d.]+)/);
+        if (match) {
+          cudaVersion = match[1];
+          cudaSupport = true;
+        }
+      } catch {}
+    }
+
+    try {
+      await execFileAsync("sh", ["-c", "command -v nvidia-container-runtime"]);
+      runtimeInstalled = true;
+    } catch {}
+
+    try {
+      const info = await this.docker.info();
+      runtimeConfigured = "nvidia" in (info.Runtimes || {});
+    } catch {}
+
+    try {
+      const node = await this.docker.getNode("self").inspect();
+      for (const resource of node.Description?.Resources?.GenericResources ||
+        []) {
+        const discrete = resource.DiscreteResourceSpec;
+        if (
+          discrete &&
+          (discrete.Kind === "GPU" || discrete.Kind === "gpu") &&
+          typeof discrete.Value === "number"
+        ) {
+          gpuResources = discrete.Value;
+          swarmEnabled = true;
+          break;
+        }
+      }
+    } catch {}
+
+    return {
+      driverInstalled,
+      driverVersion,
+      gpuModel,
+      memoryInfo,
+      runtimeInstalled,
+      runtimeConfigured,
+      cudaSupport,
+      cudaVersion,
+      availableGPUs: driverInstalled ? 1 : 0,
+      swarmEnabled,
+      gpuResources,
+    };
+  }
+
+  async setupGpuSupport(): Promise<void> {
+    const status = await this.checkGpuStatus();
+    if (!status.driverInstalled) {
+      throw new Error(
+        "NVIDIA driver not found. Please install NVIDIA drivers before configuring GPU support.",
+      );
+    }
+    const daemonConfig = JSON.stringify(
+      {
+        runtimes: {
+          nvidia: {
+            path: "nvidia-container-runtime",
+            runtimeArgs: [],
+          },
+        },
+        "default-runtime": "nvidia",
+      },
+      null,
+      2,
+    );
+    await execAsync(
+      `printf '%s\\n' '${daemonConfig}' | sudo tee /etc/docker/daemon.json >/dev/null && sudo systemctl daemon-reload && sudo systemctl restart docker`,
+      { timeout: 30_000, maxBuffer: 1024 * 1024 },
+    );
+  }
+
+  async forceServiceUpdate(serviceName: string): Promise<void> {
+    const service = this.docker.getService(serviceName);
+    const inspection = await service.inspect();
+    const taskTemplate = inspection.Spec?.TaskTemplate;
+    if (!taskTemplate) {
+      throw new Error(`Service ${serviceName} has no task spec`);
+    }
+    await service.update({
+      version: inspection.Version?.Index ?? 0,
+      Name: inspection.Spec?.Name ?? serviceName,
+      TaskTemplate: {
+        ...taskTemplate,
+        ForceUpdate: (taskTemplate.ForceUpdate || 0) + 1,
+      },
+      Mode: inspection.Spec?.Mode,
+      UpdateConfig: inspection.Spec?.UpdateConfig,
+      RollbackConfig: inspection.Spec?.RollbackConfig,
+      Networks: inspection.Spec?.Networks,
+      EndpointSpec: inspection.Spec?.EndpointSpec,
+    });
+  }
+
+  async getServiceLogs(serviceName: string, tail: number): Promise<string> {
+    try {
+      const stream = await this.docker.getService(serviceName).logs({
+        stdout: true,
+        stderr: true,
+        tail,
+      });
+      return this.cleanDockerLogs(
+        await readDockerStream(stream, MAX_WEB_SERVER_LOG_BYTES),
+      );
+    } catch (error: unknown) {
+      if (errorStatusCode(error) !== 404) throw error;
+    }
+
+    const container = await this.findRunningServiceContainer(serviceName);
+    const logs = await container.logs({
+      stdout: true,
+      stderr: true,
+      tail,
+    });
+    return this.cleanDockerLogs(logs as Buffer);
+  }
+
+  async execServiceCommand(
+    serviceName: string,
+    command: readonly string[],
+  ): Promise<void> {
+    if (command.length === 0 || command.length > 32) {
+      throw new Error(
+        "Service command must contain between 1 and 32 arguments",
+      );
+    }
+    const container = await this.findRunningServiceContainer(serviceName);
+    const execution = await container.exec({
+      Cmd: [...command],
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await execution.start({ Detach: false });
+    const timer = setTimeout(
+      () => stopReadableStream(stream),
+      WEB_SERVER_COMMAND_TIMEOUT_MS,
+    );
+    timer.unref?.();
+    try {
+      await readDockerStream(stream, MAX_CONTAINER_COMMAND_OUTPUT_BYTES);
+      const inspection = await execution.inspect();
+      if ((inspection.ExitCode ?? 0) !== 0) {
+        throw new Error(
+          `Service command exited with code ${inspection.ExitCode ?? 0}`,
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async inspectNetwork(networkName: string): Promise<{
+    driver: string;
+    attachable: boolean;
+  }> {
+    const network = await this.docker.getNetwork(networkName).inspect();
+    return {
+      driver: network.Driver ?? "",
+      attachable: network.Attachable === true,
+    };
+  }
+
+  private async findRunningServiceContainer(
+    serviceName: string,
+  ): Promise<ReturnType<Docker["getContainer"]>> {
+    const tasks = await this.docker.listTasks({
+      filters: JSON.stringify({
+        service: [serviceName],
+        "desired-state": ["running"],
+      }),
+    });
+    const containerId = tasks.find(
+      (task) =>
+        task.Status?.State === "running" &&
+        task.Status?.ContainerStatus?.ContainerID,
+    )?.Status?.ContainerStatus?.ContainerID;
+    if (!containerId) {
+      throw new Error(`No running task is available for ${serviceName}`);
+    }
+    return this.docker.getContainer(containerId);
   }
 
   setCancellationKey(key: string | null): void {
@@ -562,13 +1190,32 @@ export class DockerService {
   }> {
     const docker = targetDocker
       ? requireDockerTarget(targetDocker)
-      : this.docker;
+      : (this.resourceScopedDockerFactory?.(resource.id) ?? this.docker);
     const isolated = parseResourceAdvancedConfig(
       resource.advancedConfig,
     ).isolatedDeployment;
     if (isolated) {
+      const ensureTypedResourceNetwork =
+        !targetDocker && this.resourceCommandBroker?.ensureResourceNetwork;
+      if (ensureTypedResourceNetwork) {
+        return {
+          ...(await ensureTypedResourceNetwork(
+            { kind: "local", name: "local" },
+            resource.id,
+          )),
+          isolated: true,
+        };
+      }
       const network = await ensureResourceOverlayNetwork(docker, resource.id);
       return { ...network, isolated: true };
+    }
+
+    if (!targetDocker && this.resourceCommandBroker?.ensureUpstandNetwork) {
+      return {
+        ...(await this.resourceCommandBroker.ensureUpstandNetwork()),
+        name: this.networkName,
+        isolated: false,
+      };
     }
 
     return {
@@ -663,21 +1310,31 @@ export class DockerService {
     }
 
     if (onLog) onLog(`Pulling database image: ${image}...\n`);
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
     try {
-      const stream = await this.docker.pull(image);
-      await followProgressWithTimeout(this.docker.modem, stream, (event) => {
-        if (onLog && event) {
-          const status = event.status || "";
-          const progress = event.progress ? ` ${event.progress}` : "";
-          const id = event.id ? ` [${event.id}]` : "";
-          onLog(`${status}${progress}${id}\n`);
-        }
-      });
-    } catch (err: unknown) {
-      if (onLog)
-        onLog(
-          `Warning: Failed to pull database image: ${errorMessage(err)}. Relying on local cache.\n`,
+      const pullResourceImage = this.resourceCommandBroker?.pullResourceImage;
+      if (pullResourceImage && this.cacheDockerDiskUsage) {
+        await pullResourceImage(
+          { kind: "local", name: "local" },
+          resource.id,
+          image,
         );
+      } else {
+        const stream = await scopedDocker.pull(image);
+        await followProgressWithTimeout(scopedDocker.modem, stream, (event) => {
+          if (onLog && event) {
+            const status = event.status || "";
+            const progress = event.progress ? ` ${event.progress}` : "";
+            const id = event.id ? ` [${event.id}]` : "";
+            onLog(`${status}${progress}${id}\n`);
+          }
+        });
+      }
+    } catch (err: unknown) {
+      const message = `Failed to pull database image: ${errorMessage(err)}`;
+      if (onLog) onLog(`${message}\n`);
+      throw new Error(message, { cause: err });
     }
 
     const mergedEnv = { ...defaultEnv, ...envVars };
@@ -799,8 +1456,19 @@ export class DockerService {
       spec as Record<string, unknown>,
     );
 
-    await this.upsertService(serviceName, spec);
-    await this.ensureServiceNetwork(serviceName, networkId);
+    await this.upsertService(
+      serviceName,
+      spec,
+      undefined,
+      undefined,
+      resource.id,
+    );
+    await this.ensureServiceNetwork(
+      serviceName,
+      networkId,
+      undefined,
+      resource.id,
+    );
   }
 
   async deployAppImage(
@@ -825,23 +1493,48 @@ export class DockerService {
     }
 
     if (onLog) onLog(`Pulling application image: ${resource.dockerImage}...\n`);
+    const scopedDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
     try {
-      const stream = await this.docker.pull(resource.dockerImage, {
-        ...(registryAuth ? { authconfig: registryAuth } : {}),
-      });
-      await followProgressWithTimeout(this.docker.modem, stream, (event) => {
-        if (onLog && event) {
-          const status = event.status || "";
-          const progress = event.progress ? ` ${event.progress}` : "";
-          const id = event.id ? ` [${event.id}]` : "";
-          onLog(`${status}${progress}${id}\n`);
-        }
-      });
-    } catch (err: unknown) {
-      if (onLog)
-        onLog(
-          `Warning: Failed to pull image: ${errorMessage(err)}. Relying on local cache.\n`,
+      const pullResourceImage = this.resourceCommandBroker?.pullResourceImage;
+      const typedRegistryAuth =
+        registryAuth?.username && registryAuth.password
+          ? {
+              username: registryAuth.username,
+              password: registryAuth.password,
+              ...(registryAuth.serveraddress
+                ? { serveraddress: registryAuth.serveraddress }
+                : {}),
+            }
+          : undefined;
+      if (
+        pullResourceImage &&
+        this.cacheDockerDiskUsage &&
+        (!registryAuth || typedRegistryAuth)
+      ) {
+        await pullResourceImage(
+          { kind: "local", name: "local" },
+          resource.id,
+          resource.dockerImage,
+          typedRegistryAuth,
         );
+      } else {
+        const stream = await scopedDocker.pull(resource.dockerImage, {
+          ...(registryAuth ? { authconfig: registryAuth } : {}),
+        });
+        await followProgressWithTimeout(scopedDocker.modem, stream, (event) => {
+          if (onLog && event) {
+            const status = event.status || "";
+            const progress = event.progress ? ` ${event.progress}` : "";
+            const id = event.id ? ` [${event.id}]` : "";
+            onLog(`${status}${progress}${id}\n`);
+          }
+        });
+      }
+    } catch (err: unknown) {
+      const message = `Failed to pull image: ${errorMessage(err)}`;
+      if (onLog) onLog(`${message}\n`);
+      throw new Error(message, { cause: err });
     }
 
     const envArray = Object.entries(envVars).map(([k, v]) => `${k}=${v}`);
@@ -884,8 +1577,19 @@ export class DockerService {
       };
     }
 
-    await this.upsertService(serviceName, spec, registryAuth);
-    await this.ensureServiceNetwork(serviceName, networkId);
+    await this.upsertService(
+      serviceName,
+      spec,
+      registryAuth,
+      undefined,
+      resource.id,
+    );
+    await this.ensureServiceNetwork(
+      serviceName,
+      networkId,
+      undefined,
+      resource.id,
+    );
   }
 
   async deployAppGit(
@@ -1058,42 +1762,75 @@ export class DockerService {
         buildConfig.buildPath,
         "Build path",
       );
+      const resolvedBuildEnvironment = buildEnvVars ?? envVars;
+      const applicationBuildSecrets =
+        getApplicationBuildSecrets(currentResource);
+      const typedBuildEligible =
+        buildConfig.type === "dockerfile" &&
+        Object.keys(this.commandEnvironment).length === 0 &&
+        Object.keys(applicationBuildSecrets).length === 0;
       await this.buildApplicationImage(
+        currentResource.id,
         buildPath,
         buildImageName,
         buildConfig,
-        buildEnvVars ?? envVars,
+        resolvedBuildEnvironment,
         onLog,
-        getApplicationBuildSecrets(currentResource),
+        applicationBuildSecrets,
         currentResource.rollbackActive === true,
       );
 
       if (registryInfo) {
-        if (registryInfo.username && registryInfo.password) {
-          onLog(`Logging into Docker registry: ${registryInfo.url}...\n`);
-          await this.runCommandAsync(
-            "docker",
-            [
-              "login",
-              "--username",
-              registryInfo.username,
-              "--password-stdin",
-              registryInfo.url,
-            ],
-            onLog,
-            undefined,
+        const pushResourceImage = this.resourceCommandBroker?.pushResourceImage;
+        if (
+          typedBuildEligible &&
+          (destinationDocker === undefined ||
+            destinationDocker === this.docker) &&
+          Object.keys(this.commandEnvironment).length === 0 &&
+          registryInfo.username &&
+          registryInfo.password &&
+          pushResourceImage
+        ) {
+          onLog(
+            `Pushing image to registry through the typed Docker broker: ${registryInfo.imageTag}...\n`,
+          );
+          await pushResourceImage(
+            { kind: "local", name: "local" },
+            currentResource.id,
+            registryInfo.imageTag,
             {
-              stdin: `${registryInfo.password}\n`,
-              redactions: [registryInfo.password],
+              username: registryInfo.username,
+              password: registryInfo.password,
+              serveraddress: registryInfo.url,
             },
           );
+        } else {
+          if (registryInfo.username && registryInfo.password) {
+            onLog(`Logging into Docker registry: ${registryInfo.url}...\n`);
+            await this.runCommandAsync(
+              "docker",
+              [
+                "login",
+                "--username",
+                registryInfo.username,
+                "--password-stdin",
+                registryInfo.url,
+              ],
+              onLog,
+              undefined,
+              {
+                stdin: `${registryInfo.password}\n`,
+                redactions: [registryInfo.password],
+              },
+            );
+          }
+          onLog(`Pushing image to registry: ${registryInfo.imageTag}...\n`);
+          await this.runCommandAsync(
+            "docker",
+            ["push", registryInfo.imageTag],
+            onLog,
+          );
         }
-        onLog(`Pushing image to registry: ${registryInfo.imageTag}...\n`);
-        await this.runCommandAsync(
-          "docker",
-          ["push", registryInfo.imageTag],
-          onLog,
-        );
       } else if (destinationDocker && destinationDocker !== this.docker) {
         await this.transferImage(buildImageName, destinationDocker, onLog);
       }
@@ -1191,11 +1928,13 @@ export class DockerService {
         spec,
         authConfig,
         destinationDocker,
+        currentResource.id,
       );
       await this.ensureServiceNetwork(
         serviceName,
         networkId,
         destinationDocker,
+        currentResource.id,
       );
     } finally {
       cleanupSourceEnvironment?.();
@@ -1521,6 +2260,7 @@ export class DockerService {
   }
 
   private async buildApplicationImage(
+    resourceId: string,
     clonePath: string,
     imageName: string,
     config: ApplicationBuildConfig,
@@ -1532,6 +2272,7 @@ export class DockerService {
     switch (config.type) {
       case "dockerfile":
         await this.buildDockerfileImage(
+          resourceId,
           clonePath,
           imageName,
           config,
@@ -1543,6 +2284,7 @@ export class DockerService {
         return;
       case "railpack":
         await this.buildRailpackImage(
+          resourceId,
           clonePath,
           imageName,
           config.railpackVersion,
@@ -1554,6 +2296,7 @@ export class DockerService {
         return;
       case "nixpacks":
         await this.buildNixpacksImage(
+          resourceId,
           clonePath,
           imageName,
           config.publishDirectory,
@@ -1564,6 +2307,7 @@ export class DockerService {
         return;
       case "heroku-buildpacks":
         await this.buildPackImage(
+          resourceId,
           clonePath,
           imageName,
           `heroku/builder:${config.herokuVersion}`,
@@ -1575,6 +2319,7 @@ export class DockerService {
         return;
       case "paketo-buildpacks":
         await this.buildPackImage(
+          resourceId,
           clonePath,
           imageName,
           "paketobuildpacks/builder-jammy-full",
@@ -1586,6 +2331,7 @@ export class DockerService {
         return;
       case "static":
         await this.buildStaticImage(
+          resourceId,
           clonePath,
           imageName,
           config.publishDirectory,
@@ -1614,6 +2360,7 @@ export class DockerService {
   }
 
   private async buildDockerfileImage(
+    resourceId: string,
     clonePath: string,
     imageName: string,
     config: Extract<ApplicationBuildConfig, { type: "dockerfile" }>,
@@ -1640,7 +2387,61 @@ export class DockerService {
       throw new Error("Docker context path must point to a directory");
     }
 
-    const args = ["build", "--file", dockerfilePath, "--tag", imageName];
+    const buildResourceDockerfile =
+      this.resourceCommandBroker?.buildResourceDockerfile;
+    const typedBuild =
+      Object.keys(this.commandEnvironment).length === 0 &&
+      Object.keys(buildSecrets).length === 0 &&
+      buildResourceDockerfile;
+
+    if (typedBuild) {
+      onLog(
+        `Building Dockerfile image ${imageName} through the typed Docker broker...\n`,
+      );
+      try {
+        await buildResourceDockerfile(
+          { kind: "local", name: "local" },
+          resourceId,
+          imageName,
+          contextPath,
+          dockerfilePath,
+          {
+            noCache: config.dockerNoCache,
+            target: config.dockerBuildStage,
+            buildArgs: {
+              ...buildEnvVars,
+              ...(config.dockerBuildArgs ?? {}),
+            },
+            preserveForRollback,
+            onLog,
+          },
+        );
+        return;
+      } finally {
+        if (config.dockerCleanupCache) {
+          onLog("Cleaning unused Docker builder cache...\n");
+          await this.runCommandAsync(
+            "docker",
+            ["builder", "prune", "--force"],
+            onLog,
+          ).catch((error) => {
+            onLog(
+              `Warning: Docker builder cache cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`,
+            );
+          });
+        }
+      }
+    }
+
+    const args = [
+      "build",
+      "--file",
+      dockerfilePath,
+      "--tag",
+      imageName,
+      "--label",
+      `com.upstand.resource-id=${resourceId}`,
+    ];
     if (preserveForRollback) {
       args.push("--label", "com.upstand.rollback.keep=true");
     }
@@ -1666,7 +2467,7 @@ export class DockerService {
         Object.keys(buildSecrets).length
           ? { ...getInheritedEnv(buildSecrets), DOCKER_BUILDKIT: "1" }
           : undefined,
-        { redactions: Object.values(buildSecrets) },
+        { redactions: Object.values(buildSecrets), resourceId },
       );
     } finally {
       if (config.dockerCleanupCache) {
@@ -1685,6 +2486,7 @@ export class DockerService {
   }
 
   private async buildRailpackImage(
+    resourceId: string,
     clonePath: string,
     imageName: string,
     version: string,
@@ -1696,10 +2498,13 @@ export class DockerService {
     const railpack = await this.ensureRailpack(version, onLog);
     const planPath = path.join(clonePath, "railpack-plan.json");
     const infoPath = path.join(clonePath, "railpack-info.json");
-    const buildEnvironment = this.getBuildEnvironment({
-      ...envVars,
-      ...buildSecrets,
-    });
+    const buildEnvironment = this.getBuildEnvironment(
+      {
+        ...envVars,
+        ...buildSecrets,
+      },
+      resourceId,
+    );
     const environmentKeys = Object.keys({
       ...envVars,
       ...buildSecrets,
@@ -1746,7 +2551,13 @@ export class DockerService {
 
     try {
       onLog("Validating Docker Buildx availability...\n");
-      await this.runCommandAsync("docker", ["buildx", "version"], onLog);
+      await this.runCommandAsync(
+        "docker",
+        ["buildx", "version"],
+        onLog,
+        undefined,
+        { resourceId },
+      );
       onLog("Starting an isolated BuildKit builder for Railpack...\n");
       await this.runCommandAsync(
         "docker",
@@ -1759,11 +2570,15 @@ export class DockerService {
           "docker-container",
         ],
         onLog,
+        undefined,
+        { resourceId },
       );
       await this.runCommandAsync(
         "docker",
         ["buildx", "inspect", "--builder", builderName, "--bootstrap"],
         onLog,
+        undefined,
+        { resourceId },
       );
 
       const buildArgs = [
@@ -1779,6 +2594,8 @@ export class DockerService {
         planPath,
         "--output",
         `type=docker,name=${imageName}`,
+        "--label",
+        `com.upstand.resource-id=${resourceId}`,
       ];
       if (preserveForRollback) {
         buildArgs.push("--label", "com.upstand.rollback.keep=true");
@@ -1791,17 +2608,21 @@ export class DockerService {
       onLog(`Building Railpack v${version} image ${imageName}...\n`);
       await this.runCommandAsync("docker", buildArgs, onLog, buildEnvironment, {
         redactions: [...Object.values(envVars), ...Object.values(buildSecrets)],
+        resourceId,
       });
     } finally {
       await this.runCommandAsync(
         "docker",
         ["buildx", "rm", "--force", builderName],
         () => {},
+        undefined,
+        { resourceId },
       ).catch(() => undefined);
     }
   }
 
   private async buildNixpacksImage(
+    resourceId: string,
     clonePath: string,
     imageName: string,
     publishDirectory: string | undefined,
@@ -1823,13 +2644,13 @@ export class DockerService {
       "nixpacks",
       buildArgs,
       onLog,
-      this.getBuildEnvironment(envVars),
+      this.getBuildEnvironment(envVars, resourceId),
       { redactions: Object.values(envVars) },
     );
 
     if (!publishDirectory) {
       if (preserveForRollback) {
-        await this.markImageForRollback(imageName, onLog);
+        await this.markImageForRollback(imageName, onLog, resourceId);
       }
       return;
     }
@@ -1850,13 +2671,18 @@ export class DockerService {
         "docker",
         ["create", "--name", containerName, imageName],
         onLog,
+        undefined,
+        { resourceId },
       );
       await this.runCommandAsync(
         "docker",
         ["cp", `${containerName}:/app/${publishDirectory}/.`, exportDirectory],
         onLog,
+        undefined,
+        { resourceId },
       );
       await this.buildStaticImage(
+        resourceId,
         clonePath,
         imageName,
         publishDirectory,
@@ -1869,11 +2695,14 @@ export class DockerService {
         "docker",
         ["rm", "--force", containerName],
         () => {},
+        undefined,
+        { resourceId },
       ).catch(() => undefined);
     }
   }
 
   private async buildPackImage(
+    resourceId: string,
     clonePath: string,
     imageName: string,
     builder: string,
@@ -1900,10 +2729,10 @@ export class DockerService {
       "pack",
       args,
       onLog,
-      this.getBuildEnvironment(envVars),
+      this.getBuildEnvironment(envVars, resourceId),
     );
     if (preserveForRollback) {
-      await this.markImageForRollback(imageName, onLog);
+      await this.markImageForRollback(imageName, onLog, resourceId);
     }
   }
 
@@ -1915,19 +2744,53 @@ export class DockerService {
   private async markImageForRollback(
     imageName: string,
     onLog: (log: string) => void,
+    resourceId?: string,
   ): Promise<void> {
+    const markResourceImageForRollback =
+      this.resourceCommandBroker?.markResourceImageForRollback;
+    if (
+      resourceId &&
+      Object.keys(this.commandEnvironment).length === 0 &&
+      markResourceImageForRollback
+    ) {
+      onLog(
+        `Marking image ${imageName} through the typed Docker broker for rollback protection...\n`,
+      );
+      await markResourceImageForRollback(
+        { kind: "local", name: "local" },
+        resourceId,
+        imageName,
+      );
+      return;
+    }
     const suffix = createHash("sha256")
       .update(`${imageName}:${Date.now()}`)
       .digest("hex")
       .slice(0, 12);
     const containerName = `upstand-rollback-marker-${suffix}`;
-    const markerImage = `${imageName}-rollback-marker-${suffix}`;
+    const imageTagSeparator = imageName.lastIndexOf(":");
+    const markerImage =
+      imageTagSeparator > 0
+        ? `${imageName.slice(0, imageTagSeparator)}:${imageName.slice(
+            imageTagSeparator + 1,
+          )}-rollback-marker-${suffix}`
+        : `${imageName}-rollback-marker-${suffix}`;
     try {
       onLog(`Marking image ${imageName} as rollback-protected...\n`);
       await this.runCommandAsync(
         "docker",
-        ["create", "--name", containerName, imageName],
+        [
+          "create",
+          "--name",
+          containerName,
+          ...(resourceId
+            ? ["--label", `com.upstand.resource-id=${resourceId}`]
+            : []),
+          imageName,
+        ],
         onLog,
+        undefined,
+        { resourceId },
       );
       await this.runCommandAsync(
         "docker",
@@ -1939,27 +2802,36 @@ export class DockerService {
           markerImage,
         ],
         onLog,
+        undefined,
+        { resourceId },
       );
       await this.runCommandAsync(
         "docker",
         ["tag", markerImage, imageName],
         onLog,
+        undefined,
+        { resourceId },
       );
     } finally {
       await this.runCommandAsync(
         "docker",
         ["rm", "--force", containerName],
         () => {},
+        undefined,
+        { resourceId },
       ).catch(() => undefined);
       await this.runCommandAsync(
         "docker",
         ["image", "rm", markerImage],
         () => {},
+        undefined,
+        { resourceId },
       ).catch(() => undefined);
     }
   }
 
   private async buildStaticImage(
+    resourceId: string,
     clonePath: string,
     imageName: string,
     publishDirectory: string,
@@ -2025,12 +2897,16 @@ export class DockerService {
           dockerfilePath,
           "--tag",
           imageName,
+          "--label",
+          `com.upstand.resource-id=${resourceId}`,
           ...(preserveForRollback
             ? ["--label", "com.upstand.rollback.keep=true"]
             : []),
           staticContext,
         ],
         onLog,
+        undefined,
+        { resourceId },
       );
     } finally {
       fs.rmSync(staticContext, { recursive: true, force: true });
@@ -2077,8 +2953,38 @@ export class DockerService {
 
   private getBuildEnvironment(
     envVars: Record<string, string>,
+    resourceId?: string,
   ): NodeJS.ProcessEnv {
-    return getInheritedEnv(envVars);
+    return {
+      ...getInheritedEnv(envVars),
+      ...(resourceId ? this.getDockerCommandEnvironment(resourceId) : {}),
+    };
+  }
+
+  private getDockerCommandEnvironment(
+    resourceId: string,
+  ): Record<string, string | undefined> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(resourceId)) {
+      throw new Error("Docker resource scope is invalid");
+    }
+    const inheritedHeaders = (
+      this.commandEnvironment.DOCKER_CUSTOM_HEADERS ??
+      process.env.DOCKER_CUSTOM_HEADERS ??
+      ""
+    )
+      .split(",")
+      .map((header) => header.trim())
+      .filter(
+        (header) =>
+          header.length > 0 &&
+          !header.toLowerCase().startsWith("x-upstand-resource-id="),
+      );
+    return {
+      DOCKER_CUSTOM_HEADERS: [
+        ...inheritedHeaders,
+        `X-Upstand-Resource-ID=${resourceId}`,
+      ].join(","),
+    };
   }
 
   private async ensureRailpack(
@@ -2145,86 +3051,70 @@ export class DockerService {
     const composeDir = path.join(buildDir, resource.id);
     fs.mkdirSync(composeDir, { recursive: true });
     const composePath = path.join(composeDir, "docker-compose.yml");
+    let composeContent = "";
 
-    const advancedConfig = parseResourceAdvancedConfig(resource.advancedConfig);
-    const composeSource = advancedConfig.randomize
-      ? randomizeComposeFile(rawCompose, advancedConfig.randomSuffix)
-      : rawCompose;
-    let composeContent = applyComposeResourceConfig(
-      composeSource,
-      resource,
-      advancedConfig,
-    );
     try {
-      composeContent = applyComposeIngressNetwork(
-        composeContent,
-        deploymentNetwork.name,
-        advancedConfig.isolatedDeployment &&
-          advancedConfig.isolatedDeploymentsVolume,
-        stackName,
+      const advancedConfig = parseResourceAdvancedConfig(
+        resource.advancedConfig,
       );
-    } catch (error) {
-      throw new Error(
-        `Unable to prepare Compose networking: ${error instanceof Error ? error.message : String(error)}`,
+      const composeSource = advancedConfig.randomize
+        ? randomizeComposeFile(rawCompose, advancedConfig.randomSuffix)
+        : rawCompose;
+      composeContent = applyComposeResourceConfig(
+        composeSource,
+        resource,
+        advancedConfig,
       );
-    }
-
-    // Inject placement constraints if provided
-    if (constraints && constraints.length > 0) {
       try {
-        const parsed = yaml.parse(composeContent);
-        if (parsed && typeof parsed === "object" && parsed.services) {
-          for (const serviceName of Object.keys(parsed.services)) {
-            const service = parsed.services[serviceName];
-            if (service && typeof service === "object") {
-              if (!service.deploy) {
-                service.deploy = {};
-              }
-              if (!service.deploy.placement) {
-                service.deploy.placement = {};
-              }
-              if (!service.deploy.placement.constraints) {
-                service.deploy.placement.constraints = [];
-              }
-              for (const c of constraints) {
-                if (!service.deploy.placement.constraints.includes(c)) {
-                  service.deploy.placement.constraints.push(c);
-                }
-              }
-            }
-          }
-          composeContent = yaml.stringify(parsed);
-        }
-      } catch (err) {
-        onLog(
-          `Warning: Failed to inject Swarm placement constraints: ${err instanceof Error ? err.message : String(err)}\n`,
+        composeContent = applyComposeIngressNetwork(
+          composeContent,
+          deploymentNetwork.name,
+          advancedConfig.isolatedDeployment &&
+            advancedConfig.isolatedDeploymentsVolume,
+          stackName,
+        );
+      } catch (error) {
+        throw new Error(
+          `Unable to prepare Compose networking: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-    }
 
-    fs.writeFileSync(composePath, composeContent, "utf8");
+      // Inject placement constraints if provided
+      if (constraints && constraints.length > 0) {
+        composeContent = applyComposePlacementConstraints(
+          composeContent,
+          constraints,
+        );
+      }
 
-    const composeCommand =
-      resource.composeType === "compose"
-        ? [
-            "compose",
-            "--project-name",
-            stackName,
-            "--file",
-            composePath,
-            "up",
-            "--detach",
-            "--remove-orphans",
-          ]
-        : ["stack", "deploy", "--compose-file", composePath, stackName];
-    onLog(
-      resource.composeType === "compose"
-        ? `Deploying Docker Compose project '${stackName}'...\n`
-        : `Deploying Docker Swarm stack '${stackName}'...\n`,
-    );
-    const composeEnv =
-      envVars ?? parseResourceEnvironmentVariables(resource.envVars);
-    try {
+      composeContent = await this.ensureTypedComposeResources(
+        composeContent,
+        resource,
+        stackName,
+      );
+
+      writePrivateDeploymentFile(composePath, composeContent);
+
+      const composeCommand =
+        resource.composeType === "compose"
+          ? [
+              "compose",
+              "--project-name",
+              stackName,
+              "--file",
+              composePath,
+              "up",
+              "--detach",
+              "--remove-orphans",
+            ]
+          : ["stack", "deploy", "--compose-file", composePath, stackName];
+      onLog(
+        resource.composeType === "compose"
+          ? `Deploying Docker Compose project '${stackName}'...\n`
+          : `Deploying Docker Swarm stack '${stackName}'...\n`,
+      );
+      const composeEnv =
+        envVars ?? parseResourceEnvironmentVariables(resource.envVars);
       await this.runCommandAsync(
         "docker",
         composeCommand,
@@ -2232,6 +3122,7 @@ export class DockerService {
         composeEnv as NodeJS.ProcessEnv,
         {
           redactions: Object.values(composeEnv),
+          resourceId: resource.id,
         },
       );
 
@@ -2245,6 +3136,99 @@ export class DockerService {
     } finally {
       fs.rmSync(composeDir, { recursive: true, force: true });
     }
+  }
+
+  private async ensureTypedComposeResources(
+    rawCompose: string,
+    resource: Resource,
+    projectName: string,
+  ): Promise<string> {
+    const ensureNetwork = this.resourceCommandBroker?.ensureResourceNetwork;
+    const ensureVolume = this.resourceCommandBroker?.ensureResourceVolume;
+    if (!this.resourceCommandBroker) return rawCompose;
+    if (!ensureNetwork || !ensureVolume) {
+      throw new Error(
+        "Typed Compose resource provisioning is unavailable for the configured Docker broker",
+      );
+    }
+
+    const parsed = yaml.parse(rawCompose) as {
+      services?: Record<string, Record<string, unknown>>;
+      networks?: Record<string, unknown>;
+      volumes?: Record<string, unknown>;
+    };
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Compose file must contain an object document");
+    }
+
+    const composeType =
+      resource.composeType === "compose"
+        ? ("compose" as const)
+        : ("stack" as const);
+    const networks = parsed.networks ?? {};
+    for (const [networkKey, definition] of Object.entries(networks)) {
+      if (networkKey === "upstand_ingress") continue;
+      const internal =
+        isUnknownRecord(definition) && definition.internal === true;
+      const ensured = await ensureNetwork(
+        { kind: "local", name: "local" },
+        resource.id,
+        {
+          networkKey,
+          projectName,
+          composeType,
+          internal,
+        },
+      );
+      parsed.networks ??= {};
+      parsed.networks[networkKey] = {
+        name: ensured.name,
+        external: true,
+      };
+    }
+
+    parsed.volumes ??= {};
+    if (parsed.services) {
+      for (const service of Object.values(parsed.services)) {
+        const volumes = service.volumes;
+        if (!Array.isArray(volumes)) continue;
+        for (const volume of volumes) {
+          let source: string | undefined;
+          if (typeof volume === "string") {
+            source = volume.split(":", 1)[0];
+          } else if (
+            isUnknownRecord(volume) &&
+            typeof volume.source === "string"
+          ) {
+            source = volume.source;
+          }
+          if (
+            source &&
+            !source.startsWith(".") &&
+            !source.startsWith("/") &&
+            !source.startsWith("~") &&
+            !/^[A-Za-z]:[\\/]/.test(source)
+          ) {
+            parsed.volumes[source] ??= {};
+          }
+        }
+      }
+    }
+    for (const volumeKey of Object.keys(parsed.volumes)) {
+      await ensureVolume(
+        { kind: "local", name: "local" },
+        resource.id,
+        volumeKey,
+        projectName,
+        composeType,
+      );
+      parsed.volumes[volumeKey] = {
+        name: `upstand-resource-${resource.id.toLowerCase()}-volume-${volumeKey}`,
+        external: true,
+      };
+    }
+
+    return yaml.stringify(parsed);
   }
 
   private async waitForComposeConvergence(
@@ -2538,6 +3522,17 @@ export class DockerService {
     ) {
       throw new ConflictError("Invalid deployment revision service name");
     }
+    const promoteResourceServiceRevision =
+      this.resourceCommandBroker?.promoteResourceServiceRevision;
+    if (promoteResourceServiceRevision && this.cacheDockerDiskUsage) {
+      await promoteResourceServiceRevision(
+        { kind: "local", name: "local" },
+        resource.id,
+        baseServiceName,
+        revisionName,
+      );
+      return;
+    }
     const baseService = this.docker.getService(baseServiceName);
     const revisionService = this.docker.getService(revisionName);
     const [base, revision] = await Promise.all([
@@ -2591,7 +3586,17 @@ export class DockerService {
           "Deployment revision does not belong to this resource",
         );
       }
-      await service.remove();
+      const removeResourceService =
+        this.resourceCommandBroker?.removeResourceService;
+      if (removeResourceService) {
+        await removeResourceService(
+          { kind: "local", name: "local" },
+          resource.id,
+          revisionName,
+        );
+      } else {
+        await service.remove();
+      }
     } catch (error: unknown) {
       if (errorStatusCode(error) === 404) return;
       throw error;
@@ -2610,6 +3615,17 @@ export class DockerService {
       );
     }
     const serviceName = this.sanitizeName(resource.appName || resource.name);
+    const scaleResourceService =
+      this.resourceCommandBroker?.scaleResourceService;
+    if (scaleResourceService && this.cacheDockerDiskUsage) {
+      await scaleResourceService(
+        { kind: "local", name: "local" },
+        resource.id,
+        serviceName,
+        replicas,
+      );
+      return;
+    }
     const service = this.docker.getService(serviceName);
     const inspect = await service.inspect();
     await service.update({
@@ -2658,7 +3674,17 @@ export class DockerService {
     const replicaName = `${primaryName}-replica`;
     if (!config.enabled) {
       try {
-        await this.docker.getService(replicaName).remove();
+        const removeResourceService =
+          this.resourceCommandBroker?.removeResourceService;
+        if (removeResourceService) {
+          await removeResourceService(
+            { kind: "local", name: "local" },
+            resource.id,
+            replicaName,
+          );
+        } else {
+          await this.docker.getService(replicaName).remove();
+        }
       } catch (error: unknown) {
         if (errorStatusCode(error) !== 404) throw error;
       }
@@ -2714,7 +3740,13 @@ export class DockerService {
         Order: "stop-first",
       },
     };
-    await this.upsertService(replicaName, serviceSpec);
+    await this.upsertService(
+      replicaName,
+      serviceSpec,
+      undefined,
+      undefined,
+      resource.id,
+    );
   }
 
   async controlContainer(
@@ -3096,12 +4128,49 @@ export class DockerService {
     spec: Docker.CreateServiceOptions,
     authconfig?: Docker.AuthConfig,
     targetDocker?: DockerApiTarget,
+    resourceId?: string,
   ): Promise<void> {
+    const typedRegistryAuth =
+      authconfig &&
+      "username" in authconfig &&
+      "password" in authconfig &&
+      typeof authconfig.username === "string" &&
+      typeof authconfig.password === "string"
+        ? {
+            username: authconfig.username,
+            password: authconfig.password,
+            ...(typeof authconfig.serveraddress === "string" &&
+            authconfig.serveraddress
+              ? { serveraddress: authconfig.serveraddress }
+              : {}),
+          }
+        : undefined;
+    if (
+      !targetDocker &&
+      Object.keys(this.commandEnvironment).length === 0 &&
+      (!authconfig || typedRegistryAuth !== undefined) &&
+      resourceId &&
+      this.resourceCommandBroker?.upsertResourceService
+    ) {
+      await this.resourceCommandBroker.upsertResourceService(
+        { kind: "local", name: "local" },
+        resourceId,
+        serviceName,
+        spec as unknown as Record<string, unknown>,
+        ...(typedRegistryAuth ? [{ registryAuth: typedRegistryAuth }] : []),
+      );
+      return;
+    }
     const docker = targetDocker
       ? requireDockerTarget(targetDocker)
       : this.docker;
+    const scopedDocker = targetDocker
+      ? docker
+      : resourceId
+        ? (this.resourceScopedDockerFactory?.(resourceId) ?? docker)
+        : docker;
     try {
-      const service = docker.getService(serviceName);
+      const service = scopedDocker.getService(serviceName);
       const inspect = await service.inspect();
       log.info({
         message: `Updating existing Swarm service '${serviceName}'...`,
@@ -3116,7 +4185,7 @@ export class DockerService {
     } catch (err: unknown) {
       if (errorStatusCode(err) === 404) {
         log.info({ message: `Creating new Swarm service '${serviceName}'...` });
-        await docker.createService(authconfig ?? {}, spec);
+        await scopedDocker.createService(authconfig ?? {}, spec);
       } else {
         throw err;
       }
@@ -3133,11 +4202,31 @@ export class DockerService {
     serviceName: string,
     networkId: string,
     targetDocker?: DockerApiTarget,
+    resourceId?: string,
   ): Promise<void> {
+    if (
+      !targetDocker &&
+      Object.keys(this.commandEnvironment).length === 0 &&
+      resourceId &&
+      this.resourceCommandBroker?.ensureResourceServiceNetwork
+    ) {
+      await this.resourceCommandBroker.ensureResourceServiceNetwork(
+        { kind: "local", name: "local" },
+        resourceId,
+        serviceName,
+        networkId,
+      );
+      return;
+    }
     const docker = targetDocker
       ? requireDockerTarget(targetDocker)
       : this.docker;
-    const service = docker.getService(serviceName);
+    const scopedDocker = targetDocker
+      ? docker
+      : resourceId
+        ? (this.resourceScopedDockerFactory?.(resourceId) ?? docker)
+        : docker;
+    const service = scopedDocker.getService(serviceName);
     const inspect = await service.inspect();
     const networks =
       inspect.Spec?.TaskTemplate?.Networks || inspect.Spec?.Networks || [];
@@ -3175,6 +4264,7 @@ export class DockerService {
     options: {
       stdin?: string;
       redactions?: readonly string[];
+      resourceId?: string;
       timeoutMs?: number;
     } = {},
   ): Promise<void> {
@@ -3188,6 +4278,9 @@ export class DockerService {
           ...getInheritedEnv(),
           ...this.commandEnvironment,
           ...(env ?? {}),
+          ...(cmd === "docker" && options.resourceId
+            ? this.getDockerCommandEnvironment(options.resourceId)
+            : {}),
         },
       });
 
@@ -3454,8 +4547,18 @@ export class DockerService {
     const serviceName = this.sanitizeName(resource.appName || resource.name);
 
     if (resource.type === "compose") {
+      const removeResourceCompose =
+        this.resourceCommandBroker?.removeResourceCompose;
       try {
-        if (resource.composeType === "compose") {
+        if (removeResourceCompose) {
+          await removeResourceCompose(
+            { kind: "local", name: "local" },
+            resource.id,
+            serviceName,
+            resource.composeType === "compose" ? "compose" : "stack",
+            deleteVolumes,
+          );
+        } else if (resource.composeType === "compose") {
           const containers = await this.docker.listContainers({
             all: true,
             filters: JSON.stringify({
@@ -3488,7 +4591,7 @@ export class DockerService {
         });
       }
 
-      if (deleteVolumes) {
+      if (deleteVolumes && !removeResourceCompose) {
         try {
           const volumesList = await this.docker.listVolumes();
           const volumes = volumesList.Volumes || [];
@@ -3512,8 +4615,18 @@ export class DockerService {
     }
 
     try {
-      const service = this.docker.getService(serviceName);
-      await service.remove();
+      const removeResourceService =
+        this.resourceCommandBroker?.removeResourceService;
+      if (removeResourceService) {
+        await removeResourceService(
+          { kind: "local", name: "local" },
+          resource.id,
+          serviceName,
+        );
+      } else {
+        const service = this.docker.getService(serviceName);
+        await service.remove();
+      }
     } catch (err: unknown) {
       if (errorStatusCode(err) !== 404) {
         log.error({
@@ -3530,8 +4643,18 @@ export class DockerService {
     if (deleteVolumes) {
       try {
         const volumeName = `upstand-db-data-${resource.id}`;
-        const volume = this.docker.getVolume(volumeName);
-        await volume.remove().catch(() => {});
+        const removeResourceVolume =
+          this.resourceCommandBroker?.removeResourceVolume;
+        if (removeResourceVolume) {
+          await removeResourceVolume(
+            { kind: "local", name: "local" },
+            resource.id,
+            volumeName,
+          );
+        } else {
+          const volume = this.docker.getVolume(volumeName);
+          await volume.remove().catch(() => {});
+        }
       } catch (err: unknown) {
         log.error({
           message: `Failed to remove volume for resource ${resource.id}`,
@@ -3558,7 +4681,17 @@ export class DockerService {
 
     const serviceName = this.sanitizeName(resource.appName || resource.name);
     try {
-      await this.docker.getService(serviceName).remove();
+      const removeResourceService =
+        this.resourceCommandBroker?.removeResourceService;
+      if (removeResourceService) {
+        await removeResourceService(
+          { kind: "local", name: "local" },
+          resource.id,
+          serviceName,
+        );
+      } else {
+        await this.docker.getService(serviceName).remove();
+      }
     } catch (error: unknown) {
       if (errorStatusCode(error) !== 404) throw error;
     }
@@ -3573,7 +4706,17 @@ export class DockerService {
 
     const volumeName = `upstand-db-data-${resource.id}`;
     try {
-      await this.docker.getVolume(volumeName).remove();
+      const removeResourceVolume =
+        this.resourceCommandBroker?.removeResourceVolume;
+      if (removeResourceVolume) {
+        await removeResourceVolume(
+          { kind: "local", name: "local" },
+          resource.id,
+          volumeName,
+        );
+      } else {
+        await this.docker.getVolume(volumeName).remove();
+      }
     } catch (error: unknown) {
       if (errorStatusCode(error) !== 404) throw error;
     }
@@ -3600,6 +4743,29 @@ export class DockerService {
   private async removeResourceNetwork(resource: Resource): Promise<void> {
     const advancedConfig = parseResourceAdvancedConfig(resource.advancedConfig);
     if (!advancedConfig.isolatedDeployment) return;
+
+    const removeTypedResourceNetwork =
+      this.resourceCommandBroker?.removeResourceNetwork;
+    if (removeTypedResourceNetwork) {
+      try {
+        await removeTypedResourceNetwork(
+          { kind: "local", name: "local" },
+          resource.id,
+          getResourceOverlayNetworkName(resource.id),
+        );
+        log.info({
+          message: `Removed isolated network for resource '${resource.id}'.`,
+          network: getResourceOverlayNetworkName(resource.id),
+        });
+      } catch (error: unknown) {
+        log.warn({
+          message: `Isolated network for resource '${resource.id}' could not be removed by the typed Docker capability.`,
+          network: getResourceOverlayNetworkName(resource.id),
+          err: error,
+        });
+      }
+      return;
+    }
 
     const network = this.docker.getNetwork(
       getResourceOverlayNetworkName(resource.id),
@@ -3636,33 +4802,15 @@ export class DockerService {
       maxOutputBytes?: number;
     },
   ): Promise<string> {
-    const docker = targetDocker
-      ? requireDockerTarget(targetDocker)
-      : this.docker;
-    const containers = await this.getContainers(resource);
-    if (containers.length === 0) {
+    if (
+      !command ||
+      command.length > MAX_RESOURCE_COMMAND_BYTES ||
+      command.includes("\0")
+    ) {
       throw new Error(
-        `No running containers found for resource '${resource.name}'`,
+        `Container command must be non-empty, contain no NUL bytes, and be at most ${MAX_RESOURCE_COMMAND_BYTES} bytes`,
       );
     }
-
-    const firstContainer = containers.at(0);
-    if (!firstContainer) {
-      throw new Error(
-        `No running containers found for resource '${resource.name}'`,
-      );
-    }
-    const containerId = firstContainer.id;
-    const container = docker.getContainer(containerId);
-
-    const exec = await container.exec({
-      Cmd: ["sh", "-c", command],
-      AttachStdout: true,
-      AttachStderr: true,
-    });
-
-    const stream = await exec.start({ Detach: false });
-    const chunks: Buffer[] = [];
     const timeoutSeconds = Math.min(
       1_800,
       Math.max(
@@ -3681,6 +4829,56 @@ export class DockerService {
         ),
       ),
     );
+
+    if (
+      !targetDocker &&
+      this.commandEnvironment &&
+      Object.keys(this.commandEnvironment).length === 0 &&
+      this.resourceCommandBroker
+    ) {
+      const result = await this.resourceCommandBroker.execContainerCommand(
+        { kind: "local", name: "local" },
+        undefined,
+        command,
+        { timeoutSeconds, maxOutputBytes },
+        resource.id,
+      );
+      if (result.exitCode !== undefined && result.exitCode !== 0) {
+        throw new Error(
+          result.stderr?.trim() ||
+            `Container command exited with code ${result.exitCode}`,
+        );
+      }
+      return this.cleanDockerLogs(result.output).trim();
+    }
+
+    const docker = targetDocker
+      ? requireDockerTarget(targetDocker)
+      : this.docker;
+    const containers = await this.getContainers(resource);
+    if (containers.length === 0) {
+      throw new Error(
+        `No running containers found for resource '${resource.name}'`,
+      );
+    }
+
+    const firstContainer = containers.at(0);
+    if (!firstContainer) {
+      throw new Error(
+        `No running containers found for resource '${resource.name}'`,
+      );
+    }
+    const containerId = firstContainer.id;
+
+    const container = docker.getContainer(containerId);
+    const exec = await container.exec({
+      Cmd: ["sh", "-c", command],
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ Detach: false });
+    const chunks: Buffer[] = [];
+
     return new Promise<string>((resolve, reject) => {
       let settled = false;
       let outputBytes = 0;
@@ -3751,6 +4949,7 @@ export class DockerService {
     serviceName: string,
     command: string,
     options?: { timeoutSeconds?: number; onLog?: (chunk: string) => void },
+    _resourceId?: string,
   ): Promise<{ output: string; stderr?: string; exitCode: number }> {
     const list = await this.docker.listContainers({ all: false });
     const normalizedServiceName = serviceName.replace(/^\/+/, "");
@@ -3910,20 +5109,44 @@ export class DockerService {
 
     while (Date.now() - startTime < timeoutMs) {
       try {
-        const rawTasks: unknown[] = await docker.listTasks({
-          filters: JSON.stringify({
-            service: [serviceName],
-            "desired-state": ["running"],
-          }),
-        });
-        const tasks: DockerTaskSnapshot[] = rawTasks
-          .map((task: unknown): DockerTaskSnapshot | null =>
-            parseDockerTask(task),
-          )
-          .filter(
-            (task: DockerTaskSnapshot | null): task is DockerTaskSnapshot =>
-              task !== null,
-          );
+        const useTypedConvergenceBroker =
+          !options.destinationDocker &&
+          Object.keys(this.commandEnvironment).length === 0 &&
+          this.resourceCommandBroker &&
+          Boolean(resource.id);
+        const tasks: DockerTaskSnapshot[] = useTypedConvergenceBroker
+          ? (
+              await this.resourceCommandBroker.inspectResourceConvergence(
+                { kind: "local", name: "local" },
+                resource.id,
+                serviceName,
+              )
+            ).tasks.map((task) => ({
+              DesiredState: task.desiredState,
+              Status: {
+                State: task.state,
+                Err: task.error,
+                Health: task.health,
+                ContainerStatus: task.containerId
+                  ? { ContainerID: task.containerId }
+                  : undefined,
+              },
+            }))
+          : (
+              await docker.listTasks({
+                filters: JSON.stringify({
+                  service: [serviceName],
+                  "desired-state": ["running"],
+                }),
+              })
+            )
+              .map((task: unknown): DockerTaskSnapshot | null =>
+                parseDockerTask(task),
+              )
+              .filter(
+                (task: DockerTaskSnapshot | null): task is DockerTaskSnapshot =>
+                  task !== null,
+              );
 
         if (!Array.isArray(tasks) || tasks.length === 0) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -3963,7 +5186,7 @@ export class DockerService {
 
           for (const task of activeTasks) {
             const containerId = task.Status?.ContainerStatus?.ContainerID;
-            if (containerId) {
+            if (containerId && !useTypedConvergenceBroker) {
               try {
                 const container = docker.getContainer(containerId);
                 const inspectData = await container.inspect();
@@ -3987,6 +5210,28 @@ export class DockerService {
                 }
               } catch {
                 // Container inspect might briefly fail while starting up
+              }
+            }
+
+            if (
+              useTypedConvergenceBroker &&
+              task.Status?.Health &&
+              task.Status.Health !== "none" &&
+              task.Status.Health !== "unknown"
+            ) {
+              explicitHealthCheckFound = true;
+              if (task.Status.Health === "unhealthy") {
+                onLog?.(
+                  `Convergence check: Container ${containerId?.slice(0, 12) ?? "unknown"} reported unhealthy status. ❌\n`,
+                );
+                return {
+                  healthy: false,
+                  state: "unhealthy",
+                  message: `Container health check failed: ${task.Status.Health}`,
+                };
+              }
+              if (task.Status.Health !== "healthy") {
+                allTasksHealthy = false;
               }
             }
 

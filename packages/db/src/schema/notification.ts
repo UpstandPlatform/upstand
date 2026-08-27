@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -31,6 +32,10 @@ export const notificationChannel = pgTable(
       .notNull(),
   },
   (table) => [
+    uniqueIndex("notification_channel_organization_id_uidx").on(
+      table.organizationId,
+      table.id,
+    ),
     index("notification_channel_organization_idx").on(table.organizationId),
     index("notification_channel_events_idx").using("gin", table.events),
   ],
@@ -74,6 +79,14 @@ export const notificationDelivery = pgTable(
     uniqueIndex("notification_delivery_idempotency_uidx").on(
       table.idempotencyKey,
     ),
+    foreignKey({
+      columns: [table.organizationId, table.channelId],
+      foreignColumns: [
+        notificationChannel.organizationId,
+        notificationChannel.id,
+      ],
+      name: "notification_delivery_org_channel_fk",
+    }).onDelete("cascade"),
   ],
 );
 

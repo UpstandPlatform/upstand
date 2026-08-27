@@ -1477,6 +1477,7 @@ export class DeploymentWorker {
                   timeoutSeconds,
                   onLog: (chunk) => appendLog(chunk),
                 },
+                deployedResource.id,
               );
             } else if (supportsDockerHookService(dockerService)) {
               const output = await dockerService.runCommandInResourceContainer(
@@ -1671,6 +1672,7 @@ export class DeploymentWorker {
                 timeoutSeconds,
                 onLog: (chunk) => appendLog(chunk),
               },
+              deployedResource.id,
             );
           } else if (supportsDockerHookService(dockerService)) {
             const output = await dockerService.runCommandInResourceContainer(

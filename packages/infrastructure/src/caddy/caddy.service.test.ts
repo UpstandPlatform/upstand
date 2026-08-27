@@ -19,6 +19,54 @@ test("recognizes only the pinned Caddy image digest", () => {
   );
 });
 
+test("uses the typed broker for local Caddy provisioning", async () => {
+  let provisioningInput: Record<string, unknown> | undefined;
+  const service = new CaddyService({} as never, ["localhost"], {
+    ensureCaddyContainer: async (input) => {
+      provisioningInput = input as unknown as Record<string, unknown>;
+    },
+  });
+
+  await service.initializeCaddy();
+
+  expect(provisioningInput).toMatchObject({
+    networkName: "upstand-network",
+    forceRecreate: false,
+    ports: [
+      { protocol: "tcp", targetPort: 80, publishedPort: 80 },
+      { protocol: "tcp", targetPort: 443, publishedPort: 443 },
+      { protocol: "udp", targetPort: 443, publishedPort: 443 },
+    ],
+  });
+  expect(provisioningInput?.caddyfileBase64).toBeString();
+  expect(provisioningInput?.environment).toEqual([
+    expect.stringContaining("UPSTAND_CADDYFILE_B64="),
+  ]);
+});
+
+test("uses the typed broker for local Caddy configuration sync", async () => {
+  let configurationInput:
+    | { caddyfileBase64: string; certificates: unknown[] }
+    | undefined;
+  const service = new CaddyService(
+    { listNetworks: async () => [] } as never,
+    ["localhost"],
+    {
+      ensureCaddyContainer: async () => undefined,
+      applyCaddyConfiguration: async (input) => {
+        configurationInput = input;
+        return { changed: true };
+      },
+    },
+  );
+
+  const result = await service.syncResourceConfigs([], {}, []);
+
+  expect(result).toMatchObject({ success: true, changed: true, domains: [] });
+  expect(configurationInput?.caddyfileBase64).toBeString();
+  expect(configurationInput?.certificates).toEqual([]);
+});
+
 describe("Caddy domain configuration", () => {
   test("normalizes validated mappings and creates an Automatic HTTPS site", () => {
     const mappings = parseDomainMappings(

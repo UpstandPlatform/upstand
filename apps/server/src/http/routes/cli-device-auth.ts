@@ -14,6 +14,7 @@ import { ApiKeyPresetSchema } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import { redis } from "@upstand/redis";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import type { AppEnv } from "../types";
 
@@ -42,13 +43,19 @@ if count == 1 then redis.call("EXPIRE", KEYS[1], ARGV[1]) end
 return count`;
 
 async function rateLimited(key: string, limit: number, ttlSeconds: number) {
-  const count = await redis.eval(
-    rateLimitScript,
-    1,
-    `upstand:rate:${key}`,
-    String(ttlSeconds),
-  );
-  return Number(count) <= limit;
+  try {
+    const count = await redis.eval(
+      rateLimitScript,
+      1,
+      `upstand:rate:${key}`,
+      String(ttlSeconds),
+    );
+    return Number(count) <= limit;
+  } catch {
+    // Device authorization mints credentials; an unavailable limiter must
+    // fail closed instead of allowing an unbounded polling or approval loop.
+    return false;
+  }
 }
 
 async function parseJson<T>(request: Request, schema: z.ZodType<T>) {
@@ -73,6 +80,15 @@ function verificationUri(userCode: string): string {
  * on the first successful poll.
  */
 export function registerCliDeviceAuthRoutes(app: Hono<AppEnv>): void {
+  app.use(
+    "/api/cli/device/*",
+    bodyLimit({
+      maxSize: 64 * 1024,
+      onError: (c) =>
+        c.json({ error: "Device authorization request is too large" }, 413),
+    }),
+  );
+
   app.post("/api/cli/device/authorize", async (c) => {
     const input = await parseJson(c.req.raw, authorizeInput);
     if (!input)
@@ -131,12 +147,29 @@ export function registerCliDeviceAuthRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: "2FA verification required" }, 403);
     }
 
+    let createdKeyId: string | undefined;
     try {
       await checkPermission(
         session.user.id,
         input.organizationId,
         "api_key:manage",
       );
+      // Claim the one-time request before minting a credential so races cannot
+      // create API keys for an expired or already-consumed device flow.
+      const claimed = await store.claim({
+        userCode: cliDeviceUserCode(input.userCode),
+        userId: session.user.id,
+        organizationId: input.organizationId,
+        preset: input.preset,
+      });
+      if (!claimed) {
+        return c.json(
+          {
+            error: "This CLI authorization request is expired or already used",
+          },
+          400,
+        );
+      }
       const result = await auth.api.createApiKey({
         body: {
           configId: API_KEY_CONFIG_ID,
@@ -155,7 +188,9 @@ export function registerCliDeviceAuthRoutes(app: Hono<AppEnv>): void {
           },
         },
       });
-      const approved = await store.approve({
+      const keyId = result.id;
+      createdKeyId = keyId;
+      const approved = await store.completeApproval({
         userCode: cliDeviceUserCode(input.userCode),
         userId: session.user.id,
         organizationId: input.organizationId,
@@ -163,6 +198,14 @@ export function registerCliDeviceAuthRoutes(app: Hono<AppEnv>): void {
         accessToken: result.key,
       });
       if (!approved) {
+        await auth.api.deleteApiKey({
+          headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+          body: { configId: API_KEY_CONFIG_ID, keyId },
+        });
+        await store.releaseClaim({
+          userCode: cliDeviceUserCode(input.userCode),
+          userId: session.user.id,
+        });
         return c.json(
           {
             error: "This CLI authorization request is expired or already used",
@@ -172,6 +215,20 @@ export function registerCliDeviceAuthRoutes(app: Hono<AppEnv>): void {
       }
       return c.json({ approved: true });
     } catch (error) {
+      if (createdKeyId) {
+        await auth.api
+          .deleteApiKey({
+            headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+            body: { configId: API_KEY_CONFIG_ID, keyId: createdKeyId },
+          })
+          .catch(() => undefined);
+      }
+      await store
+        .releaseClaim({
+          userCode: cliDeviceUserCode(input.userCode),
+          userId: session.user.id,
+        })
+        .catch(() => undefined);
       const message =
         error instanceof Error
           ? error.message

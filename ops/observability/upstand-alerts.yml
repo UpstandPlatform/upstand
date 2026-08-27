@@ -1,4 +1,112 @@
 groups:
+  - name: upstand-server
+    interval: 30s
+    rules:
+      - alert: UpstandServerMetricsUnavailable
+        expr: up{job="upstand-server"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-server
+        annotations:
+          summary: Upstand API metrics are unavailable
+          description: The control-plane API cannot be scraped; investigate API availability and the metrics credential path.
+
+      - alert: UpstandServerErrorRateHigh
+        expr: |
+          (
+            sum(rate(upstand_server_requests_total{job="upstand-server",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(upstand_server_requests_total{job="upstand-server"}[5m])), 1)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          service: upstand-server
+        annotations:
+          summary: Upstand API 5xx rate is above 5%
+          description: The API is returning elevated server errors; inspect database, Redis, schedules, and deployment dependencies.
+
+      - alert: UpstandServerMemoryHigh
+        expr: upstand_server_process_resident_memory_bytes{job="upstand-server"} > 8589934592
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: Upstand API resident memory is above 8 GiB
+          description: Investigate request or model-output amplification before the process is OOM-killed.
+
+      - alert: UpstandServerDatabasePoolSaturated
+        expr: upstand_server_database_pool_waiting{job="upstand-server"} > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: upstand-server
+        annotations:
+          summary: Upstand API requests are waiting for PostgreSQL connections
+          description: The API database pool is saturated; inspect PostgreSQL capacity, slow queries, and request pressure before availability degrades.
+
+      - alert: UpstandServerAuthenticationFailuresHigh
+        expr: |
+          (
+            sum(rate(upstand_server_authentication_attempts_total{job="upstand-server",outcome="rejected"}[5m]))
+            /
+            clamp_min(sum(rate(upstand_server_authentication_attempts_total{job="upstand-server"}[5m])), 1)
+          ) > 0.50
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: Upstand authentication rejection rate is above 50%
+          description: Investigate credential attacks, SSO/provider failures, session invalidation, or an authentication outage; confirm that no user or token data is exposed in logs.
+
+      - alert: UpstandWebhookServerErrorsHigh
+        expr: |
+          (
+            sum(rate(upstand_server_webhook_requests_total{job="upstand-server",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(upstand_server_webhook_requests_total{job="upstand-server"}[5m])), 1)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          service: upstand-server
+        annotations:
+          summary: Upstand webhook 5xx rate is above 5%
+          description: Investigate webhook queue, database, Redis replay-store, and deployment dependencies; rejected signatures remain observable separately by provider and status.
+
+      - alert: UpstandWebhookSignatureRejectionsHigh
+        expr: sum(rate(upstand_server_webhook_requests_total{job="upstand-server",status=~"401|403"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: Upstand webhook authentication rejections are elevated
+          description: Investigate provider secret rotation, replay attempts, and credential attacks. Metrics intentionally contain no provider IDs, delivery IDs, tokens, payloads, or tenant identifiers.
+
+      - alert: UpstandAIBudgetRejectionsHigh
+        expr: sum(rate(upstand_ai_budget_reservations_total{job="upstand-server",outcome="rejected"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: UpGal budget admissions are being rejected continuously
+          description: Investigate AI abuse, provider pricing configuration, noisy organizations, or an unexpectedly low request-cost budget. Metrics intentionally contain no organization, model, prompt, or credential labels.
+
+      - alert: UpstandAIUsageUnpriced
+        expr: sum(rate(upstand_ai_usage_unpriced_requests_total{job="upstand-server"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: UpGal usage is not covered by catalog pricing metadata
+          description: Investigate newly enabled or changed provider models and update the reviewed pricing metadata or operator ceiling before relying on estimated spend. Metrics intentionally contain no organization, model, prompt, or credential labels.
+
   - name: upstand-schedules
     interval: 30s
     rules:
@@ -111,6 +219,16 @@ groups:
         annotations:
           summary: Upstand backup is stale
           description: The most recent successful backup is older than 48 hours.
+
+      - alert: UpstandSchedulesBackupRestoreUnverified
+        expr: upstand_schedules_backup_restore_verified == 0
+        for: 15m
+        labels:
+          severity: critical
+          service: upstand-schedules
+        annotations:
+          summary: Upstand backup has not been restore-tested
+          description: The latest successful backup has no recorded restore verification; recovery confidence is degraded.
 
       - alert: UpstandSchedulesBackupFailed
         expr: upstand_schedules_backup_last_failure_timestamp_seconds > upstand_schedules_backup_last_success_timestamp_seconds

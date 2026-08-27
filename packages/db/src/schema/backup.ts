@@ -1,11 +1,13 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   pgTable,
   text,
   timestamp,
+  unique,
 } from "drizzle-orm/pg-core";
 import { resource } from "./resource";
 import { s3Destination } from "./s3-destination";
@@ -54,6 +56,15 @@ export const backupSchedule = pgTable(
     index("backup_schedule_enabled_idx").on(table.enabled),
     index("backup_schedule_organization_idx").on(table.organizationId),
     index("backup_schedule_destination_idx").on(table.destinationId),
+    unique("backup_schedule_organization_id_unique").on(
+      table.organizationId,
+      table.id,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.destinationId],
+      foreignColumns: [s3Destination.organizationId, s3Destination.id],
+      name: "backup_schedule_organization_destination_fk",
+    }).onDelete("restrict"),
   ],
 );
 
@@ -99,6 +110,16 @@ export const backupRun = pgTable(
     index("backup_run_status_idx").on(table.status),
     index("backup_run_organization_idx").on(table.organizationId),
     index("backup_run_destination_idx").on(table.destinationId),
+    foreignKey({
+      columns: [table.organizationId, table.scheduleId],
+      foreignColumns: [backupSchedule.organizationId, backupSchedule.id],
+      name: "backup_run_organization_schedule_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.destinationId],
+      foreignColumns: [s3Destination.organizationId, s3Destination.id],
+      name: "backup_run_organization_destination_fk",
+    }).onDelete("restrict"),
   ],
 );
 

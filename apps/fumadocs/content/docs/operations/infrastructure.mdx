@@ -84,4 +84,4 @@ Monitoring is installed according to server role. The dashboard can read current
 
 ## Control-plane maintenance
 
-The server control plane handles API requests, database migrations, and outbox event creation. Background jobs, outbox publishing, notification delivery, backup executions, deployment builds, and autoscaling are executed exclusively by the standalone `schedules` service. Keep PostgreSQL, Redis, and Docker volumes intact during diagnosis.
+The server control plane handles API requests, database migrations, and outbox event creation. The lean `schedules` orchestrator handles queues, outbox publishing, notifications, backups, and autoscaling; the separate build-capable `deployment-worker` handles deployment builds and execution. Keep PostgreSQL, Redis, and Docker volumes intact during diagnosis.

@@ -11,6 +11,7 @@ import {
 import { serializeResourceEnvironmentVariables } from "./resource-environment";
 
 const resource = {
+  id: "resource-1",
   envVars: serializeResourceEnvironmentVariables({
     DATABASE_URL: "postgres://db",
   }),
@@ -22,7 +23,10 @@ describe("Docker Compose configuration", () => {
       ...DEFAULT_RESOURCE_ADVANCED_CONFIG,
       serviceName: "api",
       environment: { LOG_LEVEL: "debug" },
-      labels: { "upstand.test": "true" },
+      labels: {
+        "upstand.test": "true",
+        "com.upstand.resource-id": "resource-1",
+      },
       ports: [
         { publishedPort: 8080, targetPort: 80, protocol: "tcp" as const },
       ],
@@ -77,7 +81,10 @@ describe("Docker Compose configuration", () => {
     if (!api) throw new Error("Expected API service is missing");
     expect(api.security_opt).toContain("no-new-privileges:true");
     expect(api.cap_drop).toBeUndefined();
-    expect(result.services.worker).toEqual({ image: "worker:latest" });
+    expect(result.services.worker).toEqual({
+      image: "worker:latest",
+      labels: { "com.upstand.resource-id": "resource-1" },
+    });
   });
 
   test("preserves explicit capability drops without imposing a blanket drop", () => {

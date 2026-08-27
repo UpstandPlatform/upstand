@@ -11,9 +11,9 @@ on:
         required: true
         type: string
       acceptance_profile:
-        description: Release acceptance profile (smoke or full recovery rehearsal)
+        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics)
         required: false
-        default: smoke
+        default: full
         type: string
       publish_release:
         description: Create the GitHub Release after verification
@@ -37,9 +37,9 @@ on:
         required: true
         type: string
       acceptance_profile:
-        description: Release acceptance profile (smoke or full recovery rehearsal)
+        description: Release acceptance profile (full is required for tag pushes; smoke is for manual diagnostics)
         required: false
-        default: smoke
+        default: full
         type: string
       publish_release:
         description: Create the GitHub Release after verification
@@ -124,12 +124,15 @@ jobs:
         run: |
           bun run lint
           bash scripts/security-audit.sh
+          bash scripts/security-audit-contract.test.sh
           bash -n install.sh
           bash -n apps/server/docker-entrypoint.sh
           bash -n scripts/production-acceptance.sh
           bash -n scripts/production-acceptance-fixture-docker.sh
           bash -n scripts/backup-restore-rehearsal.sh
           bash -n scripts/backup-restore-rehearsal-contract.test.sh
+          bash -n scripts/verify-recovery-evidence.sh
+          bash -n scripts/verify-recovery-evidence-contract.test.sh
           bash -n scripts/external-services-smoke-contract.test.sh
           bash -n scripts/health-load-rehearsal.sh
           bash -n scripts/health-load-rehearsal-contract.test.sh
@@ -138,6 +141,7 @@ jobs:
           bash -n scripts/production-evidence-collect-contract.test.sh
           bash -n scripts/production-acceptance-contract.test.sh
           bash -n scripts/observability-contract.test.sh
+          bash -n scripts/security-audit-contract.test.sh
           bash -n scripts/production-acceptance-cluster.sh
           bash -n scripts/production-acceptance-cluster-contract.test.sh
           bash -n scripts/health-soak-rehearsal.sh
@@ -145,6 +149,7 @@ jobs:
           bash -n scripts/release-acceptance-contract.test.sh
           bash scripts/installer-contract.test.sh
           bash scripts/backup-restore-rehearsal-contract.test.sh
+          bash scripts/verify-recovery-evidence-contract.test.sh
           bash scripts/external-services-smoke-contract.test.sh
           bun test scripts/operational-status-rehearsal.test.ts
           bash scripts/health-load-rehearsal-contract.test.sh
@@ -191,6 +196,11 @@ jobs:
             file: apps/schedules/Dockerfile
             scope: upstand-schedules
             build_args: ""
+          - name: deployment-worker
+            context: .
+            file: apps/schedules/Dockerfile.worker
+            scope: upstand-deployment-worker
+            build_args: ""
           - name: web
             context: .
             file: apps/web/Dockerfile
@@ -207,13 +217,17 @@ jobs:
             file: apps/monitoring/Dockerfile
             scope: upstand-monitoring
             build_args: ""
+          - name: docker-broker
+            context: apps/docker-broker
+            file: apps/docker-broker/Dockerfile
+            scope: upstand-docker-broker
+            build_args: ""
     permissions:
       contents: read
       packages: write
       actions: write
       id-token: write
       attestations: write
-      artifact-metadata: write
 
     steps:
       - name: Checkout Code
@@ -374,13 +388,14 @@ jobs:
           docker_compose_sha256="$(sha256sum docker-compose.prod.yml | awk '{print $1}')"
           production_acceptance_sha256="$(sha256sum scripts/production-acceptance.sh | awk '{print $1}')"
           production_evidence_collect_sha256="$(sha256sum scripts/production-evidence-collect.sh | awk '{print $1}')"
+          verify_installation_recovery_evidence_sha256="$(sha256sum scripts/verify-installation-recovery-evidence.sh | awk '{print $1}')"
           production_acceptance_cluster_sha256="$(sha256sum scripts/production-acceptance-cluster.sh | awk '{print $1}')"
-          [[ "$docker_compose_sha256" =~ ^[a-f0-9]{64}$ && "$production_acceptance_sha256" =~ ^[a-f0-9]{64}$ && "$production_evidence_collect_sha256" =~ ^[a-f0-9]{64}$ && "$production_acceptance_cluster_sha256" =~ ^[a-f0-9]{64}$ ]] || {
+          [[ "$docker_compose_sha256" =~ ^[a-f0-9]{64}$ && "$production_acceptance_sha256" =~ ^[a-f0-9]{64}$ && "$production_evidence_collect_sha256" =~ ^[a-f0-9]{64}$ && "$verify_installation_recovery_evidence_sha256" =~ ^[a-f0-9]{64}$ && "$production_acceptance_cluster_sha256" =~ ^[a-f0-9]{64}$ ]] || {
             echo "Could not hash the release deployment artifacts" >&2
             exit 1
           }
 
-          for name in server schedules web fumadocs monitoring; do
+          for name in server schedules deployment-worker web fumadocs monitoring docker-broker; do
             image="ghcr.io/${repo}-${name}:${release_version}"
             inspect=""
             for attempt in 1 2 3 4 5; do
@@ -405,8 +420,9 @@ jobs:
             --arg docker_compose_sha256 "$docker_compose_sha256" \
             --arg production_acceptance_sha256 "$production_acceptance_sha256" \
             --arg production_evidence_collect_sha256 "$production_evidence_collect_sha256" \
+            --arg verify_installation_recovery_evidence_sha256 "$verify_installation_recovery_evidence_sha256" \
             --arg production_acceptance_cluster_sha256 "$production_acceptance_cluster_sha256" \
-            '{schemaVersion: 1, version: $version, images: $images, artifacts: {dockerComposeProdSha256: $docker_compose_sha256, productionAcceptanceSha256: $production_acceptance_sha256, productionEvidenceCollectSha256: $production_evidence_collect_sha256, productionAcceptanceClusterSha256: $production_acceptance_cluster_sha256}}' \
+            '{schemaVersion: 1, version: $version, images: $images, artifacts: {dockerComposeProdSha256: $docker_compose_sha256, productionAcceptanceSha256: $production_acceptance_sha256, productionEvidenceCollectSha256: $production_evidence_collect_sha256, verifyInstallationRecoveryEvidenceSha256: $verify_installation_recovery_evidence_sha256, productionAcceptanceClusterSha256: $production_acceptance_cluster_sha256}}' \
             > "$manifest_file"
 
           cat "$manifest_file"
@@ -453,7 +469,10 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
       ATTESTATION_SOURCE_REF: ${{ inputs.attestation_source_ref || github.ref }}
-      ACCEPTANCE_PROFILE: ${{ inputs.acceptance_profile || 'smoke' }}
+      # Stable tag pushes have no workflow inputs. Always run the full
+      # recovery/load profile for those releases; smoke is retained only as an
+      # explicitly selected manual diagnostic profile.
+      ACCEPTANCE_PROFILE: ${{ github.event_name == 'push' && 'full' || inputs.acceptance_profile || 'full' }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
       ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network
@@ -465,11 +484,13 @@ jobs:
       - name: Set up environment paths
         env:
           BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt
+          BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-backup-rehearsal.json
           ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence
         run: |
           {
             echo "UPSTAND_SECRETS_DIR=${RUNNER_TEMP}/upstand-release-secrets"
             echo "BACKUP_REHEARSAL_LOG=${BACKUP_REHEARSAL_LOG}"
+            echo "BACKUP_REHEARSAL_EVIDENCE=${BACKUP_REHEARSAL_EVIDENCE}"
             echo "ACCEPTANCE_EVIDENCE_DIR=${ACCEPTANCE_EVIDENCE_DIR}"
           } >> "$GITHUB_ENV"
 
@@ -497,7 +518,7 @@ jobs:
           if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             source_ref="refs/tags/${source_ref}"
           fi
-          for name in server schedules web fumadocs monitoring; do
+          for name in server schedules deployment-worker web fumadocs monitoring docker-broker; do
             image="ghcr.io/${repo}-${name}:${release_version}"
             inspect=""
             for attempt in 1 2 3 4 5; do
@@ -517,9 +538,11 @@ jobs:
             case "$name" in
               server) echo "UPSTAND_SERVER_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
               schedules) echo "UPSTAND_SCHEDULES_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
+              deployment-worker) echo "UPSTAND_DEPLOYMENT_WORKER_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
               web) echo "UPSTAND_WEB_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
               fumadocs) echo "UPSTAND_DOCS_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
               monitoring) echo "UPSTAND_MONITORING_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
+              docker-broker) echo "UPSTAND_DOCKER_BROKER_IMAGE=$resolved" >> "$GITHUB_ENV" ;;
             esac
           done
 
@@ -537,7 +560,7 @@ jobs:
           if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             source_ref="refs/tags/${source_ref}"
           fi
-          for name in server schedules web fumadocs monitoring; do
+          for name in server schedules deployment-worker web fumadocs monitoring docker-broker; do
             image="ghcr.io/${repo}-${name}:${release_version}"
             gh attestation verify "oci://${image}" \
               --repo "$GH_REPO" \
@@ -574,7 +597,7 @@ jobs:
               docker stack services "$STACK_NAME" >/dev/null 2>&1 || break
               sleep 1
             done
-            for secret in postgres_password redis_password better_auth_secret encryption_key database_url redis_url; do
+            for secret in postgres_password redis_password better_auth_secret upgal_tool_approval_secret encryption_key database_url redis_url docker_broker_server_token docker_broker_schedules_token docker_broker_deployment_worker_token docker_broker_ca docker_broker_server_cert docker_broker_server_key docker_broker_server_client_cert docker_broker_server_client_key docker_broker_schedules_client_cert docker_broker_schedules_client_key docker_broker_deployment_worker_client_cert docker_broker_deployment_worker_client_key metrics_token; do
               docker secret rm "${STACK_NAME}_${secret}" >/dev/null 2>&1 || true
             done
           }
@@ -596,9 +619,45 @@ jobs:
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/postgres_password"
           printf '%s' 'upstand-ci-password' > "$UPSTAND_SECRETS_DIR/redis_password"
           printf '%s' 'upstand-ci-auth-secret-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/better_auth_secret"
+          printf '%s' 'upstand-ci-approval-secret-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/upgal_tool_approval_secret"
           printf '%s' 'MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > "$UPSTAND_SECRETS_DIR/encryption_key"
           printf '%s' 'postgresql://upstand:upstand-ci-password@postgres:5432/upstand' > "$UPSTAND_SECRETS_DIR/database_url"
           printf '%s' 'redis://:upstand-ci-password@redis:6379' > "$UPSTAND_SECRETS_DIR/redis_url"
+          printf '%s' 'upstand-ci-docker-broker-server-token-012345678901234567890123' > "$UPSTAND_SECRETS_DIR/docker_broker_server_token"
+          printf '%s' 'upstand-ci-docker-broker-schedules-token-0123456789012345678901' > "$UPSTAND_SECRETS_DIR/docker_broker_schedules_token"
+          printf '%s' 'upstand-ci-docker-broker-deployment-worker-token-012345678901234567890' > "$UPSTAND_SECRETS_DIR/docker_broker_deployment_worker_token"
+          printf '%s' 'upstand-ci-metrics-token-012345678901234567890123456789' > "$UPSTAND_SECRETS_DIR/metrics_token"
+          umask 077
+          openssl genrsa -out "$UPSTAND_SECRETS_DIR/docker_broker_ca_key" 4096 >/dev/null 2>&1
+          openssl req -x509 -new -sha256 -key "$UPSTAND_SECRETS_DIR/docker_broker_ca_key" -out "$UPSTAND_SECRETS_DIR/docker_broker_ca" -days 3650 -subj '/CN=Upstand Docker Broker CA' >/dev/null 2>&1
+          issue_broker_certificate() {
+            local name="$1"
+            local common_name="$2"
+            local usage="$3"
+            local san="$4"
+            openssl genrsa -out "$UPSTAND_SECRETS_DIR/${name}_key" 3072 >/dev/null 2>&1
+            openssl req -new -sha256 -key "$UPSTAND_SECRETS_DIR/${name}_key" -out "$UPSTAND_SECRETS_DIR/${name}.csr" -subj "/CN=$common_name" >/dev/null 2>&1
+            cat >"$UPSTAND_SECRETS_DIR/${name}.ext" <<EOF
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          extendedKeyUsage=critical,$usage
+          subjectAltName=$san
+          EOF
+            openssl x509 -req -sha256 -in "$UPSTAND_SECRETS_DIR/${name}.csr" -CA "$UPSTAND_SECRETS_DIR/docker_broker_ca" -CAkey "$UPSTAND_SECRETS_DIR/docker_broker_ca_key" -CAcreateserial -out "$UPSTAND_SECRETS_DIR/${name}_cert" -days 825 -extfile "$UPSTAND_SECRETS_DIR/${name}.ext" >/dev/null 2>&1
+          }
+          issue_broker_certificate server upstand-docker-broker serverAuth 'DNS:docker-broker,DNS:localhost'
+          issue_broker_certificate server_client upstand-server clientAuth 'DNS:upstand-server'
+          issue_broker_certificate schedules_client upstand-schedules clientAuth 'DNS:upstand-schedules'
+          issue_broker_certificate deployment_worker_client upstand-deployment-worker clientAuth 'DNS:upstand-deployment-worker'
+          mv "$UPSTAND_SECRETS_DIR/server_cert" "$UPSTAND_SECRETS_DIR/docker_broker_server_cert"
+          mv "$UPSTAND_SECRETS_DIR/server_key" "$UPSTAND_SECRETS_DIR/docker_broker_server_key"
+          mv "$UPSTAND_SECRETS_DIR/server_client_cert" "$UPSTAND_SECRETS_DIR/docker_broker_server_client_cert"
+          mv "$UPSTAND_SECRETS_DIR/server_client_key" "$UPSTAND_SECRETS_DIR/docker_broker_server_client_key"
+          mv "$UPSTAND_SECRETS_DIR/schedules_client_cert" "$UPSTAND_SECRETS_DIR/docker_broker_schedules_client_cert"
+          mv "$UPSTAND_SECRETS_DIR/schedules_client_key" "$UPSTAND_SECRETS_DIR/docker_broker_schedules_client_key"
+          mv "$UPSTAND_SECRETS_DIR/deployment_worker_client_cert" "$UPSTAND_SECRETS_DIR/docker_broker_deployment_worker_client_cert"
+          mv "$UPSTAND_SECRETS_DIR/deployment_worker_client_key" "$UPSTAND_SECRETS_DIR/docker_broker_deployment_worker_client_key"
+          rm -f "$UPSTAND_SECRETS_DIR"/*.csr "$UPSTAND_SECRETS_DIR"/*.ext "$UPSTAND_SECRETS_DIR"/*.srl "$UPSTAND_SECRETS_DIR"/server_cert "$UPSTAND_SECRETS_DIR"/server_key
 
           UPSTAND_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
           export UPSTAND_DOCKER_GID
@@ -611,8 +670,10 @@ jobs:
           export UPSTAND_BUNDLED_REDIS_REPLICAS=1
           export UPSTAND_SERVER_REPLICAS=1
           export UPSTAND_SCHEDULES_REPLICAS=1
+          export UPSTAND_DEPLOYMENT_WORKER_REPLICAS=1
           export UPSTAND_WEB_REPLICAS=1
           export UPSTAND_FUMADOCS_REPLICAS=1
+          export UPSTAND_DR_READINESS_GATE=false
           # Hosted Docker Swarm runners can create encrypted overlay metadata
           # but cannot execute encrypted IPSec service tasks. Production
           # operators retain the strict default in production-acceptance.sh.
@@ -637,7 +698,12 @@ jobs:
               UPSTAND_BACKUP_REHEARSAL_IMAGE="$UPSTAND_SERVER_IMAGE" \
               UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS=900 \
               UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS=300 \
+              UPSTAND_BACKUP_REHEARSAL_EVIDENCE_FILE="$BACKUP_REHEARSAL_EVIDENCE" \
                 bash scripts/backup-restore-rehearsal.sh
+              UPSTAND_ENCRYPTION_KEY_FILE="$UPSTAND_SECRETS_DIR/encryption_key" \
+              UPSTAND_SECRET_KEY_RECOVERY_EVIDENCE_FILE="$ACCEPTANCE_EVIDENCE_DIR/secret-key-recovery.json" \
+                bash scripts/secret-key-recovery-rehearsal.sh
+              bash scripts/verify-recovery-evidence.sh "$ACCEPTANCE_EVIDENCE_DIR"
             } 2>&1 | tee "$BACKUP_REHEARSAL_LOG"
           else
             echo "Release acceptance profile: smoke (backup/recovery/load rehearsals run only in the full profile)"
@@ -703,11 +769,13 @@ jobs:
           }
           export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"
 
-          # The server provisions the monitoring agent through the Docker
-          # socket. Pre-pull the already-authenticated immutable image on the
+          # The server provisions the monitoring agent through the constrained
+          # Docker broker. Pre-pull the already-authenticated immutable image on the
           # runner so that provisioning can use the local digest without
           # requiring registry credentials inside the production container.
           timeout --foreground 300 docker pull "$UPSTAND_MONITORING_IMAGE"
+          timeout --foreground 300 docker pull "$UPSTAND_DOCKER_BROKER_IMAGE"
+          timeout --foreground 300 docker pull "$UPSTAND_DEPLOYMENT_WORKER_IMAGE"
 
           timeout --foreground 300 docker stack deploy --with-registry-auth \
             --compose-file docker-compose.prod.yml "$STACK_NAME"
@@ -726,12 +794,13 @@ jobs:
             echo "Bundled single-node production acceptance did not converge before timeout" >&2
             capture_bundled_readiness_diagnostics() {
               local service port service_name container_id runtime_user
-              for service in server schedules; do
+              for service in server schedules deployment-worker; do
                 service_name="${STACK_NAME}_${service}"
                 docker service logs --raw --timestamps --tail 200 "$service_name" \
                   > "$ACCEPTANCE_EVIDENCE_DIR/service-logs-${service}.txt" 2>&1 || true
                 port=3000
                 [[ "$service" == schedules ]] && port=3002
+                [[ "$service" == deployment-worker ]] && port=3003
                 container_id="$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" | head -n 1 || true)"
                 [[ -n "$container_id" ]] || continue
                 docker inspect --format \
@@ -748,7 +817,7 @@ jobs:
             capture_bundled_readiness_diagnostics
             docker stack services "$STACK_NAME" || true
             docker service ls || true
-            for service in postgres redis migrate server schedules web fumadocs; do
+          for service in postgres redis migrate docker-broker server schedules deployment-worker web fumadocs; do
               docker service ps "${STACK_NAME}_${service}" --no-trunc || true
             done
             exit 1
@@ -768,6 +837,7 @@ jobs:
           export UPSTAND_BUNDLED_REDIS_REPLICAS=0
           export UPSTAND_SERVER_REPLICAS=2
           export UPSTAND_SCHEDULES_REPLICAS=2
+          export UPSTAND_DEPLOYMENT_WORKER_REPLICAS=2
           export UPSTAND_WEB_REPLICAS=2
           export UPSTAND_FUMADOCS_REPLICAS=2
 
@@ -835,6 +905,7 @@ jobs:
           export UPSTAND_BUNDLED_REDIS_REPLICAS=0
           export UPSTAND_SERVER_REPLICAS=2
           export UPSTAND_SCHEDULES_REPLICAS=2
+          export UPSTAND_DEPLOYMENT_WORKER_REPLICAS=2
           export UPSTAND_WEB_REPLICAS=2
           export UPSTAND_FUMADOCS_REPLICAS=2
           timeout --foreground 300 docker stack deploy --with-registry-auth \
@@ -878,7 +949,7 @@ jobs:
             echo "External-data integration and stateless-HA acceptance did not converge before timeout" >&2
             docker stack services "$STACK_NAME" || true
             docker service ls || true
-            for service in server schedules web fumadocs; do
+            for service in docker-broker server schedules deployment-worker web fumadocs; do
               docker service ps "${STACK_NAME}_${service}" --no-trunc || true
             done
             exit 1
@@ -962,7 +1033,7 @@ jobs:
           # application processes can still hold connections to the stopped
           # Postgres task. Roll the database-backed services so they establish
           # fresh pools before the recovery assertions run.
-          for service in server schedules; do
+          for service in server schedules deployment-worker; do
             timeout --foreground 300 docker service update \
               --force --update-parallelism 2 --detach=false \
               "${STACK_NAME}_${service}" >/dev/null
@@ -1069,7 +1140,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: production-recovery-evidence
-          path: ${{ runner.temp }}/upstand-backup-rehearsal.txt
+          path: |
+            ${{ runner.temp }}/upstand-backup-rehearsal.txt
+            ${{ runner.temp }}/upstand-backup-rehearsal.json
           if-no-files-found: ignore
           retention-days: 14
 

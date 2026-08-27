@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { db } from "@upstand/db";
 import { user } from "@upstand/db/schema/auth";
+import { controlPlaneIdentity } from "@upstand/db/schema/control-plane-transfer";
 import {
   CAPABILITY_ACTIONS,
   CAPABILITY_CATALOG,
@@ -14,7 +15,7 @@ import {
   parseCapabilities,
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { ensureOrganizationAccess } from "./access-control";
 import type { ApiKeyPrincipal } from "./api-key-auth";
 import type { AuthenticatedContext } from "./context";
@@ -191,6 +192,20 @@ export class AuthorizationService {
       return false;
     }
 
+    const persistedOwner = await db
+      .select({ ownerUserId: controlPlaneIdentity.ownerUserId })
+      .from(controlPlaneIdentity)
+      .where(eq(controlPlaneIdentity.id, "global"))
+      .limit(1)
+      .then((rows) => rows[0]?.ownerUserId);
+    // A persisted owner is authoritative. Environment overrides are retained
+    // only as a legacy-repair bridge while the persisted identity is missing;
+    // allowing them to supersede an established owner would bypass the
+    // audited compare-and-swap transfer workflow.
+    if (persistedOwner) {
+      return persistedOwner === actor.userId;
+    }
+
     const configuredOwnerId = env.UPSTAND_INSTANCE_OWNER_USER_ID?.trim();
     if (configuredOwnerId) {
       return configuredOwnerId === actor.userId;
@@ -198,26 +213,18 @@ export class AuthorizationService {
 
     const configuredOwnerEmail =
       env.UPSTAND_INSTANCE_OWNER_EMAIL?.trim()?.toLowerCase();
-    if (configuredOwnerEmail) {
-      const currentUser = await db
-        .select({ email: user.email })
-        .from(user)
-        .where(eq(user.id, actor.userId))
-        .limit(1)
-        .then((rows) => rows[0]);
+    if (!configuredOwnerEmail) return false;
 
-      return Boolean(
-        currentUser && currentUser.email.toLowerCase() === configuredOwnerEmail,
-      );
-    }
-
-    const firstUser = await db
-      .select({ id: user.id })
+    const currentUser = await db
+      .select({ email: user.email })
       .from(user)
-      .orderBy(asc(user.createdAt), asc(user.id))
+      .where(eq(user.id, actor.userId))
       .limit(1)
       .then((rows) => rows[0]);
-    return Boolean(firstUser && firstUser.id === actor.userId);
+
+    return Boolean(
+      currentUser && currentUser.email.toLowerCase() === configuredOwnerEmail,
+    );
   }
 
   async authorizeInstance(actor: InstanceAuthorizationActor): Promise<void> {

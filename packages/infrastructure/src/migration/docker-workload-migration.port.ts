@@ -3,7 +3,7 @@ import { parseResourceAdvancedConfig } from "@upstand/domain";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import type {
   DockerRegistryAuth,
-  DockerServicePort,
+  DockerWorkloadMigrationPort as DockerWorkloadMigrationServicePort,
   WorkloadMigrationContext,
   WorkloadMigrationPort,
   WorkloadMigrationPreflightResult,
@@ -31,7 +31,7 @@ function artifactFrom(context: WorkloadMigrationContext): {
 export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
   constructor(
     private readonly uow: IUnitOfWork,
-    private readonly defaultDockerService: DockerServicePort,
+    private readonly defaultDockerService: DockerWorkloadMigrationServicePort,
     private readonly defaultCaddyService: CaddyService,
   ) {}
 

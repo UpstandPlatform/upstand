@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { stepUp } from "@upstand/api/auth";
 import { createContext } from "@upstand/api/context";
 import { requireInstanceOwner } from "@upstand/api/instance-access";
-import { auditLog, db, organization } from "@upstand/db";
+import { and, auditLog, db, eq, isNull, organization, user } from "@upstand/db";
+import { controlPlaneIdentity } from "@upstand/db/schema/control-plane-transfer";
+import { env } from "@upstand/env/server";
 import {
   DrizzleControlPlaneExportSource,
   DrizzleControlPlaneImportDestination,
@@ -93,6 +95,42 @@ async function auditTransfer(input: {
   );
 }
 
+async function auditOwnerTransfer(input: {
+  actor: { id: string; name: string; email: string };
+  newOwnerUserId: string;
+  success: boolean;
+  operation: "configure" | "update";
+  correlationId: string;
+}): Promise<void> {
+  const organizations = await db
+    .select({ id: organization.id })
+    .from(organization);
+  if (organizations.length === 0) return;
+  await db.insert(auditLog).values(
+    organizations.map(({ id }) => ({
+      id: randomUUID(),
+      organizationId: id,
+      actorId: input.actor.id,
+      actorName: input.actor.name,
+      actorEmail: input.actor.email,
+      actorRole: "instance-owner",
+      action: input.success ? input.operation : ("failure" as const),
+      resourceType: "settings" as const,
+      resourceId: input.newOwnerUserId,
+      resourceName: "instance-owner",
+      route: `/api/control-plane-transfer/${input.operation === "configure" ? "owner/repair" : "owner"}`,
+      metadata: {
+        success: input.success,
+        correlationId: input.correlationId,
+        operation: input.operation,
+        newOwnerUserId: input.newOwnerUserId,
+      },
+      ipAddress: null,
+      userAgent: null,
+    })),
+  );
+}
+
 async function* requestContent(
   body: ReadableStream<Uint8Array>,
 ): AsyncIterable<Uint8Array> {
@@ -115,6 +153,182 @@ async function* requestContent(
 }
 
 export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
+  app.post("/api/control-plane-transfer/owner/repair", async (c) => {
+    const authorization = await requireTransferOwner(c as never);
+    if ("error" in authorization) {
+      return c.json({ error: authorization.error }, authorization.status);
+    }
+    if (
+      !env.UPSTAND_INSTANCE_OWNER_USER_ID?.trim() &&
+      !env.UPSTAND_INSTANCE_OWNER_EMAIL?.trim()
+    ) {
+      return c.json(
+        {
+          error:
+            "Owner repair is available only while an explicit legacy owner override is configured",
+        },
+        409,
+      );
+    }
+
+    const actor = authorization.actor;
+    const correlationId = c.get("correlationId");
+    let input: { confirmation?: unknown };
+    try {
+      input = (await c.req.json()) as typeof input;
+    } catch {
+      return c.json({ error: "Invalid owner repair request" }, 400);
+    }
+    if (input.confirmation !== "REPAIR_INSTANCE_OWNERSHIP") {
+      return c.json(
+        {
+          error: "Explicit REPAIR_INSTANCE_OWNERSHIP confirmation is required",
+        },
+        400,
+      );
+    }
+    try {
+      await db.transaction(async (tx) => {
+        await tx
+          .insert(controlPlaneIdentity)
+          .values({ id: "global", instanceId: randomUUID() })
+          .onConflictDoNothing({ target: controlPlaneIdentity.id });
+        const [updated] = await tx
+          .update(controlPlaneIdentity)
+          .set({ ownerUserId: actor.id })
+          .where(
+            and(
+              eq(controlPlaneIdentity.id, "global"),
+              isNull(controlPlaneIdentity.ownerUserId),
+            ),
+          )
+          .returning({ ownerUserId: controlPlaneIdentity.ownerUserId });
+        if (!updated) {
+          throw new Error(
+            "The persisted owner already exists; clear the override before transferring ownership",
+          );
+        }
+      });
+      await auditOwnerTransfer({
+        actor,
+        newOwnerUserId: actor.id,
+        success: true,
+        operation: "configure",
+        correlationId,
+      });
+      return c.json({ ownerUserId: actor.id });
+    } catch (error) {
+      await auditOwnerTransfer({
+        actor,
+        newOwnerUserId: actor.id,
+        success: false,
+        operation: "configure",
+        correlationId,
+      }).catch(() => undefined);
+      log.error({
+        message: "Control-plane owner repair failed",
+        actorId: actor.id,
+        err: error instanceof Error ? error.message : String(error),
+      });
+      return c.json({ error: "Control-plane owner repair failed" }, 409);
+    }
+  });
+
+  app.post("/api/control-plane-transfer/owner", async (c) => {
+    const authorization = await requireTransferOwner(c as never);
+    if ("error" in authorization) {
+      return c.json({ error: authorization.error }, authorization.status);
+    }
+    if (
+      env.UPSTAND_INSTANCE_OWNER_USER_ID?.trim() ||
+      env.UPSTAND_INSTANCE_OWNER_EMAIL?.trim()
+    ) {
+      return c.json(
+        {
+          error:
+            "Clear the configured instance-owner override before using the persisted owner transfer workflow",
+        },
+        409,
+      );
+    }
+    const actor = authorization.actor;
+    const correlationId = c.get("correlationId");
+    let input: { newOwnerUserId?: unknown; confirmation?: unknown };
+    try {
+      input = (await c.req.json()) as typeof input;
+    } catch {
+      return c.json({ error: "Invalid owner transfer request" }, 400);
+    }
+    const newOwnerUserId =
+      typeof input.newOwnerUserId === "string"
+        ? input.newOwnerUserId.trim()
+        : "";
+    if (
+      !newOwnerUserId ||
+      newOwnerUserId.length > 256 ||
+      input.confirmation !== "TRANSFER_INSTANCE_OWNERSHIP"
+    ) {
+      return c.json(
+        {
+          error:
+            "A target user and explicit TRANSFER_INSTANCE_OWNERSHIP confirmation are required",
+        },
+        400,
+      );
+    }
+
+    try {
+      await db.transaction(async (tx) => {
+        const [target] = await tx
+          .select({ id: user.id, banned: user.banned })
+          .from(user)
+          .where(eq(user.id, newOwnerUserId))
+          .limit(1);
+        if (!target || target.banned === true) {
+          throw new Error("The target owner does not exist or is banned");
+        }
+
+        const [updated] = await tx
+          .update(controlPlaneIdentity)
+          .set({ ownerUserId: newOwnerUserId })
+          .where(
+            and(
+              eq(controlPlaneIdentity.id, "global"),
+              eq(controlPlaneIdentity.ownerUserId, actor.id),
+            ),
+          )
+          .returning({ ownerUserId: controlPlaneIdentity.ownerUserId });
+        if (!updated) {
+          throw new Error(
+            "The persisted owner changed or the control-plane identity is unavailable",
+          );
+        }
+      });
+      await auditOwnerTransfer({
+        actor,
+        newOwnerUserId,
+        success: true,
+        operation: "update",
+        correlationId,
+      });
+      return c.json({ ownerUserId: newOwnerUserId });
+    } catch (error) {
+      await auditOwnerTransfer({
+        actor,
+        newOwnerUserId,
+        success: false,
+        operation: "update",
+        correlationId,
+      }).catch(() => undefined);
+      log.error({
+        message: "Control-plane owner transfer failed",
+        actorId: actor.id,
+        err: error instanceof Error ? error.message : String(error),
+      });
+      return c.json({ error: "Control-plane owner transfer failed" }, 409);
+    }
+  });
+
   app.post("/api/control-plane-transfer/export", async (c) => {
     if (
       !getPlatformCapabilities(getConfiguredControlPlaneMode())

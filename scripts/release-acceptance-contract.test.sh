@@ -43,6 +43,9 @@ require_compose_text "target: /tmp"
 require_compose_text "target: /app/.builds"
 require_compose_text "target: /home/upstand/.docker"
 require_compose_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: \${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}"
+require_compose_text "UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret"
+require_compose_text "- upgal_tool_approval_secret"
+require_compose_text "UPSTAND_DR_READINESS_GATE: \${UPSTAND_DR_READINESS_GATE:-true}"
 if grep -Eq '^    tmpfs:' "$COMPOSE"; then
   echo "production Compose must use explicit type: tmpfs mounts for Swarm deployments" >&2
   exit 1
@@ -84,6 +87,8 @@ require_workflow_text 'ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-accep
 require_workflow_text 'production-evidence-collect.sh'
 require_workflow_text 'production_evidence_collect_sha256'
 require_workflow_text 'productionEvidenceCollectSha256'
+require_workflow_text 'verify_installation_recovery_evidence_sha256'
+require_workflow_text 'verifyInstallationRecoveryEvidenceSha256'
 require_workflow_text 'production-acceptance-evidence'
 require_workflow_text 'collect_acceptance_evidence'
 require_workflow_text 'node-local-bundled.txt'
@@ -97,6 +102,10 @@ require_workflow_text 'restore_dependency_service'
 require_workflow_text 'started_at=%s'
 require_workflow_text "bash scripts/backup-restore-rehearsal.sh"
 require_workflow_text "bash scripts/backup-restore-rehearsal-contract.test.sh"
+require_workflow_text "bash scripts/secret-key-recovery-rehearsal.sh"
+require_workflow_text "secret-key-recovery.json"
+require_workflow_text "bash scripts/verify-recovery-evidence.sh"
+require_workflow_text "verify-recovery-evidence-contract.test.sh"
 require_workflow_text "ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network"
 require_workflow_text "OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector"
 require_workflow_text "OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config"
@@ -110,6 +119,8 @@ require_workflow_text "hosted Swarm runtime probe is skipped"
 require_workflow_text "UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false"
 require_workflow_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true"
 require_workflow_text 'docker pull "$UPSTAND_MONITORING_IMAGE"'
+require_workflow_text 'docker pull "$UPSTAND_DOCKER_BROKER_IMAGE"'
+require_workflow_text 'docker pull "$UPSTAND_DEPLOYMENT_WORKER_IMAGE"'
 require_workflow_text '--user 70:70'
 require_workflow_text '--user 999:1000'
 require_workflow_text 'logs="$(docker service logs --raw "$OTEL_COLLECTOR_SERVICE" 2>&1 || true)"'
@@ -120,7 +131,9 @@ require_workflow_text 'docker node update'
 require_workflow_text '--label-add upstand.control-plane=true'
 require_workflow_text 'docker service ps "${STACK_NAME}_${service}" --no-trunc'
 require_workflow_text 'release_version="${RELEASE_REF##*/}"'
-require_workflow_text 'ACCEPTANCE_PROFILE: ${{ inputs.acceptance_profile || '\''smoke'\'' }}'
+require_workflow_text 'ACCEPTANCE_PROFILE: ${{ github.event_name == '\''push'\'' && '\''full'\'' || inputs.acceptance_profile || '\''full'\'' }}'
+require_workflow_text 'default: full'
+require_workflow_text 'full is required for tag pushes; smoke is for manual diagnostics'
 require_workflow_text 'Release acceptance profile: smoke (backup/recovery/load rehearsals run only in the full profile)'
 require_workflow_text 'if [[ "$ACCEPTANCE_PROFILE" == "full" ]]; then'
 require_workflow_text 'Unsupported release acceptance profile: $ACCEPTANCE_PROFILE'
@@ -129,6 +142,11 @@ require_workflow_text 'if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 require_workflow_text 'source_ref="refs/tags/${source_ref}"'
 require_file_text "$RECOVERY_WORKFLOW" "build_images: false"
 require_workflow_text "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > \"\$UPSTAND_SECRETS_DIR/encryption_key\""
+require_workflow_text "docker_broker_server_token"
+require_workflow_text "docker_broker_schedules_token"
+require_workflow_text "docker_broker_deployment_worker_token"
+require_workflow_text "upgal_tool_approval_secret"
+require_workflow_text "metrics_token"
 require_workflow_text "matrix.name == 'web' && format('NEXT_PUBLIC_UPSTAND_VERSION={0}', steps.meta.outputs.tag)"
 require_workflow_text "startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')"
 require_workflow_text "platforms: linux/amd64,linux/arm64"
@@ -142,7 +160,6 @@ require_workflow_text "productionAcceptanceClusterSha256"
 require_workflow_text "id-token: write"
 require_workflow_text "attestations: write"
 require_workflow_text "attestations: read"
-require_workflow_text "artifact-metadata: write"
 require_workflow_text "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"
 require_workflow_text "Generate signed image provenance attestation"
 require_workflow_text "Verify signed image provenance attestations"
@@ -196,7 +213,7 @@ require_workflow_text 'docker service update --replicas 0 "${STACK_NAME}_migrate
 require_workflow_text 'docker service update --replicas 1 "${STACK_NAME}_migrate"'
 require_workflow_text 'Migration task did not complete after external Postgres restoration'
 require_workflow_text '--force --update-parallelism 2 --detach=false'
-require_workflow_text 'for service in server schedules; do'
+require_workflow_text 'for service in server schedules deployment-worker; do'
 require_workflow_text 'curl --fail --silent --show-error --max-time 2'
 require_workflow_text 'scripts/operational-status-rehearsal.ts'
 require_workflow_text 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0'

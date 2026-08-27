@@ -4,7 +4,6 @@ import { env } from "@upstand/env/server";
 import {
   BullMqOutboxJobPublisher,
   DockerWorkloadMigrationPort,
-  getDockerInstance,
 } from "@upstand/infrastructure";
 import { closeRedis, createRedis } from "@upstand/redis";
 import {
@@ -25,7 +24,9 @@ import {
 import {
   CaddyServiceToken,
   DeliverNotificationUseCaseToken,
-  DockerServiceToken,
+  DockerDeploymentToken,
+  DockerInventoryReaderToken,
+  DockerWorkloadMigrationPortToken,
   ExecuteBackupRunUseCaseToken,
   PublishNotificationUseCaseToken,
   UnitOfWorkToken,
@@ -40,6 +41,8 @@ const PUBLISHED_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const SCHEDULE_LOG_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const STALE_BACKUP_RECOVERY_INTERVAL_MS = 60_000;
 const AUDIT_LOG_PRUNE_BATCH_SIZE = 1_000;
+
+export type SchedulesRole = "all" | "orchestrator" | "deployment-worker";
 
 export class OutboxRuntime {
   private started = false;
@@ -331,7 +334,7 @@ export class DeploymentRuntime {
             const scope = getServiceProvider().createScope();
             return {
               uow: scope.resolve(UnitOfWorkToken),
-              dockerService: scope.resolve(DockerServiceToken),
+              dockerService: scope.resolve(DockerDeploymentToken),
               caddyService: scope.resolve(CaddyServiceToken),
               publisher: scope.resolve(PublishNotificationUseCaseToken),
               dispose: () => scope.dispose(),
@@ -388,24 +391,22 @@ export class DeploymentRuntime {
           serverIds.add(server.id);
         }
       }
+
+      try {
+        const nodes = await scope
+          .resolve(DockerInventoryReaderToken)
+          .listSwarmNodes({ kind: "local", name: "local" });
+        for (const node of nodes) {
+          if (node.id) serverIds.add(node.id);
+        }
+      } catch (error: unknown) {
+        log.warn({
+          message: "Unable to discover Docker nodes for deployment workers",
+          err: error,
+        });
+      }
     } finally {
       await scope.dispose();
-    }
-
-    const docker = getDockerInstance();
-    try {
-      const info = await docker.info();
-      if (info.Swarm?.LocalNodeState === "active") {
-        const nodes = await docker.listNodes();
-        for (const node of nodes) {
-          if (node.ID) serverIds.add(node.ID);
-        }
-      }
-    } catch (error: unknown) {
-      log.warn({
-        message: "Unable to discover Docker nodes for deployment workers",
-        err: error,
-      });
     }
 
     if (serverIds.size === 0) serverIds.add("local");
@@ -444,7 +445,7 @@ export class WorkloadMigrationRuntime {
             const uow = scope.resolve(UnitOfWorkToken);
             const port = new DockerWorkloadMigrationPort(
               uow,
-              scope.resolve(DockerServiceToken),
+              scope.resolve(DockerWorkloadMigrationPortToken),
               scope.resolve(CaddyServiceToken),
             );
             await new ExecuteWorkloadMigrationUseCase(uow, port).execute(
@@ -602,46 +603,64 @@ export class WorkerManager {
   private outboxRuntime: OutboxRuntime | null = null;
   private workloadMigrationRuntime: WorkloadMigrationRuntime | null = null;
 
+  constructor(
+    private readonly role: SchedulesRole = env.UPSTAND_SCHEDULES_ROLE,
+  ) {}
+
   async start(): Promise<void> {
-    log.info({ message: "Starting standalone queue workers & runtimes..." });
+    log.info({
+      message: "Starting standalone queue workers & runtimes...",
+      schedulesRole: this.role,
+    });
 
-    this.notificationWorker = new NotificationDeliveryWorker(
-      async (deliveryId: string) => {
-        const scope = getServiceProvider().createScope();
-        try {
-          await scope
-            .resolve(DeliverNotificationUseCaseToken)
-            .execute(deliveryId);
-        } finally {
-          await scope.dispose();
-        }
-      },
-    );
+    if (this.role !== "deployment-worker") {
+      this.notificationWorker = new NotificationDeliveryWorker(
+        async (deliveryId: string) => {
+          const scope = getServiceProvider().createScope();
+          try {
+            await scope
+              .resolve(DeliverNotificationUseCaseToken)
+              .execute(deliveryId);
+          } finally {
+            await scope.dispose();
+          }
+        },
+      );
+      this.backupWorker = new BackupRunWorker(createBackupRunHandler());
+      this.outboxRuntime = new OutboxRuntime();
+      this.workloadMigrationRuntime = new WorkloadMigrationRuntime();
 
-    this.backupWorker = new BackupRunWorker(createBackupRunHandler());
-    this.deploymentRuntime = new DeploymentRuntime();
-    this.outboxRuntime = new OutboxRuntime();
-    this.workloadMigrationRuntime = new WorkloadMigrationRuntime();
+      await this.notificationWorker.start();
+      await this.backupWorker.start();
+      await this.outboxRuntime.start();
+      await this.workloadMigrationRuntime.start();
+    }
 
-    await this.notificationWorker.start();
-    await this.backupWorker.start();
-    await this.deploymentRuntime.start();
-    await this.outboxRuntime.start();
-    await this.workloadMigrationRuntime.start();
+    if (this.role !== "orchestrator") {
+      this.deploymentRuntime = new DeploymentRuntime();
+      await this.deploymentRuntime.start();
+    }
 
     log.info({
       message: "Standalone queue workers & runtimes started successfully 👷‍♂️",
+      schedulesRole: this.role,
     });
   }
 
   isReady(): boolean {
-    return (
-      (this.notificationWorker?.isReady() ?? false) &&
-      (this.backupWorker?.isReady() ?? false) &&
-      (this.deploymentRuntime?.isReady() ?? false) &&
-      (this.outboxRuntime?.isReady() ?? false) &&
-      (this.workloadMigrationRuntime?.isReady() ?? false)
-    );
+    const readiness: boolean[] = [];
+    if (this.role !== "deployment-worker") {
+      readiness.push(
+        this.notificationWorker?.isReady() ?? false,
+        this.backupWorker?.isReady() ?? false,
+        this.outboxRuntime?.isReady() ?? false,
+        this.workloadMigrationRuntime?.isReady() ?? false,
+      );
+    }
+    if (this.role !== "orchestrator") {
+      readiness.push(this.deploymentRuntime?.isReady() ?? false);
+    }
+    return readiness.length > 0 && readiness.every(Boolean);
   }
 
   async stop(): Promise<void> {

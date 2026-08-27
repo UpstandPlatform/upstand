@@ -1,6 +1,5 @@
-import type Docker from "dockerode";
-import { getDockerInstance } from "../resource/docker-client";
-import { formatSwarmEndpoint, requireActiveManager } from "./swarm.helpers";
+import type { DockerSwarmManagementPort } from "../ports/swarm";
+import { assertActiveManager, formatSwarmEndpoint } from "./swarm.helpers";
 
 export interface SwarmJoinCommandsResult {
   advertiseAddress: string;
@@ -9,28 +8,29 @@ export interface SwarmJoinCommandsResult {
 }
 
 export class GetSwarmJoinCommandsUseCase {
-  private readonly docker: Docker;
+  private readonly docker: DockerSwarmManagementPort;
 
-  constructor(docker?: Docker) {
-    this.docker = docker || getDockerInstance();
+  constructor(docker: DockerSwarmManagementPort) {
+    this.docker = docker;
   }
 
   async execute(): Promise<SwarmJoinCommandsResult> {
     const [info, swarm] = await Promise.all([
-      requireActiveManager(this.docker),
-      this.docker.swarmInspect(),
+      this.docker.getInfo(),
+      this.docker.inspectSwarm(),
     ]);
-    const address = info.Swarm?.NodeAddr;
+    assertActiveManager(info);
+    const address = info.nodeAddress;
 
-    if (!address || !swarm.JoinTokens?.Worker || !swarm.JoinTokens?.Manager) {
+    if (!address || !swarm.workerJoinToken || !swarm.managerJoinToken) {
       throw new Error("Docker did not provide the Swarm join credentials.");
     }
 
     const endpoint = formatSwarmEndpoint(address);
     return {
       advertiseAddress: address,
-      workerCommand: `docker swarm join --token ${swarm.JoinTokens.Worker} ${endpoint}`,
-      managerCommand: `docker swarm join --token ${swarm.JoinTokens.Manager} ${endpoint}`,
+      workerCommand: `docker swarm join --token ${swarm.workerJoinToken} ${endpoint}`,
+      managerCommand: `docker swarm join --token ${swarm.managerJoinToken} ${endpoint}`,
     };
   }
 }
