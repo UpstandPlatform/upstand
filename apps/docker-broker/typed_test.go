@@ -410,7 +410,9 @@ func TestResourceServiceOperationScopesCreateUpdateAndNetworkAttachment(t *testi
 				removedServiceID = request.URL.Path
 				return dockerResponse(http.StatusOK, `{}`), nil
 			case request.Method == http.MethodGet && request.URL.Path == "/networks/network-1":
-				return dockerResponse(http.StatusOK, `{"Driver":"overlay"}`), nil
+				return dockerResponse(http.StatusOK, `{"Id":"network-1","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`), nil
+			case request.Method == http.MethodGet && request.URL.Path == "/networks/foreign-network":
+				return dockerResponse(http.StatusOK, `{"Id":"foreign-network","Name":"foreign-network","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-2"}}`), nil
 			default:
 				return dockerResponse(http.StatusNotFound, `{}`), nil
 			}
@@ -455,6 +457,11 @@ func TestResourceServiceOperationScopesCreateUpdateAndNetworkAttachment(t *testi
 
 	if err := engine.resourceServiceOperation(context.Background(), []byte(`{"operation":"upsert","resource_id":"other-resource","service_name":"owned-service","spec":{"Name":"owned-service","Labels":{"com.upstand.resource-id":"other-resource"},"TaskTemplate":{"ContainerSpec":{"Image":"attacker"}}}}`), ``); err == nil {
 		t.Fatal("expected an ownership mismatch to reject service mutation")
+	}
+
+	foreignNetwork := []byte(`{"operation":"upsert","resource_id":"resource-1","service_name":"resource-1","spec":{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"Networks":[{"Target":"foreign-network"}],"ContainerSpec":{"Image":"example/app:latest"}}}}`)
+	if err := engine.resourceServiceOperation(context.Background(), foreignNetwork, ``); err == nil {
+		t.Fatal("expected typed resource service mutation to reject a foreign network")
 	}
 }
 
@@ -618,9 +625,27 @@ func TestTypedResourceServiceRejectsHostBindMounts(t *testing.T) {
 		}
 	}
 
-	valid := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","Mounts":[{"Type":"volume","Source":"resource-data","Target":"/data"}]}}}`)
+	valid := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","Mounts":[{"Type":"volume","Source":"upstand-resource-resource-1-volume-data","Target":"/data"}]}}}`)
 	if err := validateTypedResourceServiceSpec(valid, "resource-1", "resource-1"); err != nil {
 		t.Fatalf("expected named volume mount to remain valid: %v", err)
+	}
+}
+
+func TestTypedResourceServiceRejectsCrossResourceVolumeMounts(t *testing.T) {
+	for _, source := range []string{
+		"upstand-db-data-resource-2",
+		"upstand-resource-resource-2-volume-data",
+		"unmanaged-volume",
+	} {
+		body := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","Mounts":[{"Type":"volume","Source":"` + source + `","Target":"/data"}]}}}`)
+		if err := validateTypedResourceServiceSpec(body, "resource-1", "resource-1"); err == nil {
+			t.Fatalf("expected non-owned typed resource volume to be rejected: %s", source)
+		}
+	}
+
+	valid := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","Mounts":[{"Type":"volume","Source":"upstand-db-data-resource-1","Target":"/data"}]}}}`)
+	if err := validateTypedResourceServiceSpec(valid, "resource-1", "resource-1"); err != nil {
+		t.Fatalf("expected the resource database volume to remain valid: %v", err)
 	}
 }
 

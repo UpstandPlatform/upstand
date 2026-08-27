@@ -197,7 +197,7 @@ func validateTypedResourceServiceSpec(body []byte, resourceID, serviceName strin
 			}
 		}
 		if rawContainerSpec, ok := taskTemplate[`ContainerSpec`]; ok {
-			if err := validateTypedResourceContainerSpec(rawContainerSpec); err != nil {
+			if err := validateTypedResourceContainerSpec(rawContainerSpec, resourceID); err != nil {
 				return err
 			}
 		}
@@ -205,7 +205,7 @@ func validateTypedResourceServiceSpec(body []byte, resourceID, serviceName strin
 	return nil
 }
 
-func validateTypedResourceContainerSpec(body []byte) error {
+func validateTypedResourceContainerSpec(body []byte, resourceID string) error {
 	var containerSpec map[string]json.RawMessage
 	if err := json.Unmarshal(body, &containerSpec); err != nil || len(containerSpec) == 0 {
 		return errors.New(`typed resource service container spec is invalid`)
@@ -226,10 +226,10 @@ func validateTypedResourceContainerSpec(body []byte) error {
 		// A typed resource service may use Docker-managed named volumes, but it
 		// must never turn the broker into a host bind-mount primitive. The
 		// source-side Compose validator applies the same boundary to Compose.
-		if mount.Type != `volume` || !swarmNamePattern.MatchString(mount.Source) ||
+		if mount.Type != `volume` || !isDeploymentWorkerOwnedVolume(mount.Source, resourceID) ||
 			mount.Target == `` || !strings.HasPrefix(mount.Target, `/`) ||
 			strings.Contains(mount.Target, `..`) {
-			return errors.New(`typed resource service mounts must use safe named Docker volumes`)
+			return errors.New(`typed resource service mounts must use resource-owned named Docker volumes`)
 		}
 	}
 	return nil
@@ -348,6 +348,9 @@ func authorizeTypedServiceFileBackedResources(
 	taskTemplateObject, ok := taskTemplate.(map[string]any)
 	if !ok {
 		return errors.New(`typed resource service TaskTemplate is not an object`)
+	}
+	if err := authorizeServiceNetworkPayload(ctx, body, resourceID, engine); err != nil {
+		return fmt.Errorf(`typed resource service network policy failed: %w`, err)
 	}
 	if err := authorizeServiceFileBackedPayload(ctx, taskTemplateObject, resourceID, engine); err != nil {
 		return fmt.Errorf(`typed resource service file-backed resource policy failed: %w`, err)
@@ -509,10 +512,25 @@ func (engine *dockerEngineClient) ensureResourceServiceNetwork(ctx context.Conte
 		return err
 	}
 	var network struct {
-		Driver string `json:"Driver"`
+		ID         string            `json:"Id"`
+		Name       string            `json:"Name"`
+		Driver     string            `json:"Driver"`
+		Scope      string            `json:"Scope"`
+		Attachable bool              `json:"Attachable"`
+		Options    map[string]string `json:"Options"`
+		Labels     map[string]string `json:"Labels"`
 	}
 	if err := json.Unmarshal(networkBody, &network); err != nil || network.Driver != `overlay` {
-		return errors.New(`typed resource service network must be an overlay network`)
+		return errors.New(`typed resource service network inspection is invalid`)
+	}
+	if network.ID == `` || network.Name == `` {
+		return errors.New(`typed resource service network inspection is incomplete`)
+	}
+	if err := validateManagedSwarmNetwork(networkBody); err != nil {
+		return fmt.Errorf(`typed resource service network is not a managed encrypted Swarm network: %w`, err)
+	}
+	if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, input.ResourceID) {
+		return errors.New(`typed resource service network is not owned by the requested resource`)
 	}
 	taskTemplate, ok := inspection.Spec[`TaskTemplate`].(map[string]any)
 	if !ok {
