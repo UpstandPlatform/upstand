@@ -307,6 +307,15 @@ token admission therefore cannot consume run quota without admitting a model
 call; provider invoice reconciliation and model-facing data isolation remain
 open.
 
+The control-plane transfer HTTP boundary now validates owner repair, owner
+transfer, and export JSON with strict runtime schemas, bounds passphrases before
+the memory-hard KDF, and preserves exact passphrase characters across export
+and import instead of normalizing one side only. Focused server tests cover
+unknown-field rejection, exact confirmations, bounded IDs, passphrase bounds,
+and whitespace-preserving round trips. This closes a concrete malformed-input
+and transfer-compatibility gap; live owner transfer/repair evidence remains an
+operational requirement.
+
 ## Production Readiness Scorecard
 
 | Area | Score | Assessment |
@@ -761,6 +770,7 @@ Concerning or operationally incomplete:
 - `bash scripts/security-audit.sh` now passes; its Git Bash fallback resolves `bun.exe` and reports no vulnerabilities
 - The DMG maker is no longer produced; macOS release validation must continue to verify the supported ZIP artifact.
 - TESTING.md is referenced by repository guidance but is absent at the repository root; package READMEs and CI/test configuration were used instead.
+- control-plane transfer HTTP boundary validation tests covering strict owner/export schemas, bounded passphrases, exact confirmations, bounded target IDs, and whitespace-preserving import/export passphrases
 
 The existing security_best_practices_report.md was treated as historical evidence only because it targets an older canary snapshot. A pre-existing unrelated modification to .codex/config.toml was preserved.
 
