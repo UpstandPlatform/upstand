@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: release candidate `feat/cache-gate-reliability` (latest code commit `8bee6f29`)
+Revision: release candidate `feat/cache-gate-reliability` (latest code commit `4d8fc5bd`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -376,10 +376,10 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Severity:** Major
 - **Category:** Concurrency / resource exhaustion
 - **Problem:** This was a check/create race for different PRs; the current path now serializes quota decisions on the resource row.
-- **Evidence:** The count and insert run inside the unit-of-work transaction after `resourceRepository.lockById`, while the unique PR constraint remains the idempotency backstop.
+- **Evidence:** Preview quota creation now lives in `CreatePreviewDeploymentUseCase`; the domain repository contract requires `resourceRepository.lockById`, and the count and insert run inside the unit-of-work transaction after that resource-row lock. The unique PR constraint remains the idempotency backstop. A concurrent different-PR regression test proves a limit of one produces exactly one preview and one limit rejection, while a missing lock fails closed.
 - **Impact:** The affected resource’s preview quota is no longer exceeded by concurrent handlers using this path; live concurrent webhook evidence remains useful.
 - **Attack Scenario:** A contributor opens/synchronizes many PRs concurrently or replays valid deliveries across different PR numbers.
-- **Recommended Fix:** Keep the per-resource lock and add a concurrent webhook integration test covering different PR numbers.
+- **Recommended Fix:** Keep the mandatory per-resource lock and run the concurrent webhook integration test against the release database profile and live delivery path.
 
 ### F-011 — Preview cleanup deletes DB state after Docker failure
 
@@ -499,7 +499,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-006/F-007 | Mostly remediated in runtime — direct-origin trust and cookie normalization are disabled in production unless both explicit bootstrap flags are enabled, production plaintext bootstrap accepts only loopback/private/link-local direct addresses, and non-health direct-IP HTTP is rejected after first account creation; installation cutover evidence remains. |
 | F-008 | Partial/remediated for token/cost admission — quota admission, bounded history, per-step aggregate token ceilings, standalone output caps, atomic per-organization run plus worst-case token plus model-aware conservative cents reservations, durable failed-run finalization, and an exact operator model allowlist exist; provider invoice reconciliation remains. |
 | F-009 | Partial/remediated in code — first-party scope checks, HMAC-bound approval gates, MCP restrictions, bounded provider output, and schema-declared model-facing provenance envelopes exist; adversarial evaluation remains. |
-| F-010/F-011 | Remediated in code — preview quota uses a resource-row transaction lock and failed cleanup remains `cleanup_pending`; preview cleanup now carries the owning resource ID, requires an exact service ownership label before deletion, and has a bounded restart-safe scheduler retry path; focused use-case coverage passes, while repeated-close and live remote-target evidence remain. |
+| F-010/F-011 | Remediated in code — preview quota uses a mandatory resource-row transaction lock and a tested quota use case; failed cleanup remains `cleanup_pending`; preview cleanup now carries the owning resource ID, requires an exact service ownership label before deletion, and has a bounded restart-safe scheduler retry path; focused use-case coverage passes, while repeated-close and live remote-target evidence remain. |
 | F-012 | Remediated in source and migrations — generated migrations `0091` and `0092` add composite uniqueness first and same-organization foreign keys second for backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; fresh-schema portable transfer coverage and fresh-plus-upgraded external PostgreSQL migration smoke pass; and full-schema PGlite coverage proves normalized resource ownership follows the non-null resource/environment/project chain. |
 | F-013 | Remediated — device approval claims before API-key creation, completes only from the claim, and cleans up both key and claim on failure; focused tests pass. |
 | F-014 | Partial/remediated for image isolation, worker DI, migration, autoscaling, API resource workflows, typed self-update, preview cleanup, revision promotion, bounded local scaling, typed web-server maintenance, typed cleanup, host maintenance, typed Swarm control, resource-container commands, resource convergence, resource-pull, resource-scoped service, network, and volume cleanup, deployment hooks, resource-scoped worker builds, and use-case SDK isolation — the orchestrator is lean, the worker is separately published with its own identity and acceptance checks, raw worker image builds require a validated resource scope, raw schedules/worker image pulls are denied, capability workflows receive method-bound ports with remote shape preservation, the use-case layer no longer imports the Docker SDK, and regression tests prove the narrowed surfaces; broker transport breadth remains open for Compose and service mutation.
