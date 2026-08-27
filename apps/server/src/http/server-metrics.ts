@@ -1,12 +1,22 @@
 import { renderUpGalBudgetMetrics } from "@upstand/api/ai-budget";
 
 type CounterKey = `${string}:${number}`;
+export type WebhookProvider =
+  | "github"
+  | "gitlab"
+  | "gitea"
+  | "bitbucket"
+  | "dockerhub"
+  | "deployment";
+type WebhookCounterKey = `${WebhookProvider}:${number}`;
 
 const startedAt = Date.now();
 const requestCounters = new Map<CounterKey, number>();
 const authenticationCounters = new Map<"authenticated" | "rejected", number>();
+const webhookCounters = new Map<WebhookCounterKey, number>();
 let requestCount = 0;
 let requestDurationSeconds = 0;
+let webhookRequestDurationSeconds = 0;
 
 export type DatabasePoolMetrics = {
   total: number;
@@ -32,6 +42,22 @@ export function recordAuthenticationAttempt(authenticated: boolean): void {
     outcome,
     (authenticationCounters.get(outcome) ?? 0) + 1,
   );
+}
+
+/** Records only low-cardinality webhook outcome and latency data. */
+export function recordWebhookRequest(
+  provider: WebhookProvider,
+  status: number,
+  durationMs: number,
+): void {
+  const normalizedStatus = Number.isInteger(status)
+    ? Math.min(599, Math.max(100, status))
+    : 500;
+  const normalizedDurationMs =
+    Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0;
+  const key: WebhookCounterKey = `${provider}:${normalizedStatus}`;
+  webhookCounters.set(key, (webhookCounters.get(key) ?? 0) + 1);
+  webhookRequestDurationSeconds += normalizedDurationMs / 1_000;
 }
 
 export function renderServerMetrics(
@@ -74,6 +100,21 @@ export function renderServerMetrics(
       (outcome) =>
         `upstand_server_authentication_attempts_total{outcome="${outcome}"} ${authenticationCounters.get(outcome) ?? 0}`,
     ),
+  );
+  lines.splice(
+    lines.length - 1,
+    0,
+    "# HELP upstand_server_webhook_requests_total Webhook requests handled by provider and HTTP status.",
+    "# TYPE upstand_server_webhook_requests_total counter",
+    ...[...webhookCounters.entries()].sort().map(([key, count]) => {
+      const separator = key.lastIndexOf(":");
+      const provider = key.slice(0, separator);
+      const status = key.slice(separator + 1);
+      return `upstand_server_webhook_requests_total{provider="${escapeLabel(provider)}",status="${escapeLabel(status)}"} ${count}`;
+    }),
+    "# HELP upstand_server_webhook_request_duration_seconds_total Total webhook request duration in seconds.",
+    "# TYPE upstand_server_webhook_request_duration_seconds_total counter",
+    `upstand_server_webhook_request_duration_seconds_total ${webhookRequestDurationSeconds}`,
   );
   if (databasePool) {
     for (const value of [

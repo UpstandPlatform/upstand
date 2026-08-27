@@ -178,6 +178,12 @@ The Linux release acceptance probes this endpoint from inside the private
 overlay and requires its queue, outbox, and backup sections to be present;
 it also scrapes `/metrics` and retains the readiness metrics as
 `schedules-metrics.txt` evidence.
+The protected server metrics endpoint also records webhook request counts by
+provider and HTTP status plus aggregate request duration. The server alert
+rules include sustained webhook 5xx and authentication-rejection thresholds;
+these labels intentionally exclude provider IDs, delivery IDs, tokens,
+payloads, and tenant identifiers. Retain those metrics and alert evaluations
+with the deployment record.
 Operators must still connect those signals to durable dashboards and alerts.
 
 The release workflow runs `scripts/operational-status-rehearsal.ts` inside the

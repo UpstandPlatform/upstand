@@ -17,6 +17,7 @@ import {
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
+import { recordWebhookRequest } from "../server-metrics";
 import type { AppEnv } from "../types";
 
 const webhookDeliveryStore: WebhookDeliveryStore = {
@@ -49,6 +50,27 @@ function readWebhookDeliveryId(
 
 export function registerWebhookRoutes(app: Hono<AppEnv>): void {
   const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
+  app.use("/api/webhooks/*", async (c, next) => {
+    const startedAt = performance.now();
+    try {
+      await next();
+    } finally {
+      const provider = c.req.path.split("/")[3];
+      if (
+        provider === "github" ||
+        provider === "gitlab" ||
+        provider === "gitea" ||
+        provider === "bitbucket" ||
+        provider === "dockerhub"
+      ) {
+        recordWebhookRequest(
+          provider,
+          c.res.status,
+          performance.now() - startedAt,
+        );
+      }
+    }
+  });
   app.use(
     "/api/webhooks/*",
     createHttpRateLimitMiddleware({

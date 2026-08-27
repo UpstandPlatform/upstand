@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   recordAuthenticationAttempt,
   recordServerRequest,
+  recordWebhookRequest,
   renderServerMetrics,
 } from "./server-metrics";
 
@@ -45,6 +46,37 @@ describe("server metrics", () => {
     expect(metrics).toContain("upstand_server_database_pool_idle 3");
     expect(metrics).toContain("upstand_server_database_pool_waiting 2");
     expect(metrics).not.toContain("organizationId");
+  });
+
+  test("renders low-cardinality webhook RED metrics without request identifiers", () => {
+    recordWebhookRequest("github", 401, 25);
+    recordWebhookRequest("deployment", 202, 75);
+
+    const metrics = renderServerMetrics();
+
+    expect(metrics).toContain(
+      'upstand_server_webhook_requests_total{provider="github",status="401"} 1',
+    );
+    expect(metrics).toContain(
+      'upstand_server_webhook_requests_total{provider="deployment",status="202"} 1',
+    );
+    expect(metrics).toContain(
+      "upstand_server_webhook_request_duration_seconds_total",
+    );
+    expect(metrics).not.toContain("providerId");
+    expect(metrics).not.toContain("resourceId");
+    expect(metrics).not.toContain("deliveryId");
+  });
+
+  test("normalizes malformed webhook metric inputs to bounded values", () => {
+    recordWebhookRequest("github", Number.NaN, Number.NaN);
+
+    const metrics = renderServerMetrics();
+
+    expect(metrics).toContain(
+      'upstand_server_webhook_requests_total{provider="github",status="500"}',
+    );
+    expect(metrics).not.toContain("NaN");
   });
 
   test("rejects invalid PostgreSQL pool values", () => {

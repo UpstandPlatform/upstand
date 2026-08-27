@@ -62,6 +62,31 @@ groups:
           summary: Upstand authentication rejection rate is above 50%
           description: Investigate credential attacks, SSO/provider failures, session invalidation, or an authentication outage; confirm that no user or token data is exposed in logs.
 
+      - alert: UpstandWebhookServerErrorsHigh
+        expr: |
+          (
+            sum(rate(upstand_server_webhook_requests_total{job="upstand-server",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(upstand_server_webhook_requests_total{job="upstand-server"}[5m])), 1)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          service: upstand-server
+        annotations:
+          summary: Upstand webhook 5xx rate is above 5%
+          description: Investigate webhook queue, database, Redis replay-store, and deployment dependencies; rejected signatures remain observable separately by provider and status.
+
+      - alert: UpstandWebhookSignatureRejectionsHigh
+        expr: sum(rate(upstand_server_webhook_requests_total{job="upstand-server",status=~"401|403"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: upstand-server
+        annotations:
+          summary: Upstand webhook authentication rejections are elevated
+          description: Investigate provider secret rotation, replay attempts, and credential attacks. Metrics intentionally contain no provider IDs, delivery IDs, tokens, payloads, or tenant identifiers.
+
       - alert: UpstandAIBudgetRejectionsHigh
         expr: sum(rate(upstand_ai_budget_reservations_total{job="upstand-server",outcome="rejected"}[5m])) > 0.1
         for: 10m
