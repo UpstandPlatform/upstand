@@ -62,6 +62,11 @@ and network listings require an exact resource filter, task listings require an
 owned service filter, and individual service/network inspection is checked against
 live daemon metadata before the response is forwarded.
 
+Legacy worker volume inspection now follows the same daemon-side ownership rule:
+Compose volumes must be managed, local, unconfigured, and labeled for the exact
+resource, while the supported database volume is admitted only by its exact
+resource-bound name.
+
 Generated Compose manifests are now written with owner-only permissions on
 Unix deployment hosts and are removed from the temporary build workspace on
 every preparation, command, convergence, and write failure path. This reduces

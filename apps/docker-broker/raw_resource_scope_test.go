@@ -371,6 +371,43 @@ func TestDeploymentWorkerRawNetworkInspectionRequiresManagedOwnership(t *testing
 	}
 }
 
+func TestDeploymentWorkerRawVolumeInspectionRequiresManagedOwnership(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/volumes/upstand-resource-resource-1-volume-data", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	owned := rawScopeTestEngine(func(*http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, owned); err != nil {
+		t.Fatalf("expected an owned managed volume inspection to be allowed: %v", err)
+	}
+
+	foreign := rawScopeTestEngine(func(*http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"other-resource"}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, foreign); err == nil {
+		t.Fatal("expected a volume with a foreign ownership label to be rejected")
+	}
+}
+
+func TestDeploymentWorkerRawDatabaseVolumeInspectionUsesExactResourceName(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/volumes/upstand-db-data-resource-1", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	engine := rawScopeTestEngine(func(*http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Name":"upstand-db-data-resource-1","Driver":"local","Options":{}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, engine); err != nil {
+		t.Fatalf("expected the exact resource database volume to remain available: %v", err)
+	}
+
+	foreignName := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/volumes/upstand-db-data-resource-2", nil)
+	foreignName.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", foreignName, nil, engine); err == nil {
+		t.Fatal("expected a database volume named for another resource to be rejected")
+	}
+}
+
 func TestDeploymentWorkerRawNetworkAttachmentRequiresOwnedNetworkAndContainer(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	body := []byte(`{"Container":"container-1"}`)
