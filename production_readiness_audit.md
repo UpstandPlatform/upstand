@@ -124,6 +124,13 @@ to a blocked address is rejected before the subsequent call. This is an
 additional defense-in-depth check; the hostname transport is not IP-pinned, and
 adversarial model evaluation remains required.
 
+Configured AI provider SDK clients now use the same per-request destination
+revalidation for custom self-hosted endpoints, enforce the configured origin,
+and disable redirects. Focused provider tests cover public resolution, DNS
+rebinding to loopback, and cross-origin request attempts. Provider billing
+reconciliation and adversarial model evaluation remain operational evidence
+requirements.
+
 The release remains blocked by two current facts:
 
 1. Docker authority is now isolated in a dedicated broker, and deployment queue
@@ -290,10 +297,11 @@ output, aggregate per-run token usage, and Tavily extract/crawl/map inputs and
 outputs. It reserves a conservative per-organization daily cost ceiling in
 integer cents using a reviewed worst-case USD-per-million-token rate. Provider-
 native Tavily tools remain available only through bounded wrappers, and an
-operator can enforce an exact model allowlist at provider resolution. Mutation
-approval continuations are now HMAC-bound to the exact tool call with a
-dedicated server-only secret. Provider invoice reconciliation and full
-model-facing data isolation remain open.
+operator can enforce an exact model allowlist at provider resolution. Configured
+provider SDK requests revalidate custom endpoint DNS, enforce the configured
+origin, and reject redirects. Mutation approval continuations are now
+HMAC-bound to the exact tool call with a dedicated server-only secret. Provider
+invoice reconciliation and full model-facing data isolation remain open.
 
 AI runs also finalize as failed when stream setup or streaming errors occur;
 MCP connection cleanup is attempted in a finally path and cleanup failures are
@@ -333,7 +341,7 @@ non-HTTP callers such as CLI and internal transfer services.
 | Authorization | 8.5/10 | New self-hosted installs persist the owner, legacy installations fail closed, and owner transfer plus legacy owner repair are explicit step-up-protected compare-and-swap operations with audit records; live transfer/repair evidence remains. |
 | API security | 8.9/10 | Origin trust binds production direct-IP origins to the request host and private address space, direct HTTP is bounded to first bootstrap, Better Auth has distributed request limiting and a route-specific body cap, protected authentication outcomes and webhook outcomes/latency are measurable with sustained-rejection/error alerts, resource workflows use narrow Docker capabilities, and AI admission is bounded by run, token, and conservative cost ceilings with aggregate admission telemetry; edge/API SLO and provider invoice reconciliation remain open. |
 | Database | 9.4/10 | Generated composite same-organization constraints now cover backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; resource ownership remains inherited through the normalized non-null foreign-key chain, while fresh PGlite and fresh-plus-upgraded external PostgreSQL migration evidence now pass against the immutable server image. |
-| AI security/cost | 9.5/10 | Admission ordering, bounded history/output/aggregate tokens, atomic per-organization daily worst-case token and conservative model-aware cost reservations, durable per-run input/output/total token metering, checked-in model pricing metadata with aggregate estimated-cost and unpriced-usage metrics, failed-run finalization with defensive MCP cleanup, bounded provider output, schema-declared external-untrusted provenance envelopes, and an operator-enforced exact model allowlist are present; provider invoice reconciliation and adversarial model evaluation remain open. |
+| AI security/cost | 9.5/10 | Admission ordering, bounded history/output/aggregate tokens, atomic per-organization daily worst-case token and conservative model-aware cost reservations, durable per-run input/output/total token metering, checked-in model pricing metadata with aggregate estimated-cost and unpriced-usage metrics, failed-run finalization with defensive MCP cleanup, bounded provider output, schema-declared external-untrusted provenance envelopes, per-request custom-provider DNS/origin/redirect enforcement, and an operator-enforced exact model allowlist are present; provider invoice reconciliation and adversarial model evaluation remain open. |
 | Frontend | 8/10 | CSP, safe React rendering, and browser smoke tests are present. |
 | Containers/infra | 9.9/10 | Server/schedules/monitoring socket exposure is removed; the broker is isolated on an encrypted internal control network, requires TLS 1.3 with caller-specific verified client certificates at the TLS handshake plus defense-in-depth tokens, fails closed on legacy/missing/unknown production identities, validates certificate chain/EKU/identity/key pairing before reuse, enforces a deny-by-default API allowlist plus caller-specific operation capabilities, permits only built-in volume/network drivers, rejects host-backed volume options, custom runtimes, weakened security profiles, and writable telemetry binds, bounds in-flight Docker operations, emits normalized audit events, and has explicit HTTP limits. Docker CLI subprocesses use verified caller-specific certificates through standard TLS file names. The schedules orchestrator is lean, the separately published worker resolves a tested narrowed deployment adapter, and typed self-update, preview cleanup, restart-safe pending-preview reconciliation, web-server maintenance, typed Caddy provisioning/configuration (including bounded archive upload, validation, reload, and rollback), typed cleanup, host maintenance, workload migration, autoscaling, bounded local resource scaling, API resource workflows, local inventory/control/prune, resource-scoped container file operations and commands, typed local convergence, resource-owned local service mutation, revision promotion, and cleanup, deterministic owned isolated-network and database-volume cleanup, bounded non-secret Dockerfile builds, owned-image registry pushes, all Swarm control, deployment-hook command execution, and local Compose/Swarm-stack stop teardown resolve method-bound capabilities; raw Compose validation now rejects network-style build contexts, build secrets, external caches, host and cross-container namespace sharing, inherited container volumes, external links, entitlements, deploy-level privilege/capability/device/security/sysctl controls, custom runtimes, and host GPU devices, and remains limited to the generated local workspace, while the broker transport remains broader for Compose orchestration and remote service mutation. |
 | CI/CD | 8.7/10 | Pinned actions/images, current Go toolchains, broker image provenance, generated-schema checks, Go vulnerability scans, race-detector and vet checks for monitoring and the Docker broker, and a zero-high-advisory dependency gate are present; live release evidence and broader coverage gates remain. |
@@ -729,6 +737,7 @@ Passed:
 - deployment-worker signed-scope tests covering missing/expired/tampered, cross-resource, and cross-deployment/server replay rejection plus Docker transport header propagation
 - deployment-worker raw and typed service file-backed-resource preflight tests covering owned, foreign, malformed, and update-time secret/config references
 - MCP transport tests covering per-request DNS revalidation, blocked-address rejection before forwarding, request deadlines, endpoint safety, and untrusted-output provenance
+- AI provider endpoint tests covering per-request DNS revalidation, loopback rebinding rejection, configured-origin enforcement, and redirect blocking
 - `go test ./...` in `apps/docker-broker` and typed-route authorization tests
 - Docker-broker case-insensitive raw-policy regression tests covering lower-case/mixed-case labels, mounts, binds, privilege, namespace-sharing, and security-option escapes
 - typed self-update runtime tests with a fake Docker transport (managed services only, immutable digest mutation, source-install rejection)
