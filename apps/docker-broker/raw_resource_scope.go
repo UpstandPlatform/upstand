@@ -70,7 +70,13 @@ func authorizeDeploymentWorkerRawResourceScope(
 		if !ok || !swarmNamePattern.MatchString(parts[1]) {
 			return errors.New("deployment-worker service identity is invalid")
 		}
-		return engine.authorizeResourceService(ctx, parts[1], resourceID)
+		if err := engine.authorizeResourceService(ctx, parts[1], resourceID); err != nil {
+			return err
+		}
+		return authorizeDeploymentWorkerRawServiceNetworks(ctx, body, parts[1], resourceID, engine)
+	}
+	if r.Method == http.MethodPost && path == "/services/create" {
+		return authorizeDeploymentWorkerRawServiceNetworks(ctx, body, "", resourceID, engine)
 	}
 	if isRawContainerResourcePath(r.Method, path) {
 		parts, ok := splitResourcePath(path, "containers")
@@ -215,6 +221,117 @@ func (engine *dockerEngineClient) authorizeResourceService(ctx context.Context, 
 		return errors.New("service is not owned by the requested Upstand resource")
 	}
 	return nil
+}
+
+// authorizeDeploymentWorkerRawServiceNetworks prevents a resource-scoped
+// worker from using the broad Engine service API to attach a service to an
+// unrelated or unencrypted network. Compose/Swarm supplies network targets in
+// TaskTemplate.Networks; the broker must verify the live network metadata
+// instead of trusting a caller-controlled name or ID.
+func authorizeDeploymentWorkerRawServiceNetworks(
+	ctx context.Context,
+	body []byte,
+	serviceID string,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	if serviceID != "" {
+		serviceBody, _, err := engine.request(ctx, http.MethodGet, "/services/"+url.PathEscape(serviceID), nil)
+		if err != nil {
+			return err
+		}
+		if err := authorizeServiceNetworkPayload(ctx, serviceBody, resourceID, engine); err != nil {
+			return fmt.Errorf("existing Docker service network policy failed: %w", err)
+		}
+	}
+	if len(strings.TrimSpace(string(body))) == 0 {
+		return errors.New("deployment-worker service mutation requires a JSON body")
+	}
+	if err := authorizeServiceNetworkPayload(ctx, body, resourceID, engine); err != nil {
+		return fmt.Errorf("requested Docker service network policy failed: %w", err)
+	}
+	return nil
+}
+
+func authorizeServiceNetworkPayload(
+	ctx context.Context,
+	body []byte,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("service payload is invalid: %w", err)
+	}
+	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
+	if hasTaskTemplate {
+		taskTemplateObject, ok := taskTemplate.(map[string]any)
+		if !ok {
+			return errors.New("service TaskTemplate is not an object")
+		}
+		if err := authorizeServiceNetworkList(ctx, taskTemplateObject, resourceID, engine); err != nil {
+			return err
+		}
+	}
+	return authorizeServiceNetworkList(ctx, payload, resourceID, engine)
+}
+
+func authorizeServiceNetworkList(
+	ctx context.Context,
+	payload map[string]any,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	rawNetworks, ok := dockerObjectField(payload, "Networks")
+	if !ok {
+		return nil
+	}
+	networks, ok := rawNetworks.([]any)
+	if !ok || len(networks) > 32 {
+		return errors.New("service network attachments are invalid or unbounded")
+	}
+	for index, rawNetwork := range networks {
+		networkObject, ok := rawNetwork.(map[string]any)
+		if !ok {
+			return fmt.Errorf("service network attachment %d is invalid", index)
+		}
+		target, ok := dockerObjectField(networkObject, "Target")
+		targetName, validTarget := target.(string)
+		if !validTarget || !swarmNamePattern.MatchString(strings.TrimSpace(targetName)) {
+			return fmt.Errorf("service network attachment %d has an invalid target", index)
+		}
+		networkBody, _, err := engine.request(ctx, http.MethodGet, "/networks/"+url.PathEscape(strings.TrimSpace(targetName)), nil)
+		if err != nil {
+			return fmt.Errorf("service network attachment %d could not be inspected: %w", index, err)
+		}
+		var network struct {
+			ID     string            `json:"Id"`
+			Name   string            `json:"Name"`
+			Labels map[string]string `json:"Labels"`
+		}
+		if err := json.Unmarshal(networkBody, &network); err != nil {
+			return fmt.Errorf("service network attachment %d inspection is invalid: %w", index, err)
+		}
+		if network.ID == "" || network.Name == "" {
+			return fmt.Errorf("service network attachment %d inspection is incomplete", index)
+		}
+		if err := validateManagedSwarmNetwork(networkBody); err != nil {
+			return fmt.Errorf("service network attachment %d is not encrypted and attachable: %w", index, err)
+		}
+		if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
+			return fmt.Errorf("service network attachment %d is not owned by the requested Upstand resource", index)
+		}
+	}
+	return nil
+}
+
+func dockerObjectField(object map[string]any, wanted string) (any, bool) {
+	for key, value := range object {
+		if strings.EqualFold(strings.TrimSpace(key), wanted) {
+			return value, true
+		}
+	}
+	return nil, false
 }
 
 func isRawContainerResourcePath(method, path string) bool {

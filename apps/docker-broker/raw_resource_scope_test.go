@@ -52,6 +52,86 @@ func TestDeploymentWorkerRawServiceUpdateRequiresDaemonOwnership(t *testing.T) {
 	}
 }
 
+func TestDeploymentWorkerRawServiceMutationRequiresAuthorizedEncryptedNetworks(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	t.Setenv("UPSTAND_DOCKER_NETWORK", "shared-net")
+
+	ownedNetwork := `{"Id":"network-1","Name":"upstand-resource-resource-1-app","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`
+	sharedNetwork := `{"Id":"network-2","Name":"shared-net","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""}}`
+	foreignNetwork := `{"Id":"network-3","Name":"upstand-resource-other-resource","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"other-resource"}}`
+	engine := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		switch request.URL.Path {
+		case "/networks/network-1":
+			return dockerResponse(http.StatusOK, ownedNetwork)
+		case "/networks/network-2":
+			return dockerResponse(http.StatusOK, sharedNetwork)
+		case "/networks/network-3":
+			return dockerResponse(http.StatusOK, foreignNetwork)
+		default:
+			return dockerResponse(http.StatusNotFound, `{}`)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "owned network",
+			body: `{"TaskTemplate":{"Networks":[{"Target":"network-1"}]}}`,
+			want: true,
+		},
+		{
+			name: "encrypted shared network",
+			body: `{"TaskTemplate":{"Networks":[{"Target":"network-2"}]}}`,
+			want: true,
+		},
+		{
+			name: "foreign network",
+			body: `{"TaskTemplate":{"Networks":[{"Target":"network-3"}]}}`,
+		},
+		{
+			name: "missing target",
+			body: `{"TaskTemplate":{"Networks":[{}]}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(test.body))
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, []byte(test.body), engine)
+			if test.want && err != nil {
+				t.Fatalf("expected authorized network attachment to pass: %v", err)
+			}
+			if !test.want && err == nil {
+				t.Fatal("expected unauthorized or malformed network attachment to fail")
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawServiceUpdateRevalidatesExistingAndRequestedNetworks(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	body := []byte(`{"TaskTemplate":{"Networks":[{"Target":"foreign-network"}]}}`)
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/service-1/update", strings.NewReader(string(body)))
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	engine := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		switch request.URL.Path {
+		case "/services/service-1":
+			return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"Networks":[{"Target":"owned-network"}]}}}`)
+		case "/networks/owned-network":
+			return dockerResponse(http.StatusOK, `{"Id":"network-1","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`)
+		case "/networks/foreign-network":
+			return dockerResponse(http.StatusOK, `{"Id":"network-2","Name":"upstand-resource-other-resource","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"other-resource"}}`)
+		default:
+			return dockerResponse(http.StatusNotFound, `{}`)
+		}
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, engine); err == nil {
+		t.Fatal("expected a service update that adds a foreign network to be rejected")
+	}
+}
+
 func TestDeploymentWorkerRawExecRequiresOwningContainer(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/exec/exec-1/start", strings.NewReader(`{"Detach":false}`))
