@@ -4,6 +4,26 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.26 - 2026-08-27
+
+Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
+
+Scope Compose networks and volumes through typed, owner-labelled Docker broker capabilities before deployment.
+
+Restrict production plaintext direct-IP bootstrap and cookie normalization to private or loopback addresses.
+
+Use reviewed model pricing metadata to raise AI cost admission ceilings conservatively for known models.
+
+Provision the local platform Caddy container through a fixed-shape, broker-validated Docker capability.
+
+Expose reviewed model pricing metadata and aggregate estimated-cost and unpriced-usage metrics for UpGal calls while retaining the operator-configured conservative admission ceiling.
+
+Retry failed preview-service cleanup from durable cleanup-pending records with resource-scoped local and remote Docker capabilities.
+
+Reserve UpGal token and cost ceilings atomically so rejected cost admission cannot consume token quota without a model call.
+
+Reject interpolated and long-syntax host bind mounts plus host-backed Compose volume/network driver options before deployment. Typed resource service mutations now accept only safe named Docker volumes, and production Compose defaults installation-specific disaster-recovery acceptance to fail closed.
+
 ## 0.2.25 - 2026-08-21
 
 Allow the production dashboard to reach the control plane over HTTP and WebSocket IP:port recovery URLs when a configured host is unavailable.

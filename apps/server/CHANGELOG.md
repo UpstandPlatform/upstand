@@ -1,5 +1,11 @@
 # server
 
+## 0.2.26
+
+### Patch Changes
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Restrict production plaintext direct-IP bootstrap and cookie normalization to private or loopback addresses.
+
 ## 0.2.25
 
 ### Patch Changes
