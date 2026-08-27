@@ -269,6 +269,62 @@ func TestRawServiceMutationAppliesSecurityPolicyBeforeDockerInspection(t *testin
 	}
 }
 
+func TestDeploymentWorkerRawServiceShapeRejectsUnknownFieldsBeforeInspection(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	engine := rawScopeTestEngine(func(*http.Request) *http.Response {
+		t.Fatal("an unreviewed service field must be rejected before Docker inspection")
+		return nil
+	})
+
+	for _, body := range []string{
+		`{"Name":"service-1","FutureField":true}`,
+		`{"Name":"service-1","TaskTemplate":{"FutureField":true}}`,
+		`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"FutureField":true}}}`,
+		`{"Name":"service-1","TaskTemplate":{"Networks":[{"Target":"network-1","DriverOpts":{"encrypted":"false"}}]}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			if err := authorizeDeploymentWorkerRawServiceResources(
+				context.Background(),
+				[]byte(body),
+				"",
+				"resource-1",
+				engine,
+			); err == nil {
+				t.Fatalf("expected unreviewed raw service shape to be rejected: %s", body)
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawServiceShapeAllowsBoundedComposeServiceSpec(t *testing.T) {
+	body := []byte(`{
+  "Name":"service-1",
+  "Labels":{"com.upstand.resource-id":"resource-1"},
+  "TaskTemplate":{
+    "ContainerSpec":{
+      "Image":"example/app:latest",
+      "Env":["PORT=8080"],
+      "Mounts":[],
+      "ReadOnly":true
+    },
+    "Resources":{"Limits":{"NanoCPUs":100000000,"MemoryBytes":268435456}},
+    "RestartPolicy":{"Condition":"on-failure"},
+    "Placement":{"Constraints":[]},
+    "Networks":[{"Target":"network-1","Aliases":["app"]}],
+    "ForceUpdate":1
+  },
+  "Mode":{"Replicated":{"Replicas":1}},
+  "UpdateConfig":{"Parallelism":1,"Order":"stop-first"},
+  "RollbackConfig":{"Parallelism":1,"Order":"stop-first"},
+  "EndpointSpec":{"Mode":"vip","Ports":[{"Protocol":"tcp","TargetPort":8080,"PublishedPort":8080,"PublishMode":"ingress"}]}
+}`)
+	if err := validateDeploymentWorkerRawServiceShape(body); err != nil {
+		t.Fatalf("expected the reviewed Compose/Swarm service shape to remain allowed: %v", err)
+	}
+}
+
 func TestDeploymentWorkerRawServiceMutationRequiresAuthorizedEncryptedNetworks(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	t.Setenv("UPSTAND_DOCKER_NETWORK", "shared-net")

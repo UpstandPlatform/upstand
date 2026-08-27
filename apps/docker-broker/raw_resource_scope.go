@@ -398,6 +398,9 @@ func authorizeDeploymentWorkerRawServiceResources(
 	resourceID string,
 	engine *dockerEngineClient,
 ) error {
+	if err := validateDeploymentWorkerRawServiceShape(body); err != nil {
+		return err
+	}
 	existingServiceName := ""
 	if serviceID != "" {
 		serviceBody, _, err := engine.request(ctx, http.MethodGet, "/services/"+url.PathEscape(serviceID), nil)
@@ -426,6 +429,262 @@ func authorizeDeploymentWorkerRawServiceResources(
 	}
 	if err := authorizeServiceResourcePayload(ctx, body, resourceID, engine); err != nil {
 		return fmt.Errorf("requested Docker service resource policy failed: %w", err)
+	}
+	return nil
+}
+
+var (
+	deploymentWorkerRawServiceFields = dockerFieldSet(
+		"Name",
+		"Labels",
+		"TaskTemplate",
+		"Mode",
+		"UpdateConfig",
+		"RollbackConfig",
+		"EndpointSpec",
+		"Networks",
+	)
+	deploymentWorkerRawTaskTemplateFields = dockerFieldSet(
+		"ContainerSpec",
+		"Resources",
+		"RestartPolicy",
+		"Placement",
+		"Networks",
+		"ForceUpdate",
+		// These fields are part of Docker's task-spec shape, but the security
+		// policy below still rejects any non-zero value. Keeping them in the
+		// shape allowlist lets the broker distinguish an empty API default from
+		// a newly introduced, unreviewed field.
+		"Runtime",
+		"LogDriver",
+	)
+	deploymentWorkerRawContainerSpecFields = dockerFieldSet(
+		"Image",
+		"Labels",
+		"Command",
+		"Args",
+		"Hostname",
+		"Env",
+		"Dir",
+		"User",
+		"Groups",
+		"StopSignal",
+		"TTY",
+		"ReadOnly",
+		"Mounts",
+		"Init",
+		"DNSConfig",
+		"Healthcheck",
+		"StopGracePeriod",
+		"Secrets",
+		"Configs",
+		// These fields are allowed in the Docker API shape so the existing
+		// security checks can reject non-empty host/privilege controls with a
+		// specific policy error.
+		"Isolation",
+		"Hosts",
+		"Sysctls",
+		"CapAdd",
+		"CapDrop",
+		"Devices",
+		"DeviceRequests",
+		"SecurityOpt",
+		"CgroupParent",
+		"StorageOpt",
+		"BlkioConfig",
+		"VolumesFrom",
+		"Ulimits",
+		"OomScoreAdj",
+		"ShmSize",
+		"Privileges",
+		"CredentialSpec",
+		"NetworkMode",
+		"PidMode",
+		"IpcMode",
+		"UTSMode",
+		"UsernsMode",
+		"CgroupnsMode",
+	)
+	deploymentWorkerRawResourcesFields           = dockerFieldSet("Limits", "Reservations")
+	deploymentWorkerRawResourceLimitFields       = dockerFieldSet("NanoCPUs", "MemoryBytes", "Pids")
+	deploymentWorkerRawResourceReservationFields = dockerFieldSet(
+		"NanoCPUs",
+		"MemoryBytes",
+		"GenericResources",
+	)
+	deploymentWorkerRawRestartPolicyFields = dockerFieldSet(
+		"Condition",
+		"Delay",
+		"MaxAttempts",
+		"Window",
+	)
+	deploymentWorkerRawPlacementFields = dockerFieldSet(
+		"Constraints",
+		"Preferences",
+		"MaxReplicas",
+		"Platforms",
+		"Spreads",
+	)
+	deploymentWorkerRawUpdateConfigFields = dockerFieldSet(
+		"Parallelism",
+		"Delay",
+		"Monitor",
+		"FailureAction",
+		"MaxFailureRatio",
+		"Order",
+	)
+	deploymentWorkerRawModeFields = dockerFieldSet(
+		"Replicated",
+		"Global",
+		"ReplicatedJob",
+		"GlobalJob",
+	)
+	deploymentWorkerRawReplicatedModeFields = dockerFieldSet("Replicas")
+	deploymentWorkerRawNetworkFields        = dockerFieldSet("Target", "Aliases")
+)
+
+func dockerFieldSet(fields ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		set[strings.ToLower(strings.TrimSpace(field))] = struct{}{}
+	}
+	return set
+}
+
+func validateDockerObjectShape(object map[string]any, allowed map[string]struct{}, location string) error {
+	for field := range object {
+		if _, ok := allowed[strings.ToLower(strings.TrimSpace(field))]; !ok {
+			return fmt.Errorf("%s field %q is outside the broker contract", location, field)
+		}
+	}
+	return nil
+}
+
+// validateDeploymentWorkerRawServiceShape is deliberately stricter than the
+// generic Docker JSON policy. This legacy endpoint forwards a whole Swarm
+// ServiceSpec, so accepting an unknown future field could silently add daemon
+// authority before that field receives an explicit security review.
+func validateDeploymentWorkerRawServiceShape(body []byte) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return errors.New("Docker service mutation body must be a JSON object")
+	}
+	if err := validateDockerObjectShape(payload, deploymentWorkerRawServiceFields, "Docker service"); err != nil {
+		return err
+	}
+	if rawTaskTemplate, ok := dockerObjectField(payload, "TaskTemplate"); ok {
+		taskTemplate, ok := rawTaskTemplate.(map[string]any)
+		if !ok || taskTemplate == nil {
+			return errors.New("Docker service TaskTemplate must be an object")
+		}
+		if err := validateDockerObjectShape(taskTemplate, deploymentWorkerRawTaskTemplateFields, "Docker service TaskTemplate"); err != nil {
+			return err
+		}
+		if rawContainerSpec, ok := dockerObjectField(taskTemplate, "ContainerSpec"); ok {
+			containerSpec, ok := rawContainerSpec.(map[string]any)
+			if !ok || containerSpec == nil {
+				return errors.New("Docker service ContainerSpec must be an object")
+			}
+			if err := validateDockerObjectShape(containerSpec, deploymentWorkerRawContainerSpecFields, "Docker service ContainerSpec"); err != nil {
+				return err
+			}
+		}
+		if rawResources, ok := dockerObjectField(taskTemplate, "Resources"); ok {
+			resources, ok := rawResources.(map[string]any)
+			if !ok || resources == nil {
+				return errors.New("Docker service Resources must be an object")
+			}
+			if err := validateDockerObjectShape(resources, deploymentWorkerRawResourcesFields, "Docker service Resources"); err != nil {
+				return err
+			}
+			for field, allowed := range map[string]map[string]struct{}{
+				"Limits":       deploymentWorkerRawResourceLimitFields,
+				"Reservations": deploymentWorkerRawResourceReservationFields,
+			} {
+				if raw, ok := dockerObjectField(resources, field); ok {
+					value, ok := raw.(map[string]any)
+					if !ok || value == nil {
+						return fmt.Errorf("Docker service Resources.%s must be an object", field)
+					}
+					if err := validateDockerObjectShape(value, allowed, "Docker service Resources."+field); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		for field, allowed := range map[string]map[string]struct{}{
+			"RestartPolicy": deploymentWorkerRawRestartPolicyFields,
+			"Placement":     deploymentWorkerRawPlacementFields,
+		} {
+			if raw, ok := dockerObjectField(taskTemplate, field); ok {
+				value, ok := raw.(map[string]any)
+				if !ok || value == nil {
+					return fmt.Errorf("Docker service TaskTemplate.%s must be an object", field)
+				}
+				if err := validateDockerObjectShape(value, allowed, "Docker service TaskTemplate."+field); err != nil {
+					return err
+				}
+			}
+		}
+		if rawNetworks, ok := dockerObjectField(taskTemplate, "Networks"); ok {
+			if err := validateDeploymentWorkerRawNetworkShape(rawNetworks, "Docker service TaskTemplate.Networks"); err != nil {
+				return err
+			}
+		}
+	}
+	for field, allowed := range map[string]map[string]struct{}{
+		"UpdateConfig":   deploymentWorkerRawUpdateConfigFields,
+		"RollbackConfig": deploymentWorkerRawUpdateConfigFields,
+	} {
+		if raw, ok := dockerObjectField(payload, field); ok {
+			value, ok := raw.(map[string]any)
+			if !ok || value == nil {
+				return fmt.Errorf("Docker service %s must be an object", field)
+			}
+			if err := validateDockerObjectShape(value, allowed, "Docker service "+field); err != nil {
+				return err
+			}
+		}
+	}
+	if rawMode, ok := dockerObjectField(payload, "Mode"); ok {
+		mode, ok := rawMode.(map[string]any)
+		if !ok || mode == nil {
+			return errors.New("Docker service Mode must be an object")
+		}
+		if err := validateDockerObjectShape(mode, deploymentWorkerRawModeFields, "Docker service Mode"); err != nil {
+			return err
+		}
+		if rawReplicated, ok := dockerObjectField(mode, "Replicated"); ok {
+			replicated, ok := rawReplicated.(map[string]any)
+			if !ok || replicated == nil {
+				return errors.New("Docker service Mode.Replicated must be an object")
+			}
+			if err := validateDockerObjectShape(replicated, deploymentWorkerRawReplicatedModeFields, "Docker service Mode.Replicated"); err != nil {
+				return err
+			}
+		}
+	}
+	if rawNetworks, ok := dockerObjectField(payload, "Networks"); ok {
+		if err := validateDeploymentWorkerRawNetworkShape(rawNetworks, "Docker service Networks"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDeploymentWorkerRawNetworkShape(raw any, location string) error {
+	networks, ok := raw.([]any)
+	if !ok || len(networks) > 32 {
+		return fmt.Errorf("%s must be a bounded array", location)
+	}
+	for index, rawNetwork := range networks {
+		network, ok := rawNetwork.(map[string]any)
+		if !ok || network == nil {
+			return fmt.Errorf("%s[%d] must be an object", location, index)
+		}
+		if err := validateDockerObjectShape(network, deploymentWorkerRawNetworkFields, fmt.Sprintf("%s[%d]", location, index)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
