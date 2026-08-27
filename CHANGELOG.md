@@ -54,6 +54,8 @@ Bound portable control-plane transfer passphrases at the cryptographic KDF bound
 
 Make the Changesets release workflow consume pending notes and update existing release sections idempotently.
 
+Scope legacy deployment-worker Docker volume inspections to managed volumes owned by the requested resource.
+
 ## 0.2.26 - 2026-08-27
 
 Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
