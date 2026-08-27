@@ -1,5 +1,29 @@
 # schedules
 
+## 0.2.27
+
+### Patch Changes
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Bind deployment-worker Docker broker grants to their signed deployment and server targets across typed, Dockerode, and Docker CLI transports.
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Bound legacy Docker build contexts to the same streaming size limit as typed build capabilities.
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Normalize typed Docker service mount-field casing before enforcing resource ownership, closing case-insensitive volume-scope bypasses.
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Scope Compose secrets and configs to the owning resource and verify Swarm file-backed resource ownership before service mutation.
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Scope Compose networks and volumes through typed, owner-labelled Docker broker capabilities before deployment.
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Scope deployment-worker Docker exec and container inspection access to the owning resource.
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Bind deployment-worker Docker broker requests to signed, short-lived deployment scopes and refuse unscoped production deployments.
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Provision the local platform Caddy container through a fixed-shape, broker-validated Docker capability.
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Reject typed resource-service specifications that mount named volumes owned by another resource or unmanaged volume names.
+
 ## 0.2.26
 
 ### Patch Changes
