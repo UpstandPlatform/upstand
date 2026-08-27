@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: release candidate `feat/cache-gate-reliability` (latest code commit `87763e5e`)
+Revision: release candidate `feat/cache-gate-reliability` (latest code commit `d237a983`)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -140,6 +140,17 @@ manual diagnostic retry; it is not the stable publication default. This closes
 a release-workflow configuration gap, but the full hosted rehearsal still uses
 disposable infrastructure and does not replace installation-specific
 off-host restore or key-escrow evidence.
+
+The reusable release workflow now has an explicit caller permission ceiling in
+the scheduled recovery workflow, while the called jobs retain their narrower
+per-job permissions. Recovery also supports immutable legacy tags whose release
+manifest predates the current deployment-worker/Docker-broker image set:
+those tags run verification-only with visible compatibility notices instead of
+claiming current multi-service acceptance. The hosted rehearsal for `v0.2.25`
+passed at run `33036632711`; image builds, publication, and the incompatible
+current acceptance phase were skipped by explicit inputs. This proves the
+workflow starts and verifies a legacy release, but is not a production release
+publication or current-image acceptance result.
 
 The API now records low-cardinality authentication outcomes at the protected
 HTTP middleware boundary (`authenticated` or `rejected`) without including
