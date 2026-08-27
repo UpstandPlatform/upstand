@@ -1,5 +1,11 @@
 # web
 
+## 0.2.27
+
+### Patch Changes
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Prevent server-rendered session requests from trusting spoofed forwarded host and protocol headers.
+
 ## 0.2.26
 
 ## 0.2.25

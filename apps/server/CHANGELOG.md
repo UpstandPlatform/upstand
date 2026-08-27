@@ -1,5 +1,17 @@
 # server
 
+## 0.2.27
+
+### Patch Changes
+
+- [#336](https://github.com/UpstandPlatform/upstand/pull/336) [`a8780b9`](https://github.com/UpstandPlatform/upstand/commit/a8780b913890df35241794bd6bfce1eca37a43b8) Thanks [@mhbdev](https://github.com/mhbdev)! - Wrap web, Tavily, and MCP tool results in bounded, machine-checkable untrusted-data provenance envelopes before model exposure.
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Use reviewed model pricing metadata to raise AI cost admission ceilings conservatively for known models.
+
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Serialize pull-request preview quota decisions per resource to prevent concurrent webhook deliveries from exceeding the configured limit.
+
+- [#333](https://github.com/UpstandPlatform/upstand/pull/333) [`4e51f74`](https://github.com/UpstandPlatform/upstand/commit/4e51f7406fc3582bf3ed414451e14b81a52a91bf) Thanks [@mhbdev](https://github.com/mhbdev)! - Expose reviewed model pricing metadata and aggregate estimated-cost and unpriced-usage metrics for UpGal calls while retaining the operator-configured conservative admission ceiling.
+
 ## 0.2.26
 
 ### Patch Changes
