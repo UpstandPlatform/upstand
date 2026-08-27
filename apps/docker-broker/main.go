@@ -567,29 +567,31 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 
 func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) error {
 	query := normalizeDockerBuildQuery(r.URL.Query())
-	for _, option := range []string{"t", "dockerfile", "labels", "buildargs", "networkmode"} {
-		if len(query[option]) > 1 {
-			return fmt.Errorf("deployment-worker build query option %q must be unique", option)
+	// Keep this legacy path fail-closed. Docker adds query options over time;
+	// accepting unknown fields would silently expand a deployment worker's
+	// daemon authority without a corresponding policy review.
+	allowedOptions := map[string]struct{}{
+		"buildargs":   {},
+		"dockerfile":  {},
+		"forcerm":     {},
+		"labels":      {},
+		"networkmode": {},
+		"nocache":     {},
+		"pull":        {},
+		"q":           {},
+		"rm":          {},
+		"t":           {},
+		"target":      {},
+		"version":     {},
+	}
+	for option := range query {
+		if _, ok := allowedOptions[option]; !ok {
+			return fmt.Errorf("deployment-worker build option %q is outside the broker contract", option)
 		}
 	}
-	for _, option := range []string{
-		"cachefrom",
-		"cpuperiod",
-		"cpuquota",
-		"cpushares",
-		"cpusetcpus",
-		"extrahosts",
-		"memory",
-		"memswap",
-		"outputs",
-		"platform",
-		"remote",
-		"securityopt",
-		"shmsize",
-		"storageopt",
-	} {
-		if _, ok := query[option]; ok {
-			return fmt.Errorf("deployment-worker build option %q is outside the broker contract", option)
+	for option := range allowedOptions {
+		if len(query[option]) > 1 {
+			return fmt.Errorf("deployment-worker build query option %q must be unique", option)
 		}
 	}
 	image := strings.TrimSpace(query.Get("t"))
@@ -606,10 +608,24 @@ func validateDeploymentWorkerBuildQuery(r *http.Request, resourceID string) erro
 			return errors.New("deployment-worker build Dockerfile path contains an invalid segment")
 		}
 	}
+	target := strings.TrimSpace(query.Get("target"))
+	if target != "" && !resourceBuildTargetPattern.MatchString(target) {
+		return errors.New("deployment-worker build target is invalid")
+	}
 
 	networkMode := strings.ToLower(strings.TrimSpace(query.Get("networkmode")))
 	if networkMode != "" && networkMode != "default" && networkMode != "bridge" && networkMode != "none" {
 		return errors.New("deployment-worker build network mode is outside the broker contract")
+	}
+	for _, option := range []string{"forcerm", "nocache", "pull", "q", "rm"} {
+		value := strings.ToLower(strings.TrimSpace(query.Get(option)))
+		if value != "" && value != "0" && value != "1" && value != "false" && value != "true" {
+			return fmt.Errorf("deployment-worker build option %q must be boolean", option)
+		}
+	}
+	version := strings.TrimSpace(query.Get("version"))
+	if version != "" && version != "1" && version != "2" {
+		return errors.New("deployment-worker build API version is outside the broker contract")
 	}
 
 	labels := strings.TrimSpace(query.Get("labels"))

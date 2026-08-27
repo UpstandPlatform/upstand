@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: continued infrastructure hardening branch `feat/service-volume-ownership` (PR #350, commit `07f482be`)
+Revision: continued infrastructure hardening branch `feat/service-volume-ownership` (PR #350, commit `aa6a728f` plus unpushed query-boundary audit work)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -137,6 +137,15 @@ ingress publication is accepted. Direct typed and raw regressions cover host
 publication, custom endpoint fields, unsupported modes, invalid port ranges,
 and custom logging backends. This reduces service transport authority but does
 not close the broader raw Compose/service migration finding.
+
+The latest legacy-build query pass changes deployment-worker raw Docker builds
+from a known-dangerous-option denylist to an explicit allowlist. Only reviewed
+metadata/lifecycle options, bounded targets, safe built-in network modes,
+boolean flags, and API versions 1/2 are accepted; unknown or future Docker
+fields fail closed before forwarding. Regression coverage proves rejection of
+future/host-oriented fields and acceptance of the bounded known contract. This
+narrowing does not close secret-bearing build or broader Compose/service
+migration findings.
 
 Long-lived MCP clients now revalidate each request URL and its DNS answers
 before forwarding the request, so a hostname that changes from a public answer

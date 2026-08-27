@@ -826,6 +826,10 @@ func TestProductionDeploymentWorkerBuildRejectsUnsafeQueryOptions(t *testing.T) 
 		{name: "sensitive build arg", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "buildargs": []string{`{"API_TOKEN":"redacted"}`}}},
 		{name: "null build args", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "buildargs": []string{"null"}}},
 		{name: "path traversal", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "dockerfile": []string{"../Dockerfile"}}},
+		{name: "unknown future option", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "cgroup-parent": []string{"upstand-host"}}},
+		{name: "invalid build target", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "target": []string{"../host"}}},
+		{name: "invalid boolean option", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "pull": []string{"yes"}}},
+		{name: "unsupported API version", query: url.Values{"t": []string{"upstand-app-resource-1:latest"}, "labels": []string{`{"com.upstand.resource-id":"resource-1"}`}, "version": []string{"3"}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/build?"+test.query.Encode(), nil)
@@ -834,6 +838,29 @@ func TestProductionDeploymentWorkerBuildRejectsUnsafeQueryOptions(t *testing.T) 
 				t.Fatal("expected unsafe deployment-worker build query to be rejected")
 			}
 		})
+	}
+}
+
+func TestProductionDeploymentWorkerBuildAllowsOnlyBoundedKnownOptions(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	query := url.Values{
+		"t":           []string{"upstand-app-resource-1:latest"},
+		"dockerfile":  []string{"Dockerfile"},
+		"labels":      []string{`{"com.upstand.resource-id":"resource-1"}`},
+		"buildargs":   []string{`{"BUILD_MODE":"production"}`},
+		"networkmode": []string{"bridge"},
+		"nocache":     []string{"1"},
+		"pull":        []string{"false"},
+		"q":           []string{"0"},
+		"rm":          []string{"true"},
+		"forcerm":     []string{"false"},
+		"target":      []string{"production"},
+		"version":     []string{"2"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/build?"+query.Encode(), nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDockerRequestForCaller("deployment-worker", request, nil); err != nil {
+		t.Fatalf("expected bounded known build options to be allowed: %v", err)
 	}
 }
 
