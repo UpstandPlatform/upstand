@@ -599,13 +599,35 @@ export function validateComposeSecurity(rawCompose: string): void {
         (option) =>
           typeof option === "string" &&
           (/=(?:unconfined|false)$/i.test(option) ||
-            /^(?:apparmor|seccomp)=unconfined$/i.test(option)),
+            /^(?:apparmor|seccomp)=unconfined$/i.test(option) ||
+            /^(?:label=disable|systempaths=unconfined)$/i.test(option)),
       );
       if (unsafeSecurityOption) {
         throw new Error(
           `Compose service '${serviceName}' requests unsafe security option '${unsafeSecurityOption}'`,
         );
       }
+    }
+    if (
+      (isUnknownRecord(service.sysctls) &&
+        Object.keys(service.sysctls).length > 0) ||
+      (Array.isArray(service.sysctls) && service.sysctls.length > 0)
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests service sysctls, which is not allowed`,
+      );
+    }
+    if (
+      (typeof service.cgroup_parent === "string" &&
+        service.cgroup_parent.trim() !== "") ||
+      (isUnknownRecord(service.storage_opt) &&
+        Object.keys(service.storage_opt).length > 0) ||
+      (isUnknownRecord(service.blkio_config) &&
+        Object.keys(service.blkio_config).length > 0)
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests host resource controls, which is not allowed`,
+      );
     }
     if (Array.isArray(service.volumes)) {
       for (const volume of service.volumes) {

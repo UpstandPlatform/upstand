@@ -492,6 +492,31 @@ services:
     pid: service:host
 `),
       ).toThrow("requests shared or host-level namespace access");
+
+      for (const field of ["sysctls", "storage_opt", "blkio_config"] as const) {
+        expect(() =>
+          validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    ${field}:
+      unsafe: true
+`),
+        ).toThrow(
+          field === "sysctls"
+            ? "requests service sysctls"
+            : "requests host resource controls",
+        );
+      }
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    cgroup_parent: host-workload
+`),
+      ).toThrow("requests host resource controls");
     });
 
     test("rejects cross-container volume inheritance and external links", () => {
@@ -540,6 +565,26 @@ services:
       ).toThrow(
         "cannot interpolate protected Docker environment variable 'DOCKER_HOST'",
       );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    security_opt:
+      - label=disable
+`),
+      ).toThrow("requests unsafe security option 'label=disable'");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    security_opt:
+      - systempaths=unconfined
+`),
+      ).toThrow("requests unsafe security option 'systempaths=unconfined'");
     });
 
     test("allows only bounded local build contexts", () => {
