@@ -1007,7 +1007,7 @@ func scanPolicyJSONValue(decoder *json.Decoder, depth int) error {
 				if !ok {
 					return errors.New("JSON object key is not a string")
 				}
-				normalizedKey := strings.ToLower(key)
+				normalizedKey := strings.ToLower(strings.TrimSpace(key))
 				if _, exists := keys[normalizedKey]; exists {
 					return fmt.Errorf("duplicate JSON object key %q", key)
 				}

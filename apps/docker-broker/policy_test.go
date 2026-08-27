@@ -128,6 +128,7 @@ func TestAuthorizeDockerRequestRejectsAmbiguousJSONKeys(t *testing.T) {
 	}{
 		{name: "exact duplicate", body: `{"Image":"alpine","HostConfig":{"Privileged":false,"Privileged":true}}`},
 		{name: "case-insensitive duplicate", body: `{"Labels":{"com.upstand.resource-id":"resource-1"},"labels":{"com.upstand.resource-id":"other-resource"}}`},
+		{name: "whitespace-normalized duplicate", body: `{"HostConfig":{"Privileged":false," privileged ":true}}`},
 		{name: "nested duplicate", body: `{"TaskTemplate":{"ContainerSpec":{"Env":[{"Name":"A","Value":"1","name":"B"}]}}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
