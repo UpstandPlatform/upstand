@@ -337,6 +337,91 @@ services:
       ).toThrow("requests build entitlements");
     });
 
+    test("rejects Compose deploy and runtime host-escape controls", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      privileged: true
+`),
+      ).toThrow("requests privileged deployment mode");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      cap_add:
+        - SYS_ADMIN
+`),
+      ).toThrow("requests unsafe deploy.cap_add");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      devices:
+        - /dev/kvm:/dev/kvm
+`),
+      ).toThrow("requests unsafe deploy.devices");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+`),
+      ).toThrow("requests reserved host devices");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    runtime: nvidia
+`),
+      ).toThrow("requests a custom container runtime");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    gpus: all
+`),
+      ).toThrow("requests host GPU devices");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      sysctls:
+        net.ipv4.ip_forward: "1"
+`),
+      ).toThrow("requests unsafe deploy.sysctls");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    pid: service:host
+`),
+      ).toThrow("requests host-level namespace access");
+    });
+
     test("rejects interpolation of Docker transport credentials", () => {
       expect(() =>
         validateComposeSecurity(`

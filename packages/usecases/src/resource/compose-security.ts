@@ -39,7 +39,11 @@ function volumeSource(value: unknown): string | undefined {
 }
 
 function isHostNamespace(value: unknown): boolean {
-  return ["host", "container:host"].includes(String(value ?? ""));
+  return ["host", "container:host", "service:host"].includes(
+    String(value ?? "")
+      .trim()
+      .toLowerCase(),
+  );
 }
 
 function isInterpolated(value: string): boolean {
@@ -185,6 +189,50 @@ function validateComposeEnvFile(serviceName: string, envFile: unknown): void {
           : undefined;
     if (value === undefined) continue;
     validateComposeScopedPath(value, "env_file", serviceName);
+  }
+}
+
+function validateComposeDeploySecurity(
+  serviceName: string,
+  deploy: unknown,
+): void {
+  if (!isUnknownRecord(deploy)) return;
+
+  if (deploy.privileged === true || deploy.privileged === "true") {
+    throw new Error(
+      `Compose service '${serviceName}' requests privileged deployment mode, which is not allowed`,
+    );
+  }
+
+  for (const field of [
+    "cap_add",
+    "devices",
+    "device_cgroup_rules",
+    "security_opt",
+    "sysctls",
+  ]) {
+    const value = deploy[field];
+    if (
+      (Array.isArray(value) && value.length > 0) ||
+      (isUnknownRecord(value) && Object.keys(value).length > 0)
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests unsafe deploy.${field}, which is not allowed`,
+      );
+    }
+  }
+
+  const resources = isUnknownRecord(deploy.resources)
+    ? deploy.resources
+    : undefined;
+  const reservations =
+    resources && isUnknownRecord(resources.reservations)
+      ? resources.reservations
+      : undefined;
+  if (reservations?.devices !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' requests reserved host devices, which is not allowed`,
+    );
   }
 }
 
@@ -360,9 +408,29 @@ export function validateComposeSecurity(rawCompose: string): void {
     if (service.build !== undefined) {
       validateComposeBuild(serviceName, service.build);
     }
+    if (service.runtime !== undefined) {
+      throw new Error(
+        `Compose service '${serviceName}' requests a custom container runtime, which is not allowed`,
+      );
+    }
+    if (service.gpus !== undefined) {
+      throw new Error(
+        `Compose service '${serviceName}' requests host GPU devices, which is not allowed`,
+      );
+    }
+    if (
+      (Array.isArray(service.device_cgroup_rules) &&
+        service.device_cgroup_rules.length > 0) ||
+      (Array.isArray(service.devices) && service.devices.length > 0)
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests host devices, which is not allowed`,
+      );
+    }
     if (service.env_file !== undefined) {
       validateComposeEnvFile(serviceName, service.env_file);
     }
+    validateComposeDeploySecurity(serviceName, service.deploy);
     if (
       isUnknownRecord(service.extends) &&
       typeof service.extends.file === "string"
@@ -399,11 +467,6 @@ export function validateComposeSecurity(rawCompose: string): void {
     if (Array.isArray(service.cap_add) && service.cap_add.length > 0) {
       throw new Error(
         `Compose service '${serviceName}' requests added Linux capabilities, which is not allowed`,
-      );
-    }
-    if (Array.isArray(service.devices) && service.devices.length > 0) {
-      throw new Error(
-        `Compose service '${serviceName}' requests host devices, which is not allowed`,
       );
     }
     if (Array.isArray(service.security_opt)) {
