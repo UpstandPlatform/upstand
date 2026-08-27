@@ -33,4 +33,22 @@ describe("portable secret bundles", () => {
       ),
     ).rejects.toThrow("checksum mismatch");
   });
+
+  test("bounds passphrases before memory-hard derivation", async () => {
+    await expect(
+      encryptPortableSecretBundle({ value: "secret" }, " ".repeat(12)),
+    ).rejects.toThrow("Transfer passphrase");
+    await expect(
+      encryptPortableSecretBundle({ value: "secret" }, "x".repeat(257)),
+    ).rejects.toThrow("Transfer passphrase");
+
+    const passphrase = "  correct horse battery staple  ";
+    const bundle = await encryptPortableSecretBundle(
+      { value: "secret" },
+      passphrase,
+    );
+    await expect(
+      decryptPortableSecretBundle(bundle, passphrase),
+    ).resolves.toEqual({ value: "secret" });
+  });
 });

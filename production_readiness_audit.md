@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: release candidate `feat/cache-gate-reliability` (latest code commit `200e1795`)
+Revision: follow-up infrastructure hardening branch `feat/compose-namespace-isolation` (PR #344)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -82,6 +82,20 @@ typed broker capabilities before externalizing them in the private manifest.
 The deployment worker's raw network/volume creation endpoints are denied in
 production, and shared-network creation uses a typed, configured-name-only
 operation.
+
+The follow-up Compose isolation pass also rejects host and cross-container
+namespace sharing (`host`, `container:*`, and `service:*`), inherited container
+volumes, external container links, host-gateway `extra_hosts`, service sysctls,
+cgroup-parent/storage/blkio
+controls, and security-profile downgrades such as `label=disable` and
+`systempaths=unconfined`. These controls close additional cross-workload and
+host-control attachment paths in the constrained Compose validator and are
+covered by the pipeline security suite. Generated Compose now also applies the
+immutable resource label to both container/task metadata and Swarm
+`deploy.labels`, so broker service filters and daemon-side ownership checks
+remain effective for stack deployments as well as standalone Compose. The
+remaining raw Compose orchestration transport is still an explicit
+architectural limitation.
 
 The latest rollback boundary pass routes local rollback image commit/tag operations
 through the typed broker, verifies the source image's exact resource ownership
@@ -294,6 +308,17 @@ token admission therefore cannot consume run quota without admitting a model
 call; provider invoice reconciliation and model-facing data isolation remain
 open.
 
+The control-plane transfer HTTP boundary now validates owner repair, owner
+transfer, and export JSON with strict runtime schemas, bounds passphrases before
+the memory-hard KDF, and preserves exact passphrase characters across export
+and import instead of normalizing one side only. Focused server tests cover
+unknown-field rejection, exact confirmations, bounded IDs, passphrase bounds,
+and whitespace-preserving round trips. This closes a concrete malformed-input
+and transfer-compatibility gap; live owner transfer/repair evidence remains an
+operational requirement. The same passphrase bounds and exact-character
+behavior are now enforced again inside the portable-secret-bundle KDF, covering
+non-HTTP callers such as CLI and internal transfer services.
+
 ## Production Readiness Scorecard
 
 | Area | Score | Assessment |
@@ -305,7 +330,7 @@ open.
 | Database | 9.4/10 | Generated composite same-organization constraints now cover backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; resource ownership remains inherited through the normalized non-null foreign-key chain, while fresh PGlite and fresh-plus-upgraded external PostgreSQL migration evidence now pass against the immutable server image. |
 | AI security/cost | 9.5/10 | Admission ordering, bounded history/output/aggregate tokens, atomic per-organization daily worst-case token and conservative model-aware cost reservations, durable per-run input/output/total token metering, checked-in model pricing metadata with aggregate estimated-cost and unpriced-usage metrics, failed-run finalization with defensive MCP cleanup, bounded provider output, schema-declared external-untrusted provenance envelopes, and an operator-enforced exact model allowlist are present; provider invoice reconciliation and adversarial model evaluation remain open. |
 | Frontend | 8/10 | CSP, safe React rendering, and browser smoke tests are present. |
-| Containers/infra | 9.9/10 | Server/schedules/monitoring socket exposure is removed; the broker is isolated on an encrypted internal control network, requires TLS 1.3 with caller-specific verified client certificates at the TLS handshake plus defense-in-depth tokens, fails closed on legacy/missing/unknown production identities, validates certificate chain/EKU/identity/key pairing before reuse, enforces a deny-by-default API allowlist plus caller-specific operation capabilities, permits only built-in volume/network drivers, rejects host-backed volume options, custom runtimes, weakened security profiles, and writable telemetry binds, bounds in-flight Docker operations, emits normalized audit events, and has explicit HTTP limits. Docker CLI subprocesses use verified caller-specific certificates through standard TLS file names. The schedules orchestrator is lean, the separately published worker resolves a tested narrowed deployment adapter, and typed self-update, preview cleanup, restart-safe pending-preview reconciliation, web-server maintenance, typed Caddy provisioning/configuration (including bounded archive upload, validation, reload, and rollback), typed cleanup, host maintenance, workload migration, autoscaling, bounded local resource scaling, API resource workflows, local inventory/control/prune, resource-scoped container file operations and commands, typed local convergence, resource-owned local service mutation, revision promotion, and cleanup, deterministic owned isolated-network and database-volume cleanup, bounded non-secret Dockerfile builds, owned-image registry pushes, all Swarm control, deployment-hook command execution, and local Compose/Swarm-stack stop teardown resolve method-bound capabilities; raw Compose validation now rejects network-style build contexts, build secrets, external caches, host networking, entitlements, deploy-level privilege/capability/device/security/sysctl controls, custom runtimes, and host GPU devices, and remains limited to the generated local workspace, while the broker transport remains broader for Compose orchestration and remote service mutation. |
+| Containers/infra | 9.9/10 | Server/schedules/monitoring socket exposure is removed; the broker is isolated on an encrypted internal control network, requires TLS 1.3 with caller-specific verified client certificates at the TLS handshake plus defense-in-depth tokens, fails closed on legacy/missing/unknown production identities, validates certificate chain/EKU/identity/key pairing before reuse, enforces a deny-by-default API allowlist plus caller-specific operation capabilities, permits only built-in volume/network drivers, rejects host-backed volume options, custom runtimes, weakened security profiles, and writable telemetry binds, bounds in-flight Docker operations, emits normalized audit events, and has explicit HTTP limits. Docker CLI subprocesses use verified caller-specific certificates through standard TLS file names. The schedules orchestrator is lean, the separately published worker resolves a tested narrowed deployment adapter, and typed self-update, preview cleanup, restart-safe pending-preview reconciliation, web-server maintenance, typed Caddy provisioning/configuration (including bounded archive upload, validation, reload, and rollback), typed cleanup, host maintenance, workload migration, autoscaling, bounded local resource scaling, API resource workflows, local inventory/control/prune, resource-scoped container file operations and commands, typed local convergence, resource-owned local service mutation, revision promotion, and cleanup, deterministic owned isolated-network and database-volume cleanup, bounded non-secret Dockerfile builds, owned-image registry pushes, all Swarm control, deployment-hook command execution, and local Compose/Swarm-stack stop teardown resolve method-bound capabilities; raw Compose validation now rejects network-style build contexts, build secrets, external caches, host and cross-container namespace sharing, inherited container volumes, external links, entitlements, deploy-level privilege/capability/device/security/sysctl controls, custom runtimes, and host GPU devices, and remains limited to the generated local workspace, while the broker transport remains broader for Compose orchestration and remote service mutation. |
 | CI/CD | 8.7/10 | Pinned actions/images, current Go toolchains, broker image provenance, generated-schema checks, Go vulnerability scans, race-detector and vet checks for monitoring and the Docker broker, and a zero-high-advisory dependency gate are present; live release evidence and broader coverage gates remain. |
 | Observability | 7.5/10 | Scheduler/queue/backup coverage now includes protected API request/error/latency/memory metrics, authentication outcomes, webhook provider/status/latency metrics, aggregate PostgreSQL pool saturation, AI budget admission metrics, checked-in model-priced versus unpriced usage, and aggregate estimated AI cost with alerts; deployment lifecycle, broker, web, and provider invoice/request-cost reconciliation remain. |
 | QA/release gate | 8.1/10 | Typecheck, lint, DB checks, full test suite, release contracts, security audit, build, Go vet, and hosted race-detector checks pass; live production E2E evidence remains opt-in. |
@@ -730,7 +755,7 @@ Passed:
 - preview cleanup resource-ID propagation, typed ownership delegation, and unowned-service rejection tests
 - typed revision-promotion ownership validation and local deployment delegation tests
 - typed resource-service scaling validation and local autoscaling delegation tests
-- Compose security regression tests covering interpolated/long-syntax binds, host-backed volume/network driver options, unsupported drivers, and typed resource-service named-volume enforcement
+- Compose security regression tests covering interpolated/long-syntax binds, host-backed volume/network driver options, unsupported drivers, typed resource-service named-volume enforcement, host-gateway `extra_hosts`, service resource controls, and weakened security options
 - Docker-broker regression coverage proving non-telemetry absolute binds are rejected while read-only telemetry binds remain supported
 - production Compose contract coverage for the fail-closed installation DR readiness default
 - full repository `bun run test`, `bun run check-types`, `bun run lint`, and `bun run build` after workload-boundary hardening
@@ -748,6 +773,8 @@ Concerning or operationally incomplete:
 - `bash scripts/security-audit.sh` now passes; its Git Bash fallback resolves `bun.exe` and reports no vulnerabilities
 - The DMG maker is no longer produced; macOS release validation must continue to verify the supported ZIP artifact.
 - TESTING.md is referenced by repository guidance but is absent at the repository root; package READMEs and CI/test configuration were used instead.
+- control-plane transfer HTTP boundary validation tests covering strict owner/export schemas, bounded passphrases, exact confirmations, bounded target IDs, and whitespace-preserving import/export passphrases
+- portable secret-bundle tests covering KDF passphrase bounds, whitespace-only rejection, and exact-character encryption/decryption
 
 The existing security_best_practices_report.md was treated as historical evidence only because it targets an older canary snapshot. A pre-existing unrelated modification to .codex/config.toml was preserved.
 

@@ -21,7 +21,7 @@ services:
       );
     });
 
-    test("rejects host-level namespace escapes (pid: host, ipc: host, network_mode: host)", () => {
+    test("rejects host-level and cross-container namespace escapes", () => {
       const composePid = `
 services:
   web:
@@ -36,11 +36,26 @@ services:
 `;
 
       expect(() => validateComposeSecurity(composePid)).toThrow(
-        "requests host-level namespace access",
+        "requests shared or host-level namespace access",
       );
       expect(() => validateComposeSecurity(composeIpc)).toThrow(
-        "requests host-level namespace access",
+        "requests shared or host-level namespace access",
       );
+
+      for (const namespace of [
+        "network_mode: container:foreign-container",
+        "pid: service:foreign-service",
+        "ipc: container:foreign-container",
+      ]) {
+        expect(() =>
+          validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    ${namespace}
+`),
+        ).toThrow("requests shared or host-level namespace access");
+      }
     });
 
     test("rejects container_name definitions to prevent global container naming collisions", () => {
@@ -476,10 +491,57 @@ services:
     image: nginx
     pid: service:host
 `),
-      ).toThrow("requests host-level namespace access");
+      ).toThrow("requests shared or host-level namespace access");
+
+      for (const field of ["sysctls", "storage_opt", "blkio_config"] as const) {
+        expect(() =>
+          validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    ${field}:
+      unsafe: true
+`),
+        ).toThrow(
+          field === "sysctls"
+            ? "requests service sysctls"
+            : "requests host resource controls",
+        );
+      }
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    cgroup_parent: host-workload
+`),
+      ).toThrow("requests host resource controls");
     });
 
-    test("rejects interpolation of Docker transport credentials", () => {
+    test("rejects cross-container volume inheritance and external links", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    volumes_from:
+      - foreign-container
+`),
+      ).toThrow("requests volumes_from");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    external_links:
+      - foreign-container:database
+`),
+      ).toThrow("requests external_links");
+    });
+
+    test("rejects Compose transport and host escape controls", () => {
       expect(() =>
         validateComposeSecurity(`
 services:
@@ -503,6 +565,46 @@ services:
       ).toThrow(
         "cannot interpolate protected Docker environment variable 'DOCKER_HOST'",
       );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    security_opt:
+      - label=disable
+`),
+      ).toThrow("requests unsafe security option 'label=disable'");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    security_opt:
+      - systempaths=unconfined
+`),
+      ).toThrow("requests unsafe security option 'systempaths=unconfined'");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    extra_hosts:
+      - host.docker.internal:host-gateway
+`),
+      ).toThrow("requests host-gateway access through extra_hosts");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    extra_hosts:
+      host.docker.internal: host-gateway
+`),
+      ).toThrow("requests host-gateway access through extra_hosts");
     });
 
     test("allows only bounded local build contexts", () => {

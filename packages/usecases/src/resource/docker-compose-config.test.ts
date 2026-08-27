@@ -84,6 +84,48 @@ describe("Docker Compose configuration", () => {
     expect(result.services.worker).toEqual({
       image: "worker:latest",
       labels: { "com.upstand.resource-id": "resource-1" },
+      deploy: { labels: { "com.upstand.resource-id": "resource-1" } },
+    });
+  });
+
+  test("adds the ownership label to Swarm service metadata", () => {
+    const result = yaml.parse(
+      applyComposeResourceConfig(
+        `
+services:
+  api:
+    image: nginx
+    deploy:
+      labels:
+        com.example.role: api
+  worker:
+    image: worker:latest
+`,
+        resource,
+        {
+          ...DEFAULT_RESOURCE_ADVANCED_CONFIG,
+          serviceName: "api",
+        },
+      ),
+    ) as {
+      services: Record<
+        string,
+        {
+          labels: Record<string, string>;
+          deploy: { labels: Record<string, string> };
+        }
+      >;
+    };
+
+    expect(result.services.api?.labels["com.upstand.resource-id"]).toBe(
+      "resource-1",
+    );
+    expect(result.services.api?.deploy.labels).toEqual({
+      "com.example.role": "api",
+      "com.upstand.resource-id": "resource-1",
+    });
+    expect(result.services.worker?.deploy.labels).toEqual({
+      "com.upstand.resource-id": "resource-1",
     });
   });
 

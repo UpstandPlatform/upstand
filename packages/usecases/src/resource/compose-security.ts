@@ -62,6 +62,17 @@ function isHostNamespace(value: unknown): boolean {
   );
 }
 
+function isSharedContainerNamespace(value: unknown): boolean {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return (
+    isHostNamespace(value) ||
+    normalized.startsWith("container:") ||
+    normalized.startsWith("service:")
+  );
+}
+
 function isInterpolated(value: string): boolean {
   // Compose expands environment variables before asking Docker to create
   // mounts and networks. An apparently harmless named source such as
@@ -87,6 +98,48 @@ function isUnsafeComposePath(value: string): boolean {
     .replaceAll("\\", "/")
     .split("/")
     .some((segment) => segment === "..");
+}
+
+function isHostGatewayExtraHost(value: unknown): boolean {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return false;
+  const separator = normalized.search(/[:=]/);
+  if (separator === -1) {
+    return (
+      normalized === "host.docker.internal" ||
+      normalized === "gateway.docker.internal"
+    );
+  }
+  const host = normalized.slice(0, separator).trim();
+  const address = normalized.slice(separator + 1).trim();
+  return (
+    host === "host.docker.internal" ||
+    host === "gateway.docker.internal" ||
+    address === "host-gateway"
+  );
+}
+
+function validateComposeExtraHosts(
+  serviceName: string,
+  extraHosts: unknown,
+): void {
+  const entries: unknown[] = [];
+  if (Array.isArray(extraHosts)) entries.push(...extraHosts);
+  else if (isUnknownRecord(extraHosts)) {
+    for (const [host, address] of Object.entries(extraHosts)) {
+      entries.push(`${host}=${String(address)}`);
+    }
+  } else if (typeof extraHosts === "string") {
+    entries.push(extraHosts);
+  }
+
+  if (entries.some(isHostGatewayExtraHost)) {
+    throw new Error(
+      `Compose service '${serviceName}' requests host-gateway access through extra_hosts, which is not allowed`,
+    );
+  }
 }
 
 function isRemoteBuildContext(value: string): boolean {
@@ -520,6 +573,9 @@ export function validateComposeSecurity(rawCompose: string): void {
     if (service.env_file !== undefined) {
       validateComposeEnvFile(serviceName, service.env_file);
     }
+    if (service.extra_hosts !== undefined) {
+      validateComposeExtraHosts(serviceName, service.extra_hosts);
+    }
     validateComposeDeploySecurity(serviceName, service.deploy);
     if (
       isUnknownRecord(service.extends) &&
@@ -532,21 +588,26 @@ export function validateComposeSecurity(rawCompose: string): void {
       );
     }
 
-    if (service.privileged === true) {
+    if (
+      service.privileged === true ||
+      String(service.privileged ?? "")
+        .trim()
+        .toLowerCase() === "true"
+    ) {
       throw new Error(
         `Compose service '${serviceName}' requests privileged mode, which is not allowed`,
       );
     }
     if (
-      isHostNamespace(service.network_mode) ||
-      isHostNamespace(service.pid) ||
-      isHostNamespace(service.ipc) ||
-      isHostNamespace(service.uts) ||
-      isHostNamespace(service.userns_mode) ||
-      isHostNamespace(service.cgroupns)
+      isSharedContainerNamespace(service.network_mode) ||
+      isSharedContainerNamespace(service.pid) ||
+      isSharedContainerNamespace(service.ipc) ||
+      isSharedContainerNamespace(service.uts) ||
+      isSharedContainerNamespace(service.userns_mode) ||
+      isSharedContainerNamespace(service.cgroupns)
     ) {
       throw new Error(
-        `Compose service '${serviceName}' requests host-level namespace access, which is not allowed`,
+        `Compose service '${serviceName}' requests shared or host-level namespace access, which is not allowed`,
       );
     }
     if (service.container_name !== undefined) {
@@ -559,18 +620,59 @@ export function validateComposeSecurity(rawCompose: string): void {
         `Compose service '${serviceName}' requests added Linux capabilities, which is not allowed`,
       );
     }
+    if (
+      (Array.isArray(service.volumes_from) &&
+        service.volumes_from.length > 0) ||
+      (typeof service.volumes_from === "string" && service.volumes_from.trim())
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests volumes_from, which is not allowed for isolated deployments`,
+      );
+    }
+    if (
+      (Array.isArray(service.external_links) &&
+        service.external_links.length > 0) ||
+      (typeof service.external_links === "string" &&
+        service.external_links.trim())
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests external_links, which is not allowed for isolated deployments`,
+      );
+    }
     if (Array.isArray(service.security_opt)) {
       const unsafeSecurityOption = service.security_opt.find(
         (option) =>
           typeof option === "string" &&
           (/=(?:unconfined|false)$/i.test(option) ||
-            /^(?:apparmor|seccomp)=unconfined$/i.test(option)),
+            /^(?:apparmor|seccomp)=unconfined$/i.test(option) ||
+            /^(?:label=disable|systempaths=unconfined)$/i.test(option)),
       );
       if (unsafeSecurityOption) {
         throw new Error(
           `Compose service '${serviceName}' requests unsafe security option '${unsafeSecurityOption}'`,
         );
       }
+    }
+    if (
+      (isUnknownRecord(service.sysctls) &&
+        Object.keys(service.sysctls).length > 0) ||
+      (Array.isArray(service.sysctls) && service.sysctls.length > 0)
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests service sysctls, which is not allowed`,
+      );
+    }
+    if (
+      (typeof service.cgroup_parent === "string" &&
+        service.cgroup_parent.trim() !== "") ||
+      (isUnknownRecord(service.storage_opt) &&
+        Object.keys(service.storage_opt).length > 0) ||
+      (isUnknownRecord(service.blkio_config) &&
+        Object.keys(service.blkio_config).length > 0)
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' requests host resource controls, which is not allowed`,
+      );
     }
     if (Array.isArray(service.volumes)) {
       for (const volume of service.volumes) {

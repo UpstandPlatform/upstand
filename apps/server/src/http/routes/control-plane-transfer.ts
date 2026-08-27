@@ -21,6 +21,12 @@ import { log } from "evlog";
 import type { Hono } from "hono";
 import { stream } from "hono/streaming";
 import type { AppEnv } from "../types";
+import {
+  controlPlaneExportRequestSchema,
+  controlPlaneOwnerRepairRequestSchema,
+  controlPlaneOwnerTransferRequestSchema,
+  parseTransferPassphrase,
+} from "./control-plane-transfer.validation";
 
 const TRANSFER_CONTENT_TYPE = "application/vnd.upstand.transfer+ndjson";
 const MAX_TRANSFER_REQUEST_BYTES = 512 * 1024 * 1024;
@@ -173,19 +179,11 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
 
     const actor = authorization.actor;
     const correlationId = c.get("correlationId");
-    let input: { confirmation?: unknown };
-    try {
-      input = (await c.req.json()) as typeof input;
-    } catch {
+    const parsedInput = controlPlaneOwnerRepairRequestSchema.safeParse(
+      await c.req.json().catch(() => undefined),
+    );
+    if (!parsedInput.success) {
       return c.json({ error: "Invalid owner repair request" }, 400);
-    }
-    if (input.confirmation !== "REPAIR_INSTANCE_OWNERSHIP") {
-      return c.json(
-        {
-          error: "Explicit REPAIR_INSTANCE_OWNERSHIP confirmation is required",
-        },
-        400,
-      );
     }
     try {
       await db.transaction(async (tx) => {
@@ -253,29 +251,13 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
     }
     const actor = authorization.actor;
     const correlationId = c.get("correlationId");
-    let input: { newOwnerUserId?: unknown; confirmation?: unknown };
-    try {
-      input = (await c.req.json()) as typeof input;
-    } catch {
+    const parsedInput = controlPlaneOwnerTransferRequestSchema.safeParse(
+      await c.req.json().catch(() => undefined),
+    );
+    if (!parsedInput.success) {
       return c.json({ error: "Invalid owner transfer request" }, 400);
     }
-    const newOwnerUserId =
-      typeof input.newOwnerUserId === "string"
-        ? input.newOwnerUserId.trim()
-        : "";
-    if (
-      !newOwnerUserId ||
-      newOwnerUserId.length > 256 ||
-      input.confirmation !== "TRANSFER_INSTANCE_OWNERSHIP"
-    ) {
-      return c.json(
-        {
-          error:
-            "A target user and explicit TRANSFER_INSTANCE_OWNERSHIP confirmation are required",
-        },
-        400,
-      );
-    }
+    const newOwnerUserId = parsedInput.data.newOwnerUserId;
 
     try {
       await db.transaction(async (tx) => {
@@ -348,13 +330,14 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
     }
     const actor = authorization.actor;
     const correlationId = c.get("correlationId");
-    let input: { includeSecrets?: boolean; passphrase?: string };
-    try {
-      input = (await c.req.json()) as typeof input;
-    } catch {
+    const parsedInput = controlPlaneExportRequestSchema.safeParse(
+      await c.req.json().catch(() => undefined),
+    );
+    if (!parsedInput.success) {
       return c.json({ error: "Invalid transfer export request" }, 400);
     }
-    if (input.includeSecrets && !input.passphrase?.trim()) {
+    const input = parsedInput.data;
+    if (input.includeSecrets && !input.passphrase) {
       return c.json(
         { error: "A passphrase is required when exporting secrets" },
         400,
@@ -371,7 +354,7 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
       const content = await new ExportControlPlaneTransferService(
         source,
       ).execute({
-        includeSecrets: input.includeSecrets === true,
+        includeSecrets: input.includeSecrets,
         passphrase: input.passphrase,
       });
       c.header("Content-Type", TRANSFER_CONTENT_TYPE);
@@ -444,7 +427,13 @@ export function registerControlPlaneTransferRoutes(app: Hono<AppEnv>): void {
     }
     if (!c.req.raw.body)
       return c.json({ error: "Transfer body is required" }, 400);
-    const passphrase = c.req.header("x-upstand-transfer-passphrase")?.trim();
+    const parsedPassphrase = parseTransferPassphrase(
+      c.req.header("x-upstand-transfer-passphrase"),
+    );
+    if (!parsedPassphrase.success) {
+      return c.json({ error: "Invalid transfer passphrase" }, 400);
+    }
+    const passphrase = parsedPassphrase.data;
     const resumeSessionId = c.req.header("x-upstand-transfer-session")?.trim();
     try {
       const destination = new DrizzleControlPlaneImportDestination(
