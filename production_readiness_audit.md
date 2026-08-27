@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-27
-Revision: §bf6a1433§ (production-hardening-release)
+Revision: §87ab4418§ (production-hardening-release)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -44,6 +44,14 @@ container and image on both success and failure. The legacy direct Docker CLI
 fallback now also generates valid tagged marker references. This closes the raw
 container-commit path for production local callers while retaining the documented
 unsupported remote and secret-bearing builder paths.
+
+The latest AI boundary pass wraps web, Tavily, and opt-in MCP results in a
+bounded, schema-declared `external-untrusted` envelope under `data`. The
+serializer caps total characters and nodes, rejects cycles, unsafe provenance
+metadata, prototype-shaped keys, and non-finite numbers, and focused API tests
+exercise the execution and schema contracts. This improves information-flow
+separation; adversarial model evaluations and provider billing reconciliation
+remain operational evidence requirements.
 
 The release remains blocked by two current facts:
 
@@ -217,7 +225,7 @@ open.
 | Authorization | 8.5/10 | New self-hosted installs persist the owner, legacy installations fail closed, and owner transfer plus legacy owner repair are explicit step-up-protected compare-and-swap operations with audit records; live transfer/repair evidence remains. |
 | API security | 8.9/10 | Origin trust binds production direct-IP origins to the request host and private address space, direct HTTP is bounded to first bootstrap, Better Auth has distributed request limiting and a route-specific body cap, protected authentication outcomes and webhook outcomes/latency are measurable with sustained-rejection/error alerts, resource workflows use narrow Docker capabilities, and AI admission is bounded by run, token, and conservative cost ceilings with aggregate admission telemetry; edge/API SLO and provider invoice reconciliation remain open. |
 | Database | 9.4/10 | Generated composite same-organization constraints now cover backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; resource ownership remains inherited through the normalized non-null foreign-key chain, while fresh PGlite and fresh-plus-upgraded external PostgreSQL migration evidence now pass against the immutable server image. |
-| AI security/cost | 9.3/10 | Admission ordering, bounded history/output/aggregate tokens, atomic per-organization daily worst-case token and conservative model-aware cost reservations, durable per-run input/output/total token metering, checked-in model pricing metadata with aggregate estimated-cost and unpriced-usage metrics, failed-run finalization with defensive MCP cleanup, bounded Tavily wrappers, and an operator-enforced exact model allowlist are present; provider invoice reconciliation and full model-facing data isolation remain open. |
+| AI security/cost | 9.5/10 | Admission ordering, bounded history/output/aggregate tokens, atomic per-organization daily worst-case token and conservative model-aware cost reservations, durable per-run input/output/total token metering, checked-in model pricing metadata with aggregate estimated-cost and unpriced-usage metrics, failed-run finalization with defensive MCP cleanup, bounded provider output, schema-declared external-untrusted provenance envelopes, and an operator-enforced exact model allowlist are present; provider invoice reconciliation and adversarial model evaluation remain open. |
 | Frontend | 8/10 | CSP, safe React rendering, and browser smoke tests are present. |
 | Containers/infra | 9.9/10 | Server/schedules/monitoring socket exposure is removed; the broker is isolated on an encrypted internal control network, requires TLS 1.3 with caller-specific verified client certificates at the TLS handshake plus defense-in-depth tokens, fails closed on legacy/missing/unknown production identities, validates certificate chain/EKU/identity/key pairing before reuse, enforces a deny-by-default API allowlist plus caller-specific operation capabilities, permits only built-in volume/network drivers, rejects host-backed volume options, custom runtimes, weakened security profiles, and writable telemetry binds, bounds in-flight Docker operations, emits normalized audit events, and has explicit HTTP limits. Docker CLI subprocesses use verified caller-specific certificates through standard TLS file names. The schedules orchestrator is lean, the separately published worker resolves a tested narrowed deployment adapter, and typed self-update, preview cleanup, restart-safe pending-preview reconciliation, web-server maintenance, typed Caddy provisioning/configuration (including bounded archive upload, validation, reload, and rollback), typed cleanup, host maintenance, workload migration, autoscaling, bounded local resource scaling, API resource workflows, local inventory/control/prune, resource-scoped container file operations and commands, typed local convergence, resource-owned local service mutation, revision promotion, and cleanup, deterministic owned isolated-network and database-volume cleanup, bounded non-secret Dockerfile builds, owned-image registry pushes, all Swarm control, and deployment-hook command execution resolve method-bound capabilities; the broker transport remains broader for Compose, secret-bearing builds, and remote service mutation. |
 | CI/CD | 8.7/10 | Pinned actions/images, current Go toolchains, broker image provenance, generated-schema checks, Go vulnerability scans, race-detector and vet checks for monitoring and the Docker broker, and a zero-high-advisory dependency gate are present; live release evidence and broader coverage gates remain. |
@@ -343,17 +351,17 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Attack Scenario:** An authenticated member automates requests up to rate limits, submits over-budget runs, or repeatedly tests an expensive custom provider.
 - **Recommended Fix:** Keep the checked-in pricing metadata reviewed and add provider billing/invoice reconciliation plus spend alerts. Keep the hard per-run ceilings, atomic token/cost reservations, durable token counters, aggregate priced/unpriced metrics, and operator model allowlist.
 
-### F-009 — AI untrusted-data handling is instruction-based, not a security boundary
+### F-009 — AI untrusted-data handling has a typed boundary but still needs adversarial evaluation
 
 - **File:** packages/api/src/ai/upgal.ts:2291-2307 and adjacent UpGal tool construction
 - **Function/Class:** ToolLoopAgent and createUpGalTools
 - **Severity:** Major
 - **Category:** Prompt injection / tool authorization / data exfiltration
-- **Problem:** Logs, Compose, repository data, and MCP results enter model context. Warnings and approvals help, but model interpretation remains the enforcement point.
-- **Evidence:** The agent receives dynamic instructions, tools, and runtime context; approval is selected by canonical tool name, mutations are approval-gated, and the AI SDK now HMAC-signs approval continuations with a dedicated server-only secret so the browser cannot change the approved tool name or arguments. Every first-party tool validates input and re-checks tenant/resource scope, MCP tools are approval-gated and network-restricted, and Tavily tools now validate and clip model-facing input/output. Untrusted-data warnings remain instructions rather than a full information-flow boundary.
-- **Impact:** Prompt injection can influence tool selection, cause destructive actions, or induce disclosure of data placed in context.
+- **Problem:** Logs, Compose, repository data, and external tool results enter model context. The typed boundary reduces accidental authority transfer, but model interpretation remains part of the enforcement story and requires adversarial evaluation.
+- **Evidence:** Web, Tavily, and opt-in MCP results now cross a bounded, schema-declared `external-untrusted` envelope under `data`; the serializer caps total characters/nodes, rejects cycles, unsafe metadata, prototype-shaped keys, and non-finite numbers, and focused execution/schema tests pass. The agent still receives dynamic instructions, tools, and runtime context; approval is selected by canonical tool name, mutations are approval-gated, and the AI SDK HMAC-signs approval continuations with a dedicated server-only secret so the browser cannot change the approved tool name or arguments. Every first-party tool validates input and re-checks tenant/resource scope, while MCP tools remain approval-gated and network-restricted.
+- **Impact:** External result strings are no longer indistinguishable from trusted tool-control metadata at the tool boundary, and provider amplification is bounded. A model can still misinterpret untrusted text or present a misleading explanation, so destructive-action adversarial evaluations remain required.
 - **Attack Scenario:** A tenant-controlled build log tells the agent to ignore policy and call a deployment or secret-adjacent tool; the model follows it or presents a misleading approval description.
-- **Recommended Fix:** Treat external content as typed quoted data with provenance; enforce scope in every tool; retain the signed approval binding and re-check authorization at execution; add adversarial tests.
+- **Recommended Fix:** Retain the typed provenance envelope, enforce scope in every tool, retain the signed approval binding and re-check authorization at execution, and run adversarial prompt-injection evaluations against every enabled provider/integration.
 
 ### F-010 — Preview limit has a check/create race
 
@@ -473,7 +481,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-005 | Partial/remediated for ownership safety — new self-hosted bootstrap persists the owner, missing legacy ownership fails closed, and configured legacy owners now have a one-time, explicit-confirmation, step-up-protected repair path; existing owners have an audited transfer path and live evidence remains. |
 | F-006/F-007 | Mostly remediated in runtime — direct-origin trust and cookie normalization are disabled in production unless both explicit bootstrap flags are enabled, production plaintext bootstrap accepts only loopback/private/link-local direct addresses, and non-health direct-IP HTTP is rejected after first account creation; installation cutover evidence remains. |
 | F-008 | Partial/remediated for token/cost admission — quota admission, bounded history, per-step aggregate token ceilings, standalone output caps, atomic per-organization run plus worst-case token plus model-aware conservative cents reservations, durable failed-run finalization, and an exact operator model allowlist exist; provider invoice reconciliation remains. |
-| F-009 | Partial — first-party scope checks, HMAC-bound approval gates, MCP restrictions, and bounded Tavily wrappers exist; model-facing provenance isolation and adversarial evaluation remain. |
+| F-009 | Partial/remediated in code — first-party scope checks, HMAC-bound approval gates, MCP restrictions, bounded provider output, and schema-declared model-facing provenance envelopes exist; adversarial evaluation remains. |
 | F-010/F-011 | Remediated in code — preview quota uses a resource-row transaction lock and failed cleanup remains `cleanup_pending`; preview cleanup now carries the owning resource ID, requires an exact service ownership label before deletion, and has a bounded restart-safe scheduler retry path; focused use-case coverage passes, while repeated-close and live remote-target evidence remain. |
 | F-012 | Remediated in source and migrations — generated migrations `0091` and `0092` add composite uniqueness first and same-organization foreign keys second for backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; fresh-schema portable transfer coverage and fresh-plus-upgraded external PostgreSQL migration smoke pass; and full-schema PGlite coverage proves normalized resource ownership follows the non-null resource/environment/project chain. |
 | F-013 | Remediated — device approval claims before API-key creation, completes only from the claim, and cleans up both key and claim on failure; focused tests pass. |
@@ -556,7 +564,7 @@ Additional observations: AI history is bounded but retention limits are needed; 
 4. **Major:** API/auth/deployment/broker/web/request-cost observability and paging coverage is incomplete.
 5. **Major:** Legacy owner repair and transfer now have audited, step-up-protected workflows, but live recovery evidence and removal of environment overrides remain operational requirements.
 6. **Major:** Explicit direct-IP/plaintext bootstrap remains a deliberate initial downgrade mode; runtime now closes it after first account creation, but private-interface and TLS-cutover evidence are still operational requirements.
-7. **Major:** AI cost admission now uses a conservative operator-configured ceiling and optional exact model allowlists, but provider invoice reconciliation is absent and untrusted-data isolation still relies partly on model-facing provenance instructions.
+7. **Major:** AI cost admission now uses a conservative operator-configured ceiling and optional exact model allowlists, but provider invoice reconciliation and adversarial evaluation of model-facing external-data handling remain.
 8. **Major:** Installation-specific production E2E, off-host restore, and key-escrow evidence remain outside the hosted disposable release rehearsal; the stable tag workflow now requires its full synthetic/failure-injection/load/soak profile.
 9. **Major:** Privileged worker separation and durable orphan reconciliation remain incomplete.
 
