@@ -1396,6 +1396,32 @@ networks:
     });
   });
 
+  test("uses typed ownership-checked teardown when stopping a local Swarm stack", async () => {
+    const removeResourceCompose = mock(async () => {});
+    const service = new DockerService({} as never, {}, {
+      removeResourceCompose,
+    } as unknown as DockerResourceCommandBrokerPort);
+
+    await service.controlService(
+      {
+        id: "resource-1",
+        name: "Resource 1",
+        appName: "resource-app",
+        type: "compose",
+        composeType: "stack",
+      } as never,
+      "stop",
+    );
+
+    expect(removeResourceCompose).toHaveBeenCalledWith(
+      { kind: "local", name: "local" },
+      "resource-1",
+      "resource-app",
+      "stack",
+      false,
+    );
+  });
+
   test("bounds concurrent server container stats requests", async () => {
     const service = new DockerService({
       info: async () => ({

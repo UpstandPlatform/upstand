@@ -3493,7 +3493,21 @@ export class DockerService implements DockerSwarmManagementPort {
         this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
       // Compose resources are either Docker Compose projects or Swarm stacks.
       if (cmd === "stop") {
-        if (resource.composeType === "compose") {
+        const removeResourceCompose =
+          this.resourceCommandBroker?.removeResourceCompose;
+        if (
+          resource.composeType !== "compose" &&
+          removeResourceCompose &&
+          this.cacheDockerDiskUsage
+        ) {
+          await removeResourceCompose(
+            { kind: "local", name: "local" },
+            resource.id,
+            serviceName,
+            resource.composeType === "compose" ? "compose" : "stack",
+            false,
+          );
+        } else if (resource.composeType === "compose") {
           const containers = await scopedDocker.listContainers({
             all: true,
             filters: JSON.stringify({
