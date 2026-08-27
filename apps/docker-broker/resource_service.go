@@ -268,6 +268,9 @@ func (engine *dockerEngineClient) resourceServiceOperation(ctx context.Context, 
 	if err != nil {
 		return err
 	}
+	if err := authorizeTypedServiceFileBackedResources(ctx, input.Spec, input.ResourceID, engine); err != nil {
+		return err
+	}
 
 	serviceBody, status, inspectErr := engine.request(
 		ctx,
@@ -314,6 +317,9 @@ func (engine *dockerEngineClient) resourceServiceOperation(ctx context.Context, 
 	if err != nil {
 		return err
 	}
+	if err := authorizeTypedServiceFileBackedResources(ctx, updateBody, input.ResourceID, engine); err != nil {
+		return err
+	}
 	_, _, err = engine.requestWithHeaders(
 		ctx,
 		http.MethodPost,
@@ -322,6 +328,31 @@ func (engine *dockerEngineClient) resourceServiceOperation(ctx context.Context, 
 		registryAuth,
 	)
 	return err
+}
+
+func authorizeTypedServiceFileBackedResources(
+	ctx context.Context,
+	body []byte,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf(`typed resource service payload is invalid: %w`, err)
+	}
+	payload = dockerServiceSpecPayload(payload)
+	taskTemplate, ok := dockerObjectField(payload, `TaskTemplate`)
+	if !ok {
+		return nil
+	}
+	taskTemplateObject, ok := taskTemplate.(map[string]any)
+	if !ok {
+		return errors.New(`typed resource service TaskTemplate is not an object`)
+	}
+	if err := authorizeServiceFileBackedPayload(ctx, taskTemplateObject, resourceID, engine); err != nil {
+		return fmt.Errorf(`typed resource service file-backed resource policy failed: %w`, err)
+	}
+	return nil
 }
 
 func (engine *dockerEngineClient) scaleResourceService(ctx context.Context, input typedResourceServiceRequest) error {
@@ -352,6 +383,9 @@ func (engine *dockerEngineClient) scaleResourceService(ctx context.Context, inpu
 	}
 	updateBody, err := json.Marshal(update)
 	if err != nil {
+		return err
+	}
+	if err := authorizeTypedServiceFileBackedResources(ctx, updateBody, input.ResourceID, engine); err != nil {
 		return err
 	}
 	_, _, err = engine.request(ctx, http.MethodPost, `/services/`+url.PathEscape(inspection.ID)+`/update?version=`+fmt.Sprint(inspection.Version.Index), updateBody)
@@ -389,6 +423,9 @@ func (engine *dockerEngineClient) promoteResourceServiceRevision(ctx context.Con
 	if !resourceServiceHasOwnerLabel(revision.Spec, input.ResourceID) || !resourceServiceIsRevision(revision.Spec) {
 		return errors.New(`deployment revision does not belong to the requested Upstand resource`)
 	}
+	if err := authorizeTypedServiceFileBackedResources(ctx, revisionBody, input.ResourceID, engine); err != nil {
+		return err
+	}
 	update := map[string]any{
 		`Name`:           input.ServiceName,
 		`Mode`:           base.Spec[`Mode`],
@@ -399,6 +436,9 @@ func (engine *dockerEngineClient) promoteResourceServiceRevision(ctx context.Con
 	}
 	updateBody, err := json.Marshal(update)
 	if err != nil {
+		return err
+	}
+	if err := authorizeTypedServiceFileBackedResources(ctx, updateBody, input.ResourceID, engine); err != nil {
 		return err
 	}
 	_, _, err = engine.request(ctx, http.MethodPost, `/services/`+url.PathEscape(base.ID)+`/update?version=`+fmt.Sprint(base.Version.Index), updateBody)
@@ -460,6 +500,9 @@ func (engine *dockerEngineClient) ensureResourceServiceNetwork(ctx context.Conte
 	}
 	if inspection.ID == `` || inspection.Version.Index == 0 || inspection.Spec == nil || !resourceServiceHasOwnerLabel(inspection.Spec, input.ResourceID) {
 		return errors.New(`existing Docker service is not owned by the requested Upstand resource`)
+	}
+	if err := authorizeTypedServiceFileBackedResources(ctx, serviceBody, input.ResourceID, engine); err != nil {
+		return err
 	}
 	networkBody, _, err := engine.request(ctx, http.MethodGet, `/networks/`+url.PathEscape(input.NetworkID), nil)
 	if err != nil {

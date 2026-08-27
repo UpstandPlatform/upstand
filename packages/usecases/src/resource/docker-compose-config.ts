@@ -30,6 +30,26 @@ function composeMap(value: unknown): Record<string, string> {
   return {};
 }
 
+function scopeComposeFileBackedResources(
+  parsed: {
+    configs?: Record<string, unknown>;
+    secrets?: Record<string, unknown>;
+  },
+  resourceID: string,
+): void {
+  for (const kind of ["configs", "secrets"] as const) {
+    const definitions = parsed[kind];
+    if (!definitions) continue;
+    for (const [resourceName, rawDefinition] of Object.entries(definitions)) {
+      const definition = isUnknownRecord(rawDefinition)
+        ? { ...rawDefinition }
+        : {};
+      definition.name = `upstand-resource-${resourceID.toLowerCase()}-${kind.slice(0, -1)}-${resourceName.toLowerCase()}`;
+      definitions[resourceName] = definition;
+    }
+  }
+}
+
 export function applyComposeResourceConfig(
   rawCompose: string,
   resource: Resource,
@@ -40,6 +60,8 @@ export function applyComposeResourceConfig(
     services?: Record<string, Record<string, unknown>>;
     networks?: Record<string, unknown>;
     volumes?: Record<string, unknown>;
+    configs?: Record<string, unknown>;
+    secrets?: Record<string, unknown>;
   };
   if (!parsed?.services || typeof parsed.services !== "object")
     return rawCompose;
@@ -200,6 +222,8 @@ export function applyComposeResourceConfig(
       parsed.volumes ??= {};
       parsed.volumes[name] = volume;
     }
+
+    scopeComposeFileBackedResources(parsed, resource.id);
   }
 
   return yaml.stringify(parsed);

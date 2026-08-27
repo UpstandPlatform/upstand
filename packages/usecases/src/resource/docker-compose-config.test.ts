@@ -181,4 +181,36 @@ describe("Docker Compose configuration", () => {
       ),
     ).toThrow("host bind or Docker socket");
   });
+
+  test("scopes Compose configs and secrets to the resource", () => {
+    const result = yaml.parse(
+      applyComposeResourceConfig(
+        [
+          "services:",
+          "  api:",
+          "    image: nginx:alpine",
+          "    configs: [app-config]",
+          "    secrets: [app-secret]",
+          "configs:",
+          "  app-config:",
+          "    content: example",
+          "secrets:",
+          "  app-secret:",
+          "    content: secret",
+        ].join("\n"),
+        resource,
+        DEFAULT_RESOURCE_ADVANCED_CONFIG,
+      ),
+    ) as {
+      configs: Record<string, Record<string, unknown>>;
+      secrets: Record<string, Record<string, unknown>>;
+    };
+
+    expect(result.configs["app-config"]?.name).toBe(
+      "upstand-resource-resource-1-config-app-config",
+    );
+    expect(result.secrets["app-secret"]?.name).toBe(
+      "upstand-resource-resource-1-secret-app-secret",
+    );
+  });
 });

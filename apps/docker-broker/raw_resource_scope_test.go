@@ -132,6 +132,79 @@ func TestDeploymentWorkerRawServiceUpdateRevalidatesExistingAndRequestedNetworks
 	}
 }
 
+func TestDeploymentWorkerRawServiceMutationRequiresOwnedSecretsAndConfigs(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	ownedSecret := `{"ID":"secret-1","Spec":{"Name":"upstand-resource-resource-1-secret-app","Labels":{"com.upstand.resource-id":"resource-1"}}}`
+	ownedConfig := `{"ID":"config-1","Spec":{"Name":"upstand-resource-resource-1-config-app","Labels":{"com.upstand.resource-id":"resource-1"}}}`
+	foreignSecret := `{"ID":"secret-2","Spec":{"Name":"upstand-resource-resource-2-secret-app","Labels":{"com.upstand.resource-id":"resource-2"}}}`
+	engine := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		switch request.URL.Path {
+		case "/secrets/secret-1":
+			return dockerResponse(http.StatusOK, ownedSecret)
+		case "/configs/config-1":
+			return dockerResponse(http.StatusOK, ownedConfig)
+		case "/secrets/secret-2":
+			return dockerResponse(http.StatusOK, foreignSecret)
+		default:
+			return dockerResponse(http.StatusNotFound, `{}`)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "owned secret and config",
+			body: `{"TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1","SecretName":"upstand-resource-resource-1-secret-app"}],"Configs":[{"ConfigID":"config-1","ConfigName":"upstand-resource-resource-1-config-app"}]}}}`,
+			want: true,
+		},
+		{
+			name: "foreign secret",
+			body: `{"TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-2"}]}}}`,
+		},
+		{
+			name: "missing identity",
+			body: `{"TaskTemplate":{"ContainerSpec":{"Configs":[{"File":{"Name":"app.conf"}}]}}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(test.body))
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, []byte(test.body), engine)
+			if test.want && err != nil {
+				t.Fatalf("expected owned file-backed resource references to pass: %v", err)
+			}
+			if !test.want && err == nil {
+				t.Fatal("expected foreign or malformed file-backed resource references to fail")
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawServiceUpdateRevalidatesExistingSecretsAndConfigs(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	body := []byte(`{"TaskTemplate":{"ContainerSpec":{"Configs":[{"ConfigID":"config-foreign"}]}}}`)
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/service-1/update", strings.NewReader(string(body)))
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	engine := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		switch request.URL.Path {
+		case "/services/service-1":
+			return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1"}]}}}}`)
+		case "/secrets/secret-1":
+			return dockerResponse(http.StatusOK, `{"ID":"secret-1","Spec":{"Name":"upstand-resource-resource-1-secret-app"}}`)
+		case "/configs/config-foreign":
+			return dockerResponse(http.StatusOK, `{"ID":"config-foreign","Spec":{"Name":"upstand-resource-resource-2-config-app","Labels":{"com.upstand.resource-id":"resource-2"}}}`)
+		default:
+			return dockerResponse(http.StatusNotFound, `{}`)
+		}
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, engine); err == nil {
+		t.Fatal("expected an update adding a foreign config to be rejected")
+	}
+}
+
 func TestDeploymentWorkerRawExecRequiresOwningContainer(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/exec/exec-1/start", strings.NewReader(`{"Detach":false}`))

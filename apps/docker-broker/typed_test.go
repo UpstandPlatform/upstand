@@ -458,6 +458,26 @@ func TestResourceServiceOperationScopesCreateUpdateAndNetworkAttachment(t *testi
 	}
 }
 
+func TestResourceServiceOperationRejectsForeignFileBackedResources(t *testing.T) {
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			switch request.URL.Path {
+			case "/secrets/secret-foreign":
+				return dockerResponse(http.StatusOK, `{"ID":"secret-foreign","Spec":{"Name":"upstand-resource-resource-2-secret-app","Labels":{"com.upstand.resource-id":"resource-2"}}}`), nil
+			case "/services/resource-1":
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			default:
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+		}),
+	}}
+
+	body := []byte(`{"operation":"upsert","resource_id":"resource-1","service_name":"resource-1","spec":{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","Secrets":[{"SecretID":"secret-foreign"}]}}}}`)
+	if err := engine.resourceServiceOperation(context.Background(), body, ``); err == nil {
+		t.Fatal("expected the typed resource service route to reject a foreign secret")
+	}
+}
+
 func TestResourcePullOperationUsesBoundedResourcePullContract(t *testing.T) {
 	var pullQuery string
 	engine := &dockerEngineClient{httpClient: &http.Client{

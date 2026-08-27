@@ -73,10 +73,10 @@ func authorizeDeploymentWorkerRawResourceScope(
 		if err := engine.authorizeResourceService(ctx, parts[1], resourceID); err != nil {
 			return err
 		}
-		return authorizeDeploymentWorkerRawServiceNetworks(ctx, body, parts[1], resourceID, engine)
+		return authorizeDeploymentWorkerRawServiceResources(ctx, body, parts[1], resourceID, engine)
 	}
 	if r.Method == http.MethodPost && path == "/services/create" {
-		return authorizeDeploymentWorkerRawServiceNetworks(ctx, body, "", resourceID, engine)
+		return authorizeDeploymentWorkerRawServiceResources(ctx, body, "", resourceID, engine)
 	}
 	if isRawContainerResourcePath(r.Method, path) {
 		parts, ok := splitResourcePath(path, "containers")
@@ -223,12 +223,12 @@ func (engine *dockerEngineClient) authorizeResourceService(ctx context.Context, 
 	return nil
 }
 
-// authorizeDeploymentWorkerRawServiceNetworks prevents a resource-scoped
+// authorizeDeploymentWorkerRawServiceResources prevents a resource-scoped
 // worker from using the broad Engine service API to attach a service to an
-// unrelated or unencrypted network. Compose/Swarm supplies network targets in
-// TaskTemplate.Networks; the broker must verify the live network metadata
-// instead of trusting a caller-controlled name or ID.
-func authorizeDeploymentWorkerRawServiceNetworks(
+// unrelated network or mount an unrelated Swarm secret/config. Compose/Swarm
+// supplies all of these references in TaskTemplate; the broker must verify
+// live daemon metadata instead of trusting caller-controlled IDs or names.
+func authorizeDeploymentWorkerRawServiceResources(
 	ctx context.Context,
 	body []byte,
 	serviceID string,
@@ -240,17 +240,143 @@ func authorizeDeploymentWorkerRawServiceNetworks(
 		if err != nil {
 			return err
 		}
-		if err := authorizeServiceNetworkPayload(ctx, serviceBody, resourceID, engine); err != nil {
-			return fmt.Errorf("existing Docker service network policy failed: %w", err)
+		if err := authorizeServiceResourcePayload(ctx, serviceBody, resourceID, engine); err != nil {
+			return fmt.Errorf("existing Docker service resource policy failed: %w", err)
 		}
 	}
 	if len(strings.TrimSpace(string(body))) == 0 {
 		return errors.New("deployment-worker service mutation requires a JSON body")
 	}
-	if err := authorizeServiceNetworkPayload(ctx, body, resourceID, engine); err != nil {
-		return fmt.Errorf("requested Docker service network policy failed: %w", err)
+	if err := authorizeServiceResourcePayload(ctx, body, resourceID, engine); err != nil {
+		return fmt.Errorf("requested Docker service resource policy failed: %w", err)
 	}
 	return nil
+}
+
+func authorizeServiceResourcePayload(
+	ctx context.Context,
+	body []byte,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	if err := authorizeServiceNetworkPayload(ctx, body, resourceID, engine); err != nil {
+		return err
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("service payload is invalid: %w", err)
+	}
+	payload = dockerServiceSpecPayload(payload)
+	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
+	if !hasTaskTemplate {
+		return nil
+	}
+	taskTemplateObject, ok := taskTemplate.(map[string]any)
+	if !ok {
+		return errors.New("service TaskTemplate is not an object")
+	}
+	return authorizeServiceFileBackedPayload(ctx, taskTemplateObject, resourceID, engine)
+}
+
+func authorizeServiceFileBackedPayload(
+	ctx context.Context,
+	taskTemplateObject map[string]any,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	containerSpec, hasContainerSpec := dockerObjectField(taskTemplateObject, "ContainerSpec")
+	if !hasContainerSpec {
+		return nil
+	}
+	containerSpecObject, ok := containerSpec.(map[string]any)
+	if !ok {
+		return errors.New("service ContainerSpec is not an object")
+	}
+	for _, kind := range []string{"Secrets", "Configs"} {
+		if err := authorizeServiceFileBackedReferences(ctx, containerSpecObject, kind, resourceID, engine); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func authorizeServiceFileBackedReferences(
+	ctx context.Context,
+	containerSpec map[string]any,
+	kind string,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	rawReferences, ok := dockerObjectField(containerSpec, kind)
+	if !ok {
+		return nil
+	}
+	references, ok := rawReferences.([]any)
+	if !ok || len(references) > 32 {
+		return fmt.Errorf("service %s references are invalid or unbounded", strings.ToLower(kind))
+	}
+
+	objectKind := strings.TrimSuffix(strings.ToLower(kind), "s")
+	for index, rawReference := range references {
+		reference, ok := rawReference.(map[string]any)
+		if !ok {
+			return fmt.Errorf("service %s reference %d is invalid", strings.ToLower(kind), index)
+		}
+		idField := objectKind + "ID"
+		nameField := objectKind + "Name"
+		objectID := dockerStringField(reference, idField)
+		objectName := dockerStringField(reference, nameField)
+		if objectID == "" && objectName == "" {
+			return fmt.Errorf("service %s reference %d has no identity", strings.ToLower(kind), index)
+		}
+		lookup := objectID
+		if lookup == "" {
+			lookup = objectName
+		}
+		if len(lookup) > 256 || strings.ContainsAny(lookup, "/\x00\r\n") {
+			return fmt.Errorf("service %s reference %d has an invalid identity", strings.ToLower(kind), index)
+		}
+
+		body, _, err := engine.request(ctx, http.MethodGet, "/"+objectKind+"s/"+url.PathEscape(lookup), nil)
+		if err != nil {
+			return fmt.Errorf("service %s reference %d could not be inspected: %w", strings.ToLower(kind), index, err)
+		}
+		var inspection struct {
+			ID   string `json:"ID"`
+			Spec struct {
+				Name   string            `json:"Name"`
+				Labels map[string]string `json:"Labels"`
+			} `json:"Spec"`
+		}
+		if err := json.Unmarshal(body, &inspection); err != nil {
+			return fmt.Errorf("service %s reference %d inspection is invalid: %w", strings.ToLower(kind), index, err)
+		}
+		if inspection.ID == "" || inspection.Spec.Name == "" {
+			return fmt.Errorf("service %s reference %d inspection is incomplete", strings.ToLower(kind), index)
+		}
+		if objectName != "" && objectName != inspection.Spec.Name {
+			return fmt.Errorf("service %s reference %d name does not match daemon identity", strings.ToLower(kind), index)
+		}
+		expectedPrefix := "upstand-resource-" + strings.ToLower(resourceID) + "-" + objectKind + "-"
+		if inspection.Spec.Labels["com.upstand.resource-id"] != resourceID &&
+			!strings.HasPrefix(strings.ToLower(inspection.Spec.Name), expectedPrefix) {
+			return fmt.Errorf("service %s reference %d is not owned by the requested Upstand resource", strings.ToLower(kind), index)
+		}
+	}
+	return nil
+}
+
+func dockerStringField(object map[string]any, wanted string) string {
+	value, ok := dockerObjectField(object, wanted)
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func authorizeServiceNetworkPayload(
@@ -263,6 +389,7 @@ func authorizeServiceNetworkPayload(
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return fmt.Errorf("service payload is invalid: %w", err)
 	}
+	payload = dockerServiceSpecPayload(payload)
 	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
 	if hasTaskTemplate {
 		taskTemplateObject, ok := taskTemplate.(map[string]any)
@@ -274,6 +401,18 @@ func authorizeServiceNetworkPayload(
 		}
 	}
 	return authorizeServiceNetworkList(ctx, payload, resourceID, engine)
+}
+
+func dockerServiceSpecPayload(payload map[string]any) map[string]any {
+	spec, ok := dockerObjectField(payload, "Spec")
+	if !ok {
+		return payload
+	}
+	specObject, ok := spec.(map[string]any)
+	if !ok {
+		return payload
+	}
+	return specObject
 }
 
 func authorizeServiceNetworkList(

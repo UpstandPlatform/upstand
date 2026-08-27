@@ -169,6 +169,30 @@ volumes:
       ).toThrow("cannot be external");
     });
 
+    test("rejects external or host-backed configs and secrets", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+secrets:
+  shared:
+    external: true
+`),
+      ).toThrow("cannot be external");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+configs:
+  credentials:
+    file: /etc/shadow
+`),
+      ).toThrow("unsafe file path");
+    });
+
     test("rejects invalid top-level network and volume keys", () => {
       expect(() =>
         validateComposeSecurity(`

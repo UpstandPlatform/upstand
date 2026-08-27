@@ -42,6 +42,42 @@ function isExternalResourceDefinition(value: unknown): boolean {
   );
 }
 
+function validateComposeFileBackedResources(
+  parsed: Record<string, unknown>,
+  resourceKind: "configs" | "secrets",
+): void {
+  const definitions = parsed[resourceKind];
+  if (!isUnknownRecord(definitions)) return;
+
+  for (const [resourceName, rawDefinition] of Object.entries(definitions)) {
+    if (!COMPOSE_RESOURCE_KEY_PATTERN.test(resourceName)) {
+      throw new Error(
+        `Compose ${resourceKind.slice(0, -1)} '${resourceName}' has an invalid resource name`,
+      );
+    }
+    if (isExternalResourceDefinition(rawDefinition)) {
+      throw new Error(
+        `Compose ${resourceKind.slice(0, -1)} '${resourceName}' cannot be external; resources must be provisioned inside the resource boundary`,
+      );
+    }
+    if (!isUnknownRecord(rawDefinition)) continue;
+
+    for (const field of ["name", "file"] as const) {
+      const value = rawDefinition[field];
+      if (typeof value !== "string") continue;
+      if (
+        isHostPath(value) ||
+        value.includes("/../") ||
+        value.includes("\\..\\")
+      ) {
+        throw new Error(
+          `Compose ${resourceKind.slice(0, -1)} '${resourceName}' uses an unsafe ${field} path`,
+        );
+      }
+    }
+  }
+}
+
 /**
  * Reject Compose features that can escape the workload's isolation boundary.
  * This applies to raw Compose resources as well as user-created templates.
@@ -149,6 +185,9 @@ export function validateComposeSecurity(rawCompose: string): void {
       }
     }
   }
+
+  validateComposeFileBackedResources(parsed, "configs");
+  validateComposeFileBackedResources(parsed, "secrets");
 
   if (!isUnknownRecord(parsed.services)) return;
 
