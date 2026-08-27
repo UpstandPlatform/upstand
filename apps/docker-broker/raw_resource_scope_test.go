@@ -408,6 +408,80 @@ func TestDeploymentWorkerRawDatabaseVolumeInspectionUsesExactResourceName(t *tes
 	}
 }
 
+func TestDeploymentWorkerRawServiceMountsRequireLiveOwnedVolumes(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+
+	for _, test := range []struct {
+		name       string
+		volumeName string
+		inspection string
+		wantError  bool
+	}{
+		{
+			name:       "managed resource volume",
+			volumeName: "upstand-resource-resource-1-volume-data",
+			inspection: `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`,
+		},
+		{
+			name:       "host-backed options",
+			volumeName: "upstand-resource-resource-1-volume-data",
+			inspection: `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{"device":"/var/lib"},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`,
+			wantError:  true,
+		},
+		{
+			name:       "foreign ownership",
+			volumeName: "upstand-resource-resource-1-volume-data",
+			inspection: `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-2"}}`,
+			wantError:  true,
+		},
+		{
+			name:       "legacy database volume",
+			volumeName: "upstand-db-data-resource-1",
+			inspection: `{"Name":"upstand-db-data-resource-1","Driver":"local","Options":{}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(`{"TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"` + test.volumeName + `","Target":"/data"}]}}}`)
+			engine := rawScopeTestEngine(func(r *http.Request) *http.Response {
+				if r.URL.Path != "/volumes/"+test.volumeName {
+					t.Fatalf("unexpected Docker inspection path: %s", r.URL.Path)
+				}
+				return dockerResponse(http.StatusOK, test.inspection)
+			})
+			err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, engine)
+			if test.wantError && err == nil {
+				t.Fatal("expected an unsafe or foreign service volume to be rejected")
+			}
+			if !test.wantError && err != nil {
+				t.Fatalf("expected an authorized service volume to pass: %v", err)
+			}
+		})
+	}
+}
+
+func TestTypedResourceServiceMountsRequireLiveOwnedVolumes(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	body := []byte(`{"TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"upstand-resource-resource-1-volume-data","Target":"/data"}]}}}`)
+	owned := rawScopeTestEngine(func(r *http.Request) *http.Response {
+		if r.URL.Path != "/volumes/upstand-resource-resource-1-volume-data" {
+			t.Fatalf("unexpected Docker inspection path: %s", r.URL.Path)
+		}
+		return dockerResponse(http.StatusOK, `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`)
+	})
+	if err := authorizeTypedServiceFileBackedResources(context.Background(), body, "resource-1", owned); err != nil {
+		t.Fatalf("expected the typed service volume to pass live ownership verification: %v", err)
+	}
+
+	foreign := rawScopeTestEngine(func(*http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-2"}}`)
+	})
+	if err := authorizeTypedServiceFileBackedResources(context.Background(), body, "resource-1", foreign); err == nil {
+		t.Fatal("expected the typed service volume with foreign ownership to be rejected")
+	}
+}
+
 func TestDeploymentWorkerRawNetworkAttachmentRequiresOwnedNetworkAndContainer(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	body := []byte(`{"Container":"container-1"}`)

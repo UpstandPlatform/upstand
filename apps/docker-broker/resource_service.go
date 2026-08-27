@@ -363,6 +363,9 @@ func authorizeTypedServiceFileBackedResources(
 	if err := authorizeServiceFileBackedPayload(ctx, taskTemplateObject, resourceID, engine); err != nil {
 		return fmt.Errorf(`typed resource service file-backed resource policy failed: %w`, err)
 	}
+	if err := authorizeServiceVolumePayload(ctx, taskTemplateObject, resourceID, engine); err != nil {
+		return fmt.Errorf(`typed resource service volume policy failed: %w`, err)
+	}
 	return nil
 }
 

@@ -330,7 +330,60 @@ func authorizeServiceResourcePayload(
 	if !ok {
 		return errors.New("service TaskTemplate is not an object")
 	}
-	return authorizeServiceFileBackedPayload(ctx, taskTemplateObject, resourceID, engine)
+	if err := authorizeServiceFileBackedPayload(ctx, taskTemplateObject, resourceID, engine); err != nil {
+		return err
+	}
+	return authorizeServiceVolumePayload(ctx, taskTemplateObject, resourceID, engine)
+}
+
+// authorizeServiceVolumePayload verifies the live Docker metadata for every
+// named volume used by a raw service mutation. A caller-controlled name prefix
+// is not sufficient: a pre-existing volume with that name could have been
+// created with a host-backed driver or hostile options. Re-inspect the daemon
+// object immediately before forwarding the service mutation and apply the
+// same ownership policy used by the typed resource-volume route.
+func authorizeServiceVolumePayload(
+	ctx context.Context,
+	taskTemplateObject map[string]any,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	containerSpec, ok := dockerObjectField(taskTemplateObject, "ContainerSpec")
+	if !ok {
+		return nil
+	}
+	containerSpecObject, ok := containerSpec.(map[string]any)
+	if !ok {
+		return errors.New("service ContainerSpec is not an object")
+	}
+	rawMounts, ok := dockerObjectField(containerSpecObject, "Mounts")
+	if !ok {
+		return nil
+	}
+	mounts, ok := rawMounts.([]any)
+	if !ok || len(mounts) > 64 {
+		return errors.New("service volume mounts are invalid or unbounded")
+	}
+	for index, rawMount := range mounts {
+		mount, ok := rawMount.(map[string]any)
+		if !ok {
+			return fmt.Errorf("service volume mount %d is invalid", index)
+		}
+		mountType := strings.ToLower(dockerStringField(mount, "Type"))
+		source := dockerStringField(mount, "Source")
+		if mountType != "volume" || !deploymentWorkerVolumeNamePattern.MatchString(source) || !isDeploymentWorkerOwnedVolume(source, resourceID) {
+			return fmt.Errorf("service volume mount %d must reference a resource-owned named volume", index)
+		}
+		if err := authorizeDeploymentWorkerRawVolumeInspection(
+			ctx,
+			"/volumes/"+url.PathEscape(source),
+			resourceID,
+			engine,
+		); err != nil {
+			return fmt.Errorf("service volume mount %d failed live ownership verification: %w", index, err)
+		}
+	}
+	return nil
 }
 
 func authorizeServiceFileBackedPayload(
