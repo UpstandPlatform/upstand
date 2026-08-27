@@ -201,6 +201,16 @@ export function applyComposeResourceConfig(
       const labels = composeMap(service.labels);
       labels["com.upstand.resource-id"] = resource.id;
       service.labels = labels;
+
+      // Swarm service ownership is stored on deploy.labels, while the
+      // service-level labels above become task/container labels. Keep both
+      // labels immutable so broker filters and daemon-side ownership checks
+      // work for Docker Compose and Docker Swarm deployments alike.
+      const deploy = isUnknownRecord(service.deploy) ? service.deploy : {};
+      const deployLabels = composeMap(deploy.labels);
+      deployLabels["com.upstand.resource-id"] = resource.id;
+      deploy.labels = deployLabels;
+      service.deploy = deploy;
     }
 
     for (const [name, definition] of Object.entries(parsed.networks ?? {})) {
