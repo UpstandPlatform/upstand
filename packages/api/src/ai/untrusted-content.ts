@@ -6,11 +6,25 @@ const MAX_EXTERNAL_ARRAY_ITEMS = 20;
 const MAX_EXTERNAL_OBJECT_ENTRIES = 48;
 const MAX_EXTERNAL_NODES = 4_096;
 
-export const externalUntrustedOutputSchema = z.object({
-  provenance: z.literal("external-untrusted"),
-  source: z.string().trim().min(1).max(80),
-  data: z.unknown(),
-});
+export const externalUntrustedOutputSchema = z
+  .object({
+    provenance: z.literal("external-untrusted"),
+    source: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .refine(
+        (value) =>
+          [...value].every((character) => {
+            const code = character.charCodeAt(0);
+            return code >= 0x20 && code !== 0x7f;
+          }),
+        "Source must not contain control characters",
+      ),
+    data: z.unknown(),
+  })
+  .strict();
 
 export type ExternalUntrustedOutput = z.infer<
   typeof externalUntrustedOutputSchema
