@@ -38,17 +38,67 @@ func TestDeploymentWorkerRawServiceUpdateRequiresDaemonOwnership(t *testing.T) {
 	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
 	body := []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"}}`)
 	owned := rawScopeTestEngine(func(request *http.Request) *http.Response {
-		return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"resource-1"}}}`)
+		return dockerResponse(http.StatusOK, `{"Spec":{"Name":"service-1","Labels":{"com.upstand.resource-id":"resource-1"}}}`)
 	})
 	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, owned); err != nil {
 		t.Fatalf("expected an owned service update to be allowed: %v", err)
 	}
 
 	foreign := rawScopeTestEngine(func(request *http.Request) *http.Response {
-		return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"other-resource"}}}`)
+		return dockerResponse(http.StatusOK, `{"Spec":{"Name":"service-1","Labels":{"com.upstand.resource-id":"other-resource"}}}`)
 	})
 	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, foreign); err == nil {
 		t.Fatal("expected a cross-resource service update to be rejected")
+	}
+}
+
+func TestRawServiceMutationIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		body         string
+		existingName string
+		wantError    bool
+	}{
+		{
+			name:      "create requires a name",
+			body:      `{"Labels":{"com.upstand.resource-id":"resource-1"}}`,
+			wantError: true,
+		},
+		{
+			name: "create accepts a bounded name",
+			body: `{"Name":"resource-app","Labels":{"com.upstand.resource-id":"resource-1"}}`,
+		},
+		{
+			name:         "update can omit the name",
+			body:         `{"Labels":{"com.upstand.resource-id":"resource-1"}}`,
+			existingName: "service-1",
+		},
+		{
+			name:         "update accepts the inspected name",
+			body:         `{"Name":"service-1","Labels":{"com.upstand.resource-id":"resource-1"}}`,
+			existingName: "service-1",
+		},
+		{
+			name:         "update rejects a rename",
+			body:         `{"Name":"other-service","Labels":{"com.upstand.resource-id":"resource-1"}}`,
+			existingName: "service-1",
+			wantError:    true,
+		},
+		{
+			name:      "rejects an invalid name",
+			body:      `{"Name":"../host","Labels":{"com.upstand.resource-id":"resource-1"}}`,
+			wantError: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateRawServiceMutationIdentity([]byte(test.body), test.existingName)
+			if test.wantError && err == nil {
+				t.Fatal("expected service identity validation to fail")
+			}
+			if !test.wantError && err != nil {
+				t.Fatalf("expected service identity validation to pass: %v", err)
+			}
+		})
 	}
 }
 
@@ -79,21 +129,21 @@ func TestDeploymentWorkerRawServiceMutationRequiresAuthorizedEncryptedNetworks(t
 	}{
 		{
 			name: "owned network",
-			body: `{"TaskTemplate":{"Networks":[{"Target":"network-1"}]}}`,
+			body: `{"Name":"service-1","TaskTemplate":{"Networks":[{"Target":"network-1"}]}}`,
 			want: true,
 		},
 		{
 			name: "encrypted shared network",
-			body: `{"TaskTemplate":{"Networks":[{"Target":"network-2"}]}}`,
+			body: `{"Name":"service-1","TaskTemplate":{"Networks":[{"Target":"network-2"}]}}`,
 			want: true,
 		},
 		{
 			name: "foreign network",
-			body: `{"TaskTemplate":{"Networks":[{"Target":"network-3"}]}}`,
+			body: `{"Name":"service-1","TaskTemplate":{"Networks":[{"Target":"network-3"}]}}`,
 		},
 		{
 			name: "missing target",
-			body: `{"TaskTemplate":{"Networks":[{}]}}`,
+			body: `{"Name":"service-1","TaskTemplate":{"Networks":[{}]}}`,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -118,7 +168,7 @@ func TestDeploymentWorkerRawServiceUpdateRevalidatesExistingAndRequestedNetworks
 	engine := rawScopeTestEngine(func(request *http.Request) *http.Response {
 		switch request.URL.Path {
 		case "/services/service-1":
-			return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"Networks":[{"Target":"owned-network"}]}}}`)
+			return dockerResponse(http.StatusOK, `{"Spec":{"Name":"service-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"Networks":[{"Target":"owned-network"}]}}}`)
 		case "/networks/owned-network":
 			return dockerResponse(http.StatusOK, `{"Id":"network-1","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`)
 		case "/networks/foreign-network":
@@ -157,16 +207,16 @@ func TestDeploymentWorkerRawServiceMutationRequiresOwnedSecretsAndConfigs(t *tes
 	}{
 		{
 			name: "owned secret and config",
-			body: `{"TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1","SecretName":"upstand-resource-resource-1-secret-app"}],"Configs":[{"ConfigID":"config-1","ConfigName":"upstand-resource-resource-1-config-app"}]}}}`,
+			body: `{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1","SecretName":"upstand-resource-resource-1-secret-app"}],"Configs":[{"ConfigID":"config-1","ConfigName":"upstand-resource-resource-1-config-app"}]}}}`,
 			want: true,
 		},
 		{
 			name: "foreign secret",
-			body: `{"TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-2"}]}}}`,
+			body: `{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-2"}]}}}`,
 		},
 		{
 			name: "missing identity",
-			body: `{"TaskTemplate":{"ContainerSpec":{"Configs":[{"File":{"Name":"app.conf"}}]}}}`,
+			body: `{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Configs":[{"File":{"Name":"app.conf"}}]}}}`,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -191,7 +241,7 @@ func TestDeploymentWorkerRawServiceUpdateRevalidatesExistingSecretsAndConfigs(t 
 	engine := rawScopeTestEngine(func(request *http.Request) *http.Response {
 		switch request.URL.Path {
 		case "/services/service-1":
-			return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1"}]}}}}`)
+			return dockerResponse(http.StatusOK, `{"Spec":{"Name":"service-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1"}]}}}}`)
 		case "/secrets/secret-1":
 			return dockerResponse(http.StatusOK, `{"ID":"secret-1","Spec":{"Name":"upstand-resource-resource-1-secret-app"}}`)
 		case "/configs/config-foreign":
@@ -508,7 +558,7 @@ func TestDeploymentWorkerRawServiceMountsRequireLiveOwnedVolumes(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			body := []byte(`{"TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"` + test.volumeName + `","Target":"/data"}]}}}`)
+			body := []byte(`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"` + test.volumeName + `","Target":"/data"}]}}}`)
 			engine := rawScopeTestEngine(func(r *http.Request) *http.Response {
 				if r.URL.Path != "/volumes/"+test.volumeName {
 					t.Fatalf("unexpected Docker inspection path: %s", r.URL.Path)

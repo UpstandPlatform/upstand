@@ -397,11 +397,22 @@ func authorizeDeploymentWorkerRawServiceResources(
 	resourceID string,
 	engine *dockerEngineClient,
 ) error {
+	existingServiceName := ""
 	if serviceID != "" {
 		serviceBody, _, err := engine.request(ctx, http.MethodGet, "/services/"+url.PathEscape(serviceID), nil)
 		if err != nil {
 			return err
 		}
+		var inspection struct {
+			Spec struct {
+				Name string `json:"Name"`
+			} `json:"Spec"`
+		}
+		if err := json.Unmarshal(serviceBody, &inspection); err != nil ||
+			!swarmNamePattern.MatchString(strings.TrimSpace(inspection.Spec.Name)) {
+			return errors.New("existing Docker service inspection has an invalid name")
+		}
+		existingServiceName = strings.TrimSpace(inspection.Spec.Name)
 		if err := authorizeServiceResourcePayload(ctx, serviceBody, resourceID, engine); err != nil {
 			return fmt.Errorf("existing Docker service resource policy failed: %w", err)
 		}
@@ -409,8 +420,41 @@ func authorizeDeploymentWorkerRawServiceResources(
 	if len(strings.TrimSpace(string(body))) == 0 {
 		return errors.New("deployment-worker service mutation requires a JSON body")
 	}
+	if err := validateRawServiceMutationIdentity(body, existingServiceName); err != nil {
+		return err
+	}
 	if err := authorizeServiceResourcePayload(ctx, body, resourceID, engine); err != nil {
 		return fmt.Errorf("requested Docker service resource policy failed: %w", err)
+	}
+	return nil
+}
+
+// validateRawServiceMutationIdentity keeps the legacy Compose/Swarm service
+// route from becoming a name-confusion primitive. Docker service creation
+// requires a concrete bounded name, while updates must not rename a service
+// after its ownership has been verified by the broker.
+func validateRawServiceMutationIdentity(body []byte, existingServiceName string) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return errors.New("Docker service mutation body must be a JSON object")
+	}
+	rawName, hasName := dockerObjectField(payload, "Name")
+	if !hasName {
+		if existingServiceName == "" {
+			return errors.New("Docker service creation requires a bounded service name")
+		}
+		return nil
+	}
+	name, ok := rawName.(string)
+	if !ok {
+		return errors.New("Docker service mutation service name is invalid")
+	}
+	name = strings.TrimSpace(name)
+	if !swarmNamePattern.MatchString(name) {
+		return errors.New("Docker service mutation service name is invalid")
+	}
+	if existingServiceName != "" && name != existingServiceName {
+		return errors.New("Docker service updates cannot rename an owned service")
 	}
 	return nil
 }
