@@ -199,6 +199,25 @@ func TestDeploymentWorkerRawServiceInspectionRequiresOwnership(t *testing.T) {
 	}
 }
 
+func TestDeploymentWorkerRawNetworkInspectionRequiresManagedOwnership(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/networks/network-1", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	owned := rawScopeTestEngine(func(*http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Id":"network-1","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, owned); err != nil {
+		t.Fatalf("expected an owned managed network inspection to be allowed: %v", err)
+	}
+
+	foreign := rawScopeTestEngine(func(*http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Id":"network-1","Name":"upstand-resource-other-resource","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"other-resource"}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, foreign); err == nil {
+		t.Fatal("expected a foreign managed network inspection to be rejected")
+	}
+}
+
 func TestDeploymentWorkerRawNetworkAttachmentRequiresOwnedNetworkAndContainer(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	body := []byte(`{"Container":"container-1"}`)

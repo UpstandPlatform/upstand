@@ -42,6 +42,9 @@ func authorizeDeploymentWorkerRawResourceScope(
 	if r.Method == http.MethodGet && path == "/tasks" {
 		return authorizeDeploymentWorkerRawTaskList(ctx, r, resourceID, engine)
 	}
+	if r.Method == http.MethodGet && path == "/networks" {
+		return authorizeDeploymentWorkerRawResourceList(r, resourceID, "networks")
+	}
 	if r.Method == http.MethodGet && resourceItemPath(path, "services") {
 		parts, ok := splitResourcePath(path, "services")
 		if !ok || !swarmNamePattern.MatchString(parts[1]) {
@@ -55,6 +58,9 @@ func authorizeDeploymentWorkerRawResourceScope(
 			return errors.New("deployment-worker service identity is invalid")
 		}
 		return engine.authorizeResourceService(ctx, parts[1], resourceID)
+	}
+	if r.Method == http.MethodGet && resourceItemPath(path, "networks") {
+		return authorizeDeploymentWorkerRawNetworkInspection(ctx, path, resourceID, engine)
 	}
 	if execPath(path, "json") || execPath(path, "start") || execPath(path, "resize") {
 		return engine.authorizeResourceExec(ctx, path, resourceID)
@@ -135,6 +141,40 @@ func authorizeDeploymentWorkerRawTaskList(
 		return errors.New("deployment-worker task listing service filter is invalid or unbounded")
 	}
 	return engine.authorizeResourceService(ctx, services[0], resourceID)
+}
+
+func authorizeDeploymentWorkerRawNetworkInspection(
+	ctx context.Context,
+	path string,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	parts, ok := splitResourcePath(path, "networks")
+	if !ok || !swarmNamePattern.MatchString(parts[1]) {
+		return errors.New("deployment-worker network identity is invalid")
+	}
+	body, _, err := engine.request(ctx, http.MethodGet, "/networks/"+url.PathEscape(parts[1]), nil)
+	if err != nil {
+		return err
+	}
+	var network struct {
+		ID     string            `json:"Id"`
+		Name   string            `json:"Name"`
+		Labels map[string]string `json:"Labels"`
+	}
+	if err := json.Unmarshal(body, &network); err != nil {
+		return fmt.Errorf("invalid Docker network inspection: %w", err)
+	}
+	if network.ID == "" || network.Name == "" {
+		return errors.New("Docker network inspection is missing its identity")
+	}
+	if err := validateManagedSwarmNetwork(body); err != nil {
+		return fmt.Errorf("Docker network is not a managed encrypted Swarm network: %w", err)
+	}
+	if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
+		return errors.New("Docker network is not owned by the requested Upstand resource")
+	}
+	return nil
 }
 
 func (engine *dockerEngineClient) authorizeResourceExec(ctx context.Context, path, resourceID string) error {
