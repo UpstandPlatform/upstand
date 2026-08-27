@@ -36,6 +36,26 @@ func authorizeDeploymentWorkerRawResourceScope(
 	if r.Method == http.MethodGet && path == "/containers/json" {
 		return authorizeDeploymentWorkerRawContainerList(r, resourceID)
 	}
+	if r.Method == http.MethodGet && path == "/services" {
+		return authorizeDeploymentWorkerRawResourceList(r, resourceID, "services")
+	}
+	if r.Method == http.MethodGet && path == "/tasks" {
+		return authorizeDeploymentWorkerRawTaskList(ctx, r, resourceID, engine)
+	}
+	if r.Method == http.MethodGet && resourceItemPath(path, "services") {
+		parts, ok := splitResourcePath(path, "services")
+		if !ok || !swarmNamePattern.MatchString(parts[1]) {
+			return errors.New("deployment-worker service identity is invalid")
+		}
+		return engine.authorizeResourceService(ctx, parts[1], resourceID)
+	}
+	if r.Method == http.MethodGet && resourceActionPath(path, "services", "tasks") {
+		parts, ok := splitResourcePath(path, "services")
+		if !ok || !swarmNamePattern.MatchString(parts[1]) {
+			return errors.New("deployment-worker service identity is invalid")
+		}
+		return engine.authorizeResourceService(ctx, parts[1], resourceID)
+	}
 	if execPath(path, "json") || execPath(path, "start") || execPath(path, "resize") {
 		return engine.authorizeResourceExec(ctx, path, resourceID)
 	}
@@ -61,22 +81,26 @@ func authorizeDeploymentWorkerRawResourceScope(
 }
 
 func authorizeDeploymentWorkerRawContainerList(r *http.Request, resourceID string) error {
+	return authorizeDeploymentWorkerRawResourceList(r, resourceID, "containers")
+}
+
+func authorizeDeploymentWorkerRawResourceList(r *http.Request, resourceID, resource string) error {
 	values, ok := r.URL.Query()["filters"]
 	if !ok || len(values) != 1 || len(values[0]) == 0 || len(values[0]) > maxPolicyBody {
-		return errors.New("deployment-worker container listing requires one bounded resource filter")
+		return fmt.Errorf("deployment-worker %s listing requires one bounded resource filter", resource)
 	}
 
 	var filters map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(values[0]), &filters); err != nil {
-		return fmt.Errorf("deployment-worker container listing filters are invalid: %w", err)
+		return fmt.Errorf("deployment-worker %s listing filters are invalid: %w", resource, err)
 	}
 	rawLabels, ok := filters["label"]
 	if !ok {
-		return errors.New("deployment-worker container listing requires a label filter")
+		return fmt.Errorf("deployment-worker %s listing requires a label filter", resource)
 	}
 	var labels []string
 	if err := json.Unmarshal(rawLabels, &labels); err != nil || len(labels) == 0 || len(labels) > 32 {
-		return errors.New("deployment-worker container listing labels are invalid or unbounded")
+		return fmt.Errorf("deployment-worker %s listing labels are invalid or unbounded", resource)
 	}
 	required := "com.upstand.resource-id=" + resourceID
 	for _, label := range labels {
@@ -84,7 +108,33 @@ func authorizeDeploymentWorkerRawContainerList(r *http.Request, resourceID strin
 			return nil
 		}
 	}
-	return errors.New("deployment-worker container listing must include the exact resource ownership label")
+	return fmt.Errorf("deployment-worker %s listing must include the exact resource ownership label", resource)
+}
+
+func authorizeDeploymentWorkerRawTaskList(
+	ctx context.Context,
+	r *http.Request,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	values, ok := r.URL.Query()["filters"]
+	if !ok || len(values) != 1 || len(values[0]) == 0 || len(values[0]) > maxPolicyBody {
+		return errors.New("deployment-worker task listing requires one bounded service filter")
+	}
+
+	var filters map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(values[0]), &filters); err != nil {
+		return fmt.Errorf("deployment-worker task listing filters are invalid: %w", err)
+	}
+	rawServices, ok := filters["service"]
+	if !ok {
+		return errors.New("deployment-worker task listing requires a service filter")
+	}
+	var services []string
+	if err := json.Unmarshal(rawServices, &services); err != nil || len(services) != 1 || !swarmNamePattern.MatchString(services[0]) {
+		return errors.New("deployment-worker task listing service filter is invalid or unbounded")
+	}
+	return engine.authorizeResourceService(ctx, services[0], resourceID)
 }
 
 func (engine *dockerEngineClient) authorizeResourceExec(ctx context.Context, path, resourceID string) error {

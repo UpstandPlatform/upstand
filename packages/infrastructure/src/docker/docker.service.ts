@@ -3397,7 +3397,9 @@ export class DockerService implements DockerSwarmManagementPort {
     }
 
     // Single Swarm Service control
-    const service = this.docker.getService(serviceName);
+    const serviceDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
+    const service = serviceDocker.getService(serviceName);
     let inspect: Awaited<ReturnType<typeof service.inspect>>;
     try {
       inspect = await service.inspect();
@@ -3487,7 +3489,9 @@ export class DockerService implements DockerSwarmManagementPort {
     const serviceName = this.sanitizeName(
       serviceNameOverride || resource.appName || resource.name,
     );
-    const service = this.docker.getService(serviceName);
+    const serviceDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
+    const service = serviceDocker.getService(serviceName);
     const inspect = await service.inspect();
 
     const update = (
@@ -3544,8 +3548,10 @@ export class DockerService implements DockerSwarmManagementPort {
       );
       return;
     }
-    const baseService = this.docker.getService(baseServiceName);
-    const revisionService = this.docker.getService(revisionName);
+    const serviceDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
+    const baseService = serviceDocker.getService(baseServiceName);
+    const revisionService = serviceDocker.getService(revisionName);
     const [base, revision] = await Promise.all([
       baseService.inspect(),
       revisionService.inspect(),
@@ -3585,7 +3591,9 @@ export class DockerService implements DockerSwarmManagementPort {
     ) {
       throw new ConflictError("Invalid deployment revision service name");
     }
-    const service = this.docker.getService(revisionName);
+    const serviceDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
+    const service = serviceDocker.getService(revisionName);
     try {
       const inspect = await service.inspect();
       const labels = inspect.Spec?.Labels ?? {};
@@ -3637,7 +3645,9 @@ export class DockerService implements DockerSwarmManagementPort {
       );
       return;
     }
-    const service = this.docker.getService(serviceName);
+    const serviceDocker =
+      this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
+    const service = serviceDocker.getService(serviceName);
     const inspect = await service.inspect();
     await service.update({
       version: inspect.Version.Index,
@@ -3658,7 +3668,9 @@ export class DockerService implements DockerSwarmManagementPort {
       serviceNameOverride || resource.appName || resource.name,
     );
     try {
-      await this.docker.getService(serviceName).inspect();
+      const serviceDocker =
+        this.resourceScopedDockerFactory?.(resource.id) ?? this.docker;
+      await serviceDocker.getService(serviceName).inspect();
       return true;
     } catch (error: unknown) {
       if (errorStatusCode(error) === 404) return false;
@@ -3863,7 +3875,10 @@ export class DockerService implements DockerSwarmManagementPort {
       try {
         const services = await scopedDocker.listServices({
           filters: JSON.stringify({
-            label: [`com.docker.stack.namespace=${nameFilter}`],
+            label: [
+              `com.docker.stack.namespace=${nameFilter}`,
+              `com.upstand.resource-id=${resource.id}`,
+            ],
           }),
         });
 
@@ -3915,7 +3930,10 @@ export class DockerService implements DockerSwarmManagementPort {
     // Single Swarm Service
     try {
       const services = await scopedDocker.listServices({
-        filters: JSON.stringify({ name: [nameFilter] }),
+        filters: JSON.stringify({
+          name: [nameFilter],
+          label: [`com.upstand.resource-id=${resource.id}`],
+        }),
       });
       if (services.length === 0) {
         return [];
@@ -4001,10 +4019,18 @@ export class DockerService implements DockerSwarmManagementPort {
         resource.type === "compose"
           ? {
               filters: JSON.stringify({
-                label: [`com.docker.stack.namespace=${resourceName}`],
+                label: [
+                  `com.docker.stack.namespace=${resourceName}`,
+                  `com.upstand.resource-id=${resource.id}`,
+                ],
               }),
             }
-          : { filters: JSON.stringify({ name: [resourceName] }) },
+          : {
+              filters: JSON.stringify({
+                name: [resourceName],
+                label: [`com.upstand.resource-id=${resource.id}`],
+              }),
+            },
       );
 
       const names = services

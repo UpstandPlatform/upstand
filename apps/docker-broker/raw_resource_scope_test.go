@@ -127,6 +127,78 @@ func TestDeploymentWorkerRawContainerListingRequiresExactResourceFilter(t *testi
 	}
 }
 
+func TestDeploymentWorkerRawServiceListingRequiresExactResourceFilter(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	for _, test := range []struct {
+		name    string
+		filters string
+		valid   bool
+	}{
+		{name: "exact label", filters: `{"label":["com.docker.stack.namespace=app","com.upstand.resource-id=resource-1"]}`, valid: true},
+		{name: "missing label", filters: `{"label":["com.docker.stack.namespace=app"]}`},
+		{name: "foreign label", filters: `{"label":["com.upstand.resource-id=other-resource"]}`},
+		{name: "malformed filters", filters: `{"label":[}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/services?filters="+url.QueryEscape(test.filters), nil)
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, rawScopeTestEngine(func(*http.Request) *http.Response {
+				t.Fatal("service list policy must fail before contacting Docker")
+				return nil
+			}))
+			if test.valid && err != nil {
+				t.Fatalf("expected an exact resource filter to be allowed: %v", err)
+			}
+			if !test.valid && err == nil {
+				t.Fatal("expected an incomplete or foreign resource filter to be rejected")
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawTaskListingRequiresOwnedService(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/tasks?filters="+url.QueryEscape(`{"service":["service-1"]}`), nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	owned := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		if request.URL.Path == "/services/service-1" {
+			return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"resource-1"}}}`)
+		}
+		return dockerResponse(http.StatusNotFound, `{}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, owned); err != nil {
+		t.Fatalf("expected task listing for an owned service to be allowed: %v", err)
+	}
+
+	foreign := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		if request.URL.Path == "/services/service-1" {
+			return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"other-resource"}}}`)
+		}
+		return dockerResponse(http.StatusNotFound, `{}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, foreign); err == nil {
+		t.Fatal("expected task listing for a foreign service to be rejected")
+	}
+
+	withoutFilter := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/tasks", nil)
+	withoutFilter.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", withoutFilter, nil, owned); err == nil {
+		t.Fatal("expected an unscoped task listing to be rejected")
+	}
+}
+
+func TestDeploymentWorkerRawServiceInspectionRequiresOwnership(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	request := httptest.NewRequest(http.MethodGet, "http://broker/v1.43/services/service-1", nil)
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	foreign := rawScopeTestEngine(func(*http.Request) *http.Response {
+		return dockerResponse(http.StatusOK, `{"Spec":{"Labels":{"com.upstand.resource-id":"other-resource"}}}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, nil, foreign); err == nil {
+		t.Fatal("expected a foreign service inspection to be rejected")
+	}
+}
+
 func TestDeploymentWorkerRawNetworkAttachmentRequiresOwnedNetworkAndContainer(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	body := []byte(`{"Container":"container-1"}`)

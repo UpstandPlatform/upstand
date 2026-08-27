@@ -1085,6 +1085,53 @@ volumes:
     });
   });
 
+  test("uses the resource-scoped Docker client for Swarm service control", async () => {
+    const update = mock(async () => {});
+    const scopedDocker = {
+      getService: mock(() => ({
+        inspect: async () => ({
+          Version: { Index: 7 },
+          Spec: {
+            Mode: { Replicated: { Replicas: 0 } },
+            TaskTemplate: { ContainerSpec: { Image: "example/app:1" } },
+          },
+        }),
+        update,
+      })),
+    };
+    const baseDocker = {
+      getService: mock(() => {
+        throw new Error("unscoped Docker access must not be used");
+      }),
+    };
+    const resourceScopedDockerFactory = mock(() => scopedDocker);
+    const service = new DockerService(
+      baseDocker as never,
+      {},
+      undefined,
+      resourceScopedDockerFactory as never,
+    );
+
+    await service.controlService(
+      {
+        id: "resource-1",
+        name: "Resource 1",
+        appName: "resource-app",
+        type: "application",
+      } as never,
+      "start",
+    );
+
+    expect(resourceScopedDockerFactory).toHaveBeenCalledWith("resource-1");
+    expect(update).toHaveBeenCalledWith({
+      version: 7,
+      Name: "resource-app",
+      Mode: { Replicated: { Replicas: 1 } },
+      TaskTemplate: { ContainerSpec: { Image: "example/app:1" } },
+      EndpointSpec: undefined,
+    });
+  });
+
   test("bounds concurrent server container stats requests", async () => {
     const service = new DockerService({
       info: async () => ({
