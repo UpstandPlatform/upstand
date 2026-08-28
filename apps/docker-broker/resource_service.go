@@ -23,6 +23,56 @@ const (
 var (
 	typedResourceServiceOperationPattern = regexp.MustCompile(`^(upsert|ensure_network|remove|promote_revision|scale)$`)
 	typedResourceServiceNetworkPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$`)
+	typedResourceContainerSpecFields     = dockerFieldSet(
+		"Image",
+		"Labels",
+		"Command",
+		"Args",
+		"Hostname",
+		"Env",
+		"Dir",
+		"User",
+		"Groups",
+		"StopSignal",
+		"TTY",
+		"ReadOnly",
+		"Mounts",
+		"Init",
+		"DNS",
+		"DNSSearch",
+		"DNSConfig",
+		"Healthcheck",
+		"StopGracePeriod",
+		"StopTimeout",
+		"Secrets",
+		"Configs",
+		"Isolation",
+		"Hosts",
+		"Sysctls",
+		"CapAdd",
+		"CapDrop",
+		"CapabilityAdd",
+		"CapabilityDrop",
+		"Devices",
+		"DeviceRequests",
+		"SecurityOpt",
+		"CgroupParent",
+		"StorageOpt",
+		"BlkioConfig",
+		"VolumesFrom",
+		"Ulimits",
+		"OomScoreAdj",
+		"ShmSize",
+		"Privileges",
+		"CredentialSpec",
+		"NetworkMode",
+		"PidMode",
+		"IpcMode",
+		"UTSMode",
+		"UsernsMode",
+		"CgroupnsMode",
+		"Privileged",
+	)
 )
 
 type typedResourceServiceRequest struct {
@@ -216,6 +266,17 @@ func validateTypedResourceContainerSpec(body []byte, resourceID string) error {
 	var containerSpec map[string]json.RawMessage
 	if err := json.Unmarshal(body, &containerSpec); err != nil || len(containerSpec) == 0 {
 		return errors.New(`typed resource service container spec is invalid`)
+	}
+	containerShape := make(map[string]any, len(containerSpec))
+	for key := range containerSpec {
+		containerShape[key] = struct{}{}
+	}
+	if err := validateDockerObjectShape(
+		containerShape,
+		typedResourceContainerSpecFields,
+		`typed resource service container spec`,
+	); err != nil {
+		return err
 	}
 	var rawMounts json.RawMessage
 	var ok bool

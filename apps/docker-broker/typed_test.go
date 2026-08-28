@@ -681,6 +681,25 @@ func TestTypedResourceServiceRejectsCrossResourceVolumeMounts(t *testing.T) {
 	}
 }
 
+func TestTypedResourceServiceRejectsUnknownContainerSpecFields(t *testing.T) {
+	unknownField := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","FutureDaemonCapability":true}}}`)
+	if err := validateTypedResourceServiceSpec(unknownField, "resource-1", "resource-1"); err == nil {
+		t.Fatal("expected unknown typed ContainerSpec fields to be rejected")
+	}
+
+	validFields := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","Env":["APP_ENV=production"],"DNS":["1.1.1.1"],"DNSSearch":["example.internal"],"CapDrop":["ALL"],"SecurityOpt":["no-new-privileges:true"],"Privileged":false}}}`)
+	if err := validateTypedResourceServiceSpec(validFields, "resource-1", "resource-1"); err != nil {
+		t.Fatalf("expected reviewed typed ContainerSpec fields to remain valid: %v", err)
+	}
+
+	for _, option := range []string{"seccomp=unconfined", "no-new-privileges:false"} {
+		body := []byte(`{"Name":"resource-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Image":"example/app:latest","SecurityOpt":["` + option + `"]}}}`)
+		if err := validateTypedResourceServiceSpec(body, "resource-1", "resource-1"); err == nil {
+			t.Fatalf("expected unapproved security option to be rejected: %s", option)
+		}
+	}
+}
+
 func TestTypedCaddyProvisioningUsesOnlyManagedShape(t *testing.T) {
 	const digest = "af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17"
 	created := false

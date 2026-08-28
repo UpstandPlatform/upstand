@@ -90,6 +90,7 @@ export * from "./project/get-project.usecase";
 export * from "./project/get-projects.usecase";
 export * from "./project/update-project.usecase";
 export * from "./resource/application-build-secrets";
+export * from "./resource/compose-document.schema";
 export * from "./resource/compose-randomization";
 export * from "./resource/compose-security";
 export * from "./resource/container-file-manager.usecase";

@@ -3,6 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  createBoundedDockerBuildContext,
+  isSensitiveDockerBuildContextPath,
+} from "./docker-broker-client";
+import {
   createDockerClientFromEnvironment,
   createRemoteDocker,
   createRemoteDockerCliEnvironment,
@@ -15,7 +19,105 @@ const missingServerUow = {
   serverRepository: { findById: async () => null },
 } as never;
 
+async function readTarEntryNames(stream: AsyncIterable<Uint8Array>) {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const archive = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+  const names: string[] = [];
+  for (let offset = 0; offset + 512 <= archive.length; ) {
+    const header = archive.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const name = header.subarray(0, 100).toString("utf8").replace(/\0.*$/, "");
+    const prefix = header
+      .subarray(345, 500)
+      .toString("utf8")
+      .replace(/\0.*$/, "");
+    const sizeText = header
+      .subarray(124, 136)
+      .toString("ascii")
+      .replace(/\0.*$/, "")
+      .trim();
+    const size = Number.parseInt(sizeText || "0", 8);
+    names.push(prefix ? `${prefix}/${name}` : name);
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  return names;
+}
+
 describe("remote Docker client", () => {
+  test("keeps sensitive repository files out of typed Docker build contexts", () => {
+    const sensitivePaths = [
+      ".env",
+      ".env.production",
+      ".git/config",
+      ".ssh/id_ed25519",
+      "config/service-account.json",
+      "certificates/server.key",
+      "nested/credentials.yaml",
+    ];
+    for (const relativePath of sensitivePaths) {
+      expect(isSensitiveDockerBuildContextPath(relativePath)).toBe(true);
+    }
+
+    for (const relativePath of [
+      "Dockerfile",
+      "src/index.ts",
+      "public/logo.svg",
+      "config/defaults.json",
+    ]) {
+      expect(isSensitiveDockerBuildContextPath(relativePath)).toBe(false);
+    }
+  });
+
+  test("does not let .dockerignore re-include sensitive build-context files", async () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-build-context-test-"),
+    );
+    try {
+      fs.mkdirSync(path.join(directory, ".git"));
+      fs.mkdirSync(path.join(directory, "config"));
+      fs.writeFileSync(path.join(directory, "Dockerfile"), "FROM scratch\n");
+      fs.writeFileSync(path.join(directory, ".env"), "TOKEN=should-not-ship\n");
+      fs.writeFileSync(
+        path.join(directory, ".git", "config"),
+        "[remote]\nurl=https://token@example.invalid/repo\n",
+      );
+      fs.writeFileSync(path.join(directory, "config", "defaults.json"), "{}\n");
+      fs.writeFileSync(path.join(directory, ".dockerignore"), "!.env\n");
+
+      const names = await readTarEntryNames(
+        createBoundedDockerBuildContext(
+          directory,
+          path.join(directory, "Dockerfile"),
+        ),
+      );
+      expect(names).toContain("Dockerfile");
+      expect(names).toContain("config/defaults.json");
+      expect(names).not.toContain(".env");
+      expect(
+        names.some((name) => name === ".git" || name.startsWith(".git/")),
+      ).toBe(false);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a sensitive path selected as the Dockerfile", () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-build-context-test-"),
+    );
+    try {
+      const envPath = path.join(directory, ".env");
+      fs.writeFileSync(envPath, "TOKEN=must-not-ship\n");
+
+      expect(() => createBoundedDockerBuildContext(directory, envPath)).toThrow(
+        "must not use a credential-bearing or VCS metadata path",
+      );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("honors an explicit Unix-socket Docker transport", () => {
     const docker = createDockerClientFromEnvironment(
       "unix:///run/upstand/docker-broker.sock",

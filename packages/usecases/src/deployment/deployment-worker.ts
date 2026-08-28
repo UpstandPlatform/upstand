@@ -31,7 +31,11 @@ import type { DockerApiTarget } from "../ports/docker";
 import { getDatabaseEnvironment } from "../resource/database-environment";
 import type { DockerDeploymentService as DockerService } from "../resource/docker-client";
 import { createRemoteServices } from "../resource/docker-client";
-import { parseResourceCredentials } from "../resource/resource-credentials";
+import {
+  parseResourceCredentials,
+  parseResourceCredentialsStrict,
+  serializeResourceCredentials,
+} from "../resource/resource-credentials";
 import {
   resolveResourceBuildEnvironmentVariables,
   resolveResourceEnvironmentVariables,
@@ -751,9 +755,11 @@ export class DeploymentWorker {
           deployedResource.name = previewDeploymentRecord.appName;
           deployedResource.appName = previewDeploymentRecord.appName;
 
-          const creds = parseResourceCredentials(deployedResource.credentials);
+          const creds = parseResourceCredentialsStrict(
+            deployedResource.credentials,
+          );
           creds.branch = previewDeploymentRecord.branchName;
-          deployedResource.credentials = JSON.stringify(creds);
+          deployedResource.credentials = serializeResourceCredentials(creds);
         }
       }
 

@@ -6,6 +6,11 @@ import {
 } from "@tavily/ai-sdk";
 import type { AITavilySettingsRecord, IAIRepository } from "@upstand/domain";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
+import {
+  type AddressResolver,
+  assertPublicHttpUrl,
+  resolveAllAddresses,
+} from "@upstand/platform/network/outbound";
 import { tool } from "ai";
 import { z } from "zod";
 import {
@@ -50,6 +55,7 @@ type ExecutableTavilyTool = {
   description?: string;
   execute(input: unknown): Promise<unknown>;
 };
+type TavilyInputValidator<TInput> = (input: TInput) => Promise<TInput>;
 
 function isExecutableTavilyTool(value: unknown): value is ExecutableTavilyTool {
   return (
@@ -65,21 +71,67 @@ function createBoundedTavilyTool<TInput>(
   source: string,
   description: string,
   inputSchema: z.ZodType<TInput>,
+  validateInput: TavilyInputValidator<TInput> = async (input) => input,
 ): unknown {
   if (!isExecutableTavilyTool(raw)) return undefined;
   return tool({
     description,
     inputSchema,
     outputSchema: externalUntrustedOutputSchema,
-    execute: async (input) =>
-      wrapExternalUntrustedOutput(source, await raw.execute(input as unknown)),
+    execute: async (input) => {
+      const validatedInput = await validateInput(input as TInput);
+      return wrapExternalUntrustedOutput(
+        source,
+        await raw.execute(validatedInput as unknown),
+      );
+    },
   });
 }
+
+/**
+ * Tavily fetches model-selected URLs from its own service. Validate the
+ * destination immediately before provider execution so private, metadata,
+ * and plaintext endpoints are not handed to an external fetcher.
+ */
+export async function assertSafeTavilyUrl(
+  rawUrl: string,
+  resolveHost: AddressResolver = resolveAllAddresses,
+): Promise<string> {
+  return (await assertPublicHttpUrl(rawUrl, resolveHost)).toString();
+}
+
+async function validateTavilyExtractInput(
+  input: z.infer<typeof boundedExtractInputSchema>,
+  resolveHost: AddressResolver,
+): Promise<z.infer<typeof boundedExtractInputSchema>> {
+  return {
+    ...input,
+    urls: await Promise.all(
+      input.urls.map((url) => assertSafeTavilyUrl(url, resolveHost)),
+    ),
+  };
+}
+
+async function validateTavilySingleUrlInput<TInput extends { url: string }>(
+  input: TInput,
+  resolveHost: AddressResolver,
+): Promise<TInput> {
+  return {
+    ...input,
+    url: await assertSafeTavilyUrl(input.url, resolveHost),
+  };
+}
+
+export type TavilyToolOptions = {
+  resolveHost?: AddressResolver;
+};
 
 export async function createTavilyToolsForOrg(
   organizationId: string,
   aiRepo: IAIRepository,
+  options: TavilyToolOptions = {},
 ): Promise<TavilyToolsResult> {
+  const resolveHost = options.resolveHost ?? resolveAllAddresses;
   const settings = await aiRepo.getTavilySettings(organizationId);
   if (!settings?.enabled) {
     return { enabled: false, settings: null, tools: {} };
@@ -136,6 +188,7 @@ export async function createTavilyToolsForOrg(
       "tavily-extract",
       "Extract bounded content from up to five public web URLs using Tavily.",
       boundedExtractInputSchema,
+      (input) => validateTavilyExtractInput(input, resolveHost),
     );
     if (boundedExtract) tools.tavilyExtract = boundedExtract;
   }
@@ -149,6 +202,7 @@ export async function createTavilyToolsForOrg(
       "tavily-crawl",
       "Crawl one public website with depth and output bounds; external domains are disabled.",
       boundedCrawlInputSchema,
+      (input) => validateTavilySingleUrlInput(input, resolveHost),
     );
     if (boundedCrawl) tools.tavilyCrawl = boundedCrawl;
   }
@@ -162,6 +216,7 @@ export async function createTavilyToolsForOrg(
       "tavily-map",
       "Map one public website with bounded depth and output; external domains are disabled.",
       boundedMapInputSchema,
+      (input) => validateTavilySingleUrlInput(input, resolveHost),
     );
     if (boundedMap) tools.tavilyMap = boundedMap;
   }

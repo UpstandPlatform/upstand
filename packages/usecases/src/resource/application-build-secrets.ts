@@ -1,4 +1,4 @@
-import type { Resource } from "@upstand/domain";
+import { type Resource, ValidationError } from "@upstand/domain";
 import {
   decryptSecret,
   type EncryptedPayload,
@@ -22,10 +22,19 @@ export function getApplicationBuildSecrets(
         : resource.buildSecrets;
     const parsed = JSON.parse(serialized) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      return {};
+      throw new ValidationError(
+        "Stored application build secrets must be an object",
+      );
     const validated = ResourceEnvironmentVariablesSchema.safeParse(parsed);
-    return validated.success ? validated.data : {};
-  } catch {
-    return {};
+    if (!validated.success) {
+      throw new ValidationError("Stored application build secrets are invalid");
+    }
+    return validated.data;
+  } catch (error) {
+    if (error instanceof ValidationError) throw error;
+    // A persisted secret must never silently disappear. Treat malformed or
+    // undecryptable data as a deployment error instead of selecting a build
+    // path that runs without the configured credentials.
+    throw new ValidationError("Stored application build secrets are invalid");
   }
 }

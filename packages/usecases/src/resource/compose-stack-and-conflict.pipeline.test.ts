@@ -46,6 +46,7 @@ services:
         "network_mode: container:foreign-container",
         "pid: service:foreign-service",
         "ipc: container:foreign-container",
+        "cgroup: host",
       ]) {
         expect(() =>
           validateComposeSecurity(`
@@ -230,6 +231,248 @@ volumes:
       ).toThrow("invalid resource name");
     });
 
+    test("rejects invalid or missing service maps before Docker execution", () => {
+      expect(() => validateComposeSecurity("true")).toThrow(
+        "Compose document must be a mapping",
+      );
+
+      expect(() => validateComposeSecurity("version: '3.9'")).toThrow(
+        "Compose services must be a non-empty mapping",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  ../escape:
+    image: nginx
+`),
+      ).toThrow("Compose service '../escape' has an invalid resource name");
+    });
+
+    test("rejects unknown future Compose fields at every control boundary", () => {
+      expect(() =>
+        validateComposeSecurity(`
+future_deployment_policy: unrestricted
+services:
+  web:
+    image: nginx
+`),
+      ).toThrow(
+        "Compose document contains unsupported field 'future_deployment_policy'",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    future_runtime_control: true
+`),
+      ).toThrow(
+        "Compose service 'web' contains unsupported field 'future_runtime_control'",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    build:
+      context: .
+      future_cache_policy: host
+`),
+      ).toThrow(
+        "Compose service 'web' build contains unsupported field 'future_cache_policy'",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      update_config:
+        future_rollout_control: true
+`),
+      ).toThrow(
+        "Compose service 'web' deploy.update_config contains unsupported field 'future_rollout_control'",
+      );
+    });
+
+    test("rejects malformed nested control shapes instead of skipping validation", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy: []
+`),
+      ).toThrow("Compose service 'web' deploy must be a mapping");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    build: []
+`),
+      ).toThrow("Compose service 'web' build must be a mapping or string");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    healthcheck: true
+`),
+      ).toThrow("Compose service 'web' healthcheck must be a mapping or array");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      resources: []
+`),
+      ).toThrow("Compose service 'web' deploy.resources must be a mapping");
+
+      for (const [field, value, expected] of [
+        ["cap_add", "SYS_ADMIN", "must be an array"],
+        ["devices", "/dev/kvm:/dev/kvm", "must be an array"],
+        ["security_opt", "label=disable", "must be an array"],
+        ["volumes", "./host:/data", "must be an array"],
+        ["sysctls", "net.ipv4.ip_forward=1", "must be a mapping or array"],
+        ["privileged", "1", "must be a boolean"],
+        ["network_mode", true, "must be a string"],
+      ] as const) {
+        expect(() =>
+          validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    ${field}: ${typeof value === "string" ? value : String(value).toLowerCase()}
+`),
+        ).toThrow(`Compose service 'web' ${field} ${expected}`);
+      }
+    });
+
+    test("accepts a bounded standard Compose deployment shape", () => {
+      expect(() =>
+        validateComposeSecurity(`
+name: bounded-app
+services:
+  web:
+    image: nginx:1.27
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_ENV: production
+    environment:
+      APP_ENV: production
+    ports:
+      - "8080:8080"
+    volumes:
+      - app-data:/var/lib/app
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+networks:
+  app:
+    driver: overlay
+volumes:
+  app-data:
+    driver: local
+`),
+      ).not.toThrow();
+    });
+
+    test("rejects external logging drivers and unreviewed logging options", () => {
+      for (const driver of [
+        "syslog",
+        "fluentd",
+        "gelf",
+        "journald",
+        "splunk",
+      ]) {
+        expect(() =>
+          validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    logging:
+      driver: ${driver}
+`),
+        ).toThrow("uses an unsupported logging driver");
+      }
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    logging:
+      driver: json-file
+      options:
+        plugin-endpoint: http://collector
+`),
+      ).toThrow("uses an unsupported logging option");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: true
+`),
+      ).toThrow("logging option 'max-size' is invalid");
+    });
+
+    test("accepts bounded built-in logging configuration", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+        compress: "true"
+`),
+      ).not.toThrow();
+    });
+
     test("rejects unsafe security options (seccomp:unconfined, apparmor:unconfined)", () => {
       const compose = `
 services:
@@ -241,6 +484,30 @@ services:
       expect(() => validateComposeSecurity(compose)).toThrow(
         "requests unsafe security option 'seccomp=unconfined'",
       );
+    });
+
+    test("rejects terminal and mixed-separator traversal in file-backed resources", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+configs:
+  app-config:
+    file: generated/..
+`),
+      ).toThrow("Compose config 'app-config' uses an unsafe file path");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+secrets:
+  app-secret:
+    file: generated\\..\\secret
+`),
+      ).toThrow("Compose secret 'app-secret' uses an unsafe file path");
     });
 
     test("rejects Compose paths that can escape the generated deployment directory", () => {
@@ -339,6 +606,28 @@ services:
       network: host
 `),
       ).toThrow("requests host networking during build");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      privileged: true
+`),
+      ).toThrow("requests privileged build execution");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
+      platforms:
+        - linux/amd64
+        - linux/arm64
+`),
+      ).toThrow("requests cross-platform build targets");
 
       expect(() =>
         validateComposeSecurity(`

@@ -56,12 +56,26 @@ const canonicalize = (value) => {
 if (evidence.schema !== "upstand.installation-recovery-evidence.v1" || evidence.scope !== "installation") {
   fail("installation recovery evidence schema or scope is invalid");
 }
+if (evidence.evidence_mode !== "live") {
+  fail("installation recovery evidence must be marked as a live rehearsal");
+}
 if (evidence.result !== "passed" || evidence.data_assertion !== true || evidence.restore_verified !== true) {
   fail("installation recovery evidence must record a passed data restore assertion");
 }
-boundedReference(evidence.installation_id, "installation_id");
+const installationId = boundedReference(evidence.installation_id, "installation_id");
 boundedReference(evidence.backup_artifact_reference, "backup_artifact_reference");
-boundedReference(evidence.restore_target, "restore_target");
+const restoreTarget = boundedReference(evidence.restore_target, "restore_target");
+if (restoreTarget === installationId) {
+  fail("installation recovery evidence restore_target must differ from installation_id");
+}
+for (const field of ["offsite_destination_reference", "key_escrow_reference", "restore_execution_reference"]) {
+  boundedReference(evidence[field], field);
+}
+for (const field of ["backup_artifact_sha256", "restore_data_sha256"]) {
+  if (typeof evidence[field] !== "string" || !/^[a-fA-F0-9]{64}$/.test(evidence[field])) {
+    fail(`${field} must be a SHA-256 digest`);
+  }
+}
 boundedReference(evidence.release_ref, "release_ref");
 for (const field of ["offsite_destination_verified", "immutable_retention_verified", "key_escrow_verified"]) {
   if (evidence[field] !== true) fail(`installation recovery evidence is missing ${field}`);

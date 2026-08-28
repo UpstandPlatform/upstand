@@ -86,7 +86,7 @@ import {
   createDockerResourceCommandBrokerClient,
   type DockerResourceCommandBrokerPort,
 } from "./docker-broker-client";
-import { getDockerInstance } from "./docker-client";
+import { getDockerInstance, readDockerBrokerToken } from "./docker-client";
 import { createPinnedGitSshEnvironment, isSshGitUrl } from "./git-host-key";
 import {
   getRailpackArtifact,
@@ -138,6 +138,12 @@ const SENSITIVE_DOCKER_BUILD_ARGUMENT_MARKERS = [
   "access_key",
   "accesskey",
 ] as const;
+const DOCKER_BUILD_SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,255}$/;
+const MAX_DOCKER_BUILD_SECRETS = 64;
+const MAX_DOCKER_BUILD_SECRET_BYTES = 16 * 1024;
+const MAX_DOCKER_BUILD_SECRET_TOTAL_BYTES = 512 * 1024;
+const MAX_DOCKER_PROCESS_ENVIRONMENT_VARIABLES = 256;
+const MAX_DOCKER_PROCESS_ENVIRONMENT_TOTAL_BYTES = 512 * 1024;
 
 function validateDockerBuildArguments(buildArgs: Record<string, string>): void {
   const entries = Object.entries(buildArgs);
@@ -167,9 +173,56 @@ function validateDockerBuildArguments(buildArgs: Record<string, string>): void {
   }
 }
 
+function validateDockerEnvironmentShape(
+  environment: Record<string, string>,
+  options: {
+    label: string;
+    maxEntries: number;
+    maxTotalBytes: number;
+    countError?: string;
+    aggregateError?: string;
+  },
+): void {
+  const entries = Object.entries(environment);
+  if (entries.length > options.maxEntries) {
+    throw new Error(
+      options.countError ?? `${options.label} exceeds its variable-count limit`,
+    );
+  }
+  let totalBytes = 0;
+  for (const [name, value] of entries) {
+    if (
+      !DOCKER_BUILD_SECRET_NAME_PATTERN.test(name) ||
+      [...name, ...value].some(
+        (character) => character.charCodeAt(0) < 0x20 || character === "\u007f",
+      ) ||
+      Buffer.byteLength(value, "utf8") > MAX_DOCKER_BUILD_SECRET_BYTES
+    ) {
+      throw new Error(
+        `${options.label} '${name}' has an invalid name or value`,
+      );
+    }
+    totalBytes +=
+      Buffer.byteLength(name, "utf8") + Buffer.byteLength(value, "utf8");
+    if (totalBytes > options.maxTotalBytes) {
+      throw new Error(
+        options.aggregateError ??
+          `${options.label} exceeds its aggregate size limit`,
+      );
+    }
+  }
+}
+
 function validateDockerBuildSecretEnvironment(
   buildSecrets: Record<string, string>,
 ): void {
+  validateDockerEnvironmentShape(buildSecrets, {
+    label: "Docker build secret",
+    maxEntries: MAX_DOCKER_BUILD_SECRETS,
+    maxTotalBytes: MAX_DOCKER_BUILD_SECRET_TOTAL_BYTES,
+    countError: "Docker build secrets exceed their limit",
+    aggregateError: "Docker build secrets exceed their aggregate size limit",
+  });
   for (const name of Object.keys(buildSecrets)) {
     if (COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase())) {
       throw new Error(
@@ -188,15 +241,21 @@ function getMinimalCommandEnv(): Record<string, string> {
   );
 }
 
-function getComposeCliEnvironment(
+export function getComposeCliEnvironment(
   resourceEnvironment: Record<string, string>,
 ): NodeJS.ProcessEnv {
-  return Object.fromEntries(
+  const safeEnvironment = Object.fromEntries(
     Object.entries(resourceEnvironment).filter(
       ([name]) =>
         !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase()),
     ),
-  ) as NodeJS.ProcessEnv;
+  );
+  validateDockerEnvironmentShape(safeEnvironment, {
+    label: "Docker Compose environment",
+    maxEntries: MAX_DOCKER_PROCESS_ENVIRONMENT_VARIABLES,
+    maxTotalBytes: MAX_DOCKER_PROCESS_ENVIRONMENT_TOTAL_BYTES,
+  });
+  return safeEnvironment as NodeJS.ProcessEnv;
 }
 
 function isDockerTarget(value: unknown): value is Docker {
@@ -247,6 +306,7 @@ function stopReadableStream(stream: NodeJS.ReadableStream): void {
 
 const DEFAULT_CONTAINER_COMMAND_TIMEOUT_SECONDS = 300;
 const MAX_CONTAINER_COMMAND_OUTPUT_BYTES = 50 * 1024 * 1024;
+const MAX_DOCKER_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_RESOURCE_COMMAND_BYTES = 32 * 1024;
 const MAX_WEB_SERVER_LOG_BYTES = 5 * 1024 * 1024;
 const WEB_SERVER_COMMAND_TIMEOUT_MS = 30_000;
@@ -3112,6 +3172,11 @@ export class DockerService implements DockerSwarmManagementPort {
           !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase()),
       ),
     );
+    validateDockerEnvironmentShape(safeEnvironment, {
+      label: "Docker build environment",
+      maxEntries: MAX_DOCKER_PROCESS_ENVIRONMENT_VARIABLES,
+      maxTotalBytes: MAX_DOCKER_PROCESS_ENVIRONMENT_TOTAL_BYTES,
+    });
     return {
       ...getInheritedEnv(safeEnvironment),
       ...(resourceId ? this.getDockerCommandEnvironment(resourceId) : {}),
@@ -3126,7 +3191,9 @@ export class DockerService implements DockerSwarmManagementPort {
     }
     const inheritedHeaders = (
       this.commandEnvironment.DOCKER_CUSTOM_HEADERS ??
-      process.env.DOCKER_CUSTOM_HEADERS ??
+      (Object.keys(this.commandEnvironment).length === 0
+        ? process.env.DOCKER_CUSTOM_HEADERS
+        : undefined) ??
       ""
     )
       .split(",")
@@ -3140,7 +3207,54 @@ export class DockerService implements DockerSwarmManagementPort {
           !header.toLowerCase().startsWith("x-upstand-server-id="),
       );
     const scopeHeaders = readDeploymentScopeHeaders();
+    const transportSource =
+      Object.keys(this.commandEnvironment).length > 0
+        ? this.commandEnvironment
+        : process.env;
+    const dockerHost = transportSource.DOCKER_HOST?.trim();
+    const transportEnvironment: Record<string, string | undefined> = {};
+    for (const name of [
+      "DOCKER_HOST",
+      "DOCKER_TLS_VERIFY",
+      "DOCKER_CERT_PATH",
+    ]) {
+      const value = transportSource[name];
+      if (value !== undefined) transportEnvironment[name] = value;
+    }
+
+    // Dockerode receives the broker token through its HTTP client options,
+    // while Docker CLI reads custom headers from the environment. Preserve
+    // the same caller identity for Compose, Stack, BuildKit, and other CLI
+    // subprocesses. Only the fixed in-stack broker authority is eligible for
+    // this translation; remote Docker tunnels do not receive a broker token.
+    if (dockerHost) {
+      let parsedHost: URL | undefined;
+      try {
+        parsedHost = new URL(dockerHost);
+      } catch {
+        // Docker's Unix socket and tunnel forms do not need broker headers.
+      }
+      if (
+        parsedHost &&
+        (parsedHost.protocol === "http:" || parsedHost.protocol === "https:") &&
+        parsedHost.hostname === "docker-broker"
+      ) {
+        const brokerToken = readDockerBrokerToken();
+        const brokerCaller =
+          transportSource.UPSTAND_DOCKER_BROKER_CALLER?.trim();
+        if (!brokerToken || !brokerCaller) {
+          throw new Error(
+            "Docker broker CLI transport requires a broker token and caller identity",
+          );
+        }
+        inheritedHeaders.push(
+          `X-Upstand-Docker-Broker-Token=${brokerToken}`,
+          `X-Upstand-Docker-Caller=${brokerCaller}`,
+        );
+      }
+    }
     return {
+      ...transportEnvironment,
       DOCKER_CUSTOM_HEADERS: [
         ...inheritedHeaders,
         `X-Upstand-Resource-ID=${resourceId}`,
@@ -3217,6 +3331,21 @@ export class DockerService implements DockerSwarmManagementPort {
     constraints?: string[],
     envVars?: Record<string, string>,
   ): Promise<void> {
+    const configuredCaller = (
+      this.commandEnvironment.UPSTAND_DOCKER_BROKER_CALLER ??
+      (Object.keys(this.commandEnvironment).length === 0
+        ? process.env.UPSTAND_DOCKER_BROKER_CALLER
+        : undefined)
+    )?.trim();
+    if (
+      Object.keys(this.commandEnvironment).length === 0 &&
+      configuredCaller === "deployment-worker" &&
+      !this.resourceCommandBroker
+    ) {
+      throw new Error(
+        "Deployment-worker Compose orchestration requires the authenticated Docker broker",
+      );
+    }
     const stackName = this.sanitizeName(resource.appName || resource.name);
     const deploymentNetwork = await this.ensureDeploymentNetwork(resource);
 
@@ -4508,12 +4637,24 @@ export class DockerService implements DockerSwarmManagementPort {
       resourceId?: string;
       timeoutMs?: number;
       inheritEnvironment?: boolean;
+      maxOutputBytes?: number;
     } = {},
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
       let cancelled = false;
+      let outputExceeded = false;
+      let outputBytes = 0;
       const startedAt = Date.now();
+      const requestedMaxOutputBytes = options.maxOutputBytes;
+      const maxOutputBytes =
+        requestedMaxOutputBytes !== undefined &&
+        Number.isFinite(requestedMaxOutputBytes)
+          ? Math.min(
+              MAX_DOCKER_COMMAND_OUTPUT_BYTES,
+              Math.max(1, Math.floor(requestedMaxOutputBytes)),
+            )
+          : MAX_DOCKER_COMMAND_OUTPUT_BYTES;
       const commandEnvironment = {
         ...(options.inheritEnvironment === false
           ? getMinimalCommandEnv()
@@ -4558,24 +4699,44 @@ export class DockerService implements DockerSwarmManagementPort {
         callback();
       };
 
-      p.stdout.on("data", (data) => {
-        onLog(redactCommandOutput(data.toString(), options.redactions ?? []));
-      });
+      const handleOutput = (data: Buffer | string) => {
+        if (settled || outputExceeded) return;
+        const chunk = typeof data === "string" ? Buffer.from(data) : data;
+        outputBytes += chunk.byteLength;
+        if (outputBytes > maxOutputBytes) {
+          outputExceeded = true;
+          cancelled = true;
+          onLog(
+            `Command '${cmd}' output exceeded the ${maxOutputBytes}-byte limit; terminating it.\n`,
+          );
+          p.kill("SIGTERM");
+          return;
+        }
+        onLog(redactCommandOutput(chunk.toString(), options.redactions ?? []));
+      };
 
-      p.stderr.on("data", (data) => {
-        onLog(redactCommandOutput(data.toString(), options.redactions ?? []));
-      });
+      p.stdout.on("data", handleOutput);
+      p.stderr.on("data", handleOutput);
 
       p.on("close", (code) => {
         finish(() => {
           if (cancelled) {
-            reject(
-              new Error(
-                options.timeoutMs && Date.now() >= startedAt + options.timeoutMs
-                  ? `Command '${cmd}' timed out after ${Math.ceil(options.timeoutMs / 1000)} seconds`
-                  : "Deployment cancellation requested",
-              ),
-            );
+            if (outputExceeded) {
+              reject(
+                new Error(
+                  `Command '${cmd}' output exceeded the ${maxOutputBytes}-byte limit`,
+                ),
+              );
+            } else {
+              reject(
+                new Error(
+                  options.timeoutMs &&
+                    Date.now() >= startedAt + options.timeoutMs
+                    ? `Command '${cmd}' timed out after ${Math.ceil(options.timeoutMs / 1000)} seconds`
+                    : "Deployment cancellation requested",
+                ),
+              );
+            }
           } else if (code === 0) {
             resolve();
           } else {

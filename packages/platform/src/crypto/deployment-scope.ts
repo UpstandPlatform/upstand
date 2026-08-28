@@ -3,8 +3,13 @@ import { createHmac, randomBytes } from "node:crypto";
 import fs from "node:fs";
 
 const DEPLOYMENT_SCOPE_VERSION = "v1";
-const DEPLOYMENT_SCOPE_TTL_MS = 24 * 60 * 60 * 1_000;
+// Keep the grant window short enough to limit replay after a worker
+// compromise, while allowing the broker's 30-minute build operations and
+// deployment retries to complete without minting a second grant.
+const DEPLOYMENT_SCOPE_TTL_MS = 2 * 60 * 60 * 1_000;
 const MINIMUM_SCOPE_SECRET_BYTES = 32;
+const DEPLOYMENT_SCOPE_IDENTIFIER_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const deploymentScopeStorage = new AsyncLocalStorage<{
   token?: string;
 }>();
@@ -47,6 +52,15 @@ export function createDeploymentScopeToken(input: {
   serverId: string;
   now?: number;
 }): string | undefined {
+  for (const [name, value] of Object.entries({
+    resourceId: input.resourceId,
+    deploymentId: input.deploymentId,
+    serverId: input.serverId,
+  })) {
+    if (!DEPLOYMENT_SCOPE_IDENTIFIER_PATTERN.test(value)) {
+      throw new Error(`Deployment scope ${name} is invalid`);
+    }
+  }
   const secret = readScopeSecret();
   if (!secret) return undefined;
   const issuedAt = input.now ?? Date.now();

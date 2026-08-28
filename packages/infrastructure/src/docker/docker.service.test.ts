@@ -7,6 +7,7 @@ import yaml from "yaml";
 import {
   applyComposePlacementConstraints,
   DockerService,
+  getComposeCliEnvironment,
   redactCommandOutput,
   shouldSuppressComposeRestart,
 } from "./docker.service";
@@ -81,6 +82,166 @@ describe("deployment command log safety", () => {
     );
   });
 
+  test("rejects malformed or unbounded build environments before subprocesses", () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      undefined,
+    ) as unknown as {
+      getBuildEnvironment: (
+        envVars: Record<string, string>,
+        resourceId: string,
+      ) => NodeJS.ProcessEnv;
+    };
+
+    expect(() =>
+      service.getBuildEnvironment({ "BAD-NAME": "value" }, "resource-1"),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      service.getBuildEnvironment({ VALID_NAME: "value\u0000" }, "resource-1"),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      service.getBuildEnvironment(
+        { VALID_NAME: "x".repeat(16 * 1024 + 1) },
+        "resource-1",
+      ),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      service.getBuildEnvironment(
+        Object.fromEntries(
+          Array.from({ length: 33 }, (_, index) => [
+            `SECRET_${index}`,
+            "x".repeat(16 * 1024),
+          ]),
+        ),
+        "resource-1",
+      ),
+    ).toThrow("aggregate size limit");
+  });
+
+  test("bounds the Compose subprocess environment after filtering Docker controls", () => {
+    expect(
+      getComposeCliEnvironment({
+        DOCKER_HOST: "tcp://attacker.example:2375",
+        VALID_NAME: "value",
+      }),
+    ).toEqual({ VALID_NAME: "value" });
+    expect(() => getComposeCliEnvironment({ "BAD-NAME": "value" })).toThrow(
+      "has an invalid name or value",
+    );
+    expect(() =>
+      getComposeCliEnvironment({ VALID_NAME: "value\u0000" }),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      getComposeCliEnvironment({
+        VALID_NAME: "x".repeat(16 * 1024 + 1),
+      }),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      getComposeCliEnvironment(
+        Object.fromEntries(
+          Array.from({ length: 33 }, (_, index) => [
+            `VARIABLE_${index}`,
+            "x".repeat(16 * 1024),
+          ]),
+        ),
+      ),
+    ).toThrow("aggregate size limit");
+  });
+
+  test("preserves the authenticated local broker transport for CLI subprocesses", () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-broker-cli-"),
+    );
+    const tokenFile = path.join(directory, "broker-token");
+    const previous = {
+      DOCKER_HOST: process.env.DOCKER_HOST,
+      DOCKER_TLS_VERIFY: process.env.DOCKER_TLS_VERIFY,
+      DOCKER_CERT_PATH: process.env.DOCKER_CERT_PATH,
+      UPSTAND_DOCKER_BROKER_TOKEN_FILE:
+        process.env.UPSTAND_DOCKER_BROKER_TOKEN_FILE,
+      UPSTAND_DOCKER_BROKER_CALLER: process.env.UPSTAND_DOCKER_BROKER_CALLER,
+      DOCKER_CUSTOM_HEADERS: process.env.DOCKER_CUSTOM_HEADERS,
+    };
+    process.env.DOCKER_HOST = "https://docker-broker:2375";
+    process.env.DOCKER_TLS_VERIFY = "1";
+    process.env.DOCKER_CERT_PATH = "/run/secrets";
+    process.env.UPSTAND_DOCKER_BROKER_TOKEN_FILE = tokenFile;
+    process.env.UPSTAND_DOCKER_BROKER_CALLER = "server";
+    process.env.DOCKER_CUSTOM_HEADERS =
+      "X-Test=preserved,X-Upstand-Resource-ID=stale";
+    fs.writeFileSync(tokenFile, "b".repeat(64), { mode: 0o600 });
+
+    try {
+      const service = new DockerService(
+        {} as never,
+        {},
+        {} as unknown as DockerResourceCommandBrokerPort,
+      ) as unknown as {
+        getDockerCommandEnvironment: (
+          resourceId: string,
+        ) => Record<string, string | undefined>;
+      };
+      const environment = service.getDockerCommandEnvironment("resource-1");
+
+      expect(environment.DOCKER_HOST).toBe("https://docker-broker:2375");
+      expect(environment.DOCKER_TLS_VERIFY).toBe("1");
+      expect(environment.DOCKER_CERT_PATH).toBe("/run/secrets");
+      expect(environment.DOCKER_CUSTOM_HEADERS).toContain(
+        `X-Upstand-Docker-Broker-Token=${"b".repeat(64)}`,
+      );
+      expect(environment.DOCKER_CUSTOM_HEADERS).toContain(
+        "X-Upstand-Docker-Caller=server",
+      );
+      expect(environment.DOCKER_CUSTOM_HEADERS).toContain(
+        "X-Upstand-Resource-ID=resource-1",
+      );
+      expect(environment.DOCKER_CUSTOM_HEADERS).not.toContain("stale");
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed when the deployment worker has no Docker broker", async () => {
+    const previous = {
+      DOCKER_HOST: process.env.DOCKER_HOST,
+      UPSTAND_DOCKER_BROKER_CALLER: process.env.UPSTAND_DOCKER_BROKER_CALLER,
+    };
+    delete process.env.DOCKER_HOST;
+    process.env.UPSTAND_DOCKER_BROKER_CALLER = "deployment-worker";
+
+    try {
+      const service = new DockerService({} as never, {}, undefined);
+
+      await expect(
+        service.deployComposeStack(
+          {
+            id: "resource-1",
+            name: "Resource 1",
+            appName: "resource-1",
+            type: "compose",
+            composeType: "compose",
+            advancedConfig: "{}",
+            envVars: null,
+          } as never,
+          "services:\n  app:\n    image: alpine:3.20\n",
+          () => {},
+        ),
+      ).rejects.toThrow(
+        "Deployment-worker Compose orchestration requires the authenticated Docker broker",
+      );
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
   test("does not inherit control-plane secrets into isolated command environments", async () => {
     const key = `UPSTAND_TEST_CONTROL_PLANE_SECRET_${process.pid}`;
     const sentinel = "control-plane-secret";
@@ -112,6 +273,31 @@ describe("deployment command log safety", () => {
       if (previous === undefined) delete process.env[key];
       else process.env[key] = previous;
     }
+  });
+
+  test("terminates commands that exceed the bounded streamed output limit", async () => {
+    const service = new DockerService({} as never) as unknown as {
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (log: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { maxOutputBytes?: number },
+      ) => Promise<void>;
+    };
+    const output: string[] = [];
+
+    await expect(
+      service.runCommandAsync(
+        process.execPath,
+        ["-e", "process.stdout.write('x'.repeat(4096))"],
+        (log) => output.push(log),
+        undefined,
+        { maxOutputBytes: 1_024 },
+      ),
+    ).rejects.toThrow("output exceeded the 1024-byte limit");
+    expect(output.join("")).toContain("output exceeded the 1024-byte limit");
+    expect(output.join("")).not.toContain("x".repeat(1_024));
   });
 
   test("fails closed when placement constraints cannot be applied", () => {
@@ -607,7 +793,7 @@ services:
     volumes: [data:/var/lib/data]
 networks:
   private:
-      volumes:
+volumes:
   data:
 `,
       () => {},
@@ -1172,6 +1358,82 @@ networks:
       ).rejects.toThrow(
         "cannot override Docker or Compose control environment",
       );
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects malformed or unbounded Docker build secrets before execution", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-invalid-secret-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "FROM alpine:3.20\n",
+    );
+    const config = {
+      dockerfilePath: "Dockerfile",
+      dockerContextPath: ".",
+      dockerNoCache: false,
+      dockerBuildStage: undefined,
+      dockerBuildArgs: {},
+      dockerCleanupCache: false,
+    };
+    const build = (buildSecrets: Record<string, string>) =>
+      service.buildDockerfileImage(
+        "resource-1",
+        contextPath,
+        "upstand-app-resource-1:latest",
+        config,
+        {},
+        () => {},
+        buildSecrets,
+        false,
+      );
+
+    try {
+      await expect(build({ "BAD-NAME": "value" })).rejects.toThrow(
+        "has an invalid name or value",
+      );
+      await expect(build({ VALID_NAME: "value\u0000" })).rejects.toThrow(
+        "has an invalid name or value",
+      );
+      await expect(
+        build({ VALID_NAME: "x".repeat(16 * 1024 + 1) }),
+      ).rejects.toThrow("has an invalid name or value");
+      await expect(
+        build(
+          Object.fromEntries(
+            Array.from({ length: 65 }, (_, index) => [`SECRET_${index}`, "x"]),
+          ),
+        ),
+      ).rejects.toThrow("exceed their limit");
+      await expect(
+        build({
+          ...Object.fromEntries(
+            Array.from({ length: 33 }, (_, index) => [
+              `SECRET_${index}`,
+              "x".repeat(16 * 1024),
+            ]),
+          ),
+        }),
+      ).rejects.toThrow("aggregate size limit");
     } finally {
       fs.rmSync(contextPath, { recursive: true, force: true });
     }

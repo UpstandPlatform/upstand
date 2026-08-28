@@ -50,4 +50,19 @@ describe("resource credential storage", () => {
       ResourceCredentialsError,
     );
   });
+
+  test("keeps preview credential overrides encrypted", () => {
+    const stored = serializeResourceCredentials({
+      repositoryUrl: "https://github.com/UpstandPlatform/upstand.git",
+      branch: "main",
+    });
+    const parsed = parseResourceCredentialsStrict(stored);
+    parsed.branch = "preview-branch";
+    const updated = serializeResourceCredentials(parsed);
+
+    expect(updated).not.toContain("preview-branch");
+    expect(parseResourceCredentialsStrict(updated).branch).toBe(
+      "preview-branch",
+    );
+  });
 });

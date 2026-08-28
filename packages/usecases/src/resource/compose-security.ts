@@ -1,4 +1,5 @@
 import yaml from "yaml";
+import { COMPOSE_DOCUMENT_MAX_BYTES } from "./compose-document.schema";
 import { isUnknownRecord } from "./docker-values";
 
 const HOST_PATH_PATTERN = /^(?:[a-zA-Z]:[\\/]|[\\/]{2}|[\\/~]|\.\.?[\\/])/;
@@ -27,6 +28,539 @@ const SENSITIVE_BUILD_ARGUMENT_MARKERS = [
   "access_key",
   "accesskey",
 ] as const;
+
+// Compose is an extensible format, but unknown fields are not safe to pass
+// through a host-control boundary: a newer CLI can assign new meaning to a
+// field after this policy was reviewed. Keep the supported surface explicit
+// and allow only the standard x-* extension namespace for anchor fragments.
+const COMPOSE_TOP_LEVEL_FIELDS = new Set([
+  "version",
+  "name",
+  "services",
+  "networks",
+  "volumes",
+  "configs",
+  "secrets",
+]);
+const COMPOSE_SERVICE_FIELDS = new Set([
+  "annotations",
+  "attach",
+  "blkio_config",
+  "build",
+  "cap_add",
+  "cap_drop",
+  "cgroup",
+  "cgroup_parent",
+  "cgroupns",
+  "command",
+  "configs",
+  "container_name",
+  "cpu_count",
+  "cpu_percent",
+  "cpu_period",
+  "cpu_quota",
+  "cpu_rt_period",
+  "cpu_rt_runtime",
+  "cpu_shares",
+  "cpus",
+  "cpuset",
+  "depends_on",
+  "deploy",
+  "device_cgroup_rules",
+  "devices",
+  "dns",
+  "dns_opt",
+  "dns_search",
+  "domainname",
+  "entrypoint",
+  "env_file",
+  "environment",
+  "expose",
+  "extends",
+  "external_links",
+  "extra_hosts",
+  "gpus",
+  "group_add",
+  "healthcheck",
+  "hostname",
+  "image",
+  "init",
+  "ipc",
+  "isolation",
+  "labels",
+  "links",
+  "logging",
+  "mac_address",
+  "mem_limit",
+  "mem_reservation",
+  "mem_swappiness",
+  "memswap_limit",
+  "memswap_reservation",
+  "network_mode",
+  "networks",
+  "oom_kill_disable",
+  "oom_score_adj",
+  "pid",
+  "pids_limit",
+  "platform",
+  "ports",
+  "post_start",
+  "pre_stop",
+  "privileged",
+  "profiles",
+  "pull_policy",
+  "read_only",
+  "restart",
+  "runtime",
+  "scale",
+  "security_opt",
+  "secrets",
+  "shm_size",
+  "stdin_open",
+  "stop_grace_period",
+  "stop_signal",
+  "storage_opt",
+  "sysctls",
+  "tmpfs",
+  "tty",
+  "ulimits",
+  "user",
+  "uts",
+  "userns_mode",
+  "volumes",
+  "volumes_from",
+  "working_dir",
+]);
+const COMPOSE_BUILD_FIELDS = new Set([
+  "additional_contexts",
+  "args",
+  "cache_from",
+  "cache_to",
+  "context",
+  "dockerfile",
+  "dockerfile_inline",
+  "entitlements",
+  "network",
+  "platforms",
+  "privileged",
+  "provenance",
+  "sbom",
+  "secrets",
+  "ssh",
+  "target",
+]);
+const COMPOSE_DEPLOY_FIELDS = new Set([
+  "cap_add",
+  "cap_drop",
+  "devices",
+  "device_cgroup_rules",
+  "endpoint_mode",
+  "labels",
+  "mode",
+  "placement",
+  "privileged",
+  "replicas",
+  "replicas_max_per_node",
+  "resources",
+  "restart_policy",
+  "rollback_config",
+  "security_opt",
+  "sysctls",
+  "update_config",
+]);
+const COMPOSE_RESOURCE_LIMIT_FIELDS = new Set(["cpus", "memory", "pids"]);
+const COMPOSE_RESOURCE_RESERVATION_FIELDS = new Set([
+  "cpus",
+  "devices",
+  "generic_resources",
+  "memory",
+]);
+const COMPOSE_RESTART_FIELDS = new Set([
+  "condition",
+  "delay",
+  "max_attempts",
+  "window",
+]);
+const COMPOSE_PLACEMENT_FIELDS = new Set([
+  "constraints",
+  "max_replicas_per_node",
+  "platforms",
+  "preferences",
+]);
+const COMPOSE_UPDATE_FIELDS = new Set([
+  "delay",
+  "failure_action",
+  "max_failure_ratio",
+  "monitor",
+  "order",
+  "parallelism",
+]);
+const COMPOSE_NETWORK_FIELDS = new Set([
+  "attachable",
+  "driver",
+  "driver_opts",
+  "enable_ipv4",
+  "enable_ipv6",
+  "external",
+  "ipam",
+  "internal",
+  "labels",
+  "name",
+]);
+const COMPOSE_VOLUME_FIELDS = new Set([
+  "driver",
+  "driver_opts",
+  "external",
+  "labels",
+  "name",
+]);
+const COMPOSE_FILE_RESOURCE_FIELDS = new Set([
+  "content",
+  "environment",
+  "external",
+  "file",
+  "name",
+  "template_driver",
+]);
+const COMPOSE_LOGGING_OPTION_FIELDS = new Set([
+  "max-size",
+  "max-file",
+  "compress",
+  "labels",
+  "env",
+]);
+
+function isComposeExtensionField(field: string): boolean {
+  return /^x-[a-z0-9][a-z0-9_.-]{0,63}$/i.test(field);
+}
+
+function validateComposeFieldSet(
+  value: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  location: string,
+): void {
+  for (const field of Object.keys(value)) {
+    if (!allowed.has(field) && !isComposeExtensionField(field)) {
+      throw new Error(`${location} contains unsupported field '${field}'`);
+    }
+  }
+}
+
+function validateComposeNestedFieldSet(
+  value: unknown,
+  allowed: ReadonlySet<string>,
+  location: string,
+  shape: "mapping" | "mapping-or-string" | "mapping-or-array" = "mapping",
+): void {
+  if (value === undefined) return;
+
+  if (isUnknownRecord(value)) {
+    validateComposeFieldSet(value, allowed, location);
+    return;
+  }
+
+  const acceptsString = shape === "mapping-or-string";
+  const acceptsArray = shape === "mapping-or-array";
+  if (
+    (acceptsString && typeof value === "string") ||
+    (acceptsArray && Array.isArray(value))
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `${location} must be a mapping${
+      acceptsString ? " or string" : acceptsArray ? " or array" : ""
+    }`,
+  );
+}
+
+function requireComposeArray(
+  value: unknown,
+  location: string,
+): asserts value is unknown[] | undefined {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new Error(`${location} must be an array`);
+  }
+}
+
+function requireComposeMapping(
+  value: unknown,
+  location: string,
+): asserts value is Record<string, unknown> | undefined {
+  if (value !== undefined && !isUnknownRecord(value)) {
+    throw new Error(`${location} must be a mapping`);
+  }
+}
+
+function requireComposeString(value: unknown, location: string): void {
+  if (value !== undefined && typeof value !== "string") {
+    throw new Error(`${location} must be a string`);
+  }
+}
+
+function requireComposeBoolean(value: unknown, location: string): void {
+  if (
+    value !== undefined &&
+    typeof value !== "boolean" &&
+    !(typeof value === "string" && /^(?:true|false)$/i.test(value.trim()))
+  ) {
+    throw new Error(`${location} must be a boolean`);
+  }
+}
+
+function validateComposeServiceSecurityShapes(
+  serviceName: string,
+  service: Record<string, unknown>,
+): void {
+  for (const field of [
+    "cap_add",
+    "devices",
+    "device_cgroup_rules",
+    "external_links",
+    "security_opt",
+    "volumes",
+    "volumes_from",
+  ]) {
+    requireComposeArray(
+      service[field],
+      `Compose service '${serviceName}' ${field}`,
+    );
+  }
+  for (const field of ["blkio_config", "storage_opt"]) {
+    requireComposeMapping(
+      service[field],
+      `Compose service '${serviceName}' ${field}`,
+    );
+  }
+  requireComposeArrayOrMappingOrString(
+    service.extra_hosts,
+    `Compose service '${serviceName}' extra_hosts`,
+  );
+  requireComposeArrayOrMapping(
+    service.sysctls,
+    `Compose service '${serviceName}' sysctls`,
+  );
+  requireComposeBoolean(
+    service.privileged,
+    `Compose service '${serviceName}' privileged`,
+  );
+  for (const field of [
+    "cgroup",
+    "cgroup_parent",
+    "cgroupns",
+    "ipc",
+    "network_mode",
+    "pid",
+    "userns_mode",
+    "uts",
+  ]) {
+    requireComposeString(
+      service[field],
+      `Compose service '${serviceName}' ${field}`,
+    );
+  }
+}
+
+function requireComposeArrayOrMapping(value: unknown, location: string): void {
+  if (value !== undefined && !Array.isArray(value) && !isUnknownRecord(value)) {
+    throw new Error(`${location} must be a mapping or array`);
+  }
+}
+
+function requireComposeArrayOrMappingOrString(
+  value: unknown,
+  location: string,
+): void {
+  if (
+    value !== undefined &&
+    !Array.isArray(value) &&
+    !isUnknownRecord(value) &&
+    typeof value !== "string"
+  ) {
+    throw new Error(`${location} must be a mapping, array, or string`);
+  }
+}
+
+function validateComposeShape(parsed: Record<string, unknown>): void {
+  validateComposeFieldSet(parsed, COMPOSE_TOP_LEVEL_FIELDS, "Compose document");
+
+  if (
+    !isUnknownRecord(parsed.services) ||
+    Object.keys(parsed.services).length === 0
+  ) {
+    throw new Error("Compose services must be a non-empty mapping");
+  }
+  for (const [serviceName, rawService] of Object.entries(parsed.services)) {
+    if (!COMPOSE_RESOURCE_KEY_PATTERN.test(serviceName)) {
+      throw new Error(
+        `Compose service '${serviceName}' has an invalid resource name`,
+      );
+    }
+    if (!isUnknownRecord(rawService)) {
+      throw new Error(`Compose service '${serviceName}' must be a mapping`);
+    }
+    validateComposeFieldSet(
+      rawService,
+      COMPOSE_SERVICE_FIELDS,
+      `Compose service '${serviceName}'`,
+    );
+    validateComposeServiceSecurityShapes(serviceName, rawService);
+    validateComposeNestedFieldSet(
+      rawService.build,
+      COMPOSE_BUILD_FIELDS,
+      `Compose service '${serviceName}' build`,
+      "mapping-or-string",
+    );
+    validateComposeNestedFieldSet(
+      rawService.deploy,
+      COMPOSE_DEPLOY_FIELDS,
+      `Compose service '${serviceName}' deploy`,
+    );
+    if (isUnknownRecord(rawService.deploy)) {
+      validateComposeNestedFieldSet(
+        rawService.deploy.resources,
+        new Set(["limits", "reservations"]),
+        `Compose service '${serviceName}' deploy.resources`,
+      );
+      if (isUnknownRecord(rawService.deploy.resources)) {
+        validateComposeNestedFieldSet(
+          rawService.deploy.resources.limits,
+          COMPOSE_RESOURCE_LIMIT_FIELDS,
+          `Compose service '${serviceName}' deploy.resources.limits`,
+        );
+        validateComposeNestedFieldSet(
+          rawService.deploy.resources.reservations,
+          COMPOSE_RESOURCE_RESERVATION_FIELDS,
+          `Compose service '${serviceName}' deploy.resources.reservations`,
+        );
+      }
+      validateComposeNestedFieldSet(
+        rawService.deploy.restart_policy,
+        COMPOSE_RESTART_FIELDS,
+        `Compose service '${serviceName}' deploy.restart_policy`,
+      );
+      validateComposeNestedFieldSet(
+        rawService.deploy.placement,
+        COMPOSE_PLACEMENT_FIELDS,
+        `Compose service '${serviceName}' deploy.placement`,
+      );
+      validateComposeNestedFieldSet(
+        rawService.deploy.update_config,
+        COMPOSE_UPDATE_FIELDS,
+        `Compose service '${serviceName}' deploy.update_config`,
+      );
+      validateComposeNestedFieldSet(
+        rawService.deploy.rollback_config,
+        COMPOSE_UPDATE_FIELDS,
+        `Compose service '${serviceName}' deploy.rollback_config`,
+      );
+    }
+    validateComposeNestedFieldSet(
+      rawService.healthcheck,
+      new Set([
+        "disable",
+        "interval",
+        "retries",
+        "start_period",
+        "test",
+        "timeout",
+      ]),
+      `Compose service '${serviceName}' healthcheck`,
+      "mapping-or-array",
+    );
+    validateComposeNestedFieldSet(
+      rawService.logging,
+      new Set(["driver", "options"]),
+      `Compose service '${serviceName}' logging`,
+    );
+    validateComposeLogging(serviceName, rawService.logging);
+  }
+
+  for (const [kind, allowed] of [
+    ["networks", COMPOSE_NETWORK_FIELDS],
+    ["volumes", COMPOSE_VOLUME_FIELDS],
+    ["configs", COMPOSE_FILE_RESOURCE_FIELDS],
+    ["secrets", COMPOSE_FILE_RESOURCE_FIELDS],
+  ] as const) {
+    const definitions = parsed[kind];
+    if (definitions !== undefined && !isUnknownRecord(definitions)) {
+      throw new Error(`Compose ${kind} must be a mapping`);
+    }
+    if (!isUnknownRecord(definitions)) continue;
+    for (const [name, definition] of Object.entries(definitions)) {
+      if (isUnknownRecord(definition)) {
+        validateComposeFieldSet(
+          definition,
+          allowed,
+          `Compose ${kind.slice(0, -1)} '${name}'`,
+        );
+        if (kind === "networks") {
+          validateComposeNestedFieldSet(
+            definition.ipam,
+            new Set(["config", "driver", "options"]),
+            `Compose network '${name}' ipam`,
+          );
+        }
+      }
+    }
+  }
+}
+
+function validateComposeLogging(serviceName: string, value: unknown): void {
+  if (value === undefined) return;
+  if (!isUnknownRecord(value)) {
+    throw new Error(
+      `Compose service '${serviceName}' logging must be a mapping`,
+    );
+  }
+
+  if (value.driver !== undefined) {
+    if (typeof value.driver !== "string") {
+      throw new Error(
+        `Compose service '${serviceName}' logging driver must be a string`,
+      );
+    }
+    const driver = value.driver.trim().toLowerCase();
+    if (driver !== "" && driver !== "json-file" && driver !== "local") {
+      throw new Error(
+        `Compose service '${serviceName}' uses an unsupported logging driver`,
+      );
+    }
+  }
+
+  if (value.options === undefined) return;
+  if (!isUnknownRecord(value.options)) {
+    throw new Error(
+      `Compose service '${serviceName}' logging options must be a mapping`,
+    );
+  }
+  const options = value.options;
+  if (Object.keys(options).length > 16) {
+    throw new Error(
+      `Compose service '${serviceName}' logging options are unbounded`,
+    );
+  }
+  for (const [name, option] of Object.entries(options)) {
+    if (!COMPOSE_LOGGING_OPTION_FIELDS.has(name.toLowerCase().trim())) {
+      throw new Error(
+        `Compose service '${serviceName}' uses an unsupported logging option '${name}'`,
+      );
+    }
+    if (
+      typeof option !== "string" ||
+      option.length > 256 ||
+      [...option].some(
+        (character) =>
+          character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
+      )
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' logging option '${name}' is invalid`,
+      );
+    }
+  }
+}
 
 function validateProtectedDockerEnvironmentReferences(
   rawCompose: string,
@@ -249,6 +783,23 @@ function validateComposeBuild(serviceName: string, build: unknown): void {
   }
   if (!isUnknownRecord(build)) return;
 
+  if (build.platforms !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' requests cross-platform build targets, which are not allowed`,
+    );
+  }
+
+  if (
+    build.privileged === true ||
+    String(build.privileged ?? "")
+      .trim()
+      .toLowerCase() === "true"
+  ) {
+    throw new Error(
+      `Compose service '${serviceName}' requests privileged build execution, which is not allowed`,
+    );
+  }
+
   if (typeof build.context === "string") {
     validateComposeBuildContext(
       build.context,
@@ -410,11 +961,7 @@ function validateComposeFileBackedResources(
     for (const field of ["name", "file"] as const) {
       const value = rawDefinition[field];
       if (typeof value !== "string") continue;
-      if (
-        isHostPath(value) ||
-        value.includes("/../") ||
-        value.includes("\\..\\")
-      ) {
+      if (isUnsafeComposePath(value)) {
         throw new Error(
           `Compose ${resourceKind.slice(0, -1)} '${resourceName}' uses an unsafe ${field} path`,
         );
@@ -428,6 +975,11 @@ function validateComposeFileBackedResources(
  * This applies to raw Compose resources as well as user-created templates.
  */
 export function validateComposeSecurity(rawCompose: string): void {
+  if (
+    new TextEncoder().encode(rawCompose).byteLength > COMPOSE_DOCUMENT_MAX_BYTES
+  ) {
+    throw new Error("Compose files must not exceed 1 MB when encoded as UTF-8");
+  }
   validateProtectedDockerEnvironmentReferences(rawCompose);
 
   let parsed: unknown;
@@ -439,7 +991,9 @@ export function validateComposeSecurity(rawCompose: string): void {
     );
   }
 
-  if (!isUnknownRecord(parsed)) return;
+  if (!isUnknownRecord(parsed)) {
+    throw new Error("Compose document must be a mapping");
+  }
 
   if (isUnknownRecord(parsed.volumes)) {
     for (const [volumeName, rawDefinition] of Object.entries(parsed.volumes)) {
@@ -542,6 +1096,8 @@ export function validateComposeSecurity(rawCompose: string): void {
     );
   }
 
+  validateComposeShape(parsed);
+
   if (!isUnknownRecord(parsed.services)) return;
 
   for (const [serviceName, rawService] of Object.entries(parsed.services)) {
@@ -604,6 +1160,7 @@ export function validateComposeSecurity(rawCompose: string): void {
       isSharedContainerNamespace(service.ipc) ||
       isSharedContainerNamespace(service.uts) ||
       isSharedContainerNamespace(service.userns_mode) ||
+      isSharedContainerNamespace(service.cgroup) ||
       isSharedContainerNamespace(service.cgroupns)
     ) {
       throw new Error(

@@ -42,6 +42,16 @@ validate_budget() {
     || fail "$name must be an integer number of seconds between 0 and 604800"
 }
 
+validate_run_id() {
+  [[ "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] \
+    || fail "UPSTAND_BACKUP_REHEARSAL_RUN_ID must be a bounded alphanumeric identifier"
+}
+
+validate_image_reference() {
+  [[ "$server_image" =~ ^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,511}@sha256:[a-fA-F0-9]{64}$ ]] \
+    || fail "backup rehearsal image must be a bounded immutable image reference"
+}
+
 assert_budget() {
   local name="$1"
   local elapsed="$2"
@@ -90,6 +100,8 @@ trap cleanup EXIT
 [[ -n "$server_image" ]] || fail "set UPSTAND_BACKUP_REHEARSAL_IMAGE or UPSTAND_SERVER_IMAGE to the server image under test"
 [[ "$server_image" =~ @sha256:[0-9a-fA-F]{64}$ ]] \
   || fail "backup rehearsal image must use an immutable digest: $server_image"
+validate_run_id
+validate_image_reference
 validate_budget UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS "$max_total_seconds"
 validate_budget UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS "$max_restore_seconds"
 rclone_user="$(id -u):$(id -g)"

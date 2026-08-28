@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -18,9 +19,13 @@ const (
 	deploymentIDHeader    = "X-Upstand-Deployment-ID"
 	serverIDHeader        = "X-Upstand-Server-ID"
 	minimumScopeSecretLen = 32
-	maximumScopeLifetime  = 48 * time.Hour
-	maximumClockSkew      = 5 * time.Minute
+	// Keep signed worker grants short-lived to reduce replay exposure after a
+	// worker compromise while covering the broker's bounded build operations.
+	maximumScopeLifetime = 2 * time.Hour
+	maximumClockSkew     = 5 * time.Minute
 )
+
+var deploymentScopeIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 type deploymentScopeClaims struct {
 	ResourceID   string `json:"resourceId"`
@@ -91,7 +96,10 @@ func authorizeDeploymentWorkerScopeToken(caller string, r *http.Request, body, s
 		expiresAt.Sub(issuedAt) > maximumScopeLifetime {
 		return errors.New("deployment-worker deployment scope is expired or has invalid lifetime")
 	}
-	if !resourceIDPattern.MatchString(claims.ResourceID) || claims.DeploymentID == "" || claims.ServerID == "" || claims.Nonce == "" {
+	if !resourceIDPattern.MatchString(claims.ResourceID) ||
+		!deploymentScopeIdentifierPattern.MatchString(claims.DeploymentID) ||
+		!deploymentScopeIdentifierPattern.MatchString(claims.ServerID) ||
+		!deploymentScopeIdentifierPattern.MatchString(claims.Nonce) {
 		return errors.New("deployment-worker deployment scope claims are invalid")
 	}
 
