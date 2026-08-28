@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `0d2b1759`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `0a7ad649`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
