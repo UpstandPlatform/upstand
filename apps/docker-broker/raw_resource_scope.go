@@ -14,6 +14,124 @@ import (
 
 var deploymentWorkerVolumeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$`)
 
+var deploymentWorkerRawContainerFields = dockerFieldSet(
+	"Hostname",
+	"Domainname",
+	"User",
+	"AttachStdin",
+	"AttachStdout",
+	"AttachStderr",
+	"Tty",
+	"OpenStdin",
+	"StdinOnce",
+	"Env",
+	"Cmd",
+	"Entrypoint",
+	"Image",
+	"Volumes",
+	"WorkingDir",
+	"MacAddress",
+	"OnBuild",
+	"StopSignal",
+	"StopTimeout",
+	"HostConfig",
+	"Healthcheck",
+	"NetworkingConfig",
+	"ExposedPorts",
+	"Labels",
+	"Shell",
+	"NetworkDisabled",
+)
+
+var deploymentWorkerRawContainerHostConfigFields = dockerFieldSet(
+	"Binds",
+	"ContainerIDFile",
+	"LogConfig",
+	"NetworkMode",
+	"PortBindings",
+	"RestartPolicy",
+	"AutoRemove",
+	"VolumeDriver",
+	"VolumesFrom",
+	"CapAdd",
+	"CapDrop",
+	"CgroupnsMode",
+	"Dns",
+	"DnsOptions",
+	"DnsSearch",
+	"ExtraHosts",
+	"GroupAdd",
+	"IpcMode",
+	"Cgroup",
+	"Links",
+	"OomScoreAdj",
+	"PidMode",
+	"Privileged",
+	"PublishAllPorts",
+	"ReadonlyRootfs",
+	"SecurityOpt",
+	"StorageOpt",
+	"Tmpfs",
+	"UTSMode",
+	"UsernsMode",
+	"ShmSize",
+	"Runtime",
+	"ConsoleSize",
+	"Isolation",
+	"CpuShares",
+	"Memory",
+	"NanoCpus",
+	"CgroupParent",
+	"BlkioWeight",
+	"BlkioWeightDevice",
+	"BlkioDeviceReadBps",
+	"BlkioDeviceWriteBps",
+	"BlkioDeviceReadIOps",
+	"BlkioDeviceWriteIOps",
+	"CpuPeriod",
+	"CpuQuota",
+	"CpuRealtimePeriod",
+	"CpuRealtimeRuntime",
+	"CpusetCpus",
+	"CpusetMems",
+	"Devices",
+	"DeviceCgroupRules",
+	"DeviceRequests",
+	"KernelMemory",
+	"KernelMemoryTCP",
+	"MemoryReservation",
+	"MemorySwap",
+	"MemorySwappiness",
+	"OomKillDisable",
+	"PidsLimit",
+	"Ulimits",
+	"CpuCount",
+	"CpuPercent",
+	"MaskedPaths",
+	"ReadonlyPaths",
+	"Init",
+	"InitPath",
+	"Mounts",
+)
+
+var deploymentWorkerRawContainerLogConfigFields = dockerFieldSet("Type", "Config")
+var deploymentWorkerRawContainerRestartPolicyFields = dockerFieldSet("Name", "MaximumRetryCount")
+var deploymentWorkerRawContainerEndpointFields = dockerFieldSet(
+	"IPAMConfig",
+	"Links",
+	"Aliases",
+	"NetworkID",
+	"EndpointID",
+	"Gateway",
+	"IPAddress",
+	"IPPrefixLen",
+	"IPv6Gateway",
+	"GlobalIPv6Address",
+	"GlobalIPv6PrefixLen",
+	"MacAddress",
+	"DriverOpts",
+)
+
 // authorizeDeploymentWorkerRawResourceScope closes the remaining confused-
 // deputy gap in the legacy Docker API. The caller certificate and resource
 // header identify the intended resource, but only the daemon's live labels can
@@ -120,6 +238,9 @@ func authorizeDeploymentWorkerRawContainerResources(
 	resourceID string,
 	engine *dockerEngineClient,
 ) error {
+	if err := validateDeploymentWorkerRawContainerShape(body); err != nil {
+		return err
+	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return fmt.Errorf("container create payload is invalid: %w", err)
@@ -202,6 +323,75 @@ func authorizeDeploymentWorkerRawContainerResources(
 		}
 		if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
 			return fmt.Errorf("container network %q is not owned by the requested Upstand resource", networkTarget)
+		}
+	}
+	return nil
+}
+
+// validateDeploymentWorkerRawContainerShape keeps the legacy Compose
+// containers/create route fail-closed as Docker adds fields to its API. The
+// generic host-escape walker rejects unsafe values; this shape check also
+// prevents an unreviewed future field from silently expanding worker daemon
+// authority.
+func validateDeploymentWorkerRawContainerShape(body []byte) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return errors.New("Docker container create body must be a JSON object")
+	}
+	if err := validateDockerObjectShape(payload, deploymentWorkerRawContainerFields, "Docker container"); err != nil {
+		return err
+	}
+
+	if rawHostConfig, ok := dockerObjectField(payload, "HostConfig"); ok {
+		hostConfig, ok := rawHostConfig.(map[string]any)
+		if !ok || hostConfig == nil {
+			return errors.New("Docker container HostConfig must be an object")
+		}
+		if err := validateDockerObjectShape(hostConfig, deploymentWorkerRawContainerHostConfigFields, "Docker container HostConfig"); err != nil {
+			return err
+		}
+		if rawLogConfig, ok := dockerObjectField(hostConfig, "LogConfig"); ok {
+			logConfig, ok := rawLogConfig.(map[string]any)
+			if !ok || logConfig == nil {
+				return errors.New("Docker container HostConfig.LogConfig must be an object")
+			}
+			if err := validateDockerObjectShape(logConfig, deploymentWorkerRawContainerLogConfigFields, "Docker container HostConfig.LogConfig"); err != nil {
+				return err
+			}
+		}
+		if rawRestartPolicy, ok := dockerObjectField(hostConfig, "RestartPolicy"); ok {
+			restartPolicy, ok := rawRestartPolicy.(map[string]any)
+			if !ok || restartPolicy == nil {
+				return errors.New("Docker container HostConfig.RestartPolicy must be an object")
+			}
+			if err := validateDockerObjectShape(restartPolicy, deploymentWorkerRawContainerRestartPolicyFields, "Docker container HostConfig.RestartPolicy"); err != nil {
+				return err
+			}
+		}
+	}
+
+	if rawNetworkingConfig, ok := dockerObjectField(payload, "NetworkingConfig"); ok {
+		networkingConfig, ok := rawNetworkingConfig.(map[string]any)
+		if !ok || networkingConfig == nil {
+			return errors.New("Docker container NetworkingConfig must be an object")
+		}
+		if err := validateDockerObjectShape(networkingConfig, dockerFieldSet("EndpointsConfig"), "Docker container NetworkingConfig"); err != nil {
+			return err
+		}
+		if rawEndpoints, ok := dockerObjectField(networkingConfig, "EndpointsConfig"); ok {
+			endpoints, ok := rawEndpoints.(map[string]any)
+			if !ok || endpoints == nil {
+				return errors.New("Docker container NetworkingConfig.EndpointsConfig must be an object")
+			}
+			for networkName, rawEndpoint := range endpoints {
+				endpoint, ok := rawEndpoint.(map[string]any)
+				if !ok || endpoint == nil {
+					return fmt.Errorf("Docker container endpoint %q must be an object", networkName)
+				}
+				if err := validateDockerObjectShape(endpoint, deploymentWorkerRawContainerEndpointFields, "Docker container network endpoint"); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

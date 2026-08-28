@@ -618,6 +618,72 @@ func TestDeploymentWorkerRawContainerCreateRequiresManagedNetworks(t *testing.T)
 	}
 }
 
+func TestDeploymentWorkerRawContainerCreateRejectsUnreviewedDockerFields(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "unknown top-level field",
+			body: `{"Labels":{"com.upstand.resource-id":"resource-1"},"NetworkingConfig":{"EndpointsConfig":{}},"FutureDaemonCapability":true}`,
+		},
+		{
+			name: "unknown host config field",
+			body: `{"Labels":{"com.upstand.resource-id":"resource-1"},"NetworkingConfig":{"EndpointsConfig":{}},"HostConfig":{"FutureDaemonCapability":true}}`,
+		},
+		{
+			name: "unknown network endpoint field",
+			body: `{"Labels":{"com.upstand.resource-id":"resource-1"},"NetworkingConfig":{"EndpointsConfig":{"upstand-resource-resource-1":{"FutureNetworkCapability":true}}}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/containers/create", strings.NewReader(test.body))
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			err := authorizeDeploymentWorkerRawResourceScope(
+				context.Background(),
+				"deployment-worker",
+				request,
+				[]byte(test.body),
+				rawScopeTestEngine(func(*http.Request) *http.Response {
+					t.Fatal("container shape policy must fail before contacting Docker")
+					return nil
+				}),
+			)
+			if err == nil {
+				t.Fatal("expected an unreviewed Docker container field to be rejected")
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawContainerCreateAllowsReviewedComposeShape(t *testing.T) {
+	body := []byte(`{
+  "Image":"example/app:latest",
+  "Labels":{"com.upstand.resource-id":"resource-1"},
+  "Env":["PORT=8080"],
+  "WorkingDir":"/app",
+  "HostConfig":{
+    "NetworkMode":"default",
+    "RestartPolicy":{"Name":"on-failure","MaximumRetryCount":3},
+    "LogConfig":{"Type":"json-file","Config":{}},
+    "ReadonlyRootfs":true,
+    "SecurityOpt":["no-new-privileges:true"]
+  },
+  "NetworkingConfig":{
+    "EndpointsConfig":{
+      "upstand-resource-resource-1":{
+        "Aliases":["app"],
+        "NetworkID":"network-1"
+      }
+    }
+  }
+}`)
+	if err := validateDeploymentWorkerRawContainerShape(body); err != nil {
+		t.Fatalf("expected the reviewed Compose container shape to remain allowed: %v", err)
+	}
+}
+
 func TestDeploymentWorkerRawServiceListingRequiresExactResourceFilter(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	for _, test := range []struct {
