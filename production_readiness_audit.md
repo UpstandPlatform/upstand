@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `0796f696`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `88d07f72`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -50,6 +50,14 @@ inspection remains available for compatibility; development behavior is
 unchanged. Focused policy regressions cover the denied mutation classes and
 allowed read-only requests. This narrows the control-plane blast radius, but
 does not close the broader deployment-worker Compose/service transport gap.
+
+The latest raw-container volume pass re-inspects every named volume immediately
+before a production deployment-worker container is created. Deterministic names
+and prefixes are no longer treated as ownership proof: foreign labels,
+host-backed local-volume options, and mismatched identities fail closed. Raw
+container creation also rejects inherited volumes and daemon-host container-ID
+file writes, with focused policy regressions; the broader Compose/service
+transport remains open.
 
 The latest credential-handling slice also makes preview deployment branch
 overrides use strict credential parsing and encrypted serialization. Corrupt
@@ -149,6 +157,15 @@ network endpoint settings are explicitly allowlisted before daemon inspection;
 unknown or future fields fail closed while a representative Compose container
 shape remains accepted. This narrows the remaining raw Compose transport
 without claiming that the whole orchestration path is typed.
+
+The latest raw-container volume ownership pass re-inspects every named volume
+against the live daemon immediately before forwarding. The broker requires the
+exact resource-owned name plus the supported local driver, empty options, and
+managed labels where applicable; foreign labels and host-backed options fail
+closed. `VolumesFrom` and `ContainerIDFile` are denied to prevent
+cross-container data inheritance and daemon-host file writes. Focused Go
+regressions cover managed, legacy, foreign, and host-backed volume cases;
+broader Compose/service transport remains open.
 
 The latest secret-bearing build pass also bounds the metadata that is exposed to
 Docker CLI and BuildKit on the constrained raw builder path. Secret names must
@@ -838,6 +855,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-001 raw file-reference ownership | Hardened — raw service secret/config references now require the exact daemon-side `com.upstand.resource-id` label; deterministic names alone no longer establish ownership, with regression coverage for an unlabelled collision. |
 | F-001 server raw mutation boundary | Hardened for production server callers — legacy raw container/image/network/volume, exec/archive, and service mutation endpoints are denied; reviewed typed broker capabilities remain the server mutation path, with read-only compatibility and focused policy coverage. Deployment-worker Compose/service transport remains open. |
 | F-001/F-014 credential boundary | Remediated for the preview deployment override path — stored resource credentials are parsed strictly and re-encrypted after the branch override, so malformed/undecryptable values fail closed and valid credentials are not downgraded to plaintext; focused regression coverage passes. Broader secret-bearing build and raw Compose/service transport remains open. |
+| F-001 raw container volume ownership | Hardened — production deployment-worker raw container creation now live-verifies named volume identity, driver, options, and ownership labels, and rejects inherited volumes plus daemon-host ID-file writes; focused Go regressions pass. Broader Compose/service transport remains open. |
 
 ## Security Risk Matrix
 
@@ -940,6 +958,7 @@ Passed:
 - MCP transport tests covering per-request DNS revalidation, blocked-address rejection before forwarding, request deadlines, endpoint safety, and untrusted-output provenance
 - AI provider endpoint tests covering per-request DNS revalidation, loopback rebinding rejection, configured-origin enforcement, and redirect blocking
 - `go test ./...` and `go vet ./...` in `apps/docker-broker`, including raw container-create shape regressions and typed-route authorization tests
+- raw deployment-worker container volume regressions covering live managed/legacy volume ownership, foreign labels, host-backed local-volume options, inherited volumes, and daemon-host ID-file rejection
 - raw service file-reference ownership regression rejecting unlabelled deterministic secret/config name collisions
 - production server raw Docker mutation-boundary policy regressions covering container/image/network/volume, exec/archive, and service mutation denial plus read-only compatibility
 - Docker-broker case-insensitive raw-policy regression tests covering lower-case/mixed-case labels, mounts, binds, privilege, namespace-sharing, and security-option escapes
