@@ -498,7 +498,10 @@ jobs:
       # recovery/load profile for those releases; smoke is retained only as an
       # explicitly selected manual diagnostic profile.
       ACCEPTANCE_PROFILE: ${{ github.event_name == 'push' && 'full' || inputs.acceptance_profile || 'full' }}
-      STACK_NAME: upstand-release-acceptance
+      # Docker prefixes stack secrets/services with STACK_NAME. Keep this
+      # bounded so the longest generated secret stays within Docker's
+      # 64-character name limit.
+      STACK_NAME: upstand-release
       DOCKER_NETWORK: upstand-release-acceptance-network
       DOCKER_CONTROL_NETWORK: upstand-release-acceptance-control-network
       ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network

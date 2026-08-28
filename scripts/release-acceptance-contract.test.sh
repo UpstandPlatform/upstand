@@ -121,6 +121,7 @@ require_workflow_text "Production encrypted-network configuration is enforced by
 require_workflow_text "hosted Swarm runtime probe is skipped"
 require_workflow_text "UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false"
 require_workflow_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true"
+require_workflow_text "STACK_NAME: upstand-release"
 require_workflow_text 'docker pull "$UPSTAND_MONITORING_IMAGE"'
 require_workflow_text 'docker pull "$UPSTAND_DOCKER_BROKER_IMAGE"'
 require_workflow_text 'docker pull "$UPSTAND_DEPLOYMENT_WORKER_IMAGE"'
