@@ -55,3 +55,22 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --ref master \
             -f "release_ref=v${release_version}"
+
+      - name: Dispatch production release for the stable tag
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_version="$(node -p "require('./package.json').version")"
+          # The tag is created with GITHUB_TOKEN, so GitHub does not start
+          # tag-push workflows from that event. Dispatch the release workflow
+          # explicitly while keeping the immutable release source on master.
+          gh workflow run "Release and Publish Docker Images" \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref master \
+            -f "release_ref=v${release_version}" \
+            -f "acceptance_profile=full" \
+            -f "publish_release=true" \
+            -f "build_images=true" \
+            -f "attestation_source_ref=refs/heads/master"
