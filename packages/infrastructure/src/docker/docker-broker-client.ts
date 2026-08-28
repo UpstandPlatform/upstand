@@ -591,7 +591,48 @@ function requestBroker(
   });
 }
 
-function createBoundedDockerBuildContext(
+const SENSITIVE_DOCKER_BUILD_CONTEXT_BASENAME_PATTERNS = [
+  /^\.env(?:\.|$)/i,
+  /^id_(?:rsa|dsa|ecdsa|ed25519)(?:\.|$)/i,
+  /^(?:authorized_keys|credentials)(?:\.|$)/i,
+  /^service-account(?:\.|$)/i,
+  /\.(?:pem|key|p12|pfx|jks|keystore)$/i,
+] as const;
+
+const SENSITIVE_DOCKER_BUILD_CONTEXT_DIRECTORY_NAMES = new Set([
+  ".git",
+  ".hg",
+  ".svn",
+  ".bzr",
+  ".ssh",
+  ".aws",
+]);
+
+/**
+ * Docker build contexts are attacker-controlled repository input. Keep
+ * credentials and VCS metadata out of the daemon even when a repository omits
+ * or attempts to override its .dockerignore file.
+ */
+export function isSensitiveDockerBuildContextPath(
+  relativePath: string,
+): boolean {
+  const normalized = relativePath.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length === 0) return false;
+  if (
+    segments.some((segment) =>
+      SENSITIVE_DOCKER_BUILD_CONTEXT_DIRECTORY_NAMES.has(segment.toLowerCase()),
+    )
+  ) {
+    return true;
+  }
+  const basename = segments.at(-1) ?? "";
+  return SENSITIVE_DOCKER_BUILD_CONTEXT_BASENAME_PATTERNS.some((pattern) =>
+    pattern.test(basename),
+  );
+}
+
+export function createBoundedDockerBuildContext(
   contextPath: string,
   dockerfilePath: string,
 ): Readable {
@@ -628,7 +669,8 @@ function createBoundedDockerBuildContext(
       return (
         relative !== dockerfileRelative &&
         relative !== "" &&
-        ignore.ignores(relative)
+        (isSensitiveDockerBuildContextPath(relative) ||
+          ignore.ignores(relative))
       );
     },
   });
