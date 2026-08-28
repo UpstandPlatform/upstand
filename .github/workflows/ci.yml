@@ -321,17 +321,9 @@ jobs:
                   for volume in services[name].get("volumes", [])
               ):
                   raise SystemExit(f"{name} must not receive the host Docker socket")
-              expected_client_cert = {
-                  "server": "/run/secrets/docker_broker_server_client_cert",
-                  "schedules": "/run/secrets/docker_broker_schedules_client_cert",
-                  "deployment-worker": "/run/secrets/docker_broker_deployment_worker_client_cert",
-              }[name]
-              expected_client_key = {
-                  "server": "/run/secrets/docker_broker_server_client_key",
-                  "schedules": "/run/secrets/docker_broker_schedules_client_key",
-                  "deployment-worker": "/run/secrets/docker_broker_deployment_worker_client_key",
-              }[name]
-              if services[name]["environment"].get("UPSTAND_DOCKER_BROKER_CA_FILE") != "/run/secrets/docker_broker_ca":
+              expected_client_cert = "/run/secrets/cert.pem"
+              expected_client_key = "/run/secrets/key.pem"
+              if services[name]["environment"].get("UPSTAND_DOCKER_BROKER_CA_FILE") != "/run/secrets/ca.pem":
                   raise SystemExit(f"{name} must trust the Docker broker CA secret")
               if services[name]["environment"].get("UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE") != expected_client_cert:
                   raise SystemExit(f"{name} must use its caller-specific Docker broker client certificate")
