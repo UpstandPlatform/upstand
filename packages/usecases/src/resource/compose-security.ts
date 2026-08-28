@@ -222,6 +222,13 @@ const COMPOSE_FILE_RESOURCE_FIELDS = new Set([
   "name",
   "template_driver",
 ]);
+const COMPOSE_LOGGING_OPTION_FIELDS = new Set([
+  "max-size",
+  "max-file",
+  "compress",
+  "labels",
+  "env",
+]);
 
 function isComposeExtensionField(field: string): boolean {
   return /^x-[a-z0-9][a-z0-9_.-]{0,63}$/i.test(field);
@@ -467,6 +474,7 @@ function validateComposeShape(parsed: Record<string, unknown>): void {
       new Set(["driver", "options"]),
       `Compose service '${serviceName}' logging`,
     );
+    validateComposeLogging(serviceName, rawService.logging);
   }
 
   for (const [kind, allowed] of [
@@ -495,6 +503,61 @@ function validateComposeShape(parsed: Record<string, unknown>): void {
           );
         }
       }
+    }
+  }
+}
+
+function validateComposeLogging(serviceName: string, value: unknown): void {
+  if (value === undefined) return;
+  if (!isUnknownRecord(value)) {
+    throw new Error(
+      `Compose service '${serviceName}' logging must be a mapping`,
+    );
+  }
+
+  if (value.driver !== undefined) {
+    if (typeof value.driver !== "string") {
+      throw new Error(
+        `Compose service '${serviceName}' logging driver must be a string`,
+      );
+    }
+    const driver = value.driver.trim().toLowerCase();
+    if (driver !== "" && driver !== "json-file" && driver !== "local") {
+      throw new Error(
+        `Compose service '${serviceName}' uses an unsupported logging driver`,
+      );
+    }
+  }
+
+  if (value.options === undefined) return;
+  if (!isUnknownRecord(value.options)) {
+    throw new Error(
+      `Compose service '${serviceName}' logging options must be a mapping`,
+    );
+  }
+  const options = value.options;
+  if (Object.keys(options).length > 16) {
+    throw new Error(
+      `Compose service '${serviceName}' logging options are unbounded`,
+    );
+  }
+  for (const [name, option] of Object.entries(options)) {
+    if (!COMPOSE_LOGGING_OPTION_FIELDS.has(name.toLowerCase().trim())) {
+      throw new Error(
+        `Compose service '${serviceName}' uses an unsupported logging option '${name}'`,
+      );
+    }
+    if (
+      typeof option !== "string" ||
+      option.length > 256 ||
+      [...option].some(
+        (character) =>
+          character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
+      )
+    ) {
+      throw new Error(
+        `Compose service '${serviceName}' logging option '${name}' is invalid`,
+      );
     }
   }
 }

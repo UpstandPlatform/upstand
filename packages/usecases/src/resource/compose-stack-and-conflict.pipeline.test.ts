@@ -413,6 +413,66 @@ volumes:
       ).not.toThrow();
     });
 
+    test("rejects external logging drivers and unreviewed logging options", () => {
+      for (const driver of [
+        "syslog",
+        "fluentd",
+        "gelf",
+        "journald",
+        "splunk",
+      ]) {
+        expect(() =>
+          validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    logging:
+      driver: ${driver}
+`),
+        ).toThrow("uses an unsupported logging driver");
+      }
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    logging:
+      driver: json-file
+      options:
+        plugin-endpoint: http://collector
+`),
+      ).toThrow("uses an unsupported logging option");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: true
+`),
+      ).toThrow("logging option 'max-size' is invalid");
+    });
+
+    test("accepts bounded built-in logging configuration", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+        compress: "true"
+`),
+      ).not.toThrow();
+    });
+
     test("rejects unsafe security options (seccomp:unconfined, apparmor:unconfined)", () => {
       const compose = `
 services:
