@@ -778,6 +778,9 @@ func validateDeploymentWorkerRawServiceShape(body []byte) error {
 			if err := validateDockerObjectShape(containerSpec, deploymentWorkerRawContainerSpecFields, "Docker service ContainerSpec"); err != nil {
 				return err
 			}
+			if err := validateDeploymentWorkerRawContainerSpecShape(containerSpec); err != nil {
+				return err
+			}
 		}
 		if rawResources, ok := dockerObjectField(taskTemplate, "Resources"); ok {
 			resources, ok := rawResources.(map[string]any)
@@ -814,6 +817,11 @@ func validateDeploymentWorkerRawServiceShape(body []byte) error {
 				if err := validateDockerObjectShape(value, allowed, "Docker service TaskTemplate."+field); err != nil {
 					return err
 				}
+			}
+		}
+		if rawPlacement, ok := dockerObjectField(taskTemplate, "Placement"); ok {
+			if err := validateDeploymentWorkerRawPlacementShape(rawPlacement); err != nil {
+				return err
 			}
 		}
 		if rawNetworks, ok := dockerObjectField(taskTemplate, "Networks"); ok {
@@ -853,10 +861,162 @@ func validateDeploymentWorkerRawServiceShape(body []byte) error {
 				return err
 			}
 		}
+		for field := range map[string]struct{}{"ReplicatedJob": {}, "GlobalJob": {}} {
+			if rawJob, ok := dockerObjectField(mode, field); ok {
+				job, ok := rawJob.(map[string]any)
+				if !ok || job == nil {
+					return fmt.Errorf("Docker service Mode.%s must be an object", field)
+				}
+				if err := validateDockerObjectShape(job, deploymentWorkerRawJobModeFields, "Docker service Mode."+field); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	if rawNetworks, ok := dockerObjectField(payload, "Networks"); ok {
 		if err := validateDeploymentWorkerRawNetworkShape(rawNetworks, "Docker service Networks"); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+var (
+	deploymentWorkerRawMountFields = dockerFieldSet(
+		"Type",
+		"Source",
+		"Target",
+		"ReadOnly",
+		"Consistency",
+		"VolumeOptions",
+	)
+	deploymentWorkerRawVolumeOptionsFields = dockerFieldSet("NoCopy", "Subpath")
+	deploymentWorkerRawHealthcheckFields   = dockerFieldSet(
+		"Test",
+		"Interval",
+		"Timeout",
+		"Retries",
+		"StartPeriod",
+		"StartInterval",
+	)
+	deploymentWorkerRawDNSConfigFields           = dockerFieldSet("Nameservers", "Search", "Options")
+	deploymentWorkerRawFileReferenceFields       = dockerFieldSet("SecretID", "SecretName", "ConfigID", "ConfigName", "File")
+	deploymentWorkerRawFileSpecFields            = dockerFieldSet("Name", "UID", "GID", "Mode")
+	deploymentWorkerRawPlacementPreferenceFields = dockerFieldSet("Spread")
+	deploymentWorkerRawPlacementSpreadFields     = dockerFieldSet("SpreadDescriptor")
+	deploymentWorkerRawPlatformFields            = dockerFieldSet("Architecture", "OS", "OSVersion", "Variant")
+	deploymentWorkerRawJobModeFields             = dockerFieldSet("MaxConcurrent", "TotalCompletions", "ReplicasMaxPerNode")
+)
+
+// validateDeploymentWorkerRawContainerSpecShape closes nested Docker objects
+// that are otherwise easy to extend without passing the first-level service
+// allowlist. The broker forwards this payload to Docker unchanged, so every
+// nested object must fail closed when Docker adds a new authority-bearing
+// field.
+func validateDeploymentWorkerRawContainerSpecShape(containerSpec map[string]any) error {
+	for _, field := range []string{"Mounts", "Secrets", "Configs"} {
+		raw, ok := dockerObjectField(containerSpec, field)
+		if !ok {
+			continue
+		}
+		items, ok := raw.([]any)
+		if !ok || len(items) > 64 {
+			return fmt.Errorf("Docker service ContainerSpec.%s must be a bounded array", field)
+		}
+		for index, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok || item == nil {
+				return fmt.Errorf("Docker service ContainerSpec.%s[%d] must be an object", field, index)
+			}
+			if field == "Mounts" {
+				if err := validateDockerObjectShape(item, deploymentWorkerRawMountFields, fmt.Sprintf("Docker service ContainerSpec.Mounts[%d]", index)); err != nil {
+					return err
+				}
+				if rawOptions, ok := dockerObjectField(item, "VolumeOptions"); ok {
+					options, ok := rawOptions.(map[string]any)
+					if !ok || options == nil {
+						return fmt.Errorf("Docker service ContainerSpec.Mounts[%d].VolumeOptions must be an object", index)
+					}
+					if err := validateDockerObjectShape(options, deploymentWorkerRawVolumeOptionsFields, fmt.Sprintf("Docker service ContainerSpec.Mounts[%d].VolumeOptions", index)); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if err := validateDockerObjectShape(item, deploymentWorkerRawFileReferenceFields, fmt.Sprintf("Docker service ContainerSpec.%s[%d]", field, index)); err != nil {
+				return err
+			}
+			if rawFile, ok := dockerObjectField(item, "File"); ok {
+				file, ok := rawFile.(map[string]any)
+				if !ok || file == nil {
+					return fmt.Errorf("Docker service ContainerSpec.%s[%d].File must be an object", field, index)
+				}
+				if err := validateDockerObjectShape(file, deploymentWorkerRawFileSpecFields, fmt.Sprintf("Docker service ContainerSpec.%s[%d].File", field, index)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	for field, allowed := range map[string]map[string]struct{}{
+		"Healthcheck": deploymentWorkerRawHealthcheckFields,
+		"DNSConfig":   deploymentWorkerRawDNSConfigFields,
+	} {
+		if raw, ok := dockerObjectField(containerSpec, field); ok {
+			value, ok := raw.(map[string]any)
+			if !ok || value == nil {
+				return fmt.Errorf("Docker service ContainerSpec.%s must be an object", field)
+			}
+			if err := validateDockerObjectShape(value, allowed, "Docker service ContainerSpec."+field); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateDeploymentWorkerRawPlacementShape(raw any) error {
+	placement, ok := raw.(map[string]any)
+	if !ok || placement == nil {
+		return errors.New("Docker service TaskTemplate.Placement must be an object")
+	}
+	if rawPreferences, ok := dockerObjectField(placement, "Preferences"); ok {
+		preferences, ok := rawPreferences.([]any)
+		if !ok || len(preferences) > 32 {
+			return errors.New("Docker service placement preferences must be a bounded array")
+		}
+		for index, rawPreference := range preferences {
+			preference, ok := rawPreference.(map[string]any)
+			if !ok || preference == nil {
+				return fmt.Errorf("Docker service placement preference %d must be an object", index)
+			}
+			if err := validateDockerObjectShape(preference, deploymentWorkerRawPlacementPreferenceFields, fmt.Sprintf("Docker service placement preference %d", index)); err != nil {
+				return err
+			}
+			if rawSpread, ok := dockerObjectField(preference, "Spread"); ok {
+				spread, ok := rawSpread.(map[string]any)
+				if !ok || spread == nil {
+					return fmt.Errorf("Docker service placement preference %d Spread must be an object", index)
+				}
+				if err := validateDockerObjectShape(spread, deploymentWorkerRawPlacementSpreadFields, fmt.Sprintf("Docker service placement preference %d Spread", index)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if rawPlatforms, ok := dockerObjectField(placement, "Platforms"); ok {
+		platforms, ok := rawPlatforms.([]any)
+		if !ok || len(platforms) > 32 {
+			return errors.New("Docker service placement platforms must be a bounded array")
+		}
+		for index, rawPlatform := range platforms {
+			platform, ok := rawPlatform.(map[string]any)
+			if !ok || platform == nil {
+				return fmt.Errorf("Docker service placement platform %d must be an object", index)
+			}
+			if err := validateDockerObjectShape(platform, deploymentWorkerRawPlatformFields, fmt.Sprintf("Docker service placement platform %d", index)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

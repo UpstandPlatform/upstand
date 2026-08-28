@@ -325,6 +325,48 @@ func TestDeploymentWorkerRawServiceShapeAllowsBoundedComposeServiceSpec(t *testi
 	}
 }
 
+func TestDeploymentWorkerRawServiceShapeRejectsUnknownNestedFields(t *testing.T) {
+	tests := []string{
+		`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"upstand-resource-resource-1-volume-data","Target":"/data","FutureMountControl":true}]}}}`,
+		`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Mounts":[{"Type":"volume","Source":"upstand-resource-resource-1-volume-data","Target":"/data","VolumeOptions":{"FutureVolumeControl":true}}]}}}`,
+		`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1","File":{"Name":"app.secret","FutureFileControl":true}}]}}}`,
+		`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Configs":[{"ConfigID":"config-1","FutureConfigControl":true}]}}}`,
+		`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Healthcheck":{"Test":["CMD","true"],"FutureHealthControl":true}}}}`,
+		`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"DNSConfig":{"Nameservers":["1.1.1.1"],"FutureDnsControl":true}}}}`,
+		`{"Name":"service-1","TaskTemplate":{"Placement":{"Preferences":[{"Spread":{"SpreadDescriptor":"node.labels.zone","FutureSpreadControl":true}}]}}}`,
+		`{"Name":"service-1","TaskTemplate":{"Placement":{"Platforms":[{"Architecture":"amd64","OS":"linux","FuturePlatformControl":true}]}}}`,
+		`{"Name":"service-1","Mode":{"ReplicatedJob":{"MaxConcurrent":1,"FutureJobControl":true}}}`,
+	}
+	for _, body := range tests {
+		t.Run(body, func(t *testing.T) {
+			if err := validateDeploymentWorkerRawServiceShape([]byte(body)); err == nil {
+				t.Fatalf("expected unknown nested service field to be rejected: %s", body)
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawServiceShapeAllowsReviewedNestedFields(t *testing.T) {
+	body := []byte(`{
+  "Name":"service-1",
+  "TaskTemplate":{
+    "ContainerSpec":{
+      "Image":"example/app:latest",
+      "Mounts":[{"Type":"volume","Source":"upstand-resource-resource-1-volume-data","Target":"/data","ReadOnly":true,"VolumeOptions":{"NoCopy":true}}],
+      "Secrets":[{"SecretID":"secret-1","File":{"Name":"app.secret","UID":"1000","GID":"1000","Mode":292}}],
+      "Configs":[{"ConfigID":"config-1","File":{"Name":"app.conf"}}],
+      "Healthcheck":{"Test":["CMD-SHELL","true"],"Interval":1000000000,"Timeout":1000000000,"Retries":3,"StartPeriod":1000000000,"StartInterval":1000000000},
+      "DNSConfig":{"Nameservers":["1.1.1.1"],"Search":["example.internal"],"Options":["ndots:1"]}
+    },
+    "Placement":{"Preferences":[{"Spread":{"SpreadDescriptor":"node.labels.zone"}}],"Platforms":[{"Architecture":"amd64","OS":"linux"}]}
+  },
+  "Mode":{"ReplicatedJob":{"MaxConcurrent":1,"TotalCompletions":1,"ReplicasMaxPerNode":1}}
+}`)
+	if err := validateDeploymentWorkerRawServiceShape(body); err != nil {
+		t.Fatalf("expected reviewed nested service fields to remain valid: %v", err)
+	}
+}
+
 func TestDeploymentWorkerRawServiceMutationRequiresAuthorizedEncryptedNetworks(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	t.Setenv("UPSTAND_DOCKER_NETWORK", "shared-net")
