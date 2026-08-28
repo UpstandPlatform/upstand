@@ -171,6 +171,31 @@ describe("deployment command log safety", () => {
     }
   });
 
+  test("terminates commands that exceed the bounded streamed output limit", async () => {
+    const service = new DockerService({} as never) as unknown as {
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (log: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { maxOutputBytes?: number },
+      ) => Promise<void>;
+    };
+    const output: string[] = [];
+
+    await expect(
+      service.runCommandAsync(
+        process.execPath,
+        ["-e", "process.stdout.write('x'.repeat(4096))"],
+        (log) => output.push(log),
+        undefined,
+        { maxOutputBytes: 1_024 },
+      ),
+    ).rejects.toThrow("output exceeded the 1024-byte limit");
+    expect(output.join("")).toContain("output exceeded the 1024-byte limit");
+    expect(output.join("")).not.toContain("x".repeat(1_024));
+  });
+
   test("fails closed when placement constraints cannot be applied", () => {
     expect(() =>
       applyComposePlacementConstraints("services:\n  web: invalid", [

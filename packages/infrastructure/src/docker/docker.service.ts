@@ -247,6 +247,7 @@ function stopReadableStream(stream: NodeJS.ReadableStream): void {
 
 const DEFAULT_CONTAINER_COMMAND_TIMEOUT_SECONDS = 300;
 const MAX_CONTAINER_COMMAND_OUTPUT_BYTES = 50 * 1024 * 1024;
+const MAX_DOCKER_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_RESOURCE_COMMAND_BYTES = 32 * 1024;
 const MAX_WEB_SERVER_LOG_BYTES = 5 * 1024 * 1024;
 const WEB_SERVER_COMMAND_TIMEOUT_MS = 30_000;
@@ -4557,12 +4558,24 @@ export class DockerService implements DockerSwarmManagementPort {
       resourceId?: string;
       timeoutMs?: number;
       inheritEnvironment?: boolean;
+      maxOutputBytes?: number;
     } = {},
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
       let cancelled = false;
+      let outputExceeded = false;
+      let outputBytes = 0;
       const startedAt = Date.now();
+      const requestedMaxOutputBytes = options.maxOutputBytes;
+      const maxOutputBytes =
+        requestedMaxOutputBytes !== undefined &&
+        Number.isFinite(requestedMaxOutputBytes)
+          ? Math.min(
+              MAX_DOCKER_COMMAND_OUTPUT_BYTES,
+              Math.max(1, Math.floor(requestedMaxOutputBytes)),
+            )
+          : MAX_DOCKER_COMMAND_OUTPUT_BYTES;
       const commandEnvironment = {
         ...(options.inheritEnvironment === false
           ? getMinimalCommandEnv()
@@ -4607,24 +4620,44 @@ export class DockerService implements DockerSwarmManagementPort {
         callback();
       };
 
-      p.stdout.on("data", (data) => {
-        onLog(redactCommandOutput(data.toString(), options.redactions ?? []));
-      });
+      const handleOutput = (data: Buffer | string) => {
+        if (settled || outputExceeded) return;
+        const chunk = typeof data === "string" ? Buffer.from(data) : data;
+        outputBytes += chunk.byteLength;
+        if (outputBytes > maxOutputBytes) {
+          outputExceeded = true;
+          cancelled = true;
+          onLog(
+            `Command '${cmd}' output exceeded the ${maxOutputBytes}-byte limit; terminating it.\n`,
+          );
+          p.kill("SIGTERM");
+          return;
+        }
+        onLog(redactCommandOutput(chunk.toString(), options.redactions ?? []));
+      };
 
-      p.stderr.on("data", (data) => {
-        onLog(redactCommandOutput(data.toString(), options.redactions ?? []));
-      });
+      p.stdout.on("data", handleOutput);
+      p.stderr.on("data", handleOutput);
 
       p.on("close", (code) => {
         finish(() => {
           if (cancelled) {
-            reject(
-              new Error(
-                options.timeoutMs && Date.now() >= startedAt + options.timeoutMs
-                  ? `Command '${cmd}' timed out after ${Math.ceil(options.timeoutMs / 1000)} seconds`
-                  : "Deployment cancellation requested",
-              ),
-            );
+            if (outputExceeded) {
+              reject(
+                new Error(
+                  `Command '${cmd}' output exceeded the ${maxOutputBytes}-byte limit`,
+                ),
+              );
+            } else {
+              reject(
+                new Error(
+                  options.timeoutMs &&
+                    Date.now() >= startedAt + options.timeoutMs
+                    ? `Command '${cmd}' timed out after ${Math.ceil(options.timeoutMs / 1000)} seconds`
+                    : "Deployment cancellation requested",
+                ),
+              );
+            }
           } else if (code === 0) {
             resolve();
           } else {
