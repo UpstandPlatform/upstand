@@ -8,6 +8,7 @@ import {
   ResourceComposeTypeSchema,
 } from "@upstand/domain";
 import {
+  ComposeDocumentSchema,
   ControlResourceInputSchema,
   ConvertComposeInputSchema,
   DeleteResourceInputSchema,
@@ -44,7 +45,7 @@ const CreateComposeInputSchema = z.object({
   name: z.string().min(1),
   appName: z.string().min(1),
   description: z.string().optional(),
-  composeFile: z.string().min(1, "Compose file is required"),
+  composeFile: ComposeDocumentSchema,
   composeType: ResourceComposeTypeSchema.optional().default("stack"),
   advancedConfig: ResourceAdvancedConfigSchema.optional(),
   envVars: z.record(z.string(), z.string()).optional(),
@@ -66,7 +67,7 @@ const UpdateComposeInputSchema = UpdateResourceInputSchema.pick({
   watchPaths: true,
   tagPattern: true,
 }).extend({
-  composeFile: z.string().min(1).optional(),
+  composeFile: ComposeDocumentSchema.optional(),
   composeType: ResourceComposeTypeSchema.optional(),
   advancedConfig: ResourceAdvancedConfigSchema.optional(),
   envVars: z.record(z.string(), z.string()).optional(),

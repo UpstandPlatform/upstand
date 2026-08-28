@@ -1,4 +1,5 @@
 import yaml from "yaml";
+import { COMPOSE_DOCUMENT_MAX_BYTES } from "./compose-document.schema";
 import { isUnknownRecord } from "./docker-values";
 
 const HOST_PATH_PATTERN = /^(?:[a-zA-Z]:[\\/]|[\\/]{2}|[\\/~]|\.\.?[\\/])/;
@@ -763,6 +764,11 @@ function validateComposeFileBackedResources(
  * This applies to raw Compose resources as well as user-created templates.
  */
 export function validateComposeSecurity(rawCompose: string): void {
+  if (
+    new TextEncoder().encode(rawCompose).byteLength > COMPOSE_DOCUMENT_MAX_BYTES
+  ) {
+    throw new Error("Compose files must not exceed 1 MB when encoded as UTF-8");
+  }
   validateProtectedDockerEnvironmentReferences(rawCompose);
 
   let parsed: unknown;

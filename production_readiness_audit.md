@@ -88,6 +88,11 @@ The deployment worker's raw network/volume creation endpoints are denied in
 production, and shared-network creation uses a typed, configured-name-only
 operation.
 
+Compose create, update, and inspection inputs now share a 1 MiB UTF-8 byte
+limit, and the runtime security validator enforces that limit again for legacy
+stored payloads before YAML parsing. This keeps API, persisted, and
+deployment-time validation aligned and bounds parser/memory exposure.
+
 The follow-up Compose isolation pass also rejects host and cross-container
 namespace sharing (`host`, `container:*`, and `service:*`), inherited container
 volumes, external container links, host-gateway `extra_hosts`, service sysctls,
