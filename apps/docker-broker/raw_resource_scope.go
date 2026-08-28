@@ -805,6 +805,18 @@ func validateRawServiceSecurity(payload map[string]any) error {
 	if !ok {
 		return errors.New("service ContainerSpec is not an object")
 	}
+	if rawSecurityOptions, exists := dockerObjectField(containerSpecObject, "SecurityOpt"); exists && rawSecurityOptions != nil {
+		securityOptions, ok := rawSecurityOptions.([]any)
+		if !ok || len(securityOptions) > 16 {
+			return errors.New("service ContainerSpec SecurityOpt is invalid or unbounded")
+		}
+		for index, rawOption := range securityOptions {
+			option, ok := rawOption.(string)
+			if !ok || strings.ToLower(strings.TrimSpace(option)) != "no-new-privileges:true" {
+				return fmt.Errorf("service ContainerSpec security option %d is not allowed", index)
+			}
+		}
+	}
 	for _, field := range []string{
 		"Privileged",
 		"NetworkMode",
@@ -815,9 +827,9 @@ func validateRawServiceSecurity(payload map[string]any) error {
 		"CgroupnsMode",
 		"Isolation",
 		"CapAdd",
+		"CapabilityAdd",
 		"Devices",
 		"DeviceRequests",
-		"SecurityOpt",
 		"Sysctls",
 		"CgroupParent",
 		"StorageOpt",
