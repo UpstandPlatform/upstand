@@ -318,6 +318,25 @@ services:
       resources: []
 `),
       ).toThrow("Compose service 'web' deploy.resources must be a mapping");
+
+      for (const [field, value, expected] of [
+        ["cap_add", "SYS_ADMIN", "must be an array"],
+        ["devices", "/dev/kvm:/dev/kvm", "must be an array"],
+        ["security_opt", "label=disable", "must be an array"],
+        ["volumes", "./host:/data", "must be an array"],
+        ["sysctls", "net.ipv4.ip_forward=1", "must be a mapping or array"],
+        ["privileged", "1", "must be a boolean"],
+        ["network_mode", true, "must be a string"],
+      ] as const) {
+        expect(() =>
+          validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    ${field}: ${typeof value === "string" ? value : String(value).toLowerCase()}
+`),
+        ).toThrow(`Compose service 'web' ${field} ${expected}`);
+      }
     });
 
     test("accepts a bounded standard Compose deployment shape", () => {

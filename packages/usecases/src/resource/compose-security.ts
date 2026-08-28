@@ -268,6 +268,113 @@ function validateComposeNestedFieldSet(
   );
 }
 
+function requireComposeArray(
+  value: unknown,
+  location: string,
+): asserts value is unknown[] | undefined {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new Error(`${location} must be an array`);
+  }
+}
+
+function requireComposeMapping(
+  value: unknown,
+  location: string,
+): asserts value is Record<string, unknown> | undefined {
+  if (value !== undefined && !isUnknownRecord(value)) {
+    throw new Error(`${location} must be a mapping`);
+  }
+}
+
+function requireComposeString(value: unknown, location: string): void {
+  if (value !== undefined && typeof value !== "string") {
+    throw new Error(`${location} must be a string`);
+  }
+}
+
+function requireComposeBoolean(value: unknown, location: string): void {
+  if (
+    value !== undefined &&
+    typeof value !== "boolean" &&
+    !(typeof value === "string" && /^(?:true|false)$/i.test(value.trim()))
+  ) {
+    throw new Error(`${location} must be a boolean`);
+  }
+}
+
+function validateComposeServiceSecurityShapes(
+  serviceName: string,
+  service: Record<string, unknown>,
+): void {
+  for (const field of [
+    "cap_add",
+    "devices",
+    "device_cgroup_rules",
+    "external_links",
+    "security_opt",
+    "volumes",
+    "volumes_from",
+  ]) {
+    requireComposeArray(
+      service[field],
+      `Compose service '${serviceName}' ${field}`,
+    );
+  }
+  for (const field of ["blkio_config", "storage_opt"]) {
+    requireComposeMapping(
+      service[field],
+      `Compose service '${serviceName}' ${field}`,
+    );
+  }
+  requireComposeArrayOrMappingOrString(
+    service.extra_hosts,
+    `Compose service '${serviceName}' extra_hosts`,
+  );
+  requireComposeArrayOrMapping(
+    service.sysctls,
+    `Compose service '${serviceName}' sysctls`,
+  );
+  requireComposeBoolean(
+    service.privileged,
+    `Compose service '${serviceName}' privileged`,
+  );
+  for (const field of [
+    "cgroup",
+    "cgroup_parent",
+    "cgroupns",
+    "ipc",
+    "network_mode",
+    "pid",
+    "userns_mode",
+    "uts",
+  ]) {
+    requireComposeString(
+      service[field],
+      `Compose service '${serviceName}' ${field}`,
+    );
+  }
+}
+
+function requireComposeArrayOrMapping(value: unknown, location: string): void {
+  if (value !== undefined && !Array.isArray(value) && !isUnknownRecord(value)) {
+    throw new Error(`${location} must be a mapping or array`);
+  }
+}
+
+function requireComposeArrayOrMappingOrString(
+  value: unknown,
+  location: string,
+): void {
+  if (
+    value !== undefined &&
+    !Array.isArray(value) &&
+    !isUnknownRecord(value) &&
+    typeof value !== "string"
+  ) {
+    throw new Error(`${location} must be a mapping, array, or string`);
+  }
+}
+
 function validateComposeShape(parsed: Record<string, unknown>): void {
   validateComposeFieldSet(parsed, COMPOSE_TOP_LEVEL_FIELDS, "Compose document");
 
@@ -284,6 +391,7 @@ function validateComposeShape(parsed: Record<string, unknown>): void {
         COMPOSE_SERVICE_FIELDS,
         `Compose service '${serviceName}'`,
       );
+      validateComposeServiceSecurityShapes(serviceName, rawService);
       validateComposeNestedFieldSet(
         rawService.build,
         COMPOSE_BUILD_FIELDS,
