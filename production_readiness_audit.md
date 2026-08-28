@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `3aa0cb8f`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `b8d5d9cc`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -118,6 +118,11 @@ denylist for environment files, VCS metadata, SSH/AWS credential directories,
 private-key/certificate formats, and common credential files. Repository
 `.dockerignore` rules still apply to ordinary paths, but cannot re-include
 these high-risk files in the context sent to the Docker daemon.
+
+The selected Dockerfile path is now checked against the same denylist before
+the Dockerfile exception is applied, so a caller cannot reintroduce a
+credential-bearing or VCS metadata file by naming it as the Dockerfile. A
+focused regression covers the `.env` bypass shape.
 
 Compose create, update, and inspection inputs now share a 1 MiB UTF-8 byte
 limit, and the runtime security validator enforces that limit again for legacy
@@ -472,6 +477,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Latest Dockerfile secret boundary hardening:** Application Dockerfile builds no longer copy resolved runtime/build environment values into `--build-arg`. Explicit `dockerBuildArgs` are bounded, validated POSIX names/values, and reject secret-like names; resolved environment and configured build-secret values are supplied only through BuildKit's `--secret id=...,env=...` channel, keeping them out of image history and command arguments. Build-variable overrides for `DOCKER_HOST`, Docker credentials, Compose control variables, and custom broker headers are filtered before child-process execution, while secret-free explicit arguments continue through the typed resource-build route. The credential-safe typed transport for secret-bearing builds remains open.
  - **Latest secret-bearing build input hardening:** Raw Dockerfile, Railpack, and Pack build paths now reject non-POSIX secret names, control characters, oversized values, excessive secret counts, and oversized aggregate secret metadata before subprocess execution. This bounds the constrained secret environment and prevents malformed metadata from reaching Docker CLI/BuildKit; the credential-safe typed streaming transport remains open. The separate Compose CLI process environment now has its own bounded count, per-value, control-character, and aggregate-size policy after protected Docker transport variables are filtered.
  - **Latest typed build-context hardening:** Typed local Docker build contexts now unconditionally exclude environment files, VCS metadata, SSH/AWS credential directories, private-key/certificate formats, and common credential files. This denylist is applied after path normalization and cannot be overridden by a repository `.dockerignore`; ordinary repository ignore rules remain supported. The credential-safe typed streaming transport for secret-bearing builds remains open.
+ - **Latest Dockerfile-path hardening:** The typed build-context helper now rejects credential-bearing and VCS metadata paths even when a caller selects the path as the Dockerfile, before applying the Dockerfile inclusion exception. This closes the `.env`-as-Dockerfile bypass and is covered by an infrastructure regression; the credential-safe typed streaming transport for secret-bearing builds remains open.
 - **Latest Compose build-source hardening:** Compose services now reject network-style build contexts, including HTTP(S), Git, URI, and SSH-style sources, across the short syntax, mapping syntax, and `additional_contexts` forms. Build secrets, external cache import/export, host networking, and BuildKit entitlements are also rejected. This prevents the Docker daemon from fetching unreviewed build input, forwarding host credentials, reaching arbitrary external build endpoints, or exporting build data; bounded local contexts continue through the existing generated-workspace and `.dockerignore` controls. Focused Compose security regressions cover each accepted syntax family.
 - **Latest Compose task-boundary hardening:** Compose validation also rejects deploy-level privileged/capability/device/security/sysctl controls, reserved host devices, custom runtimes, host GPUs, and `service:host` namespace references. This closes equivalent host-escape controls expressed through the Swarm/Compose deployment model, including mapping-shaped sysctl declarations; focused regressions cover list and mapping forms.
 - **Latest worker-grant boundary hardening:** Deployment jobs now carry a short-lived HMAC grant signed by the control plane and bound to the exact resource, deployment, and target server. The deployment worker does not receive the signing secret; Dockerode, Docker CLI, and broker-stream transports propagate the grant from async-local job context; production broker requests reject missing, expired, tampered, or cross-resource grants. Go and TypeScript tests cover the verifier, transport propagation, and concurrent context isolation. The remaining raw Compose and secret-bearing build paths are still not fully typed.
