@@ -378,89 +378,95 @@ function requireComposeArrayOrMappingOrString(
 function validateComposeShape(parsed: Record<string, unknown>): void {
   validateComposeFieldSet(parsed, COMPOSE_TOP_LEVEL_FIELDS, "Compose document");
 
-  if (parsed.services !== undefined && !isUnknownRecord(parsed.services)) {
-    throw new Error("Compose services must be a mapping");
+  if (
+    !isUnknownRecord(parsed.services) ||
+    Object.keys(parsed.services).length === 0
+  ) {
+    throw new Error("Compose services must be a non-empty mapping");
   }
-  if (isUnknownRecord(parsed.services)) {
-    for (const [serviceName, rawService] of Object.entries(parsed.services)) {
-      if (!isUnknownRecord(rawService)) {
-        throw new Error(`Compose service '${serviceName}' must be a mapping`);
-      }
-      validateComposeFieldSet(
-        rawService,
-        COMPOSE_SERVICE_FIELDS,
-        `Compose service '${serviceName}'`,
-      );
-      validateComposeServiceSecurityShapes(serviceName, rawService);
-      validateComposeNestedFieldSet(
-        rawService.build,
-        COMPOSE_BUILD_FIELDS,
-        `Compose service '${serviceName}' build`,
-        "mapping-or-string",
-      );
-      validateComposeNestedFieldSet(
-        rawService.deploy,
-        COMPOSE_DEPLOY_FIELDS,
-        `Compose service '${serviceName}' deploy`,
-      );
-      if (isUnknownRecord(rawService.deploy)) {
-        validateComposeNestedFieldSet(
-          rawService.deploy.resources,
-          new Set(["limits", "reservations"]),
-          `Compose service '${serviceName}' deploy.resources`,
-        );
-        if (isUnknownRecord(rawService.deploy.resources)) {
-          validateComposeNestedFieldSet(
-            rawService.deploy.resources.limits,
-            COMPOSE_RESOURCE_LIMIT_FIELDS,
-            `Compose service '${serviceName}' deploy.resources.limits`,
-          );
-          validateComposeNestedFieldSet(
-            rawService.deploy.resources.reservations,
-            COMPOSE_RESOURCE_RESERVATION_FIELDS,
-            `Compose service '${serviceName}' deploy.resources.reservations`,
-          );
-        }
-        validateComposeNestedFieldSet(
-          rawService.deploy.restart_policy,
-          COMPOSE_RESTART_FIELDS,
-          `Compose service '${serviceName}' deploy.restart_policy`,
-        );
-        validateComposeNestedFieldSet(
-          rawService.deploy.placement,
-          COMPOSE_PLACEMENT_FIELDS,
-          `Compose service '${serviceName}' deploy.placement`,
-        );
-        validateComposeNestedFieldSet(
-          rawService.deploy.update_config,
-          COMPOSE_UPDATE_FIELDS,
-          `Compose service '${serviceName}' deploy.update_config`,
-        );
-        validateComposeNestedFieldSet(
-          rawService.deploy.rollback_config,
-          COMPOSE_UPDATE_FIELDS,
-          `Compose service '${serviceName}' deploy.rollback_config`,
-        );
-      }
-      validateComposeNestedFieldSet(
-        rawService.healthcheck,
-        new Set([
-          "disable",
-          "interval",
-          "retries",
-          "start_period",
-          "test",
-          "timeout",
-        ]),
-        `Compose service '${serviceName}' healthcheck`,
-        "mapping-or-array",
-      );
-      validateComposeNestedFieldSet(
-        rawService.logging,
-        new Set(["driver", "options"]),
-        `Compose service '${serviceName}' logging`,
+  for (const [serviceName, rawService] of Object.entries(parsed.services)) {
+    if (!COMPOSE_RESOURCE_KEY_PATTERN.test(serviceName)) {
+      throw new Error(
+        `Compose service '${serviceName}' has an invalid resource name`,
       );
     }
+    if (!isUnknownRecord(rawService)) {
+      throw new Error(`Compose service '${serviceName}' must be a mapping`);
+    }
+    validateComposeFieldSet(
+      rawService,
+      COMPOSE_SERVICE_FIELDS,
+      `Compose service '${serviceName}'`,
+    );
+    validateComposeServiceSecurityShapes(serviceName, rawService);
+    validateComposeNestedFieldSet(
+      rawService.build,
+      COMPOSE_BUILD_FIELDS,
+      `Compose service '${serviceName}' build`,
+      "mapping-or-string",
+    );
+    validateComposeNestedFieldSet(
+      rawService.deploy,
+      COMPOSE_DEPLOY_FIELDS,
+      `Compose service '${serviceName}' deploy`,
+    );
+    if (isUnknownRecord(rawService.deploy)) {
+      validateComposeNestedFieldSet(
+        rawService.deploy.resources,
+        new Set(["limits", "reservations"]),
+        `Compose service '${serviceName}' deploy.resources`,
+      );
+      if (isUnknownRecord(rawService.deploy.resources)) {
+        validateComposeNestedFieldSet(
+          rawService.deploy.resources.limits,
+          COMPOSE_RESOURCE_LIMIT_FIELDS,
+          `Compose service '${serviceName}' deploy.resources.limits`,
+        );
+        validateComposeNestedFieldSet(
+          rawService.deploy.resources.reservations,
+          COMPOSE_RESOURCE_RESERVATION_FIELDS,
+          `Compose service '${serviceName}' deploy.resources.reservations`,
+        );
+      }
+      validateComposeNestedFieldSet(
+        rawService.deploy.restart_policy,
+        COMPOSE_RESTART_FIELDS,
+        `Compose service '${serviceName}' deploy.restart_policy`,
+      );
+      validateComposeNestedFieldSet(
+        rawService.deploy.placement,
+        COMPOSE_PLACEMENT_FIELDS,
+        `Compose service '${serviceName}' deploy.placement`,
+      );
+      validateComposeNestedFieldSet(
+        rawService.deploy.update_config,
+        COMPOSE_UPDATE_FIELDS,
+        `Compose service '${serviceName}' deploy.update_config`,
+      );
+      validateComposeNestedFieldSet(
+        rawService.deploy.rollback_config,
+        COMPOSE_UPDATE_FIELDS,
+        `Compose service '${serviceName}' deploy.rollback_config`,
+      );
+    }
+    validateComposeNestedFieldSet(
+      rawService.healthcheck,
+      new Set([
+        "disable",
+        "interval",
+        "retries",
+        "start_period",
+        "test",
+        "timeout",
+      ]),
+      `Compose service '${serviceName}' healthcheck`,
+      "mapping-or-array",
+    );
+    validateComposeNestedFieldSet(
+      rawService.logging,
+      new Set(["driver", "options"]),
+      `Compose service '${serviceName}' logging`,
+    );
   }
 
   for (const [kind, allowed] of [
@@ -905,7 +911,9 @@ export function validateComposeSecurity(rawCompose: string): void {
     );
   }
 
-  if (!isUnknownRecord(parsed)) return;
+  if (!isUnknownRecord(parsed)) {
+    throw new Error("Compose document must be a mapping");
+  }
 
   if (isUnknownRecord(parsed.volumes)) {
     for (const [volumeName, rawDefinition] of Object.entries(parsed.volumes)) {

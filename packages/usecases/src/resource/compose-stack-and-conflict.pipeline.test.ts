@@ -231,6 +231,24 @@ volumes:
       ).toThrow("invalid resource name");
     });
 
+    test("rejects invalid or missing service maps before Docker execution", () => {
+      expect(() => validateComposeSecurity("true")).toThrow(
+        "Compose document must be a mapping",
+      );
+
+      expect(() => validateComposeSecurity("version: '3.9'")).toThrow(
+        "Compose services must be a non-empty mapping",
+      );
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  ../escape:
+    image: nginx
+`),
+      ).toThrow("Compose service '../escape' has an invalid resource name");
+    });
+
     test("rejects unknown future Compose fields at every control boundary", () => {
       expect(() =>
         validateComposeSecurity(`
