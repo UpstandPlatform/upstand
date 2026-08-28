@@ -512,14 +512,24 @@ func validateDeploymentWorkerRawContainerShape(body []byte) error {
 // Only Docker's built-in local and json-file drivers are allowed, with the
 // small set of bounded options supported by those drivers.
 func validateDeploymentWorkerRawContainerLogConfig(logConfig map[string]any) error {
-	logType := strings.ToLower(strings.TrimSpace(dockerStringField(logConfig, "Type")))
+	logType := ""
+	if rawType, hasType := dockerObjectField(logConfig, "Type"); hasType {
+		typeText, ok := rawType.(string)
+		if !ok {
+			return errors.New("Docker container HostConfig.LogConfig.Type must be a string")
+		}
+		logType = strings.ToLower(strings.TrimSpace(typeText))
+	}
 	if logType != "" && logType != "json-file" && logType != "local" {
 		return fmt.Errorf("Docker container HostConfig.LogConfig type %q is not allowed", logType)
 	}
 
 	rawConfig, hasConfig := dockerObjectField(logConfig, "Config")
-	if !hasConfig || rawConfig == nil {
+	if !hasConfig {
 		return nil
+	}
+	if rawConfig == nil {
+		return errors.New("Docker container HostConfig.LogConfig.Config must be an object")
 	}
 	config, ok := rawConfig.(map[string]any)
 	if !ok || config == nil {

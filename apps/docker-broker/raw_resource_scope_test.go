@@ -818,6 +818,17 @@ func TestDeploymentWorkerRawContainerCreateRejectsExternalLogDrivers(t *testing.
 	}
 }
 
+func TestDeploymentWorkerRawContainerCreateRejectsMalformedLogDriverTypes(t *testing.T) {
+	for _, logType := range []string{`true`, `[]`, `null`} {
+		t.Run(logType, func(t *testing.T) {
+			body := []byte(`{"Image":"example/app:latest","HostConfig":{"LogConfig":{"Type":` + logType + `}}}`)
+			if err := validateDeploymentWorkerRawContainerShape(body); err == nil {
+				t.Fatalf("expected malformed Docker log driver type %s to be rejected", logType)
+			}
+		})
+	}
+}
+
 func TestDeploymentWorkerRawContainerCreateAllowsBoundedBuiltinLogConfig(t *testing.T) {
 	for _, logType := range []string{"json-file", "local"} {
 		t.Run(logType, func(t *testing.T) {
