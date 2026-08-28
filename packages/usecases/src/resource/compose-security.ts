@@ -720,6 +720,12 @@ function validateComposeBuild(serviceName: string, build: unknown): void {
   }
   if (!isUnknownRecord(build)) return;
 
+  if (build.platforms !== undefined) {
+    throw new Error(
+      `Compose service '${serviceName}' requests cross-platform build targets, which are not allowed`,
+    );
+  }
+
   if (
     build.privileged === true ||
     String(build.privileged ?? "")

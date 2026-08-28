@@ -563,6 +563,18 @@ services:
   web:
     build:
       context: .
+      platforms:
+        - linux/amd64
+        - linux/arm64
+`),
+      ).toThrow("requests cross-platform build targets");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
       entitlements:
         - network.host
 `),
