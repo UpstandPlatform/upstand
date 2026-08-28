@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `61ef6fdc`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `0d2b1759`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -871,6 +871,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-001/F-014 credential boundary | Remediated for the preview deployment override path — stored resource credentials are parsed strictly and re-encrypted after the branch override, so malformed/undecryptable values fail closed and valid credentials are not downgraded to plaintext; focused regression coverage passes. Broader secret-bearing build and raw Compose/service transport remains open. |
 | F-001 raw container volume ownership | Hardened — production deployment-worker raw container creation now live-verifies named volume identity, driver, options, and ownership labels, and rejects inherited volumes plus daemon-host ID-file writes; focused Go regressions pass. Broader Compose/service transport remains open. |
 | F-001 raw container log driver | Hardened — production deployment-worker raw container creation now permits only built-in `json-file`/`local` logging with bounded reviewed options and rejects plugin/network-backed drivers, unknown options, invalid values, and control characters before Docker execution; focused Go regressions pass. Broader Compose/service transport remains open. |
+| F-001 raw container gateway/link boundary | Hardened — production deployment-worker raw container creation now rejects host-gateway `ExtraHosts`, cross-container `Links`/`VolumesFrom`, shared namespace modes, and untyped security controls before Docker execution; focused Go regressions pass. Broader Compose/service transport remains open. |
 
 ## Security Risk Matrix
 
@@ -975,6 +976,7 @@ Passed:
 - `go test ./...` and `go vet ./...` in `apps/docker-broker`, including raw container-create shape regressions and typed-route authorization tests
 - raw deployment-worker container volume regressions covering live managed/legacy volume ownership, foreign labels, host-backed local-volume options, inherited volumes, and daemon-host ID-file rejection
 - raw deployment-worker container logging regressions covering built-in driver acceptance, external/plugin driver rejection, unknown options, invalid values, and control-character rejection
+- raw deployment-worker container gateway/link regressions covering host-gateway aliases, cross-container links/volume inheritance, and untyped namespace/security controls
 - Compose logging regressions covering built-in driver acceptance, external/plugin driver rejection, unknown options, invalid values, and control-character rejection
 - raw service file-reference ownership regression rejecting unlabelled deterministic secret/config name collisions
 - production server raw Docker mutation-boundary policy regressions covering container/image/network/volume, exec/archive, and service mutation denial plus read-only compatibility
