@@ -676,6 +676,71 @@ func TestDeploymentWorkerRawContainerCreateRequiresManagedNetworks(t *testing.T)
 	}
 }
 
+func TestDeploymentWorkerRawContainerCreateRequiresLiveOwnedVolumes(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	ownedNetwork := `{"Id":"network-1","Name":"upstand-resource-resource-1","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{"encrypted":""},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`
+	ownedVolume := `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`
+	legacyVolume := `{"Name":"upstand-db-data-resource-1","Driver":"local","Options":{}}`
+	bodyFor := func(volume string) []byte {
+		return []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"},"HostConfig":{"Mounts":[{"Type":"volume","Source":"` + volume + `","Target":"/data"}]},"NetworkingConfig":{"EndpointsConfig":{"upstand-resource-resource-1":{}}}}`)
+	}
+	for _, test := range []struct {
+		name       string
+		body       []byte
+		volume     string
+		inspection string
+		wantError  bool
+	}{
+		{name: "owned managed volume", body: bodyFor("upstand-resource-resource-1-volume-data"), volume: "upstand-resource-resource-1-volume-data", inspection: ownedVolume},
+		{name: "legacy database volume", body: bodyFor("upstand-db-data-resource-1"), volume: "upstand-db-data-resource-1", inspection: legacyVolume},
+		{name: "foreign label", body: bodyFor("upstand-resource-resource-1-volume-data"), volume: "upstand-resource-resource-1-volume-data", inspection: `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"other-resource"}}`, wantError: true},
+		{name: "host-backed options", body: bodyFor("upstand-resource-resource-1-volume-data"), volume: "upstand-resource-resource-1-volume-data", inspection: `{"Name":"upstand-resource-resource-1-volume-data","Driver":"local","Options":{"device":"/var/lib"},"Labels":{"com.upstand.managed":"true","com.upstand.purpose":"resource-isolation","com.upstand.resource-id":"resource-1"}}`, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/containers/create", strings.NewReader(string(test.body)))
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			engine := rawScopeTestEngine(func(r *http.Request) *http.Response {
+				switch r.URL.Path {
+				case "/volumes/" + test.volume:
+					return dockerResponse(http.StatusOK, test.inspection)
+				case "/networks/upstand-resource-resource-1":
+					return dockerResponse(http.StatusOK, ownedNetwork)
+				default:
+					return dockerResponse(http.StatusNotFound, `{}`)
+				}
+			})
+			err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, test.body, engine)
+			if test.wantError && err == nil {
+				t.Fatal("expected unsafe or foreign container volume to be rejected")
+			}
+			if !test.wantError && err != nil {
+				t.Fatalf("expected an authorized container volume to pass: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawContainerCreateRejectsCrossContainerVolumeInheritance(t *testing.T) {
+	for _, field := range []string{"VolumesFrom", "ContainerIDFile"} {
+		t.Run(field, func(t *testing.T) {
+			t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+			body := []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"},"HostConfig":{"` + field + `:["other-resource"]},"NetworkingConfig":{"EndpointsConfig":{"upstand-resource-resource-1":{}}}}`)
+			if field == "ContainerIDFile" {
+				body = []byte(`{"Labels":{"com.upstand.resource-id":"resource-1"},"HostConfig":{"ContainerIDFile":"/tmp/container-id"},"NetworkingConfig":{"EndpointsConfig":{"upstand-resource-resource-1":{}}}}`)
+			}
+			request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/containers/create", strings.NewReader(string(body)))
+			request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+			err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, rawScopeTestEngine(func(*http.Request) *http.Response {
+				t.Fatal("cross-container or host file controls must fail before Docker inspection")
+				return nil
+			}))
+			if err == nil {
+				t.Fatal("expected unsafe container control to be rejected")
+			}
+		})
+	}
+}
+
 func TestDeploymentWorkerRawContainerCreateRejectsUnreviewedDockerFields(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	for _, test := range []struct {

@@ -245,6 +245,9 @@ func authorizeDeploymentWorkerRawContainerResources(
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return fmt.Errorf("container create payload is invalid: %w", err)
 	}
+	if err := authorizeDeploymentWorkerRawContainerVolumes(ctx, payload, resourceID, engine); err != nil {
+		return err
+	}
 
 	// A resource container must explicitly attach to an Upstand-managed
 	// network. The only networkless exceptions are the Docker API's explicit
@@ -323,6 +326,102 @@ func authorizeDeploymentWorkerRawContainerResources(
 		}
 		if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
 			return fmt.Errorf("container network %q is not owned by the requested Upstand resource", networkTarget)
+		}
+	}
+	return nil
+}
+
+// authorizeDeploymentWorkerRawContainerVolumes re-inspects every named
+// volume immediately before a raw container is created. A deterministic name
+// or caller-controlled prefix is not ownership proof: a stale or externally
+// created volume could otherwise expose a host-backed driver or another
+// resource's data to a newly-created container.
+func authorizeDeploymentWorkerRawContainerVolumes(
+	ctx context.Context,
+	payload map[string]any,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	hostConfigValue, ok := dockerObjectField(payload, "HostConfig")
+	if !ok || hostConfigValue == nil {
+		return nil
+	}
+	hostConfig, ok := hostConfigValue.(map[string]any)
+	if !ok || hostConfig == nil {
+		return errors.New("container HostConfig is not an object")
+	}
+
+	// These fields can cross container/resource boundaries or write to the
+	// daemon host. Compose validation already excludes them; keep the raw
+	// Engine compatibility endpoint equally fail-closed.
+	for _, field := range []string{"VolumesFrom", "ContainerIDFile"} {
+		if dockerFieldIsNonEmpty(hostConfig, field) {
+			return fmt.Errorf("container HostConfig field %q is not allowed", field)
+		}
+	}
+
+	checkedVolumes := make(map[string]struct{})
+	checkVolume := func(source string) error {
+		source = strings.TrimSpace(source)
+		if !deploymentWorkerVolumeNamePattern.MatchString(source) ||
+			!isDeploymentWorkerOwnedVolume(source, resourceID) {
+			return fmt.Errorf("container volume %q is not owned by the requested Upstand resource", source)
+		}
+		if _, checked := checkedVolumes[source]; checked {
+			return nil
+		}
+		if err := authorizeDeploymentWorkerRawVolumeInspection(
+			ctx,
+			"/volumes/"+url.PathEscape(source),
+			resourceID,
+			engine,
+		); err != nil {
+			return fmt.Errorf("container volume %q failed live ownership verification: %w", source, err)
+		}
+		checkedVolumes[source] = struct{}{}
+		return nil
+	}
+
+	if rawBinds, ok := dockerObjectField(hostConfig, "Binds"); ok {
+		binds, ok := rawBinds.([]any)
+		if !ok || len(binds) > 64 {
+			return errors.New("container HostConfig.Binds are invalid or unbounded")
+		}
+		for index, rawBind := range binds {
+			bind, ok := rawBind.(string)
+			if !ok {
+				return fmt.Errorf("container HostConfig.Binds[%d] is invalid", index)
+			}
+			if err := checkVolume(strings.SplitN(bind, ":", 2)[0]); err != nil {
+				return fmt.Errorf("container HostConfig.Binds[%d] failed ownership verification: %w", index, err)
+			}
+		}
+	}
+
+	if rawMounts, ok := dockerObjectField(hostConfig, "Mounts"); ok {
+		mounts, ok := rawMounts.([]any)
+		if !ok || len(mounts) > 64 {
+			return errors.New("container HostConfig.Mounts are invalid or unbounded")
+		}
+		for index, rawMount := range mounts {
+			mount, ok := rawMount.(map[string]any)
+			if !ok || mount == nil {
+				return fmt.Errorf("container HostConfig.Mounts[%d] is invalid", index)
+			}
+			mountType := strings.ToLower(dockerStringField(mount, "Type"))
+			source := dockerStringField(mount, "Source")
+			switch mountType {
+			case "volume":
+				if err := checkVolume(source); err != nil {
+					return fmt.Errorf("container HostConfig.Mounts[%d] failed ownership verification: %w", index, err)
+				}
+			case "bind":
+				return fmt.Errorf("container HostConfig.Mounts[%d] cannot use a host bind", index)
+			case "tmpfs":
+				// tmpfs is container-local and does not reference a Docker volume.
+			default:
+				return fmt.Errorf("container HostConfig.Mounts[%d] uses unsupported mount type %q", index, mountType)
+			}
 		}
 	}
 	return nil
