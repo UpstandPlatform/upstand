@@ -3331,6 +3331,21 @@ export class DockerService implements DockerSwarmManagementPort {
     constraints?: string[],
     envVars?: Record<string, string>,
   ): Promise<void> {
+    const configuredCaller = (
+      this.commandEnvironment.UPSTAND_DOCKER_BROKER_CALLER ??
+      (Object.keys(this.commandEnvironment).length === 0
+        ? process.env.UPSTAND_DOCKER_BROKER_CALLER
+        : undefined)
+    )?.trim();
+    if (
+      Object.keys(this.commandEnvironment).length === 0 &&
+      configuredCaller === "deployment-worker" &&
+      !this.resourceCommandBroker
+    ) {
+      throw new Error(
+        "Deployment-worker Compose orchestration requires the authenticated Docker broker",
+      );
+    }
     const stackName = this.sanitizeName(resource.appName || resource.name);
     const deploymentNetwork = await this.ensureDeploymentNetwork(resource);
 

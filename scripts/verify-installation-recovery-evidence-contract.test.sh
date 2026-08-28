@@ -13,10 +13,16 @@ mkdirSync(path, { recursive: true });
 const evidence = {
   schema: "upstand.installation-recovery-evidence.v1",
   scope: "installation",
+  evidence_mode: "live",
   result: "passed",
   installation_id: "installation-001",
   backup_artifact_reference: "s3://backups/upstand/backup-2026-08-27.dump",
+  backup_artifact_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   restore_target: "isolated-restore-2026-08-27",
+  restore_data_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  offsite_destination_reference: "vault://dr/upstand/2026-08-27",
+  key_escrow_reference: "escrow://upstand/keys/2026-08-27",
+  restore_execution_reference: "drill://upstand/2026-08-27/run-001",
   release_ref: "v0.2.26",
   evidence_reference: "change-1234",
   recorded_at: new Date().toISOString(),
@@ -70,6 +76,38 @@ if bash "$ROOT_DIR/scripts/verify-installation-recovery-evidence.sh" \
   exit 1
 fi
 
+node - "$TEMP_DIR" <<'NODE'
+const { readFileSync, writeFileSync } = require("node:fs");
+const crypto = require("node:crypto");
+const path = process.argv[2];
+const evidence = JSON.parse(readFileSync(`${path}/evidence.json`, "utf8"));
+const canonicalize = (value) => Array.isArray(value)
+  ? `[${value.map(canonicalize).join(",")}]`
+  : value && typeof value === "object"
+    ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(",")}}`
+    : JSON.stringify(value);
+for (const [name, changes] of [
+  ["synthetic-mode", { evidence_mode: "synthetic" }],
+  ["same-target", { restore_target: evidence.installation_id }],
+  ["invalid-digest", { backup_artifact_sha256: "not-a-digest" }],
+]) {
+  const invalidEvidence = { ...evidence, ...changes };
+  const keys = crypto.generateKeyPairSync("ed25519");
+  writeFileSync(`${path}/${name}.json`, JSON.stringify(invalidEvidence));
+  writeFileSync(`${path}/${name}.sig`, crypto.sign(null, Buffer.from(canonicalize(invalidEvidence)), keys.privateKey).toString("base64"));
+  writeFileSync(`${path}/${name}.pem`, keys.publicKey.export({ type: "spki", format: "pem" }));
+}
+NODE
+
+for name in synthetic-mode same-target invalid-digest; do
+  if bash "$ROOT_DIR/scripts/verify-installation-recovery-evidence.sh" \
+    "$TEMP_DIR/${name}.json" "$TEMP_DIR/${name}.sig" "$TEMP_DIR/${name}.pem" \
+    change-1234 3600 1800 86400; then
+    echo "verification unexpectedly accepted ${name}" >&2
+    exit 1
+  fi
+done
+
 if bash "$ROOT_DIR/scripts/verify-installation-recovery-evidence.sh" \
   "$TEMP_DIR/evidence.json" "$TEMP_DIR/evidence.sig" "$TEMP_DIR/public.pem" \
   wrong-reference 3600 1800 86400; then
@@ -101,7 +139,7 @@ const canonicalize = (value) => Array.isArray(value)
   : value && typeof value === "object"
     ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(",")}}`
     : JSON.stringify(value);
-for (const field of ["installation_id", "backup_artifact_reference", "restore_target", "release_ref"]) {
+for (const field of ["installation_id", "backup_artifact_reference", "backup_artifact_sha256", "restore_target", "restore_data_sha256", "offsite_destination_reference", "key_escrow_reference", "restore_execution_reference", "release_ref"]) {
   const invalidEvidence = { ...evidence };
   delete invalidEvidence[field];
   const keys = crypto.generateKeyPairSync("ed25519");
@@ -111,7 +149,7 @@ for (const field of ["installation_id", "backup_artifact_reference", "restore_ta
 }
 NODE
 
-for field in installation_id backup_artifact_reference restore_target release_ref; do
+for field in installation_id backup_artifact_reference backup_artifact_sha256 restore_target restore_data_sha256 offsite_destination_reference key_escrow_reference restore_execution_reference release_ref; do
   if bash "$ROOT_DIR/scripts/verify-installation-recovery-evidence.sh" \
     "$TEMP_DIR/missing-${field}.json" "$TEMP_DIR/missing-${field}.sig" "$TEMP_DIR/missing-${field}.pem" \
     change-1234 3600 1800 86400; then

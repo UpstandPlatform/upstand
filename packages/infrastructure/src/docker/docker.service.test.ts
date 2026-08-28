@@ -206,6 +206,42 @@ describe("deployment command log safety", () => {
     }
   });
 
+  test("fails closed when the deployment worker has no Docker broker", async () => {
+    const previous = {
+      DOCKER_HOST: process.env.DOCKER_HOST,
+      UPSTAND_DOCKER_BROKER_CALLER: process.env.UPSTAND_DOCKER_BROKER_CALLER,
+    };
+    delete process.env.DOCKER_HOST;
+    process.env.UPSTAND_DOCKER_BROKER_CALLER = "deployment-worker";
+
+    try {
+      const service = new DockerService({} as never, {}, undefined);
+
+      await expect(
+        service.deployComposeStack(
+          {
+            id: "resource-1",
+            name: "Resource 1",
+            appName: "resource-1",
+            type: "compose",
+            composeType: "compose",
+            advancedConfig: "{}",
+            envVars: null,
+          } as never,
+          "services:\n  app:\n    image: alpine:3.20\n",
+          () => {},
+        ),
+      ).rejects.toThrow(
+        "Deployment-worker Compose orchestration requires the authenticated Docker broker",
+      );
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
   test("does not inherit control-plane secrets into isolated command environments", async () => {
     const key = `UPSTAND_TEST_CONTROL_PLANE_SECRET_${process.pid}`;
     const sentinel = "control-plane-secret";
