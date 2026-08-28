@@ -65,6 +65,48 @@ Revalidate AI provider request destinations on every SDK call and block unsafe r
 
 Expose bounded background-job lifecycle metrics for operational failure detection.
 
+Bound the Docker Compose subprocess environment after filtering protected Docker transport variables.
+
+Fail closed when persisted application build secrets are malformed, undecryptable, or unsafe instead of silently omitting them from a deployment build.
+
+Reject malformed, control-bearing, and unbounded Docker build-secret metadata before invoking Docker or BuildKit.
+
+Fail closed on unknown or future fields in legacy deployment-worker raw
+ServiceSpec payloads and Compose documents. Bounded Compose and Swarm service
+shapes remain covered by regression tests before Docker inspection or mutation;
+unsupported future fields are rejected at the document, service, build, deploy,
+and nested resource boundaries. Typed resource-service ContainerSpec fields are
+also explicitly reviewed instead of being passed through as an open nested
+shape. Malformed nested control shapes now fail closed, and file-backed
+config/secret paths reject terminal and mixed-separator parent segments. Compose
+API and runtime ingress is also capped at 1 MiB when encoded as UTF-8. In
+production, the schedules caller is also denied legacy raw Docker mutation
+endpoints and must use the reviewed typed resource capabilities.
+
+Restrict Compose workloads to built-in Docker logging drivers with bounded reviewed options.
+
+Fail closed on host-gateway aliases, cross-container links, shared namespace modes, and malformed security controls in the legacy resource-scoped Docker container boundary.
+
+Keep preview deployment credential overrides encrypted and fail closed when stored resource credentials are malformed or undecryptable.
+
+Fail closed on unreviewed Docker container-create fields used by resource-scoped deployment workers.
+
+Require installation disaster-recovery evidence to identify a live rehearsal,
+separate the restore target from the source installation, and include artifact,
+restored-data, off-site, escrow, and execution references before acceptance.
+
+Verify live Docker volume ownership before allowing production deployment-worker containers to mount resource volumes.
+
+Restrict production deployment-worker raw containers to built-in Docker logging drivers with bounded options.
+
+Restrict production server Docker access to reviewed typed broker capabilities and deny legacy raw mutation endpoints.
+
+Require daemon-side resource ownership labels for raw deployment-worker Swarm secret and config references instead of trusting deterministic names alone.
+
+Exclude credential-bearing, private-key, and VCS metadata paths from typed Docker build contexts by default.
+
+Terminate deployment commands that exceed the bounded streamed log-output limit, preventing untrusted build or deployment output from exhausting worker and broker logging resources.
+
 ## 0.2.26 - 2026-08-27
 
 Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
