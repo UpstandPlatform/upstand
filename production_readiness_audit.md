@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `d952f697`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `f201e190`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -378,6 +378,11 @@ run IDs and image references that are not bounded safe identifiers or
 immutable digest-pinned image references before any Docker resource is
 created, and its contract suite executes both negative cases.
 
+The Compose boundary now also requires a non-empty service mapping, rejects
+scalar/non-service documents, and bounds service names before they reach
+Compose or Swarm service creation. Regression coverage exercises all three
+invalid-shape cases.
+
 The external-services smoke rehearsal also passed against the immutable server
 image `upstand-server@sha256:6a4e44a2374fcaffc92d5ccdccee2adc7f52f3d3396a9087cbeaa72007753139`.
 It applied the complete migration set to disposable external PostgreSQL,
@@ -750,7 +755,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 
 | Finding | Current status |
 |---|---|
-| F-001 | Partial/remediated at the direct-socket, caller-identity, deployment-worker, migration, autoscaling, API resource, typed self-update, preview-cleanup, typed web-server-maintenance, typed cleanup, host-maintenance, typed Swarm, resource-command, resource-convergence, resource-pull, resource-service, resource-network, resource-volume, deployment-hook, scoped raw-container/read/exec/list/network/service-update/metadata and resource-fallback layers — only the dedicated broker receives the host socket, server/schedules/worker use distinct installer-generated identities, production schedules are denied legacy raw Docker mutation/tag/delete classes and must use typed resource capabilities, capability workflows resolve method-bound ports including on remote targets, deployment-worker grants are verified against resource, deployment, and server headers, raw image pulls and worker-global build-cache pruning are denied to schedules/deployment-worker callers, global worker image/node/disk inventory is denied, worker container/service listings require exact resource filters, worker task listings and service inspections require daemon-side owner verification, worker lifecycle/exec/network/service-update and service-volume operations and resource-specific cleanup fallbacks require a resource scope plus live daemon ownership/security preflight, and policy/scan/preflight tests pass; typed service mounts now require deterministic resource-owned volume names, raw service mounts now also require live volume ownership/driver/options verification, the raw broker policy rejects mixed-case Swarm capability/sysctl/namespace host-escape forms, and Compose network/Git/URI/SSH build fetches, build secrets, external caches, host networking, BuildKit entitlements, and unknown/future document or nested service-shape fields plus malformed nested control shapes are rejected before Docker execution; file-backed config/secret paths also reject terminal and mixed-separator traversal; broader build, Compose orchestration, and service-create transport review remains open. |
+| F-001 | Partial/remediated at the direct-socket, caller-identity, deployment-worker, migration, autoscaling, API resource, typed self-update, preview-cleanup, typed web-server-maintenance, typed cleanup, host-maintenance, typed Swarm, resource-command, resource-convergence, resource-pull, resource-service, resource-network, resource-volume, deployment-hook, scoped raw-container/read/exec/list/network/service-update/metadata and resource-fallback layers — only the dedicated broker receives the host socket, server/schedules/worker use distinct installer-generated identities, production schedules are denied legacy raw Docker mutation/tag/delete classes and must use typed resource capabilities, capability workflows resolve method-bound ports including on remote targets, deployment-worker grants are verified against resource, deployment, and server headers, raw image pulls and worker-global build-cache pruning are denied to schedules/deployment-worker callers, global worker image/node/disk inventory is denied, worker container/service listings require exact resource filters, worker task listings and service inspections require daemon-side owner verification, worker lifecycle/exec/network/service-update and service-volume operations and resource-specific cleanup fallbacks require a resource scope plus live daemon ownership/security preflight, and policy/scan/preflight tests pass; typed service mounts now require deterministic resource-owned volume names, raw service mounts now also require live volume ownership/driver/options verification, the raw broker policy rejects mixed-case Swarm capability/sysctl/namespace host-escape forms, and Compose network/Git/URI/SSH build fetches, build secrets, external caches, host networking, BuildKit entitlements, unknown/future document or nested service-shape fields, malformed nested control shapes, scalar/non-service documents, and unsafe service names are rejected before Docker execution; file-backed config/secret paths also reject terminal and mixed-separator traversal; broader build, Compose orchestration, and service-create transport review remains open. |
 | F-002 | Remediated — the vulnerable DMG maker was removed, Forge extraction uses the checked-in Electron extractor compatibility shim, and the raw high-severity audit is clean with no suppressions. |
 | F-003 | Partial — control-plane backup/restore mechanics and mandatory freshness plus restore-verification policy are present; the installer now enforces a persisted recovery-plan attestation, production acceptance requires fresh installation-specific signed evidence bound to the configured objectives/reference, the synthetic rehearsal emits explicitly scoped machine-readable evidence, rejects unsafe evidence-input overrides before Docker execution, and the full release profile probes authenticated encryption-key recovery without exposing the key. Installation-specific off-host destination, escrow access, and real-data restore evidence remain open. |
 | F-004 | Remediated for the default test gate — resource lifecycle E2E now runs only when an explicitly available local server is configured; the opt-in live suite remains required for release evidence. |
@@ -918,6 +923,7 @@ Passed:
 - server URL-resolution tests covering malformed Host authorities, spoofed forwarded host/protocol headers, arbitrary public Host fallback, and direct-IP bootstrap routing
 - Docker command output-limit regression covering oversized combined stdout/stderr rejection without retaining the untrusted payload
 - backup-rehearsal evidence-input boundary regressions covering unsafe run IDs and non-bounded digest-pinned image references
+- Compose shape regressions covering non-mapping documents, missing/empty services, and unsafe service-name keys
 
 Concerning or operationally incomplete:
 
