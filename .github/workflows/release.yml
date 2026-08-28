@@ -500,6 +500,7 @@ jobs:
       ACCEPTANCE_PROFILE: ${{ github.event_name == 'push' && 'full' || inputs.acceptance_profile || 'full' }}
       STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
+      DOCKER_CONTROL_NETWORK: upstand-release-acceptance-control-network
       ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network
       OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector
       OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config
@@ -636,6 +637,7 @@ jobs:
             docker service rm "$OTEL_COLLECTOR_SERVICE" >/dev/null 2>&1 || true
             docker config rm "$OTEL_COLLECTOR_CONFIG" >/dev/null 2>&1 || true
             docker network rm "$DOCKER_NETWORK" >/dev/null 2>&1 || true
+            docker network rm "$DOCKER_CONTROL_NETWORK" >/dev/null 2>&1 || true
             docker network rm "$ENCRYPTED_NETWORK_NAME" >/dev/null 2>&1 || true
             docker swarm leave --force >/dev/null 2>&1 || true
           }
@@ -758,6 +760,7 @@ jobs:
             --label-add upstand.control-plane=true \
             "$swarm_node_id" >/dev/null
           timeout --foreground 60 docker network create --driver overlay --attachable "$DOCKER_NETWORK"
+          timeout --foreground 60 docker network create --driver overlay --attachable "$DOCKER_CONTROL_NETWORK"
           # Production retains encrypted overlays; hosted Docker cannot create
           # them because its kernel lacks the required IPSec/netfilter path.
           # The production encryption requirement remains enforced by the
