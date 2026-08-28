@@ -281,6 +281,45 @@ services:
       );
     });
 
+    test("rejects malformed nested control shapes instead of skipping validation", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy: []
+`),
+      ).toThrow("Compose service 'web' deploy must be a mapping");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    build: []
+`),
+      ).toThrow("Compose service 'web' build must be a mapping or string");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    healthcheck: true
+`),
+      ).toThrow("Compose service 'web' healthcheck must be a mapping or array");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+    deploy:
+      resources: []
+`),
+      ).toThrow("Compose service 'web' deploy.resources must be a mapping");
+    });
+
     test("accepts a bounded standard Compose deployment shape", () => {
       expect(() =>
         validateComposeSecurity(`
@@ -348,6 +387,30 @@ services:
       expect(() => validateComposeSecurity(compose)).toThrow(
         "requests unsafe security option 'seccomp=unconfined'",
       );
+    });
+
+    test("rejects terminal and mixed-separator traversal in file-backed resources", () => {
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+configs:
+  app-config:
+    file: generated/..
+`),
+      ).toThrow("Compose config 'app-config' uses an unsafe file path");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    image: nginx
+secrets:
+  app-secret:
+    file: generated\\..\\secret
+`),
+      ).toThrow("Compose secret 'app-secret' uses an unsafe file path");
     });
 
     test("rejects Compose paths that can escape the generated deployment directory", () => {

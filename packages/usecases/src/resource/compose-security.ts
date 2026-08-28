@@ -243,10 +243,29 @@ function validateComposeNestedFieldSet(
   value: unknown,
   allowed: ReadonlySet<string>,
   location: string,
+  shape: "mapping" | "mapping-or-string" | "mapping-or-array" = "mapping",
 ): void {
+  if (value === undefined) return;
+
   if (isUnknownRecord(value)) {
     validateComposeFieldSet(value, allowed, location);
+    return;
   }
+
+  const acceptsString = shape === "mapping-or-string";
+  const acceptsArray = shape === "mapping-or-array";
+  if (
+    (acceptsString && typeof value === "string") ||
+    (acceptsArray && Array.isArray(value))
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `${location} must be a mapping${
+      acceptsString ? " or string" : acceptsArray ? " or array" : ""
+    }`,
+  );
 }
 
 function validateComposeShape(parsed: Record<string, unknown>): void {
@@ -269,6 +288,7 @@ function validateComposeShape(parsed: Record<string, unknown>): void {
         rawService.build,
         COMPOSE_BUILD_FIELDS,
         `Compose service '${serviceName}' build`,
+        "mapping-or-string",
       );
       validateComposeNestedFieldSet(
         rawService.deploy,
@@ -325,6 +345,7 @@ function validateComposeShape(parsed: Record<string, unknown>): void {
           "timeout",
         ]),
         `Compose service '${serviceName}' healthcheck`,
+        "mapping-or-array",
       );
       validateComposeNestedFieldSet(
         rawService.logging,
@@ -746,11 +767,7 @@ function validateComposeFileBackedResources(
     for (const field of ["name", "file"] as const) {
       const value = rawDefinition[field];
       if (typeof value !== "string") continue;
-      if (
-        isHostPath(value) ||
-        value.includes("/../") ||
-        value.includes("\\..\\")
-      ) {
+      if (isUnsafeComposePath(value)) {
         throw new Error(
           `Compose ${resourceKind.slice(0, -1)} '${resourceName}' uses an unsafe ${field} path`,
         );
