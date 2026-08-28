@@ -553,6 +553,16 @@ services:
   web:
     build:
       context: .
+      privileged: true
+`),
+      ).toThrow("requests privileged build execution");
+
+      expect(() =>
+        validateComposeSecurity(`
+services:
+  web:
+    build:
+      context: .
       entitlements:
         - network.host
 `),

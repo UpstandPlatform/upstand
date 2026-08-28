@@ -720,6 +720,17 @@ function validateComposeBuild(serviceName: string, build: unknown): void {
   }
   if (!isUnknownRecord(build)) return;
 
+  if (
+    build.privileged === true ||
+    String(build.privileged ?? "")
+      .trim()
+      .toLowerCase() === "true"
+  ) {
+    throw new Error(
+      `Compose service '${serviceName}' requests privileged build execution, which is not allowed`,
+    );
+  }
+
   if (typeof build.context === "string") {
     validateComposeBuildContext(
       build.context,
