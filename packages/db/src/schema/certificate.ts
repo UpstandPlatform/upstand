@@ -1,5 +1,11 @@
 import { relations } from "drizzle-orm";
-import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { organization } from "./auth";
 
 export const certificate = pgTable(
@@ -18,7 +24,13 @@ export const certificate = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => [index("certificate_organization_idx").on(table.organizationId)],
+  (table) => [
+    uniqueIndex("certificate_organization_id_uidx").on(
+      table.organizationId,
+      table.id,
+    ),
+    index("certificate_organization_idx").on(table.organizationId),
+  ],
 );
 
 export const certificateRelations = relations(certificate, ({ one }) => ({

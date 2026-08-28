@@ -1,9 +1,51 @@
 import { describe, expect, test } from "bun:test";
 import { evlog } from "evlog/hono";
 import { Hono } from "hono";
-import { MAX_HTTP_REQUEST_BYTES, registerHttpMiddleware } from "./middleware";
+import {
+  MAX_HTTP_REQUEST_BYTES,
+  registerHttpMiddleware,
+  shouldRejectDirectHttpAfterBootstrap,
+} from "./middleware";
 
 describe("HTTP middleware request limits", () => {
+  test("bounds direct-IP HTTP to the initial self-hosted bootstrap window", () => {
+    const request = new Request("http://192.168.1.10/api/auth/sign-in/email");
+    const production = {
+      request,
+      nodeEnv: "production",
+      isCloud: false,
+      directOrigins: true,
+      allowInsecureBootstrap: true,
+    };
+
+    expect(
+      shouldRejectDirectHttpAfterBootstrap({
+        ...production,
+        initialAccountPending: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRejectDirectHttpAfterBootstrap({
+        ...production,
+        initialAccountPending: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRejectDirectHttpAfterBootstrap({
+        ...production,
+        request: new Request("https://dashboard.example.com/api/auth"),
+        initialAccountPending: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRejectDirectHttpAfterBootstrap({
+        ...production,
+        isCloud: true,
+        initialAccountPending: false,
+      }),
+    ).toBe(false);
+  });
+
   test("does not run authentication identification for public system probes", async () => {
     const identifiedPaths: string[] = [];
     const app = new Hono();
@@ -113,7 +155,7 @@ describe("HTTP middleware request limits", () => {
     expect(handlerCalled).toBe(false);
   });
 
-  test("allows trusted dashboard origins on state-changing requests", async () => {
+  test("allows trusted dashboard and same-host direct origins on state-changing requests", async () => {
     const app = new Hono();
     app.use(evlog({ drain: () => undefined }));
     registerHttpMiddleware(app as never, {
@@ -136,7 +178,7 @@ describe("HTTP middleware request limits", () => {
     expect(response.status).toBe(200);
 
     const directIpResponse = await app.request(
-      "http://localhost/trpc/resource.update",
+      "http://85.155.230.19/trpc/resource.update",
       {
         method: "POST",
         headers: { Origin: "http://85.155.230.19:3001" },
@@ -144,6 +186,15 @@ describe("HTTP middleware request limits", () => {
     );
 
     expect(directIpResponse.status).toBe(200);
+
+    const mismatchedDirectIpResponse = await app.request(
+      "http://localhost/trpc/resource.update",
+      {
+        method: "POST",
+        headers: { Origin: "http://85.155.230.19:3001" },
+      },
+    );
+    expect(mismatchedDirectIpResponse.status).toBe(403);
   });
 
   test("allows direct IP origins on CORS requests with credentials", async () => {
@@ -158,13 +209,16 @@ describe("HTTP middleware request limits", () => {
     });
     app.get("/api/setup/status", (c) => c.json({ ok: true }));
 
-    const response = await app.request("http://localhost/api/setup/status", {
-      method: "OPTIONS",
-      headers: {
-        Origin: "http://85.155.230.19:3001",
-        "Access-Control-Request-Method": "GET",
+    const response = await app.request(
+      "http://85.155.230.19/api/setup/status",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "http://85.155.230.19:3001",
+          "Access-Control-Request-Method": "GET",
+        },
       },
-    });
+    );
 
     expect(response.status).toBe(204);
     expect(response.headers.get("access-control-allow-origin")).toBe(
@@ -175,7 +229,7 @@ describe("HTTP middleware request limits", () => {
     );
 
     const invalidIpResponse = await app.request(
-      "http://localhost/api/setup/status",
+      "http://85.155.230.19/api/setup/status",
       {
         method: "OPTIONS",
         headers: {

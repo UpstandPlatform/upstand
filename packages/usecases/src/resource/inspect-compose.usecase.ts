@@ -1,12 +1,7 @@
 import { ValidationError } from "@upstand/domain";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
-
-const ComposeDocumentSchema = z
-  .string()
-  .trim()
-  .min(1, "Compose file is required")
-  .max(1_048_576, "Compose files must not exceed 1 MB");
+import { ComposeDocumentSchema } from "./compose-document.schema";
 
 export const InspectComposeInputSchema = z.object({
   composeFile: ComposeDocumentSchema,

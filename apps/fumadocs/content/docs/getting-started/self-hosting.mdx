@@ -93,6 +93,7 @@ The Upstand installer supports two compilation strategies:
     # Specify the image digests to pin for your rollout
     export UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<digest>
     export UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<digest>
+    export UPSTAND_DEPLOYMENT_WORKER_IMAGE=ghcr.io/upstandplatform/upstand-deployment-worker@sha256:<digest>
     export UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
     export UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
     export UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
@@ -130,7 +131,7 @@ The Upstand installer supports two compilation strategies:
   </Step>
 </Steps>
 
-Production installs expose only Caddy on `:80/:443`; the API, dashboard, scheduler, and database services remain on the private Swarm network. Configure `BETTER_AUTH_URL`, `CORS_ORIGIN`, and `NEXT_PUBLIC_SERVER_URL` as HTTPS origins before installation. An insecure direct-IP bootstrap requires the explicit `UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true` opt-in and is intended only for isolated development hosts.
+Production installs expose only Caddy on `:80/:443`; the API, dashboard, scheduler, and database services remain on the private Swarm network. Configure `BETTER_AUTH_URL`, `CORS_ORIGIN`, and `NEXT_PUBLIC_SERVER_URL` as HTTPS origins before installation. An insecure direct-IP bootstrap requires the explicit `UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true` opt-in and is limited to the first self-hosted account; after that account exists, direct-IP HTTP requests are rejected and the instance must be accessed through HTTPS.
 
 ---
 
@@ -254,6 +255,7 @@ UPSTAND_MIGRATION_ID=upstand-$(date +%s)
 # Specify the target image digests to pin
 UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<digest>
 UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<digest>
+UPSTAND_DEPLOYMENT_WORKER_IMAGE=ghcr.io/upstandplatform/upstand-deployment-worker@sha256:<digest>
 UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
 UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
 UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>

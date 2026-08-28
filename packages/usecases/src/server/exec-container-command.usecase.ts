@@ -87,6 +87,12 @@ export class ExecContainerCommandUseCase {
       throw new Error("Container is not part of the requested resource.");
     }
 
-    return this.docker.execContainerCommand(target, selected.id, input.command);
+    return this.docker.execContainerCommand(
+      target,
+      selected.id,
+      input.command,
+      undefined,
+      input.resourceId,
+    );
   }
 }

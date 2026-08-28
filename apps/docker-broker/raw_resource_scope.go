@@ -1,0 +1,1888 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+)
+
+var deploymentWorkerVolumeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$`)
+
+var deploymentWorkerRawContainerFields = dockerFieldSet(
+	"Hostname",
+	"Domainname",
+	"User",
+	"AttachStdin",
+	"AttachStdout",
+	"AttachStderr",
+	"Tty",
+	"OpenStdin",
+	"StdinOnce",
+	"Env",
+	"Cmd",
+	"Entrypoint",
+	"Image",
+	"Volumes",
+	"WorkingDir",
+	"MacAddress",
+	"OnBuild",
+	"StopSignal",
+	"StopTimeout",
+	"HostConfig",
+	"Healthcheck",
+	"NetworkingConfig",
+	"ExposedPorts",
+	"Labels",
+	"Shell",
+	"NetworkDisabled",
+)
+
+var deploymentWorkerRawContainerHostConfigFields = dockerFieldSet(
+	"Binds",
+	"ContainerIDFile",
+	"LogConfig",
+	"NetworkMode",
+	"PortBindings",
+	"RestartPolicy",
+	"AutoRemove",
+	"VolumeDriver",
+	"VolumesFrom",
+	"CapAdd",
+	"CapDrop",
+	"CgroupnsMode",
+	"Dns",
+	"DnsOptions",
+	"DnsSearch",
+	"ExtraHosts",
+	"GroupAdd",
+	"IpcMode",
+	"Cgroup",
+	"Links",
+	"OomScoreAdj",
+	"PidMode",
+	"Privileged",
+	"PublishAllPorts",
+	"ReadonlyRootfs",
+	"SecurityOpt",
+	"StorageOpt",
+	"Tmpfs",
+	"UTSMode",
+	"UsernsMode",
+	"ShmSize",
+	"Runtime",
+	"ConsoleSize",
+	"Isolation",
+	"CpuShares",
+	"Memory",
+	"NanoCpus",
+	"CgroupParent",
+	"BlkioWeight",
+	"BlkioWeightDevice",
+	"BlkioDeviceReadBps",
+	"BlkioDeviceWriteBps",
+	"BlkioDeviceReadIOps",
+	"BlkioDeviceWriteIOps",
+	"CpuPeriod",
+	"CpuQuota",
+	"CpuRealtimePeriod",
+	"CpuRealtimeRuntime",
+	"CpusetCpus",
+	"CpusetMems",
+	"Devices",
+	"DeviceCgroupRules",
+	"DeviceRequests",
+	"KernelMemory",
+	"KernelMemoryTCP",
+	"MemoryReservation",
+	"MemorySwap",
+	"MemorySwappiness",
+	"OomKillDisable",
+	"PidsLimit",
+	"Ulimits",
+	"CpuCount",
+	"CpuPercent",
+	"MaskedPaths",
+	"ReadonlyPaths",
+	"Init",
+	"InitPath",
+	"Mounts",
+)
+
+var deploymentWorkerRawContainerLogConfigFields = dockerFieldSet("Type", "Config")
+var deploymentWorkerRawContainerLogConfigOptionFields = dockerFieldSet(
+	"max-size",
+	"max-file",
+	"compress",
+	"labels",
+	"env",
+)
+var deploymentWorkerRawContainerRestartPolicyFields = dockerFieldSet("Name", "MaximumRetryCount")
+var deploymentWorkerRawContainerEndpointFields = dockerFieldSet(
+	"IPAMConfig",
+	"Links",
+	"Aliases",
+	"NetworkID",
+	"EndpointID",
+	"Gateway",
+	"IPAddress",
+	"IPPrefixLen",
+	"IPv6Gateway",
+	"GlobalIPv6Address",
+	"GlobalIPv6PrefixLen",
+	"MacAddress",
+	"DriverOpts",
+)
+
+// authorizeDeploymentWorkerRawResourceScope closes the remaining confused-
+// deputy gap in the legacy Docker API. The caller certificate and resource
+// header identify the intended resource, but only the daemon's live labels can
+// prove that an existing container or network belongs to it.
+func authorizeDeploymentWorkerRawResourceScope(
+	ctx context.Context,
+	caller string,
+	r *http.Request,
+	body []byte,
+	engine *dockerEngineClient,
+) error {
+	if caller != "deployment-worker" || !brokerRequiresProductionIdentity() {
+		return nil
+	}
+	resourceID := strings.TrimSpace(r.Header.Get("X-Upstand-Resource-ID"))
+	if !resourceIDPattern.MatchString(resourceID) {
+		return errors.New("deployment-worker raw resource scope is invalid")
+	}
+	if engine == nil {
+		return errors.New("Docker engine authorization client is unavailable")
+	}
+
+	path := normalizeDockerPath(r.URL.Path)
+	if r.Method == http.MethodGet && isDeploymentWorkerGlobalInventoryPath(path) {
+		return errors.New("deployment-worker global Docker inventory is not allowed")
+	}
+	if r.Method == http.MethodPost && path == "/containers/create" {
+		return authorizeDeploymentWorkerRawContainerResources(ctx, body, resourceID, engine)
+	}
+	if r.Method == http.MethodGet && path == "/containers/json" {
+		return authorizeDeploymentWorkerRawContainerList(r, resourceID)
+	}
+	if r.Method == http.MethodGet && path == "/services" {
+		return authorizeDeploymentWorkerRawResourceList(r, resourceID, "services")
+	}
+	if r.Method == http.MethodGet && path == "/tasks" {
+		return authorizeDeploymentWorkerRawTaskList(ctx, r, resourceID, engine)
+	}
+	if r.Method == http.MethodGet && path == "/networks" {
+		return authorizeDeploymentWorkerRawResourceList(r, resourceID, "networks")
+	}
+	if r.Method == http.MethodGet && resourceItemPath(path, "volumes") {
+		return authorizeDeploymentWorkerRawVolumeInspection(ctx, path, resourceID, engine)
+	}
+	if r.Method == http.MethodGet && resourceItemPath(path, "services") {
+		parts, ok := splitResourcePath(path, "services")
+		if !ok || !swarmNamePattern.MatchString(parts[1]) {
+			return errors.New("deployment-worker service identity is invalid")
+		}
+		return engine.authorizeResourceService(ctx, parts[1], resourceID)
+	}
+	if r.Method == http.MethodGet && resourceActionPath(path, "services", "tasks") {
+		parts, ok := splitResourcePath(path, "services")
+		if !ok || !swarmNamePattern.MatchString(parts[1]) {
+			return errors.New("deployment-worker service identity is invalid")
+		}
+		return engine.authorizeResourceService(ctx, parts[1], resourceID)
+	}
+	if r.Method == http.MethodGet && resourceItemPath(path, "networks") {
+		return authorizeDeploymentWorkerRawNetworkInspection(ctx, path, resourceID, engine)
+	}
+	if execPath(path, "json") || execPath(path, "start") || execPath(path, "resize") {
+		return engine.authorizeResourceExec(ctx, path, resourceID)
+	}
+	if r.Method == http.MethodPost && resourceActionPath(path, "services", "update") {
+		parts, ok := splitResourcePath(path, "services")
+		if !ok || !swarmNamePattern.MatchString(parts[1]) {
+			return errors.New("deployment-worker service identity is invalid")
+		}
+		if err := engine.authorizeResourceService(ctx, parts[1], resourceID); err != nil {
+			return err
+		}
+		return authorizeDeploymentWorkerRawServiceResources(ctx, body, parts[1], resourceID, engine)
+	}
+	if r.Method == http.MethodPost && path == "/services/create" {
+		return authorizeDeploymentWorkerRawServiceResources(ctx, body, "", resourceID, engine)
+	}
+	if isRawContainerResourcePath(r.Method, path) {
+		parts, ok := splitResourcePath(path, "containers")
+		if !ok || !swarmNamePattern.MatchString(parts[1]) {
+			return errors.New("deployment-worker container identity is invalid")
+		}
+		return engine.authorizeResourceContainer(ctx, parts[1], resourceID)
+	}
+	if r.Method == http.MethodPost &&
+		(resourceActionPath(path, "networks", "connect") || resourceActionPath(path, "networks", "disconnect")) {
+		return authorizeDeploymentWorkerRawNetwork(ctx, path, body, resourceID, engine)
+	}
+	return nil
+}
+
+func isDeploymentWorkerGlobalInventoryPath(path string) bool {
+	switch path {
+	case "/info", "/images/json", "/nodes", "/system/df", "/volumes":
+		return true
+	default:
+		return false
+	}
+}
+
+func authorizeDeploymentWorkerRawContainerResources(
+	ctx context.Context,
+	body []byte,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	if err := validateDeploymentWorkerRawContainerShape(body); err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("container create payload is invalid: %w", err)
+	}
+	if err := authorizeDeploymentWorkerRawContainerVolumes(ctx, payload, resourceID, engine); err != nil {
+		return err
+	}
+
+	// A resource container must explicitly attach to an Upstand-managed
+	// network. The only networkless exceptions are the Docker API's explicit
+	// network-disabled and `none` modes; otherwise Docker would silently place
+	// a raw worker-created container on the daemon's default bridge.
+	hostConfig, _ := dockerObjectField(payload, "HostConfig")
+	hostConfigObject, _ := hostConfig.(map[string]any)
+	networkMode := strings.ToLower(dockerStringField(hostConfigObject, "NetworkMode"))
+	networkDisabled, _ := dockerObjectField(payload, "NetworkDisabled")
+	if disabled, ok := networkDisabled.(bool); ok && disabled {
+		if _, hasNetworkingConfig := dockerObjectField(payload, "NetworkingConfig"); hasNetworkingConfig {
+			return errors.New("network-disabled container cannot declare network endpoints")
+		}
+		return nil
+	}
+
+	networkingConfig, hasNetworkingConfig := dockerObjectField(payload, "NetworkingConfig")
+	if !hasNetworkingConfig {
+		if networkMode == "none" {
+			return nil
+		}
+		return errors.New("resource container create requires an explicit managed network")
+	}
+	networkingConfigObject, ok := networkingConfig.(map[string]any)
+	if !ok {
+		return errors.New("container NetworkingConfig is not an object")
+	}
+	endpoints, hasEndpoints := dockerObjectField(networkingConfigObject, "EndpointsConfig")
+	if !hasEndpoints {
+		if networkMode == "none" {
+			return nil
+		}
+		return errors.New("resource container create requires managed network endpoints")
+	}
+	endpointMap, ok := endpoints.(map[string]any)
+	if !ok || len(endpointMap) == 0 || len(endpointMap) > 32 {
+		return errors.New("container network endpoints are invalid or unbounded")
+	}
+	if networkMode == "none" {
+		return errors.New("network-disabled container cannot declare network endpoints")
+	}
+	for networkTarget, rawEndpoint := range endpointMap {
+		if !swarmNamePattern.MatchString(strings.TrimSpace(networkTarget)) {
+			return errors.New("container network identity is invalid")
+		}
+		if rawEndpoint != nil {
+			if _, ok := rawEndpoint.(map[string]any); !ok {
+				return errors.New("container network endpoint is invalid")
+			}
+		}
+		networkBody, _, err := engine.request(
+			ctx,
+			http.MethodGet,
+			"/networks/"+url.PathEscape(strings.TrimSpace(networkTarget)),
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("container network %q could not be inspected: %w", networkTarget, err)
+		}
+		var network struct {
+			ID     string            `json:"Id"`
+			Name   string            `json:"Name"`
+			Labels map[string]string `json:"Labels"`
+		}
+		if err := json.Unmarshal(networkBody, &network); err != nil {
+			return fmt.Errorf("container network %q inspection is invalid: %w", networkTarget, err)
+		}
+		if network.ID == "" || network.Name == "" {
+			return fmt.Errorf("container network %q inspection is incomplete", networkTarget)
+		}
+		if network.Name != strings.TrimSpace(networkTarget) {
+			return fmt.Errorf("container network %q identity does not match the request", networkTarget)
+		}
+		if err := validateManagedSwarmNetwork(networkBody); err != nil {
+			return fmt.Errorf("container network %q is not an encrypted attachable network: %w", networkTarget, err)
+		}
+		if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
+			return fmt.Errorf("container network %q is not owned by the requested Upstand resource", networkTarget)
+		}
+	}
+	return nil
+}
+
+// authorizeDeploymentWorkerRawContainerVolumes re-inspects every named
+// volume immediately before a raw container is created. A deterministic name
+// or caller-controlled prefix is not ownership proof: a stale or externally
+// created volume could otherwise expose a host-backed driver or another
+// resource's data to a newly-created container.
+func authorizeDeploymentWorkerRawContainerVolumes(
+	ctx context.Context,
+	payload map[string]any,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	hostConfigValue, ok := dockerObjectField(payload, "HostConfig")
+	if !ok || hostConfigValue == nil {
+		return nil
+	}
+	hostConfig, ok := hostConfigValue.(map[string]any)
+	if !ok || hostConfig == nil {
+		return errors.New("container HostConfig is not an object")
+	}
+
+	// These fields can cross container/resource boundaries or write to the
+	// daemon host. Compose validation already excludes them; keep the raw
+	// Engine compatibility endpoint equally fail-closed.
+	for _, field := range []string{"VolumesFrom", "ContainerIDFile"} {
+		if dockerFieldIsNonEmpty(hostConfig, field) {
+			return fmt.Errorf("container HostConfig field %q is not allowed", field)
+		}
+	}
+
+	checkedVolumes := make(map[string]struct{})
+	checkVolume := func(source string) error {
+		source = strings.TrimSpace(source)
+		if !deploymentWorkerVolumeNamePattern.MatchString(source) ||
+			!isDeploymentWorkerOwnedVolume(source, resourceID) {
+			return fmt.Errorf("container volume %q is not owned by the requested Upstand resource", source)
+		}
+		if _, checked := checkedVolumes[source]; checked {
+			return nil
+		}
+		if err := authorizeDeploymentWorkerRawVolumeInspection(
+			ctx,
+			"/volumes/"+url.PathEscape(source),
+			resourceID,
+			engine,
+		); err != nil {
+			return fmt.Errorf("container volume %q failed live ownership verification: %w", source, err)
+		}
+		checkedVolumes[source] = struct{}{}
+		return nil
+	}
+
+	if rawBinds, ok := dockerObjectField(hostConfig, "Binds"); ok {
+		binds, ok := rawBinds.([]any)
+		if !ok || len(binds) > 64 {
+			return errors.New("container HostConfig.Binds are invalid or unbounded")
+		}
+		for index, rawBind := range binds {
+			bind, ok := rawBind.(string)
+			if !ok {
+				return fmt.Errorf("container HostConfig.Binds[%d] is invalid", index)
+			}
+			if err := checkVolume(strings.SplitN(bind, ":", 2)[0]); err != nil {
+				return fmt.Errorf("container HostConfig.Binds[%d] failed ownership verification: %w", index, err)
+			}
+		}
+	}
+
+	if rawMounts, ok := dockerObjectField(hostConfig, "Mounts"); ok {
+		mounts, ok := rawMounts.([]any)
+		if !ok || len(mounts) > 64 {
+			return errors.New("container HostConfig.Mounts are invalid or unbounded")
+		}
+		for index, rawMount := range mounts {
+			mount, ok := rawMount.(map[string]any)
+			if !ok || mount == nil {
+				return fmt.Errorf("container HostConfig.Mounts[%d] is invalid", index)
+			}
+			mountType := strings.ToLower(dockerStringField(mount, "Type"))
+			source := dockerStringField(mount, "Source")
+			switch mountType {
+			case "volume":
+				if err := checkVolume(source); err != nil {
+					return fmt.Errorf("container HostConfig.Mounts[%d] failed ownership verification: %w", index, err)
+				}
+			case "bind":
+				return fmt.Errorf("container HostConfig.Mounts[%d] cannot use a host bind", index)
+			case "tmpfs":
+				// tmpfs is container-local and does not reference a Docker volume.
+			default:
+				return fmt.Errorf("container HostConfig.Mounts[%d] uses unsupported mount type %q", index, mountType)
+			}
+		}
+	}
+	return nil
+}
+
+// validateDeploymentWorkerRawContainerShape keeps the legacy Compose
+// containers/create route fail-closed as Docker adds fields to its API. The
+// generic host-escape walker rejects unsafe values; this shape check also
+// prevents an unreviewed future field from silently expanding worker daemon
+// authority.
+func validateDeploymentWorkerRawContainerShape(body []byte) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return errors.New("Docker container create body must be a JSON object")
+	}
+	if err := validateDockerObjectShape(payload, deploymentWorkerRawContainerFields, "Docker container"); err != nil {
+		return err
+	}
+
+	if rawHostConfig, ok := dockerObjectField(payload, "HostConfig"); ok {
+		hostConfig, ok := rawHostConfig.(map[string]any)
+		if !ok || hostConfig == nil {
+			return errors.New("Docker container HostConfig must be an object")
+		}
+		if err := validateDockerObjectShape(hostConfig, deploymentWorkerRawContainerHostConfigFields, "Docker container HostConfig"); err != nil {
+			return err
+		}
+		if err := validateDeploymentWorkerRawContainerHostConfig(hostConfig); err != nil {
+			return err
+		}
+		if rawLogConfig, ok := dockerObjectField(hostConfig, "LogConfig"); ok {
+			logConfig, ok := rawLogConfig.(map[string]any)
+			if !ok || logConfig == nil {
+				return errors.New("Docker container HostConfig.LogConfig must be an object")
+			}
+			if err := validateDockerObjectShape(logConfig, deploymentWorkerRawContainerLogConfigFields, "Docker container HostConfig.LogConfig"); err != nil {
+				return err
+			}
+			if err := validateDeploymentWorkerRawContainerLogConfig(logConfig); err != nil {
+				return err
+			}
+		}
+		if rawRestartPolicy, ok := dockerObjectField(hostConfig, "RestartPolicy"); ok {
+			restartPolicy, ok := rawRestartPolicy.(map[string]any)
+			if !ok || restartPolicy == nil {
+				return errors.New("Docker container HostConfig.RestartPolicy must be an object")
+			}
+			if err := validateDockerObjectShape(restartPolicy, deploymentWorkerRawContainerRestartPolicyFields, "Docker container HostConfig.RestartPolicy"); err != nil {
+				return err
+			}
+		}
+	}
+
+	if rawNetworkingConfig, ok := dockerObjectField(payload, "NetworkingConfig"); ok {
+		networkingConfig, ok := rawNetworkingConfig.(map[string]any)
+		if !ok || networkingConfig == nil {
+			return errors.New("Docker container NetworkingConfig must be an object")
+		}
+		if err := validateDockerObjectShape(networkingConfig, dockerFieldSet("EndpointsConfig"), "Docker container NetworkingConfig"); err != nil {
+			return err
+		}
+		if rawEndpoints, ok := dockerObjectField(networkingConfig, "EndpointsConfig"); ok {
+			endpoints, ok := rawEndpoints.(map[string]any)
+			if !ok || endpoints == nil {
+				return errors.New("Docker container NetworkingConfig.EndpointsConfig must be an object")
+			}
+			for networkName, rawEndpoint := range endpoints {
+				endpoint, ok := rawEndpoint.(map[string]any)
+				if !ok || endpoint == nil {
+					return fmt.Errorf("Docker container endpoint %q must be an object", networkName)
+				}
+				if err := validateDockerObjectShape(endpoint, deploymentWorkerRawContainerEndpointFields, "Docker container network endpoint"); err != nil {
+					return err
+				}
+				if rawLinks, ok := dockerObjectField(endpoint, "Links"); ok {
+					links, ok := rawLinks.([]any)
+					if !ok || len(links) > 0 {
+						return fmt.Errorf("Docker container network endpoint %q cannot use container links", networkName)
+					}
+				}
+			}
+		}
+	}
+	if rawNetworkDisabled, ok := dockerObjectField(payload, "NetworkDisabled"); ok && rawNetworkDisabled != nil {
+		if _, ok := rawNetworkDisabled.(bool); !ok {
+			return errors.New("Docker container NetworkDisabled must be a boolean")
+		}
+	}
+	return nil
+}
+
+// validateDeploymentWorkerRawContainerHostConfig closes nested legacy
+// container controls that are otherwise only protected by the generic JSON
+// walker. Docker's JSON decoder is not a security policy: it may reject some
+// malformed values, while a future API version could coerce or reinterpret
+// them. Keep host namespace, link, and host-gateway controls typed and
+// explicit at the broker boundary.
+func validateDeploymentWorkerRawContainerHostConfig(hostConfig map[string]any) error {
+	for _, field := range []string{"Privileged", "PublishAllPorts", "AutoRemove", "ReadonlyRootfs", "OomKillDisable", "Init"} {
+		if value, ok := dockerObjectField(hostConfig, field); ok && value != nil {
+			if _, ok := value.(bool); !ok {
+				return fmt.Errorf("Docker container HostConfig.%s must be a boolean", field)
+			}
+		}
+	}
+
+	for _, field := range []string{"NetworkMode", "PidMode", "IpcMode", "UTSMode", "UsernsMode", "CgroupnsMode", "Isolation", "Runtime"} {
+		if value, ok := dockerObjectField(hostConfig, field); ok && value != nil {
+			text, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("Docker container HostConfig.%s must be a string", field)
+			}
+			if field != "NetworkMode" && field != "PidMode" && field != "IpcMode" && field != "UTSMode" && field != "UsernsMode" && field != "CgroupnsMode" {
+				continue
+			}
+			mode := strings.ToLower(strings.TrimSpace(text))
+			if mode == "host" || mode == "hostipc" || mode == "hostpid" || mode == "hostnetwork" || strings.HasPrefix(mode, "container:") || strings.HasPrefix(mode, "service:") {
+				return fmt.Errorf("Docker container HostConfig.%s requests a shared or host namespace", field)
+			}
+		}
+	}
+
+	for _, field := range []string{"Links", "VolumesFrom"} {
+		if value, ok := dockerObjectField(hostConfig, field); !ok || value == nil {
+			continue
+		} else if links, ok := value.([]any); !ok {
+			return fmt.Errorf("Docker container HostConfig.%s must be an array", field)
+		} else if len(links) > 0 {
+			return fmt.Errorf("Docker container HostConfig.%s cannot use cross-container references", field)
+		}
+	}
+
+	if rawExtraHosts, ok := dockerObjectField(hostConfig, "ExtraHosts"); ok && rawExtraHosts != nil {
+		extraHosts, ok := rawExtraHosts.([]any)
+		if !ok || len(extraHosts) > 64 {
+			return errors.New("Docker container HostConfig.ExtraHosts must be a bounded array")
+		}
+		for index, rawHost := range extraHosts {
+			host, ok := rawHost.(string)
+			if !ok || host == "" || hasControlCharacter(host) {
+				return fmt.Errorf("Docker container HostConfig.ExtraHosts[%d] is invalid", index)
+			}
+			if isHostGatewayExtraHostValue(host) {
+				return errors.New("Docker container HostConfig.ExtraHosts cannot request host-gateway access")
+			}
+		}
+	}
+	return nil
+}
+
+func isHostGatewayExtraHostValue(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "host.docker.internal" || normalized == "gateway.docker.internal" {
+		return true
+	}
+	separator := strings.IndexAny(normalized, ":=")
+	if separator == -1 {
+		return false
+	}
+	host := strings.TrimSpace(normalized[:separator])
+	address := strings.TrimSpace(normalized[separator+1:])
+	return host == "host.docker.internal" || host == "gateway.docker.internal" || address == "host-gateway"
+}
+
+// validateDeploymentWorkerRawContainerLogConfig prevents the legacy raw
+// container route from turning a resource-scoped deployment worker into a
+// Docker logging-plugin launcher or an unbounded daemon configuration channel.
+// Only Docker's built-in local and json-file drivers are allowed, with the
+// small set of bounded options supported by those drivers.
+func validateDeploymentWorkerRawContainerLogConfig(logConfig map[string]any) error {
+	logType := ""
+	if rawType, hasType := dockerObjectField(logConfig, "Type"); hasType {
+		typeText, ok := rawType.(string)
+		if !ok {
+			return errors.New("Docker container HostConfig.LogConfig.Type must be a string")
+		}
+		logType = strings.ToLower(strings.TrimSpace(typeText))
+	}
+	if logType != "" && logType != "json-file" && logType != "local" {
+		return fmt.Errorf("Docker container HostConfig.LogConfig type %q is not allowed", logType)
+	}
+
+	rawConfig, hasConfig := dockerObjectField(logConfig, "Config")
+	if !hasConfig {
+		return nil
+	}
+	if rawConfig == nil {
+		return errors.New("Docker container HostConfig.LogConfig.Config must be an object")
+	}
+	config, ok := rawConfig.(map[string]any)
+	if !ok || config == nil {
+		return errors.New("Docker container HostConfig.LogConfig.Config must be an object")
+	}
+	if len(config) > 16 {
+		return errors.New("Docker container HostConfig.LogConfig.Config is unbounded")
+	}
+	for key, rawValue := range config {
+		if _, ok := deploymentWorkerRawContainerLogConfigOptionFields[strings.ToLower(strings.TrimSpace(key))]; !ok {
+			return fmt.Errorf("Docker container HostConfig.LogConfig.Config option %q is not allowed", key)
+		}
+		value, ok := rawValue.(string)
+		if !ok || len(value) > 256 || strings.IndexFunc(value, func(r rune) bool { return r == '\r' || r == '\n' || r == 0 }) >= 0 {
+			return fmt.Errorf("Docker container HostConfig.LogConfig.Config option %q is invalid", key)
+		}
+	}
+	return nil
+}
+
+func authorizeDeploymentWorkerRawVolumeInspection(
+	ctx context.Context,
+	path string,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	parts, ok := splitResourcePath(path, "volumes")
+	if !ok || !deploymentWorkerVolumeNamePattern.MatchString(parts[1]) {
+		return errors.New("deployment-worker volume identity is invalid")
+	}
+
+	body, _, err := engine.request(ctx, http.MethodGet, "/volumes/"+url.PathEscape(parts[1]), nil)
+	if err != nil {
+		return err
+	}
+	var inspection struct {
+		Name    string            `json:"Name"`
+		Driver  string            `json:"Driver"`
+		Options map[string]string `json:"Options"`
+		Labels  map[string]string `json:"Labels"`
+	}
+	if err := json.Unmarshal(body, &inspection); err != nil {
+		return fmt.Errorf("invalid Docker volume inspection: %w", err)
+	}
+	if inspection.Name == "" || inspection.Name != parts[1] {
+		return errors.New("Docker volume inspection has no matching identity")
+	}
+	if inspection.Driver != "local" || len(inspection.Options) != 0 {
+		return errors.New("Docker volume is not an unconfigured local volume")
+	}
+	if !isDeploymentWorkerOwnedVolume(inspection.Name, resourceID) {
+		return errors.New("Docker volume is not owned by the requested Upstand resource")
+	}
+
+	// Database volumes predate the typed resource-volume path and are identified
+	// by their exact resource-bound name. Compose volumes are newer and must
+	// also carry the managed labels checked by the typed volume provisioner.
+	if inspection.Name == "upstand-db-data-"+resourceID {
+		return nil
+	}
+	if inspection.Labels["com.upstand.managed"] != "true" ||
+		inspection.Labels["com.upstand.purpose"] != "resource-isolation" ||
+		inspection.Labels["com.upstand.resource-id"] != resourceID {
+		return errors.New("Docker volume is missing the managed resource ownership labels")
+	}
+	return nil
+}
+
+func authorizeDeploymentWorkerRawContainerList(r *http.Request, resourceID string) error {
+	return authorizeDeploymentWorkerRawResourceList(r, resourceID, "containers")
+}
+
+func authorizeDeploymentWorkerRawResourceList(r *http.Request, resourceID, resource string) error {
+	values, ok := r.URL.Query()["filters"]
+	if !ok || len(values) != 1 || len(values[0]) == 0 || len(values[0]) > maxPolicyBody {
+		return fmt.Errorf("deployment-worker %s listing requires one bounded resource filter", resource)
+	}
+
+	var filters map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(values[0]), &filters); err != nil {
+		return fmt.Errorf("deployment-worker %s listing filters are invalid: %w", resource, err)
+	}
+	rawLabels, ok := filters["label"]
+	if !ok {
+		return fmt.Errorf("deployment-worker %s listing requires a label filter", resource)
+	}
+	var labels []string
+	if err := json.Unmarshal(rawLabels, &labels); err != nil || len(labels) == 0 || len(labels) > 32 {
+		return fmt.Errorf("deployment-worker %s listing labels are invalid or unbounded", resource)
+	}
+	required := "com.upstand.resource-id=" + resourceID
+	for _, label := range labels {
+		if label == required {
+			return nil
+		}
+	}
+	return fmt.Errorf("deployment-worker %s listing must include the exact resource ownership label", resource)
+}
+
+func authorizeDeploymentWorkerRawTaskList(
+	ctx context.Context,
+	r *http.Request,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	values, ok := r.URL.Query()["filters"]
+	if !ok || len(values) != 1 || len(values[0]) == 0 || len(values[0]) > maxPolicyBody {
+		return errors.New("deployment-worker task listing requires one bounded service filter")
+	}
+
+	var filters map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(values[0]), &filters); err != nil {
+		return fmt.Errorf("deployment-worker task listing filters are invalid: %w", err)
+	}
+	rawServices, ok := filters["service"]
+	if !ok {
+		return errors.New("deployment-worker task listing requires a service filter")
+	}
+	var services []string
+	if err := json.Unmarshal(rawServices, &services); err != nil || len(services) != 1 || !swarmNamePattern.MatchString(services[0]) {
+		return errors.New("deployment-worker task listing service filter is invalid or unbounded")
+	}
+	return engine.authorizeResourceService(ctx, services[0], resourceID)
+}
+
+func authorizeDeploymentWorkerRawNetworkInspection(
+	ctx context.Context,
+	path string,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	parts, ok := splitResourcePath(path, "networks")
+	if !ok || !swarmNamePattern.MatchString(parts[1]) {
+		return errors.New("deployment-worker network identity is invalid")
+	}
+	body, _, err := engine.request(ctx, http.MethodGet, "/networks/"+url.PathEscape(parts[1]), nil)
+	if err != nil {
+		return err
+	}
+	var network struct {
+		ID     string            `json:"Id"`
+		Name   string            `json:"Name"`
+		Labels map[string]string `json:"Labels"`
+	}
+	if err := json.Unmarshal(body, &network); err != nil {
+		return fmt.Errorf("invalid Docker network inspection: %w", err)
+	}
+	if network.ID == "" || network.Name == "" {
+		return errors.New("Docker network inspection is missing its identity")
+	}
+	if err := validateManagedSwarmNetwork(body); err != nil {
+		return fmt.Errorf("Docker network is not a managed encrypted Swarm network: %w", err)
+	}
+	if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
+		return errors.New("Docker network is not owned by the requested Upstand resource")
+	}
+	return nil
+}
+
+func (engine *dockerEngineClient) authorizeResourceExec(ctx context.Context, path, resourceID string) error {
+	parts, ok := splitResourcePath(path, "exec")
+	if !ok || !swarmNamePattern.MatchString(parts[1]) {
+		return errors.New("deployment-worker exec identity is invalid")
+	}
+	body, _, err := engine.request(ctx, http.MethodGet, "/exec/"+url.PathEscape(parts[1])+"/json", nil)
+	if err != nil {
+		return err
+	}
+	var inspection struct {
+		ContainerID string `json:"ContainerID"`
+	}
+	if err := json.Unmarshal(body, &inspection); err != nil {
+		return fmt.Errorf("invalid Docker exec inspection: %w", err)
+	}
+	if !swarmNamePattern.MatchString(inspection.ContainerID) {
+		return errors.New("Docker exec inspection has no valid container identity")
+	}
+	return engine.authorizeResourceContainer(ctx, inspection.ContainerID, resourceID)
+}
+
+func (engine *dockerEngineClient) authorizeResourceService(ctx context.Context, serviceID, resourceID string) error {
+	body, _, err := engine.request(ctx, http.MethodGet, "/services/"+url.PathEscape(serviceID), nil)
+	if err != nil {
+		return err
+	}
+	var inspection struct {
+		Spec struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Spec"`
+	}
+	if err := json.Unmarshal(body, &inspection); err != nil {
+		return fmt.Errorf("invalid Docker service inspection: %w", err)
+	}
+	if inspection.Spec.Labels["com.upstand.resource-id"] != resourceID {
+		return errors.New("service is not owned by the requested Upstand resource")
+	}
+	return nil
+}
+
+// authorizeDeploymentWorkerRawServiceResources prevents a resource-scoped
+// worker from using the broad Engine service API to attach a service to an
+// unrelated network or mount an unrelated Swarm secret/config. Compose/Swarm
+// supplies all of these references in TaskTemplate; the broker must verify
+// live daemon metadata instead of trusting caller-controlled IDs or names.
+func authorizeDeploymentWorkerRawServiceResources(
+	ctx context.Context,
+	body []byte,
+	serviceID string,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	if err := validateDeploymentWorkerRawServiceShape(body); err != nil {
+		return err
+	}
+	existingServiceName := ""
+	if serviceID != "" {
+		serviceBody, _, err := engine.request(ctx, http.MethodGet, "/services/"+url.PathEscape(serviceID), nil)
+		if err != nil {
+			return err
+		}
+		var inspection struct {
+			Spec struct {
+				Name string `json:"Name"`
+			} `json:"Spec"`
+		}
+		if err := json.Unmarshal(serviceBody, &inspection); err != nil ||
+			!swarmNamePattern.MatchString(strings.TrimSpace(inspection.Spec.Name)) {
+			return errors.New("existing Docker service inspection has an invalid name")
+		}
+		existingServiceName = strings.TrimSpace(inspection.Spec.Name)
+		if err := authorizeServiceResourcePayload(ctx, serviceBody, resourceID, engine); err != nil {
+			return fmt.Errorf("existing Docker service resource policy failed: %w", err)
+		}
+	}
+	if len(strings.TrimSpace(string(body))) == 0 {
+		return errors.New("deployment-worker service mutation requires a JSON body")
+	}
+	if err := validateRawServiceMutationIdentity(body, existingServiceName); err != nil {
+		return err
+	}
+	if err := authorizeServiceResourcePayload(ctx, body, resourceID, engine); err != nil {
+		return fmt.Errorf("requested Docker service resource policy failed: %w", err)
+	}
+	return nil
+}
+
+var (
+	deploymentWorkerRawServiceFields = dockerFieldSet(
+		"Name",
+		"Labels",
+		"TaskTemplate",
+		"Mode",
+		"UpdateConfig",
+		"RollbackConfig",
+		"EndpointSpec",
+		"Networks",
+	)
+	deploymentWorkerRawTaskTemplateFields = dockerFieldSet(
+		"ContainerSpec",
+		"Resources",
+		"RestartPolicy",
+		"Placement",
+		"Networks",
+		"ForceUpdate",
+		// These fields are part of Docker's task-spec shape, but the security
+		// policy below still rejects any non-zero value. Keeping them in the
+		// shape allowlist lets the broker distinguish an empty API default from
+		// a newly introduced, unreviewed field.
+		"Runtime",
+		"LogDriver",
+	)
+	deploymentWorkerRawContainerSpecFields = dockerFieldSet(
+		"Image",
+		"Labels",
+		"Command",
+		"Args",
+		"Hostname",
+		"Env",
+		"Dir",
+		"User",
+		"Groups",
+		"StopSignal",
+		"TTY",
+		"ReadOnly",
+		"Mounts",
+		"Init",
+		"DNSConfig",
+		"Healthcheck",
+		"StopGracePeriod",
+		"Secrets",
+		"Configs",
+		// These fields are allowed in the Docker API shape so the existing
+		// security checks can reject non-empty host/privilege controls with a
+		// specific policy error.
+		"Isolation",
+		"Hosts",
+		"Sysctls",
+		"CapAdd",
+		"CapDrop",
+		"Devices",
+		"DeviceRequests",
+		"SecurityOpt",
+		"CgroupParent",
+		"StorageOpt",
+		"BlkioConfig",
+		"VolumesFrom",
+		"Ulimits",
+		"OomScoreAdj",
+		"ShmSize",
+		"Privileges",
+		"CredentialSpec",
+		"NetworkMode",
+		"PidMode",
+		"IpcMode",
+		"UTSMode",
+		"UsernsMode",
+		"CgroupnsMode",
+	)
+	deploymentWorkerRawResourcesFields           = dockerFieldSet("Limits", "Reservations")
+	deploymentWorkerRawResourceLimitFields       = dockerFieldSet("NanoCPUs", "MemoryBytes", "Pids")
+	deploymentWorkerRawResourceReservationFields = dockerFieldSet(
+		"NanoCPUs",
+		"MemoryBytes",
+		"GenericResources",
+	)
+	deploymentWorkerRawRestartPolicyFields = dockerFieldSet(
+		"Condition",
+		"Delay",
+		"MaxAttempts",
+		"Window",
+	)
+	deploymentWorkerRawPlacementFields = dockerFieldSet(
+		"Constraints",
+		"Preferences",
+		"MaxReplicas",
+		"Platforms",
+		"Spreads",
+	)
+	deploymentWorkerRawUpdateConfigFields = dockerFieldSet(
+		"Parallelism",
+		"Delay",
+		"Monitor",
+		"FailureAction",
+		"MaxFailureRatio",
+		"Order",
+	)
+	deploymentWorkerRawModeFields = dockerFieldSet(
+		"Replicated",
+		"Global",
+		"ReplicatedJob",
+		"GlobalJob",
+	)
+	deploymentWorkerRawReplicatedModeFields = dockerFieldSet("Replicas")
+	deploymentWorkerRawNetworkFields        = dockerFieldSet("Target", "Aliases")
+)
+
+func dockerFieldSet(fields ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		set[strings.ToLower(strings.TrimSpace(field))] = struct{}{}
+	}
+	return set
+}
+
+func validateDockerObjectShape(object map[string]any, allowed map[string]struct{}, location string) error {
+	for field := range object {
+		if _, ok := allowed[strings.ToLower(strings.TrimSpace(field))]; !ok {
+			return fmt.Errorf("%s field %q is outside the broker contract", location, field)
+		}
+	}
+	return nil
+}
+
+// validateDeploymentWorkerRawServiceShape is deliberately stricter than the
+// generic Docker JSON policy. This legacy endpoint forwards a whole Swarm
+// ServiceSpec, so accepting an unknown future field could silently add daemon
+// authority before that field receives an explicit security review.
+func validateDeploymentWorkerRawServiceShape(body []byte) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return errors.New("Docker service mutation body must be a JSON object")
+	}
+	if err := validateDockerObjectShape(payload, deploymentWorkerRawServiceFields, "Docker service"); err != nil {
+		return err
+	}
+	if rawTaskTemplate, ok := dockerObjectField(payload, "TaskTemplate"); ok {
+		taskTemplate, ok := rawTaskTemplate.(map[string]any)
+		if !ok || taskTemplate == nil {
+			return errors.New("Docker service TaskTemplate must be an object")
+		}
+		if err := validateDockerObjectShape(taskTemplate, deploymentWorkerRawTaskTemplateFields, "Docker service TaskTemplate"); err != nil {
+			return err
+		}
+		if rawContainerSpec, ok := dockerObjectField(taskTemplate, "ContainerSpec"); ok {
+			containerSpec, ok := rawContainerSpec.(map[string]any)
+			if !ok || containerSpec == nil {
+				return errors.New("Docker service ContainerSpec must be an object")
+			}
+			if err := validateDockerObjectShape(containerSpec, deploymentWorkerRawContainerSpecFields, "Docker service ContainerSpec"); err != nil {
+				return err
+			}
+			if err := validateDeploymentWorkerRawContainerSpecShape(containerSpec); err != nil {
+				return err
+			}
+		}
+		if rawResources, ok := dockerObjectField(taskTemplate, "Resources"); ok {
+			resources, ok := rawResources.(map[string]any)
+			if !ok || resources == nil {
+				return errors.New("Docker service Resources must be an object")
+			}
+			if err := validateDockerObjectShape(resources, deploymentWorkerRawResourcesFields, "Docker service Resources"); err != nil {
+				return err
+			}
+			for field, allowed := range map[string]map[string]struct{}{
+				"Limits":       deploymentWorkerRawResourceLimitFields,
+				"Reservations": deploymentWorkerRawResourceReservationFields,
+			} {
+				if raw, ok := dockerObjectField(resources, field); ok {
+					value, ok := raw.(map[string]any)
+					if !ok || value == nil {
+						return fmt.Errorf("Docker service Resources.%s must be an object", field)
+					}
+					if err := validateDockerObjectShape(value, allowed, "Docker service Resources."+field); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		for field, allowed := range map[string]map[string]struct{}{
+			"RestartPolicy": deploymentWorkerRawRestartPolicyFields,
+			"Placement":     deploymentWorkerRawPlacementFields,
+		} {
+			if raw, ok := dockerObjectField(taskTemplate, field); ok {
+				value, ok := raw.(map[string]any)
+				if !ok || value == nil {
+					return fmt.Errorf("Docker service TaskTemplate.%s must be an object", field)
+				}
+				if err := validateDockerObjectShape(value, allowed, "Docker service TaskTemplate."+field); err != nil {
+					return err
+				}
+			}
+		}
+		if rawPlacement, ok := dockerObjectField(taskTemplate, "Placement"); ok {
+			if err := validateDeploymentWorkerRawPlacementShape(rawPlacement); err != nil {
+				return err
+			}
+		}
+		if rawNetworks, ok := dockerObjectField(taskTemplate, "Networks"); ok {
+			if err := validateDeploymentWorkerRawNetworkShape(rawNetworks, "Docker service TaskTemplate.Networks"); err != nil {
+				return err
+			}
+		}
+	}
+	for field, allowed := range map[string]map[string]struct{}{
+		"UpdateConfig":   deploymentWorkerRawUpdateConfigFields,
+		"RollbackConfig": deploymentWorkerRawUpdateConfigFields,
+	} {
+		if raw, ok := dockerObjectField(payload, field); ok {
+			value, ok := raw.(map[string]any)
+			if !ok || value == nil {
+				return fmt.Errorf("Docker service %s must be an object", field)
+			}
+			if err := validateDockerObjectShape(value, allowed, "Docker service "+field); err != nil {
+				return err
+			}
+		}
+	}
+	if rawMode, ok := dockerObjectField(payload, "Mode"); ok {
+		mode, ok := rawMode.(map[string]any)
+		if !ok || mode == nil {
+			return errors.New("Docker service Mode must be an object")
+		}
+		if err := validateDockerObjectShape(mode, deploymentWorkerRawModeFields, "Docker service Mode"); err != nil {
+			return err
+		}
+		if rawReplicated, ok := dockerObjectField(mode, "Replicated"); ok {
+			replicated, ok := rawReplicated.(map[string]any)
+			if !ok || replicated == nil {
+				return errors.New("Docker service Mode.Replicated must be an object")
+			}
+			if err := validateDockerObjectShape(replicated, deploymentWorkerRawReplicatedModeFields, "Docker service Mode.Replicated"); err != nil {
+				return err
+			}
+		}
+		for field := range map[string]struct{}{"ReplicatedJob": {}, "GlobalJob": {}} {
+			if rawJob, ok := dockerObjectField(mode, field); ok {
+				job, ok := rawJob.(map[string]any)
+				if !ok || job == nil {
+					return fmt.Errorf("Docker service Mode.%s must be an object", field)
+				}
+				if err := validateDockerObjectShape(job, deploymentWorkerRawJobModeFields, "Docker service Mode."+field); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if rawNetworks, ok := dockerObjectField(payload, "Networks"); ok {
+		if err := validateDeploymentWorkerRawNetworkShape(rawNetworks, "Docker service Networks"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var (
+	deploymentWorkerRawMountFields = dockerFieldSet(
+		"Type",
+		"Source",
+		"Target",
+		"ReadOnly",
+		"Consistency",
+		"VolumeOptions",
+	)
+	deploymentWorkerRawVolumeOptionsFields = dockerFieldSet("NoCopy", "Subpath")
+	deploymentWorkerRawHealthcheckFields   = dockerFieldSet(
+		"Test",
+		"Interval",
+		"Timeout",
+		"Retries",
+		"StartPeriod",
+		"StartInterval",
+	)
+	deploymentWorkerRawDNSConfigFields           = dockerFieldSet("Nameservers", "Search", "Options")
+	deploymentWorkerRawFileReferenceFields       = dockerFieldSet("SecretID", "SecretName", "ConfigID", "ConfigName", "File")
+	deploymentWorkerRawFileSpecFields            = dockerFieldSet("Name", "UID", "GID", "Mode")
+	deploymentWorkerRawPlacementPreferenceFields = dockerFieldSet("Spread")
+	deploymentWorkerRawPlacementSpreadFields     = dockerFieldSet("SpreadDescriptor")
+	deploymentWorkerRawPlatformFields            = dockerFieldSet("Architecture", "OS", "OSVersion", "Variant")
+	deploymentWorkerRawJobModeFields             = dockerFieldSet("MaxConcurrent", "TotalCompletions", "ReplicasMaxPerNode")
+)
+
+// validateDeploymentWorkerRawContainerSpecShape closes nested Docker objects
+// that are otherwise easy to extend without passing the first-level service
+// allowlist. The broker forwards this payload to Docker unchanged, so every
+// nested object must fail closed when Docker adds a new authority-bearing
+// field.
+func validateDeploymentWorkerRawContainerSpecShape(containerSpec map[string]any) error {
+	for _, field := range []string{"Mounts", "Secrets", "Configs"} {
+		raw, ok := dockerObjectField(containerSpec, field)
+		if !ok {
+			continue
+		}
+		items, ok := raw.([]any)
+		if !ok || len(items) > 64 {
+			return fmt.Errorf("Docker service ContainerSpec.%s must be a bounded array", field)
+		}
+		for index, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok || item == nil {
+				return fmt.Errorf("Docker service ContainerSpec.%s[%d] must be an object", field, index)
+			}
+			if field == "Mounts" {
+				if err := validateDockerObjectShape(item, deploymentWorkerRawMountFields, fmt.Sprintf("Docker service ContainerSpec.Mounts[%d]", index)); err != nil {
+					return err
+				}
+				if rawOptions, ok := dockerObjectField(item, "VolumeOptions"); ok {
+					options, ok := rawOptions.(map[string]any)
+					if !ok || options == nil {
+						return fmt.Errorf("Docker service ContainerSpec.Mounts[%d].VolumeOptions must be an object", index)
+					}
+					if err := validateDockerObjectShape(options, deploymentWorkerRawVolumeOptionsFields, fmt.Sprintf("Docker service ContainerSpec.Mounts[%d].VolumeOptions", index)); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if err := validateDockerObjectShape(item, deploymentWorkerRawFileReferenceFields, fmt.Sprintf("Docker service ContainerSpec.%s[%d]", field, index)); err != nil {
+				return err
+			}
+			if rawFile, ok := dockerObjectField(item, "File"); ok {
+				file, ok := rawFile.(map[string]any)
+				if !ok || file == nil {
+					return fmt.Errorf("Docker service ContainerSpec.%s[%d].File must be an object", field, index)
+				}
+				if err := validateDockerObjectShape(file, deploymentWorkerRawFileSpecFields, fmt.Sprintf("Docker service ContainerSpec.%s[%d].File", field, index)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	for field, allowed := range map[string]map[string]struct{}{
+		"Healthcheck": deploymentWorkerRawHealthcheckFields,
+		"DNSConfig":   deploymentWorkerRawDNSConfigFields,
+	} {
+		if raw, ok := dockerObjectField(containerSpec, field); ok {
+			value, ok := raw.(map[string]any)
+			if !ok || value == nil {
+				return fmt.Errorf("Docker service ContainerSpec.%s must be an object", field)
+			}
+			if err := validateDockerObjectShape(value, allowed, "Docker service ContainerSpec."+field); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateDeploymentWorkerRawPlacementShape(raw any) error {
+	placement, ok := raw.(map[string]any)
+	if !ok || placement == nil {
+		return errors.New("Docker service TaskTemplate.Placement must be an object")
+	}
+	if rawPreferences, ok := dockerObjectField(placement, "Preferences"); ok {
+		preferences, ok := rawPreferences.([]any)
+		if !ok || len(preferences) > 32 {
+			return errors.New("Docker service placement preferences must be a bounded array")
+		}
+		for index, rawPreference := range preferences {
+			preference, ok := rawPreference.(map[string]any)
+			if !ok || preference == nil {
+				return fmt.Errorf("Docker service placement preference %d must be an object", index)
+			}
+			if err := validateDockerObjectShape(preference, deploymentWorkerRawPlacementPreferenceFields, fmt.Sprintf("Docker service placement preference %d", index)); err != nil {
+				return err
+			}
+			if rawSpread, ok := dockerObjectField(preference, "Spread"); ok {
+				spread, ok := rawSpread.(map[string]any)
+				if !ok || spread == nil {
+					return fmt.Errorf("Docker service placement preference %d Spread must be an object", index)
+				}
+				if err := validateDockerObjectShape(spread, deploymentWorkerRawPlacementSpreadFields, fmt.Sprintf("Docker service placement preference %d Spread", index)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if rawPlatforms, ok := dockerObjectField(placement, "Platforms"); ok {
+		platforms, ok := rawPlatforms.([]any)
+		if !ok || len(platforms) > 32 {
+			return errors.New("Docker service placement platforms must be a bounded array")
+		}
+		for index, rawPlatform := range platforms {
+			platform, ok := rawPlatform.(map[string]any)
+			if !ok || platform == nil {
+				return fmt.Errorf("Docker service placement platform %d must be an object", index)
+			}
+			if err := validateDockerObjectShape(platform, deploymentWorkerRawPlatformFields, fmt.Sprintf("Docker service placement platform %d", index)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateDeploymentWorkerRawNetworkShape(raw any, location string) error {
+	networks, ok := raw.([]any)
+	if !ok || len(networks) > 32 {
+		return fmt.Errorf("%s must be a bounded array", location)
+	}
+	for index, rawNetwork := range networks {
+		network, ok := rawNetwork.(map[string]any)
+		if !ok || network == nil {
+			return fmt.Errorf("%s[%d] must be an object", location, index)
+		}
+		if err := validateDockerObjectShape(network, deploymentWorkerRawNetworkFields, fmt.Sprintf("%s[%d]", location, index)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateRawServiceMutationIdentity keeps the legacy Compose/Swarm service
+// route from becoming a name-confusion primitive. Docker service creation
+// requires a concrete bounded name, while updates must not rename a service
+// after its ownership has been verified by the broker.
+func validateRawServiceMutationIdentity(body []byte, existingServiceName string) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return errors.New("Docker service mutation body must be a JSON object")
+	}
+	rawName, hasName := dockerObjectField(payload, "Name")
+	if !hasName {
+		if existingServiceName == "" {
+			return errors.New("Docker service creation requires a bounded service name")
+		}
+		return nil
+	}
+	name, ok := rawName.(string)
+	if !ok {
+		return errors.New("Docker service mutation service name is invalid")
+	}
+	name = strings.TrimSpace(name)
+	if !swarmNamePattern.MatchString(name) {
+		return errors.New("Docker service mutation service name is invalid")
+	}
+	if existingServiceName != "" && name != existingServiceName {
+		return errors.New("Docker service updates cannot rename an owned service")
+	}
+	return nil
+}
+
+func authorizeServiceResourcePayload(
+	ctx context.Context,
+	body []byte,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("service payload is invalid: %w", err)
+	}
+	payload = dockerServiceSpecPayload(payload)
+	if err := validateRawServiceSecurity(payload); err != nil {
+		return err
+	}
+	if err := authorizeServiceNetworkPayload(ctx, body, resourceID, engine); err != nil {
+		return err
+	}
+	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
+	if !hasTaskTemplate {
+		return nil
+	}
+	taskTemplateObject, ok := taskTemplate.(map[string]any)
+	if !ok {
+		return errors.New("service TaskTemplate is not an object")
+	}
+	if err := authorizeServiceFileBackedPayload(ctx, taskTemplateObject, resourceID, engine); err != nil {
+		return err
+	}
+	return authorizeServiceVolumePayload(ctx, taskTemplateObject, resourceID, engine)
+}
+
+// validateRawServiceSecurity keeps the legacy service endpoint aligned with
+// the Compose isolation policy. A resource-scoped caller may control its own
+// workload, but it must not use a raw Swarm service payload to request a host
+// namespace, custom runtime, device, capability, or security escape.
+func validateRawServiceSecurity(payload map[string]any) error {
+	if err := validateServiceEndpointSpec(payload); err != nil {
+		return err
+	}
+	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
+	if !hasTaskTemplate {
+		return nil
+	}
+	taskTemplateObject, ok := taskTemplate.(map[string]any)
+	if !ok {
+		return errors.New("service TaskTemplate is not an object")
+	}
+	for _, field := range []string{"Runtime", "HostConfig"} {
+		if dockerFieldIsNonEmpty(taskTemplateObject, field) {
+			return fmt.Errorf("service TaskTemplate field %q is not allowed", field)
+		}
+	}
+	for _, field := range []string{"LogDriver", "NetworkAttachmentConfig"} {
+		// A raw worker service must not select a host-side logging backend or
+		// smuggle an additional network attachment through the less commonly
+		// used Swarm task-template fields. Both are authority-bearing Docker
+		// controls that are intentionally absent from the typed resource route.
+		if dockerFieldIsNonEmpty(taskTemplateObject, field) {
+			return fmt.Errorf("service TaskTemplate field %q is not allowed", field)
+		}
+	}
+
+	if resources, ok := dockerObjectField(taskTemplateObject, "Resources"); ok && resources != nil {
+		resourcesObject, ok := resources.(map[string]any)
+		if !ok {
+			return errors.New("service TaskTemplate Resources is not an object")
+		}
+		if reservations, ok := dockerObjectField(resourcesObject, "Reservations"); ok && reservations != nil {
+			reservationsObject, ok := reservations.(map[string]any)
+			if !ok {
+				return errors.New("service TaskTemplate resource reservations are not an object")
+			}
+			if dockerFieldIsNonEmpty(reservationsObject, "GenericResources") {
+				return errors.New("service TaskTemplate resource reservations cannot request host devices")
+			}
+		}
+	}
+
+	containerSpec, hasContainerSpec := dockerObjectField(taskTemplateObject, "ContainerSpec")
+	if !hasContainerSpec {
+		return nil
+	}
+	containerSpecObject, ok := containerSpec.(map[string]any)
+	if !ok {
+		return errors.New("service ContainerSpec is not an object")
+	}
+	if rawSecurityOptions, exists := dockerObjectField(containerSpecObject, "SecurityOpt"); exists && rawSecurityOptions != nil {
+		securityOptions, ok := rawSecurityOptions.([]any)
+		if !ok || len(securityOptions) > 16 {
+			return errors.New("service ContainerSpec SecurityOpt is invalid or unbounded")
+		}
+		for index, rawOption := range securityOptions {
+			option, ok := rawOption.(string)
+			if !ok || strings.ToLower(strings.TrimSpace(option)) != "no-new-privileges:true" {
+				return fmt.Errorf("service ContainerSpec security option %d is not allowed", index)
+			}
+		}
+	}
+	for _, field := range []string{
+		"Privileged",
+		"NetworkMode",
+		"PidMode",
+		"IpcMode",
+		"UTSMode",
+		"UsernsMode",
+		"CgroupnsMode",
+		"Isolation",
+		"CapAdd",
+		"CapabilityAdd",
+		"Devices",
+		"DeviceRequests",
+		"Sysctls",
+		"CgroupParent",
+		"StorageOpt",
+		"BlkioConfig",
+		"VolumesFrom",
+		"Hosts",
+		"Ulimits",
+		"OomScoreAdj",
+		"ShmSize",
+		"Privileges",
+		"CredentialSpec",
+	} {
+		if dockerFieldIsNonEmpty(containerSpecObject, field) {
+			return fmt.Errorf("service ContainerSpec field %q is not allowed", field)
+		}
+	}
+	return nil
+}
+
+// validateServiceEndpointSpec keeps raw and typed service mutations from
+// turning a resource-scoped service into an arbitrary host port or endpoint
+// configuration primitive. Compose and Swarm both use the Docker service
+// EndpointSpec shape after translation.
+func validateServiceEndpointSpec(payload map[string]any) error {
+	rawEndpoint, ok := dockerObjectField(payload, "EndpointSpec")
+	if !ok || rawEndpoint == nil {
+		return nil
+	}
+	endpoint, ok := rawEndpoint.(map[string]any)
+	if !ok {
+		return errors.New("service EndpointSpec is not an object")
+	}
+	for field := range endpoint {
+		switch strings.ToLower(strings.TrimSpace(field)) {
+		case "mode", "ports":
+		default:
+			return fmt.Errorf("service EndpointSpec field %q is not allowed", field)
+		}
+	}
+	if mode := strings.ToLower(dockerStringField(endpoint, "Mode")); mode != "" && mode != "vip" && mode != "dnsrr" {
+		return errors.New("service EndpointSpec mode is outside the broker contract")
+	}
+	rawPorts, ok := dockerObjectField(endpoint, "Ports")
+	if !ok || rawPorts == nil {
+		return nil
+	}
+	ports, ok := rawPorts.([]any)
+	if !ok || len(ports) > 64 {
+		return errors.New("service EndpointSpec ports are invalid or unbounded")
+	}
+	for index, rawPort := range ports {
+		port, ok := rawPort.(map[string]any)
+		if !ok {
+			return fmt.Errorf("service EndpointSpec port %d is invalid", index)
+		}
+		for field := range port {
+			switch strings.ToLower(strings.TrimSpace(field)) {
+			case "name", "protocol", "targetport", "publishedport", "publishmode":
+			default:
+				return fmt.Errorf("service EndpointSpec port %d field %q is not allowed", index, field)
+			}
+		}
+		if name := dockerStringField(port, "Name"); len(name) > 64 || hasControlCharacter(name) {
+			return fmt.Errorf("service EndpointSpec port %d name is invalid", index)
+		}
+		protocol := strings.ToLower(dockerStringField(port, "Protocol"))
+		if protocol != "" && protocol != "tcp" && protocol != "udp" && protocol != "sctp" {
+			return fmt.Errorf("service EndpointSpec port %d protocol is invalid", index)
+		}
+		publishMode := strings.ToLower(dockerStringField(port, "PublishMode"))
+		if publishMode != "" && publishMode != "ingress" {
+			return fmt.Errorf("service EndpointSpec port %d publish mode is not allowed", index)
+		}
+		for _, field := range []string{"TargetPort", "PublishedPort"} {
+			value, exists := dockerObjectField(port, field)
+			if !exists {
+				return fmt.Errorf("service EndpointSpec port %d is missing %s", index, field)
+			}
+			if _, valid := dockerPortNumber(value); !valid {
+				return fmt.Errorf("service EndpointSpec port %d %s is invalid", index, field)
+			}
+		}
+	}
+	return nil
+}
+
+func dockerPortNumber(value any) (int64, bool) {
+	var number float64
+	switch typed := value.(type) {
+	case float64:
+		number = typed
+	case float32:
+		number = float64(typed)
+	case int:
+		number = float64(typed)
+	case int64:
+		number = float64(typed)
+	case uint:
+		number = float64(typed)
+	case uint64:
+		number = float64(typed)
+	default:
+		return 0, false
+	}
+	if number < 1 || number > 65535 || number != math.Trunc(number) {
+		return 0, false
+	}
+	return int64(number), true
+}
+
+func dockerFieldIsNonEmpty(object map[string]any, wanted string) bool {
+	value, ok := dockerObjectField(object, wanted)
+	if !ok || value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []any:
+		return len(typed) > 0
+	case map[string]any:
+		return len(typed) > 0
+	case float64:
+		// JSON numbers decode to float64 in the policy walker. Preserve
+		// Docker's zero-value semantics so an explicitly serialized zero does
+		// not make an otherwise absent numeric control look enabled.
+		return typed != 0
+	case int:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case uint64:
+		return typed != 0
+	default:
+		return true
+	}
+}
+
+// authorizeServiceVolumePayload verifies the live Docker metadata for every
+// named volume used by a raw service mutation. A caller-controlled name prefix
+// is not sufficient: a pre-existing volume with that name could have been
+// created with a host-backed driver or hostile options. Re-inspect the daemon
+// object immediately before forwarding the service mutation and apply the
+// same ownership policy used by the typed resource-volume route.
+func authorizeServiceVolumePayload(
+	ctx context.Context,
+	taskTemplateObject map[string]any,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	containerSpec, ok := dockerObjectField(taskTemplateObject, "ContainerSpec")
+	if !ok {
+		return nil
+	}
+	containerSpecObject, ok := containerSpec.(map[string]any)
+	if !ok {
+		return errors.New("service ContainerSpec is not an object")
+	}
+	rawMounts, ok := dockerObjectField(containerSpecObject, "Mounts")
+	if !ok {
+		return nil
+	}
+	mounts, ok := rawMounts.([]any)
+	if !ok || len(mounts) > 64 {
+		return errors.New("service volume mounts are invalid or unbounded")
+	}
+	for index, rawMount := range mounts {
+		mount, ok := rawMount.(map[string]any)
+		if !ok {
+			return fmt.Errorf("service volume mount %d is invalid", index)
+		}
+		mountType := strings.ToLower(dockerStringField(mount, "Type"))
+		source := dockerStringField(mount, "Source")
+		if mountType != "volume" || !deploymentWorkerVolumeNamePattern.MatchString(source) || !isDeploymentWorkerOwnedVolume(source, resourceID) {
+			return fmt.Errorf("service volume mount %d must reference a resource-owned named volume", index)
+		}
+		if err := authorizeDeploymentWorkerRawVolumeInspection(
+			ctx,
+			"/volumes/"+url.PathEscape(source),
+			resourceID,
+			engine,
+		); err != nil {
+			return fmt.Errorf("service volume mount %d failed live ownership verification: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func authorizeServiceFileBackedPayload(
+	ctx context.Context,
+	taskTemplateObject map[string]any,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	containerSpec, hasContainerSpec := dockerObjectField(taskTemplateObject, "ContainerSpec")
+	if !hasContainerSpec {
+		return nil
+	}
+	containerSpecObject, ok := containerSpec.(map[string]any)
+	if !ok {
+		return errors.New("service ContainerSpec is not an object")
+	}
+	for _, kind := range []string{"Secrets", "Configs"} {
+		if err := authorizeServiceFileBackedReferences(ctx, containerSpecObject, kind, resourceID, engine); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func authorizeServiceFileBackedReferences(
+	ctx context.Context,
+	containerSpec map[string]any,
+	kind string,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	rawReferences, ok := dockerObjectField(containerSpec, kind)
+	if !ok {
+		return nil
+	}
+	references, ok := rawReferences.([]any)
+	if !ok || len(references) > 32 {
+		return fmt.Errorf("service %s references are invalid or unbounded", strings.ToLower(kind))
+	}
+
+	objectKind := strings.TrimSuffix(strings.ToLower(kind), "s")
+	for index, rawReference := range references {
+		reference, ok := rawReference.(map[string]any)
+		if !ok {
+			return fmt.Errorf("service %s reference %d is invalid", strings.ToLower(kind), index)
+		}
+		idField := objectKind + "ID"
+		nameField := objectKind + "Name"
+		objectID := dockerStringField(reference, idField)
+		objectName := dockerStringField(reference, nameField)
+		if objectID == "" && objectName == "" {
+			return fmt.Errorf("service %s reference %d has no identity", strings.ToLower(kind), index)
+		}
+		lookup := objectID
+		if lookup == "" {
+			lookup = objectName
+		}
+		if len(lookup) > 256 || strings.ContainsAny(lookup, "/\x00\r\n") {
+			return fmt.Errorf("service %s reference %d has an invalid identity", strings.ToLower(kind), index)
+		}
+
+		body, _, err := engine.request(ctx, http.MethodGet, "/"+objectKind+"s/"+url.PathEscape(lookup), nil)
+		if err != nil {
+			return fmt.Errorf("service %s reference %d could not be inspected: %w", strings.ToLower(kind), index, err)
+		}
+		var inspection struct {
+			ID   string `json:"ID"`
+			Spec struct {
+				Name   string            `json:"Name"`
+				Labels map[string]string `json:"Labels"`
+			} `json:"Spec"`
+		}
+		if err := json.Unmarshal(body, &inspection); err != nil {
+			return fmt.Errorf("service %s reference %d inspection is invalid: %w", strings.ToLower(kind), index, err)
+		}
+		if inspection.ID == "" || inspection.Spec.Name == "" {
+			return fmt.Errorf("service %s reference %d inspection is incomplete", strings.ToLower(kind), index)
+		}
+		if objectName != "" && objectName != inspection.Spec.Name {
+			return fmt.Errorf("service %s reference %d name does not match daemon identity", strings.ToLower(kind), index)
+		}
+		// Names are caller-controlled and are not an ownership proof. A stale
+		// or externally-created object can deliberately reuse the deterministic
+		// Upstand naming convention, so file-backed service references must carry
+		// the daemon-side ownership label as well as the requested identity.
+		if inspection.Spec.Labels["com.upstand.resource-id"] != resourceID {
+			return fmt.Errorf("service %s reference %d is not owned by the requested Upstand resource", strings.ToLower(kind), index)
+		}
+	}
+	return nil
+}
+
+func dockerStringField(object map[string]any, wanted string) string {
+	value, ok := dockerObjectField(object, wanted)
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func authorizeServiceNetworkPayload(
+	ctx context.Context,
+	body []byte,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("service payload is invalid: %w", err)
+	}
+	payload = dockerServiceSpecPayload(payload)
+	taskTemplate, hasTaskTemplate := dockerObjectField(payload, "TaskTemplate")
+	if hasTaskTemplate {
+		taskTemplateObject, ok := taskTemplate.(map[string]any)
+		if !ok {
+			return errors.New("service TaskTemplate is not an object")
+		}
+		if err := authorizeServiceNetworkList(ctx, taskTemplateObject, resourceID, engine); err != nil {
+			return err
+		}
+	}
+	return authorizeServiceNetworkList(ctx, payload, resourceID, engine)
+}
+
+func dockerServiceSpecPayload(payload map[string]any) map[string]any {
+	spec, ok := dockerObjectField(payload, "Spec")
+	if !ok {
+		return payload
+	}
+	specObject, ok := spec.(map[string]any)
+	if !ok {
+		return payload
+	}
+	return specObject
+}
+
+func authorizeServiceNetworkList(
+	ctx context.Context,
+	payload map[string]any,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	rawNetworks, ok := dockerObjectField(payload, "Networks")
+	if !ok {
+		return nil
+	}
+	networks, ok := rawNetworks.([]any)
+	if !ok || len(networks) > 32 {
+		return errors.New("service network attachments are invalid or unbounded")
+	}
+	for index, rawNetwork := range networks {
+		networkObject, ok := rawNetwork.(map[string]any)
+		if !ok {
+			return fmt.Errorf("service network attachment %d is invalid", index)
+		}
+		target, ok := dockerObjectField(networkObject, "Target")
+		targetName, validTarget := target.(string)
+		if !validTarget || !swarmNamePattern.MatchString(strings.TrimSpace(targetName)) {
+			return fmt.Errorf("service network attachment %d has an invalid target", index)
+		}
+		networkBody, _, err := engine.request(ctx, http.MethodGet, "/networks/"+url.PathEscape(strings.TrimSpace(targetName)), nil)
+		if err != nil {
+			return fmt.Errorf("service network attachment %d could not be inspected: %w", index, err)
+		}
+		var network struct {
+			ID     string            `json:"Id"`
+			Name   string            `json:"Name"`
+			Labels map[string]string `json:"Labels"`
+		}
+		if err := json.Unmarshal(networkBody, &network); err != nil {
+			return fmt.Errorf("service network attachment %d inspection is invalid: %w", index, err)
+		}
+		if network.ID == "" || network.Name == "" {
+			return fmt.Errorf("service network attachment %d inspection is incomplete", index)
+		}
+		if err := validateManagedSwarmNetwork(networkBody); err != nil {
+			return fmt.Errorf("service network attachment %d is not encrypted and attachable: %w", index, err)
+		}
+		if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
+			return fmt.Errorf("service network attachment %d is not owned by the requested Upstand resource", index)
+		}
+	}
+	return nil
+}
+
+func dockerObjectField(object map[string]any, wanted string) (any, bool) {
+	for key, value := range object {
+		if strings.EqualFold(strings.TrimSpace(key), wanted) {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func isRawContainerResourcePath(method, path string) bool {
+	return (method == http.MethodDelete && containerPath(path, "")) ||
+		(method == http.MethodGet && (containerPath(path, "") || containerActionPath(path, "json") ||
+			containerActionPath(path, "logs") || containerActionPath(path, "changes") ||
+			containerActionPath(path, "stats") || containerActionPath(path, "top"))) ||
+		(method == http.MethodPost && isContainerMutationPath(path)) ||
+		(method == http.MethodPut && containerActionPath(path, "archive"))
+}
+
+func authorizeDeploymentWorkerRawNetwork(
+	ctx context.Context,
+	path string,
+	body []byte,
+	resourceID string,
+	engine *dockerEngineClient,
+) error {
+	parts, ok := splitResourcePath(path, "networks")
+	if !ok || !swarmNamePattern.MatchString(parts[1]) {
+		return errors.New("deployment-worker network identity is invalid")
+	}
+
+	var payload struct {
+		Container string `json:"Container"`
+	}
+	if len(strings.TrimSpace(string(body))) == 0 {
+		return errors.New("deployment-worker network attachment requires a JSON body")
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("deployment-worker network attachment body is invalid: %w", err)
+	}
+	if !swarmNamePattern.MatchString(payload.Container) {
+		return errors.New("deployment-worker network attachment container identity is invalid")
+	}
+
+	networkBody, _, err := engine.request(
+		ctx,
+		http.MethodGet,
+		"/networks/"+url.PathEscape(parts[1]),
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	var network struct {
+		ID         string            `json:"Id"`
+		Name       string            `json:"Name"`
+		Driver     string            `json:"Driver"`
+		Scope      string            `json:"Scope"`
+		Attachable bool              `json:"Attachable"`
+		Options    map[string]string `json:"Options"`
+		Labels     map[string]string `json:"Labels"`
+	}
+	if err := json.Unmarshal(networkBody, &network); err != nil {
+		return fmt.Errorf("invalid Docker network inspection: %w", err)
+	}
+	if network.ID == "" || network.Name == "" {
+		return errors.New("Docker network inspection is missing its identity")
+	}
+	if err := validateManagedSwarmNetwork(networkBody); err != nil {
+		return fmt.Errorf("Docker network is not a managed encrypted Swarm network: %w", err)
+	}
+	if !isAuthorizedDeploymentWorkerNetwork(network.Name, network.Labels, resourceID) {
+		return errors.New("Docker network is not owned by the requested Upstand resource")
+	}
+	return engine.authorizeResourceContainer(ctx, payload.Container, resourceID)
+}
+
+func isAuthorizedDeploymentWorkerNetwork(name string, labels map[string]string, resourceID string) bool {
+	if name == configuredSharedNetworkName() {
+		return true
+	}
+	resourcePrefix := "upstand-resource-" + strings.ToLower(resourceID)
+	if name != resourceOverlayNetworkName(resourceID) &&
+		!strings.HasPrefix(name, resourcePrefix+"-") {
+		return false
+	}
+	return labels["com.upstand.managed"] == "true" &&
+		labels["com.upstand.purpose"] == "resource-isolation" &&
+		labels["com.upstand.resource-id"] == resourceID
+}

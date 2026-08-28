@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type Docker from "dockerode";
+import type { DockerSwarmManagementPort } from "../ports/swarm";
 import { GetSwarmContainersUseCase } from "./get-swarm-containers.usecase";
 import { GetSwarmInfoUseCase } from "./get-swarm-info.usecase";
 import { GetSwarmJoinCommandsUseCase } from "./get-swarm-join-commands.usecase";
@@ -104,7 +104,7 @@ function createDockerMock(overrides: Record<string, unknown> = {}) {
         Spec: { ContainerSpec: { Image: "ghcr.io/upstand/api@sha256:abc" } },
       },
     ],
-    getNode: () => ({
+    getNode: (_nodeId?: string) => ({
       inspect: async () => node,
       update: async (input: NodeUpdateCall) => calls.nodeUpdate.push(input),
       remove: async (input: { force: boolean }) => calls.nodeRemove.push(input),
@@ -112,7 +112,7 @@ function createDockerMock(overrides: Record<string, unknown> = {}) {
     swarmInit: async (input: SwarmInitCall) => calls.swarmInit.push(input),
     swarmUpdate: async (input: Record<string, unknown>) =>
       calls.swarmUpdate.push(input),
-    getNetwork: () => ({
+    getNetwork: (_name?: string) => ({
       inspect: async () => {
         const error = Object.assign(new Error("not found"), {
           statusCode: 404,
@@ -127,7 +127,147 @@ function createDockerMock(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 
-  return { calls, docker: docker as unknown as Docker };
+  const management: DockerSwarmManagementPort = {
+    getInfo: async () => {
+      const info = (await docker.info()) as {
+        Swarm?: {
+          LocalNodeState?: string;
+          ControlAvailable?: boolean;
+          NodeID?: string;
+          NodeAddr?: string;
+          Nodes?: number;
+        };
+      };
+      return {
+        localNodeState: info.Swarm?.LocalNodeState || "inactive",
+        controlAvailable: info.Swarm?.ControlAvailable === true,
+        nodeId: info.Swarm?.NodeID || "",
+        nodeAddress: info.Swarm?.NodeAddr || "",
+        nodeCount: info.Swarm?.Nodes || 0,
+      };
+    },
+    inspectSwarm: async () => {
+      const swarm = (await docker.swarmInspect()) as {
+        ID: string;
+        Version?: { Index?: number };
+        CreatedAt?: string;
+        UpdatedAt?: string;
+        DataPathPort?: number;
+        DefaultAddrPool?: string[];
+        JoinTokens?: { Worker?: string; Manager?: string };
+      };
+      return {
+        id: swarm.ID,
+        version: swarm.Version?.Index || 0,
+        createdAt: swarm.CreatedAt || null,
+        updatedAt: swarm.UpdatedAt || null,
+        dataPathPort: swarm.DataPathPort || null,
+        defaultAddressPools: swarm.DefaultAddrPool || [],
+        workerJoinToken: swarm.JoinTokens?.Worker,
+        managerJoinToken: swarm.JoinTokens?.Manager,
+      };
+    },
+    listNodes: async () =>
+      (await docker.listNodes()).map((value) => ({
+        id: value.ID,
+        hostname: value.Description?.Hostname || value.ID,
+        role: value.Spec?.Role || "worker",
+        labels: value.Spec?.Labels || {},
+        availability: value.Spec?.Availability || "active",
+        status: value.Status?.State || "unknown",
+        ip: value.Status?.Addr || "",
+        engineVersion: value.Description?.Engine?.EngineVersion || "unknown",
+        version: value.Version?.Index || 0,
+        leader: value.ManagerStatus?.Leader === true,
+        managerAddr: value.ManagerStatus?.Addr || "",
+        reachability: value.ManagerStatus?.Reachability || "",
+        isLocalNode: value.ID === "node-2",
+      })),
+    listServices: async () =>
+      (await docker.listServices()).map((value) => ({
+        id: value.ID,
+        name: value.Spec?.Name || value.ID,
+      })),
+    listTasks: async () =>
+      (await docker.listTasks()).map((value) => ({
+        id: value.ID,
+        serviceId: value.ServiceID,
+        nodeId: value.NodeID,
+        slot: value.Slot || 0,
+        desiredState: value.DesiredState || "unknown",
+        currentState: value.Status?.State || "unknown",
+        message: "",
+        updatedAt: value.Status?.Timestamp || null,
+        image: value.Spec?.ContainerSpec?.Image || "unknown",
+      })),
+    initialize: async (input) => {
+      await docker.swarmInit({
+        AdvertiseAddr: input.advertiseAddr,
+        DataPathAddr: input.dataPathAddr,
+        ListenAddr: "0.0.0.0:2377",
+        DefaultAddrPool: input.defaultAddrPools,
+        SubnetSize: input.subnetSize,
+      });
+    },
+    updateSwarm: async (input) => {
+      await docker.swarmUpdate({
+        version: input.version,
+        ...(input.rotateWorkerToken ? { RotateWorkerToken: true } : {}),
+        ...(input.rotateManagerToken ? { RotateManagerToken: true } : {}),
+      });
+    },
+    inspectNode: async () => {
+      const value = await docker.getNode("node-1").inspect();
+      return {
+        id: value.ID,
+        hostname: value.Description?.Hostname || value.ID,
+        role: value.Spec?.Role || "worker",
+        labels: value.Spec?.Labels || {},
+        availability: value.Spec?.Availability || "active",
+        status: value.Status?.State || "unknown",
+        ip: value.Status?.Addr || "",
+        engineVersion: value.Description?.Engine?.EngineVersion || "unknown",
+        version: value.Version?.Index || 0,
+        leader: value.ManagerStatus?.Leader === true,
+        managerAddr: value.ManagerStatus?.Addr || "",
+        reachability: value.ManagerStatus?.Reachability || "",
+        isLocalNode: false,
+      };
+    },
+    updateNode: async (_nodeId, input) => {
+      await docker.getNode("node-1").update({
+        version: input.version,
+        Name: input.name,
+        Labels: input.labels,
+        Role: input.role,
+        Availability: input.availability,
+      });
+    },
+    removeNode: async (_nodeId, force) => {
+      await docker.getNode("node-1").remove({ force });
+    },
+    ensureUpstandNetwork: async () => {
+      const network = docker.getNetwork("upstand-network");
+      try {
+        await network.inspect();
+        return { id: "network-1", created: false };
+      } catch {
+        const value = await docker.createNetwork({
+          Name: "upstand-network",
+          Driver: "overlay",
+          Attachable: true,
+          CheckDuplicate: true,
+          Labels: {
+            "com.upstand.managed": "true",
+            "com.upstand.purpose": "application-routing",
+          },
+        });
+        return { id: value.id || "", created: true };
+      }
+    },
+  };
+
+  return { calls, docker: management };
 }
 
 describe("Swarm use cases", () => {

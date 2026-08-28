@@ -16,7 +16,7 @@ export function useSecuritySettings(onVerifySuccess?: () => void) {
       );
       if (error) {
         toast.error(error.message || "Failed to start 2FA setup");
-      } else if (data) {
+      } else if (data?.method === "totp") {
         setTotpURI(data.totpURI);
         setBackupCodes(data.backupCodes);
         return true;

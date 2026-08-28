@@ -2,9 +2,27 @@ import { z } from "zod";
 
 export const MAX_CHAT_REQUEST_BYTES = 256 * 1024;
 export const MAX_CHAT_MESSAGES = 50;
+export const MAX_CHAT_PARTS = 100;
+export const MAX_CHAT_TEXT_CHARS = 64 * 1024;
+
+const chatPartSchema = z
+  .object({
+    type: z.string().trim().min(1).max(64),
+    text: z.string().max(MAX_CHAT_TEXT_CHARS).optional(),
+    data: z.unknown().optional(),
+  })
+  .passthrough();
+
+const chatMessageSchema = z
+  .object({
+    id: z.string().max(256).optional(),
+    role: z.enum(["user", "assistant", "system"]),
+    parts: z.array(chatPartSchema).max(MAX_CHAT_PARTS),
+  })
+  .passthrough();
 
 const chatRequestSchema = z.object({
-  messages: z.array(z.unknown()).min(1).max(MAX_CHAT_MESSAGES),
+  messages: z.array(chatMessageSchema).min(1).max(MAX_CHAT_MESSAGES),
 });
 
 export type BoundedRequestBody =
@@ -56,7 +74,9 @@ export async function readBoundedRequestBody(
 
 export function parseChatRequest(
   rawBody: string,
-): { messages: unknown[] } | { error: "invalid_json" | "invalid_shape" } {
+):
+  | { messages: z.infer<typeof chatMessageSchema>[] }
+  | { error: "invalid_json" | "invalid_shape" } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawBody);

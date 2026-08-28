@@ -172,8 +172,9 @@ export function EnvironmentTab({
               <h3 className="font-semibold text-sm">Build-only Variables</h3>
               <p className="mt-1 text-muted-foreground text-xs">
                 Available to image builders, but never injected into the running
-                container. Runtime variables remain available during builds for
-                during builds.
+                container. Dockerfile builds expose these values through
+                ephemeral BuildKit secret mounts; runtime variables remain
+                available during builds.
               </p>
             </div>
             <KeyValueEditor

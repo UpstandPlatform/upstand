@@ -22,9 +22,13 @@ describe("documentation chat request limits", () => {
 
   test("accepts a bounded chat request", () => {
     expect(
-      parseChatRequest(JSON.stringify({ messages: [{ role: "user" }] })),
+      parseChatRequest(
+        JSON.stringify({
+          messages: [{ role: "user", parts: [{ type: "text", text: "Hi" }] }],
+        }),
+      ),
     ).toEqual({
-      messages: [{ role: "user" }],
+      messages: [{ role: "user", parts: [{ type: "text", text: "Hi" }] }],
     });
   });
 

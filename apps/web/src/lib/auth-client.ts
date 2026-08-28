@@ -5,10 +5,24 @@ import {
 } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { getServerApiUrl } from "@/lib/server-url";
-export const authClient = createAuthClient({
+
+const authClientBaseOptions = {
   // better-auth derives its route-matching base from this URL's path, so the
   // public auth path must equal the server-side mount (/api/auth everywhere)
   baseURL: getServerApiUrl("/api/auth"),
+};
+
+// Keep the full client for application routes that need the typed two-factor
+// endpoints. Better Auth UI's generic hooks intentionally accept a base client;
+// using this parallel client prevents plugin-specific session fields from
+// becoming an unsafe structural cast at the UI boundary.
+export const authUiClient = createAuthClient({
+  ...authClientBaseOptions,
+  plugins: [organizationClient(), ssoClient()],
+});
+
+export const authClient = createAuthClient({
+  ...authClientBaseOptions,
   plugins: [
     organizationClient(),
     twoFactorClient({

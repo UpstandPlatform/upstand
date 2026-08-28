@@ -1,5 +1,12 @@
 import { relations } from "drizzle-orm";
-import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { organization } from "./auth";
 
 export const sshKey = pgTable(
@@ -21,7 +28,13 @@ export const sshKey = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     createdBy: text("created_by").notNull(),
   },
-  (table) => [index("ssh_key_organization_idx").on(table.organizationId)],
+  (table) => [
+    uniqueIndex("ssh_key_organization_id_uidx").on(
+      table.organizationId,
+      table.id,
+    ),
+    index("ssh_key_organization_idx").on(table.organizationId),
+  ],
 );
 
 export const sshKeyRelations = relations(sshKey, ({ one }) => ({

@@ -11,6 +11,11 @@ export type PreviewRoutingProjection = Pick<
 export interface IPreviewDeploymentRepository {
   findById(id: string): Promise<PreviewDeployment | null>;
   findMany(): Promise<PreviewDeployment[]>;
+  /** Return a bounded batch of previews in one lifecycle state. */
+  findByStatus(
+    status: PreviewDeployment["status"],
+    limit?: number,
+  ): Promise<PreviewDeployment[]>;
   /** Return only previews that can affect Caddy routing. */
   findForCaddy?(includePreviewId?: string): Promise<PreviewRoutingProjection[]>;
   findByResourceId(resourceId: string): Promise<PreviewDeployment[]>;

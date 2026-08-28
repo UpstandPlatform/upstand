@@ -73,6 +73,27 @@ instance-owner session with recent 2FA. Put an optional transfer passphrase in
 does not create a session cookie; it uses an organization-scoped API key for
 ordinary API operations.
 
+### Repairing legacy persisted ownership
+
+Older self-hosted installations that still use
+`UPSTAND_INSTANCE_OWNER_USER_ID` or `UPSTAND_INSTANCE_OWNER_EMAIL` can persist
+that configured owner through a one-time, recent-2FA-protected repair request.
+The request is compare-and-set: it refuses to overwrite an existing persisted
+owner, and the environment override should be removed after a successful repair.
+
+```bash
+curl --fail --silent --show-error \
+  -H "Content-Type: application/json" \
+  -H "Cookie: ${UPSTAND_SESSION_COOKIE}" \
+  --data '{"confirmation":"REPAIR_INSTANCE_OWNERSHIP"}' \
+  "${UPSTAND_API_URL}/api/control-plane-transfer/owner/repair"
+```
+
+The endpoint is restricted to the configured owner, requires an interactive
+session with recent 2FA, and writes an audit event for both successful and
+failed attempts. It is not a general owner-transfer mechanism; use the normal
+owner-transfer workflow after the persisted owner has been established.
+
 Upstand ships with an administrative command-line interface (`cli.mjs`) bundled inside the control-plane container. Operators can use the CLI for emergency account recovery and maintenance directly from host terminals.
 
 ---

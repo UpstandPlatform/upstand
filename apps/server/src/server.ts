@@ -1,4 +1,5 @@
-import { auth } from "@upstand/api/auth";
+import fs from "node:fs";
+import { auth, canCreateInitialAccount } from "@upstand/api/auth";
 import { closeDb } from "@upstand/db";
 import { env } from "@upstand/env/server";
 import { closeRemoteDockerProxies } from "@upstand/infrastructure";
@@ -131,6 +132,7 @@ app.use(
 registerHttpMiddleware(app, {
   getServiceProvider,
   identifyUser,
+  canCreateInitialAccount,
 });
 
 registerAuthRoutes(app);
@@ -181,6 +183,9 @@ registerSystemRoutes(app, {
   },
   isMonitoringReady: () => monitoringReady,
   monitoringRequired: env.NODE_ENV === "production",
+  metricsToken: env.UPSTAND_METRICS_TOKEN_FILE
+    ? fs.readFileSync(env.UPSTAND_METRICS_TOKEN_FILE, "utf8").trim()
+    : undefined,
 });
 
 // Initialize Caddy Web Server on Startup

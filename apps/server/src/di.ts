@@ -6,7 +6,6 @@ import {
   configureMonitoringAgent,
   createDockerInfrastructureResolver,
   createMonitoringAgentPort,
-  getDockerInstance,
 } from "@upstand/api/di/dependencies";
 import { registerPersistence } from "@upstand/api/di/persistence";
 import { registerRuntime } from "@upstand/api/di/runtime";
@@ -15,10 +14,7 @@ import { registerWebServer } from "@upstand/api/di/web-server";
 
 const services = new ServiceCollection();
 
-configureDockerInfrastructure(
-  createDockerInfrastructureResolver(),
-  getDockerInstance,
-);
+configureDockerInfrastructure(createDockerInfrastructureResolver());
 configureMonitoringAgent(createMonitoringAgentPort());
 
 export type ServiceProvider = ReturnType<typeof services.build>;

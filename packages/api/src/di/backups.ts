@@ -272,7 +272,7 @@ export function registerBackups(
               await resolveDockerServiceForServer(
                 resource.serverId,
                 uow,
-                c.resolve(dependencies.DockerServiceToken),
+                c.resolve(dependencies.DockerCommandPortToken),
               );
 
             try {

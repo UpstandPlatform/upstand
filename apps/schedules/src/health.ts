@@ -2,6 +2,7 @@ import type { OutboxOperationalSummary } from "@upstand/domain";
 import { pingRedis, redis } from "@upstand/redis";
 import {
   BACKUP_RUN_QUEUE,
+  getJobTelemetryMetrics,
   NOTIFICATION_DELIVERY_QUEUE,
 } from "@upstand/usecases";
 import { type Context, Hono } from "hono";
@@ -18,6 +19,7 @@ export type HealthDependencies = {
 export type BackupOperationalSummary = {
   lastSucceededAt: string | null;
   lastFailedAt: string | null;
+  lastSucceededRestoreTestedAt?: string | null;
 };
 
 export type OperationalStatus = {
@@ -97,6 +99,26 @@ export function renderOperationalMetrics(
   }
 
   help(
+    "upstand_schedules_job_executions_total",
+    "Background job executions by bounded operation and outcome.",
+    "counter",
+  );
+  help(
+    "upstand_schedules_job_duration_seconds_total",
+    "Total background job execution time by bounded operation and outcome.",
+    "counter",
+  );
+  for (const job of getJobTelemetryMetrics()) {
+    const labels = `operation="${escapePrometheusLabel(job.operation)}",outcome="${job.outcome}"`;
+    metric("upstand_schedules_job_executions_total", job.count, labels);
+    metric(
+      "upstand_schedules_job_duration_seconds_total",
+      job.durationSeconds,
+      labels,
+    );
+  }
+
+  help(
     "upstand_schedules_outbox_pending",
     "Number of pending transactional outbox records.",
   );
@@ -156,6 +178,17 @@ export function renderOperationalMetrics(
       ? Math.max(0, (now - lastSucceededAt) / 1000)
       : 0,
   );
+  help(
+    "upstand_schedules_backup_restore_verified",
+    "Whether the most recent successful backup has a recorded restore verification.",
+  );
+  metric(
+    "upstand_schedules_backup_restore_verified",
+    Boolean(
+      status.backup?.lastSucceededRestoreTestedAt &&
+        Number.isFinite(Date.parse(status.backup.lastSucceededRestoreTestedAt)),
+    ),
+  );
 
   return `${lines.join("\n")}\n`;
 }
@@ -176,6 +209,7 @@ export type OperationalAlertThresholds = {
   outboxDeadLetter: number;
   backupMaxAgeMs: number;
   backupRequireSuccess: boolean;
+  backupRequireRestoreVerification?: boolean;
 };
 
 export type OperationalAlert = {
@@ -190,7 +224,8 @@ export type OperationalAlert = {
     | "outbox_dead_letter_threshold"
     | "backup_failed"
     | "backup_missing"
-    | "backup_stale";
+    | "backup_stale"
+    | "backup_restore_unverified";
   message: string;
   details: Record<string, boolean | number | string>;
 };
@@ -297,6 +332,24 @@ export function evaluateOperationalAlerts(
         code: "backup_missing",
         message: "No successful backup has been recorded",
         details: {},
+      });
+    }
+    if (
+      thresholds.backupRequireRestoreVerification &&
+      Number.isFinite(lastSucceededAt) &&
+      !Number.isFinite(
+        status.backup.lastSucceededRestoreTestedAt
+          ? Date.parse(status.backup.lastSucceededRestoreTestedAt)
+          : Number.NaN,
+      )
+    ) {
+      alerts.push({
+        code: "backup_restore_unverified",
+        message:
+          "The most recent successful backup has not been restore-tested",
+        details: {
+          lastSucceededAt: status.backup.lastSucceededAt ?? "",
+        },
       });
     }
     if (

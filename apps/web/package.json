@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "0.2.26",
+  "version": "0.2.27",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack --port 3001",
@@ -17,7 +17,9 @@
     "@ai-sdk/react": "^4.0.44",
     "@better-auth-ui/core": "catalog:",
     "@better-auth-ui/react": "catalog:",
-    "@better-auth/sso": "1.6.25",
+    "@better-auth/oauth-provider": "1.7.1",
+    "@better-auth/passkey": "1.7.1",
+    "@better-auth/sso": "1.7.1",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.11",

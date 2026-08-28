@@ -1,11 +1,10 @@
 import { ValidationError } from "@upstand/domain";
-import type Docker from "dockerode";
 import { z } from "zod";
-import { getDockerInstance } from "../resource/docker-client";
+import type { DockerSwarmManagementPort } from "../ports/swarm";
 import {
+  assertActiveManager,
   dockerErrorMessage,
   formatSwarmEndpoint,
-  requireActiveManager,
 } from "./swarm.helpers";
 
 export const RotateSwarmJoinTokenInputSchema = z.object({
@@ -17,10 +16,10 @@ export type RotateSwarmJoinTokenInput = z.infer<
 >;
 
 export class RotateSwarmJoinTokenUseCase {
-  private readonly docker: Docker;
+  private readonly docker: DockerSwarmManagementPort;
 
-  constructor(docker?: Docker) {
-    this.docker = docker || getDockerInstance();
+  constructor(docker: DockerSwarmManagementPort) {
+    this.docker = docker;
   }
 
   async execute(input: RotateSwarmJoinTokenInput): Promise<{
@@ -29,23 +28,24 @@ export class RotateSwarmJoinTokenUseCase {
   }> {
     try {
       const [info, swarm] = await Promise.all([
-        requireActiveManager(this.docker),
-        this.docker.swarmInspect(),
+        this.docker.getInfo(),
+        this.docker.inspectSwarm(),
       ]);
+      assertActiveManager(info);
 
-      await this.docker.swarmUpdate({
-        version: swarm.Version?.Index,
+      await this.docker.updateSwarm({
+        version: swarm.version,
         ...(input.role === "worker"
-          ? { RotateWorkerToken: true }
-          : { RotateManagerToken: true }),
+          ? { rotateWorkerToken: true }
+          : { rotateManagerToken: true }),
       });
 
-      const refreshed = await this.docker.swarmInspect();
-      const address = info.Swarm?.NodeAddr;
+      const refreshed = await this.docker.inspectSwarm();
+      const address = info.nodeAddress;
       const token =
         input.role === "worker"
-          ? refreshed.JoinTokens?.Worker
-          : refreshed.JoinTokens?.Manager;
+          ? refreshed.workerJoinToken
+          : refreshed.managerJoinToken;
 
       if (!address || !token) {
         throw new ValidationError(

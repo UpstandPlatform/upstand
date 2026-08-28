@@ -4,9 +4,128 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
-## 0.2.26 - 2026-08-21
+## 0.2.27 - 2026-08-27
 
-Allow the production dashboard to reach the control plane over HTTP and WebSocket IP:port recovery URLs when a configured host is unavailable.
+Prevent Compose CLI interpolation from inheriting unrelated control-plane environment variables or Docker transport credentials.
+
+Wrap web, Tavily, and MCP tool results in bounded, machine-checkable untrusted-data provenance envelopes before model exposure.
+
+Reject Compose build, Dockerfile, env-file, and extension paths that can escape the generated deployment directory, and disable external Compose includes and SSH-agent forwarding during builds.
+
+Serialize pull-request preview quota decisions per resource to prevent concurrent webhook deliveries from exceeding the configured limit.
+
+Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
+
+Scope Compose networks and volumes through typed, owner-labelled Docker broker capabilities before deployment.
+
+Bind deployment-worker Docker broker requests to signed, short-lived deployment scopes and refuse unscoped production deployments.
+
+Use reviewed model pricing metadata to raise AI cost admission ceilings conservatively for known models.
+
+Bound legacy Docker build contexts to the same streaming size limit as typed build capabilities.
+
+Provision the local platform Caddy container through a fixed-shape, broker-validated Docker capability.
+
+Normalize typed Docker service mount-field casing before enforcing resource ownership, closing case-insensitive volume-scope bypasses.
+
+Route local Swarm-stack stop operations through the ownership-checked typed Docker broker teardown capability.
+
+Scope Compose secrets and configs to the owning resource and verify Swarm file-backed resource ownership before service mutation.
+
+Expose reviewed model pricing metadata and aggregate estimated-cost and unpriced-usage metrics for UpGal calls while retaining the operator-configured conservative admission ceiling.
+
+Reject typed resource-service specifications that mount named volumes owned by another resource or unmanaged volume names.
+
+Keep resolved build environment values on the BuildKit secret channel instead of Dockerfile build arguments, and reject secret-like explicit build-argument names.
+
+Reject remote Compose build contexts so deployments cannot make the Docker daemon fetch unreviewed build input outside the bounded local build workspace.
+
+Prevent server-rendered session requests from trusting spoofed forwarded host and protocol headers.
+
+Scope deployment-worker Docker exec and container inspection access to the owning resource.
+
+Bind deployment-worker Docker broker grants to their signed deployment and server targets across typed, Dockerode, and Docker CLI transports.
+
+Grant image-publishing workflows the GitHub artifact metadata permission required for registry provenance records.
+
+Reject Compose namespace sharing, inherited container volumes, and external container links that could cross workload isolation boundaries, and preserve resource ownership labels on Swarm service metadata.
+
+Bound portable control-plane transfer passphrases at the cryptographic KDF boundary and preserve exact passphrase characters across encryption and decryption.
+
+Make the Changesets release workflow consume pending notes and update existing release sections idempotently.
+
+Scope legacy deployment-worker Docker volume inspections to managed volumes owned by the requested resource.
+
+Revalidate deployment-worker service volume ownership and service isolation controls immediately before raw service mutations, including host-side logging, secondary network attachments, device reservations, host aliases, and unbounded resource controls. Verify Railpack release archives and cached executables against checked-in SHA-256 digests before running them.
+Also constrain typed and legacy service endpoint specifications to bounded
+ingress ports and supported endpoint modes before Docker forwarding.
+The legacy deployment-worker build query is now an explicit allowlist with bounded target, boolean, and API-version validation so newly added Docker fields fail closed until reviewed.
+
+Revalidate AI provider request destinations on every SDK call and block unsafe redirects for custom self-hosted endpoints.
+
+Expose bounded background-job lifecycle metrics for operational failure detection.
+
+Bound the Docker Compose subprocess environment after filtering protected Docker transport variables.
+
+Fail closed when persisted application build secrets are malformed, undecryptable, or unsafe instead of silently omitting them from a deployment build.
+
+Reject malformed, control-bearing, and unbounded Docker build-secret metadata before invoking Docker or BuildKit.
+
+Fail closed on unknown or future fields in legacy deployment-worker raw
+ServiceSpec payloads and Compose documents. Bounded Compose and Swarm service
+shapes remain covered by regression tests before Docker inspection or mutation;
+unsupported future fields are rejected at the document, service, build, deploy,
+and nested resource boundaries. Typed resource-service ContainerSpec fields are
+also explicitly reviewed instead of being passed through as an open nested
+shape. Malformed nested control shapes now fail closed, and file-backed
+config/secret paths reject terminal and mixed-separator parent segments. Compose
+API and runtime ingress is also capped at 1 MiB when encoded as UTF-8. In
+production, the schedules caller is also denied legacy raw Docker mutation
+endpoints and must use the reviewed typed resource capabilities.
+
+Restrict Compose workloads to built-in Docker logging drivers with bounded reviewed options.
+
+Fail closed on host-gateway aliases, cross-container links, shared namespace modes, and malformed security controls in the legacy resource-scoped Docker container boundary.
+
+Keep preview deployment credential overrides encrypted and fail closed when stored resource credentials are malformed or undecryptable.
+
+Fail closed on unreviewed Docker container-create fields used by resource-scoped deployment workers.
+
+Require installation disaster-recovery evidence to identify a live rehearsal,
+separate the restore target from the source installation, and include artifact,
+restored-data, off-site, escrow, and execution references before acceptance.
+
+Verify live Docker volume ownership before allowing production deployment-worker containers to mount resource volumes.
+
+Restrict production deployment-worker raw containers to built-in Docker logging drivers with bounded options.
+
+Restrict production server Docker access to reviewed typed broker capabilities and deny legacy raw mutation endpoints.
+
+Require daemon-side resource ownership labels for raw deployment-worker Swarm secret and config references instead of trusting deterministic names alone.
+
+Exclude credential-bearing, private-key, and VCS metadata paths from typed Docker build contexts by default.
+
+Terminate deployment commands that exceed the bounded streamed log-output limit, preventing untrusted build or deployment output from exhausting worker and broker logging resources.
+
+## 0.2.26 - 2026-08-27
+
+Provision isolated local resource networks through an owner-validated, encrypted Docker broker capability.
+
+Scope Compose networks and volumes through typed, owner-labelled Docker broker capabilities before deployment.
+
+Restrict production plaintext direct-IP bootstrap and cookie normalization to private or loopback addresses.
+
+Use reviewed model pricing metadata to raise AI cost admission ceilings conservatively for known models.
+
+Provision the local platform Caddy container through a fixed-shape, broker-validated Docker capability.
+
+Expose reviewed model pricing metadata and aggregate estimated-cost and unpriced-usage metrics for UpGal calls while retaining the operator-configured conservative admission ceiling.
+
+Retry failed preview-service cleanup from durable cleanup-pending records with resource-scoped local and remote Docker capabilities.
+
+Reserve UpGal token and cost ceilings atomically so rejected cost admission cannot consume token quota without a model call.
+
+Reject interpolated and long-syntax host bind mounts plus host-backed Compose volume/network driver options before deployment. Typed resource service mutations now accept only safe named Docker volumes, and production Compose defaults installation-specific disaster-recovery acceptance to fail closed.
 
 ## 0.2.25 - 2026-08-21
 

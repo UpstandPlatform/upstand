@@ -1,7 +1,9 @@
+import { timingSafeEqual } from "node:crypto";
 import { getRateLimiterHealth } from "@upstand/api";
 import { auth } from "@upstand/api/auth";
 import { isInstanceOwner } from "@upstand/api/permissions";
 import { normalizeDirectIpAuthRequest } from "@upstand/auth";
+import { pool } from "@upstand/db";
 import { env } from "@upstand/env/server";
 import { pingRedis, redis } from "@upstand/redis";
 import {
@@ -14,6 +16,7 @@ import {
   GetSetupStatusUseCaseToken,
 } from "@upstand/usecases/tokens";
 import type { Hono } from "hono";
+import { renderServerMetrics } from "../server-metrics";
 import type { AppEnv } from "../types";
 
 export type SystemRouteDependencies = {
@@ -22,6 +25,7 @@ export type SystemRouteDependencies = {
   isSchedulesReady(): Promise<boolean>;
   isMonitoringReady?: () => boolean;
   monitoringRequired?: boolean;
+  metricsToken?: string;
 };
 
 export function isRequiredMonitoringReady(
@@ -130,6 +134,32 @@ export function registerSystemRoutes(
         },
       },
       ready ? 200 : 503,
+    );
+  });
+
+  app.get("/_internal/metrics", (c) => {
+    const expected = dependencies.metricsToken?.trim();
+    if (!expected && env.NODE_ENV === "production") {
+      return c.text("Not found", 404);
+    }
+    if (expected) {
+      const authorization = c.req.header("authorization")?.trim() ?? "";
+      const provided = authorization.replace(/^Bearer\s+/i, "");
+      const matches =
+        provided.length === expected.length &&
+        timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+      if (!matches) return c.text("Unauthorized", 401);
+    }
+    return c.text(
+      renderServerMetrics(Date.now(), {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount,
+      }),
+      200,
+      {
+        "content-type": "text/plain; version=0.0.4; charset=utf-8",
+      },
     );
   });
 

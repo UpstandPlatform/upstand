@@ -362,7 +362,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
       new dependencies.DeleteResourceUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
         c.resolve(dependencies.CaddyServiceToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerResourceControlPortToken),
       ),
   );
   services.addTransient(
@@ -370,7 +370,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.RollbackResourceUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerResourceControlPortToken),
       ),
   );
   services.addTransient(
@@ -378,7 +378,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.RebuildDatabaseUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerDatabaseDeploymentPortToken),
       ),
   );
   services.addTransient(
@@ -386,7 +386,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.DatabaseCommandUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerCommandPortToken),
       ),
   );
   services.addTransient(
@@ -394,7 +394,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.RunDatabaseMigrationUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerCommandPortToken),
       ),
   );
   services.addTransient(
@@ -424,7 +424,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.ControlResourceUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerResourceControlPortToken),
       ),
   );
   services.addTransient(
@@ -432,7 +432,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.ControlContainerUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerContainerControlPortToken),
       ),
   );
   services.addTransient(
@@ -440,7 +440,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.GetResourceContainersUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerResourceReadPortToken),
       ),
   );
   services.addTransient(
@@ -448,7 +448,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.GetResourceLogsUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerResourceReadPortToken),
       ),
   );
   services.addTransient(
@@ -463,7 +463,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.GetResourceRoutingTargetsUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerResourceReadPortToken),
       ),
   );
   services.addTransient(
@@ -471,7 +471,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.GetResourceStatsUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerResourceReadPortToken),
       ),
   );
   services.addTransient(
@@ -479,7 +479,7 @@ export function registerApplicationFeatures(services: ServiceCollection) {
     (c) =>
       new dependencies.GetServerRuntimeStatsUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerServerStatsPortToken),
       ),
   );
   services.addTransient(

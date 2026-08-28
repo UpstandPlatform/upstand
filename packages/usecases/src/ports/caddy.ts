@@ -28,6 +28,37 @@ export interface CaddyStatus {
   activeDomains: string[];
   mainCaddyfile: string;
 }
+
+export type CaddyPortBinding = {
+  protocol: "tcp" | "udp";
+  targetPort: number;
+  publishedPort: number;
+};
+
+export type CaddyProvisioningInput = {
+  networkName: string;
+  caddyfileBase64: string;
+  environment: string[];
+  ports: CaddyPortBinding[];
+  forceRecreate?: boolean;
+};
+
+export type CaddyConfigurationInput = {
+  caddyfileBase64: string;
+  certificates: CaddyCertificate[];
+};
+
+/**
+ * Fixed-shape capability for provisioning the platform Caddy container.
+ * Resource deployment code must not receive this platform-level authority.
+ */
+export interface CaddyProvisioningPort {
+  ensureCaddyContainer(input: CaddyProvisioningInput): Promise<void>;
+  applyCaddyConfiguration?(input: CaddyConfigurationInput): Promise<{
+    changed: boolean;
+  }>;
+}
+
 export type CaddyResource = Pick<
   Resource,
   "id" | "name" | "type" | "appName" | "domains" | "composeType"

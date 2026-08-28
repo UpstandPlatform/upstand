@@ -60,6 +60,15 @@ export class DrizzleResourceRepository implements IResourceRepository {
     return row ? ((await this.hydrate([row]))[0] ?? null) : null;
   }
 
+  async lockById(id: string): Promise<boolean> {
+    const [row] = await this.executor
+      .select({ id: resource.id })
+      .from(resource)
+      .where(eq(resource.id, id))
+      .for("update");
+    return Boolean(row);
+  }
+
   async findByAppName(appName: string): Promise<Resource | null> {
     const [row] = await this.executor
       .select()

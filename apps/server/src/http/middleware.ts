@@ -1,3 +1,8 @@
+import {
+  isDirectIpHttpRequest,
+  isPrivateDirectIpHost,
+  isPrivateDirectIpHttpRequest,
+} from "@upstand/auth";
 import { env } from "@upstand/env/server";
 import { resolveCorrelationId } from "@upstand/platform";
 import type { Hono } from "hono";
@@ -5,6 +10,10 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import type { ServiceProvider } from "../di";
+import {
+  recordAuthenticationAttempt,
+  recordServerRequest,
+} from "./server-metrics";
 import type { AppEnv } from "./types";
 
 type IdentifyUser = (
@@ -16,6 +25,7 @@ type IdentifyUser = (
 export type HttpMiddlewareDependencies = {
   getServiceProvider(): ServiceProvider;
   identifyUser: IdentifyUser;
+  canCreateInitialAccount?: () => Promise<boolean>;
 };
 
 export const MAX_HTTP_REQUEST_BYTES = 16 * 1024 * 1024;
@@ -23,8 +33,31 @@ const PUBLIC_SYSTEM_PATHS = new Set([
   "/health/live",
   "/health/ready",
   "/api/setup/status",
+  "/_internal/metrics",
+]);
+const DIRECT_HTTP_BOOTSTRAP_ALLOWED_PATHS = new Set([
+  "/health/live",
+  "/health/ready",
 ]);
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export function shouldRejectDirectHttpAfterBootstrap(input: {
+  request: Request;
+  nodeEnv: string;
+  isCloud: boolean;
+  directOrigins: boolean;
+  allowInsecureBootstrap: boolean;
+  initialAccountPending: boolean;
+}): boolean {
+  return (
+    input.nodeEnv === "production" &&
+    !input.isCloud &&
+    input.directOrigins &&
+    input.allowInsecureBootstrap &&
+    isPrivateDirectIpHttpRequest(input.request) &&
+    !input.initialAccountPending
+  );
+}
 
 export function registerHttpMiddleware(
   app: Hono<AppEnv>,
@@ -43,7 +76,14 @@ export function registerHttpMiddleware(
     const correlationId = resolveCorrelationId(c.req.header("x-request-id"));
     c.set("correlationId", correlationId);
     c.get("log").set({ requestId: correlationId, correlationId });
+    const startedAt = performance.now();
     await next();
+    recordServerRequest(
+      c.req.method,
+      c.res.status,
+      performance.now() - startedAt,
+      c.req.path,
+    );
     c.header("X-Request-ID", correlationId);
   });
 
@@ -79,13 +119,64 @@ export function registerHttpMiddleware(
     }
   });
 
+  // Direct-IP HTTP is a deliberately narrow recovery path for a fresh
+  // self-hosted instance. Once the first account exists, keeping it enabled
+  // would allow session cookies to be downgraded and transported without TLS.
+  // Fail closed if the database-backed setup check cannot be completed.
+  app.use("*", async (c, next) => {
+    const directBootstrapEnabled =
+      env.NODE_ENV === "production" &&
+      !env.IS_CLOUD &&
+      env.UPSTAND_DIRECT_ORIGINS &&
+      env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP &&
+      isDirectIpHttpRequest(c.req.raw);
+    if (
+      directBootstrapEnabled &&
+      !DIRECT_HTTP_BOOTSTRAP_ALLOWED_PATHS.has(c.req.path)
+    ) {
+      if (!isPrivateDirectIpHttpRequest(c.req.raw)) {
+        return c.json(
+          { error: "Insecure bootstrap requires a private direct address" },
+          403,
+        );
+      }
+      let initialAccountPending = false;
+      try {
+        initialAccountPending =
+          (await dependencies.canCreateInitialAccount?.()) ?? false;
+      } catch {
+        return c.json(
+          { error: "Unable to verify secure bootstrap state" },
+          503,
+        );
+      }
+      if (
+        shouldRejectDirectHttpAfterBootstrap({
+          request: c.req.raw,
+          nodeEnv: env.NODE_ENV,
+          isCloud: env.IS_CLOUD,
+          directOrigins: env.UPSTAND_DIRECT_ORIGINS,
+          allowInsecureBootstrap: env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP,
+          initialAccountPending,
+        })
+      ) {
+        return c.json(
+          { error: "HTTPS is required after initial bootstrap" },
+          426,
+        );
+      }
+    }
+    await next();
+  });
+
   app.use("*", async (c, next) => {
     if (!PUBLIC_SYSTEM_PATHS.has(c.req.path)) {
-      await dependencies.identifyUser(
+      const authenticated = await dependencies.identifyUser(
         c.get("log"),
         c.req.raw.headers,
         c.req.path,
       );
+      recordAuthenticationAttempt(authenticated);
     }
     await next();
   });
@@ -131,11 +222,25 @@ export function registerHttpMiddleware(
     isIpv4Host(hostname) ||
     (hostname.startsWith("[") && hostname.endsWith("]"));
 
-  const isTrustedOrigin = (origin: string): boolean => {
+  const isTrustedOrigin = (origin: string, requestUrl?: string): boolean => {
     try {
       const parsed = new URL(origin);
       if (trustedOrigins.has(parsed.origin)) return true;
-      return isDirectHost(parsed.hostname);
+      if (
+        !(env.UPSTAND_DIRECT_ORIGINS || env.NODE_ENV !== "production") ||
+        !isDirectHost(parsed.hostname) ||
+        !requestUrl
+      ) {
+        return false;
+      }
+      const requestHost = new URL(requestUrl).hostname;
+      return (
+        isDirectHost(requestHost) &&
+        parsed.hostname === requestHost &&
+        (env.NODE_ENV !== "production" ||
+          (isPrivateDirectIpHost(parsed.hostname) &&
+            isPrivateDirectIpHost(requestHost)))
+      );
     } catch {
       return false;
     }
@@ -150,7 +255,7 @@ export function registerHttpMiddleware(
       origin &&
       STATE_CHANGING_METHODS.has(c.req.method.toUpperCase()) &&
       !c.req.path.startsWith("/api/mcp") &&
-      !isTrustedOrigin(origin)
+      !isTrustedOrigin(origin, c.req.url)
     ) {
       return c.json({ error: "Request origin is not allowed" }, 403);
     }
@@ -190,7 +295,7 @@ export function registerHttpMiddleware(
           c.header("Access-Control-Allow-Credentials", "false");
           return origin;
         }
-        if (isTrustedOrigin(origin)) return new URL(origin).origin;
+        if (isTrustedOrigin(origin, c.req.url)) return new URL(origin).origin;
 
         return env.CORS_ORIGIN || "http://localhost:3001";
       },

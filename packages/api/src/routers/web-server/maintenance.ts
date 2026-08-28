@@ -1,6 +1,8 @@
 import { readResponseJsonLimited } from "@upstand/platform/network/response-body";
 import { redis, withRedisTimeout } from "@upstand/redis";
 import {
+  DockerHostMaintenancePortToken,
+  DockerWebServerMaintenancePortToken,
   ReloadWebServerUseCaseToken,
   UnitOfWorkToken,
 } from "@upstand/usecases/tokens";
@@ -10,14 +12,9 @@ import { twoFactorVerifiedProcedure } from "../../index";
 import { requireInstanceOwnerContext } from "../../instance-access";
 import {
   CleanupInputSchema,
-  checkGpuStatus,
-  execInContainer,
-  forceServiceUpdate,
   getRedisPassword,
-  getRunningServiceContainer,
   requireWebServerOwner,
   runDockerCleanup,
-  setupGpuSupport,
   UPSTAND_REDIS_SERVICE,
   UPSTAND_SERVER_SERVICE,
 } from "../web-server.shared";
@@ -38,7 +35,9 @@ export const webServerMaintenanceProcedures = {
   reloadServer: twoFactorVerifiedProcedure.mutation(async ({ ctx }) => {
     await requireWebServerOwner(ctx);
     try {
-      await forceServiceUpdate(UPSTAND_SERVER_SERVICE);
+      await ctx.scope
+        .resolve(DockerWebServerMaintenancePortToken)
+        .forceServiceUpdate(UPSTAND_SERVER_SERVICE);
       return { success: true };
     } catch (error) {
       throw new Error(
@@ -50,17 +49,16 @@ export const webServerMaintenanceProcedures = {
   cleanRedis: twoFactorVerifiedProcedure.mutation(async ({ ctx }) => {
     await requireWebServerOwner(ctx);
     try {
-      const [container, password] = await Promise.all([
-        getRunningServiceContainer(UPSTAND_REDIS_SERVICE),
-        getRedisPassword(),
-      ]);
-      await execInContainer(container, [
-        "redis-cli",
-        "--no-auth-warning",
-        "-a",
-        password,
-        "FLUSHALL",
-      ]);
+      const password = await getRedisPassword();
+      await ctx.scope
+        .resolve(DockerWebServerMaintenancePortToken)
+        .execServiceCommand(UPSTAND_REDIS_SERVICE, [
+          "redis-cli",
+          "--no-auth-warning",
+          "-a",
+          password,
+          "FLUSHALL",
+        ]);
       return { success: true };
     } catch (error) {
       throw new Error(getErrorMessage(error, "Failed to flush Redis"));
@@ -70,7 +68,9 @@ export const webServerMaintenanceProcedures = {
   reloadRedis: twoFactorVerifiedProcedure.mutation(async ({ ctx }) => {
     await requireWebServerOwner(ctx);
     try {
-      await forceServiceUpdate(UPSTAND_REDIS_SERVICE);
+      await ctx.scope
+        .resolve(DockerWebServerMaintenancePortToken)
+        .forceServiceUpdate(UPSTAND_REDIS_SERVICE);
       return { success: true };
     } catch (error) {
       throw new Error(
@@ -207,7 +207,9 @@ export const webServerMaintenanceProcedures = {
   checkGpuStatus: twoFactorVerifiedProcedure.query(async ({ ctx }) => {
     await requireWebServerOwner(ctx);
     try {
-      return await checkGpuStatus();
+      return await ctx.scope
+        .resolve(DockerHostMaintenancePortToken)
+        .checkGpuStatus();
     } catch {
       return {
         driverInstalled: false,
@@ -228,7 +230,7 @@ export const webServerMaintenanceProcedures = {
   setupGpuSupport: twoFactorVerifiedProcedure.mutation(async ({ ctx }) => {
     await requireWebServerOwner(ctx);
     try {
-      await setupGpuSupport();
+      await ctx.scope.resolve(DockerHostMaintenancePortToken).setupGpuSupport();
       return { success: true };
     } catch (err) {
       throw new Error(getErrorMessage(err, "Failed to configure GPU support"));

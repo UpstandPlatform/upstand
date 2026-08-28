@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { ComposeDocumentSchema } from "./compose-document.schema";
 import { InspectComposeUseCase } from "./inspect-compose.usecase";
 
 describe("Compose inspection", () => {
   const useCase = new InspectComposeUseCase();
+
+  test("bounds Compose documents by UTF-8 size", () => {
+    expect(ComposeDocumentSchema.safeParse("é".repeat(524_288)).success).toBe(
+      true,
+    );
+    expect(ComposeDocumentSchema.safeParse("é".repeat(524_289)).success).toBe(
+      false,
+    );
+  });
 
   test("discovers services and resource relationships without deployment", async () => {
     const result = await useCase.execute({

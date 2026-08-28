@@ -23,6 +23,7 @@ secret_key="acceptance-secret"
 server_image="${UPSTAND_BACKUP_REHEARSAL_IMAGE:-${UPSTAND_SERVER_IMAGE:-}}"
 max_total_seconds="${UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS:-0}"
 max_restore_seconds="${UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS:-0}"
+evidence_file="${UPSTAND_BACKUP_REHEARSAL_EVIDENCE_FILE:-}"
 minio_image="minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
 postgres_image="postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
 alpine_image="alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
@@ -41,6 +42,16 @@ validate_budget() {
     || fail "$name must be an integer number of seconds between 0 and 604800"
 }
 
+validate_run_id() {
+  [[ "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] \
+    || fail "UPSTAND_BACKUP_REHEARSAL_RUN_ID must be a bounded alphanumeric identifier"
+}
+
+validate_image_reference() {
+  [[ "$server_image" =~ ^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,511}@sha256:[a-fA-F0-9]{64}$ ]] \
+    || fail "backup rehearsal image must be a bounded immutable image reference"
+}
+
 assert_budget() {
   local name="$1"
   local elapsed="$2"
@@ -48,6 +59,32 @@ assert_budget() {
   if [[ "$maximum" -gt 0 && "$elapsed" -gt "$maximum" ]]; then
     fail "$name exceeded its budget: elapsed=${elapsed}s budget=${maximum}s"
   fi
+}
+
+write_evidence() {
+  [[ -n "$evidence_file" ]] || return 0
+  local parent
+  parent="$(dirname -- "$evidence_file")"
+  [[ -d "$parent" ]] || fail "DR rehearsal evidence directory does not exist: $parent"
+  umask 077
+  printf '%s\n' \
+    '{' \
+    '  "schema": "upstand.backup-restore-rehearsal.v1",' \
+    "  \"run_id\": \"$run_id\"," \
+    "  \"completed_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," \
+    "  \"image\": \"$server_image\"," \
+    "  \"minio_image\": \"$minio_image\"," \
+    "  \"postgres_image\": \"$postgres_image\"," \
+    '  "scope": "synthetic-disposable",' \
+    '  "result": "passed",' \
+    '  "data_assertion": true,' \
+    "  \"readiness_seconds\": $readiness_seconds," \
+    "  \"transfer_seconds\": $transfer_seconds," \
+    "  \"restore_seconds\": $restore_seconds," \
+    "  \"total_seconds\": $total_seconds," \
+    "  \"max_restore_seconds\": $max_restore_seconds," \
+    "  \"max_total_seconds\": $max_total_seconds" \
+    '}' > "$evidence_file"
 }
 
 names=("$minio_name" "$source_name" "$restore_name")
@@ -63,6 +100,8 @@ trap cleanup EXIT
 [[ -n "$server_image" ]] || fail "set UPSTAND_BACKUP_REHEARSAL_IMAGE or UPSTAND_SERVER_IMAGE to the server image under test"
 [[ "$server_image" =~ @sha256:[0-9a-fA-F]{64}$ ]] \
   || fail "backup rehearsal image must use an immutable digest: $server_image"
+validate_run_id
+validate_image_reference
 validate_budget UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS "$max_total_seconds"
 validate_budget UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS "$max_restore_seconds"
 rclone_user="$(id -u):$(id -g)"
@@ -149,5 +188,6 @@ marker="$(docker exec "$restore_name" psql -U postgres -d acceptance -At -c \
 
 total_seconds="$SECONDS"
 assert_budget total "$total_seconds" "$max_total_seconds"
+write_evidence
 echo "backup-restore-rehearsal: metrics readiness_seconds=$readiness_seconds transfer_seconds=$transfer_seconds restore_seconds=$restore_seconds total_seconds=$total_seconds max_restore_seconds=$max_restore_seconds max_total_seconds=$max_total_seconds"
 echo "backup-restore-rehearsal: passed (MinIO upload/download, PostgreSQL restore, data assertion)"

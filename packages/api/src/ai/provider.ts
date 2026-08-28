@@ -31,10 +31,21 @@ export type UpGalProviderOverrides = {
 
 export type UpGalResolvedProvider = {
   model: LanguageModel;
+  provider: AIProvider;
   modelId: string;
   temperature: number;
   reasoningEnabled: boolean;
   maxOutputTokens?: number;
+};
+
+type ResolvedProviderConfig = {
+  provider: AIProvider;
+  model: string;
+  baseUrl: string | null;
+  enabled: boolean;
+  temperature: number | null;
+  reasoningEnabled: boolean;
+  maxOutputTokens: number | null;
 };
 
 const OFFICIAL_PROVIDER_HOSTS: Record<AIProvider, ReadonlySet<string>> = {
@@ -45,9 +56,17 @@ const OFFICIAL_PROVIDER_HOSTS: Record<AIProvider, ReadonlySet<string>> = {
   gateway: new Set(["ai-gateway.vercel.sh"]),
 };
 
+type ProviderAddressResolver = (
+  hostname: string,
+) => Promise<ReadonlyArray<{ address: string }>>;
+
+const resolveProviderAddresses: ProviderAddressResolver = (hostname) =>
+  lookup(hostname, { all: true });
+
 export async function assertSafeProviderBaseUrl(
   baseUrl: string | null | undefined,
   provider: AIProvider,
+  resolveAddresses: ProviderAddressResolver = resolveProviderAddresses,
 ): Promise<void> {
   if (!baseUrl?.trim()) return;
   let parsed: URL;
@@ -82,7 +101,7 @@ export async function assertSafeProviderBaseUrl(
   }
   let addresses: Array<{ address: string }>;
   try {
-    addresses = await lookup(hostname, { all: true });
+    addresses = [...(await resolveAddresses(hostname))];
   } catch {
     throw new UpGalError(
       "validation",
@@ -97,32 +116,121 @@ export async function assertSafeProviderBaseUrl(
   }
 }
 
-function decryptProviderApiKey(config: AIProviderConfigRecord | null) {
-  if (
-    !config?.apiKeyCiphertext ||
-    !config.apiKeyIv ||
-    !config.apiKeyAuthTag ||
-    !config.apiKeyVersion
-  ) {
-    return undefined;
-  }
-  return decryptSecret({
-    ciphertext: config.apiKeyCiphertext,
-    iv: config.apiKeyIv,
-    authTag: config.apiKeyAuthTag,
-    keyVersion: config.apiKeyVersion,
-  });
-}
+type SafeProviderFetchOptions = {
+  configuredBaseUrl?: string | null;
+  resolveAddresses?: ProviderAddressResolver;
+  baseFetch?: ProviderFetch;
+};
+
+type ProviderFetch = (
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) => Promise<Response>;
 
 /**
- * Resolve the provider assigned to one UpGal feature, applying test-time
- * overrides only after the organization-scoped stored configuration is read.
+ * Re-check the provider destination for every request. Provider SDKs retain a
+ * configured base URL and may send requests much later than configuration
+ * validation, so validating only during model resolution is vulnerable to a
+ * DNS time-of-check/time-of-use change on self-hosted custom endpoints.
  */
-export async function getUpGalProvider(
+export function createSafeProviderFetch(
+  provider: AIProvider,
+  options: SafeProviderFetchOptions = {},
+): typeof fetch {
+  const configuredBaseUrl = options.configuredBaseUrl?.trim() || null;
+  const resolveAddresses = options.resolveAddresses ?? resolveProviderAddresses;
+  const baseFetch = options.baseFetch ?? globalThis.fetch;
+  let configuredOrigin: string | null = null;
+
+  if (configuredBaseUrl) {
+    try {
+      configuredOrigin = new URL(configuredBaseUrl).origin;
+    } catch {
+      // Configuration validation reports the actionable error before a model
+      // is constructed. Keep this wrapper defensive for direct consumers.
+    }
+  }
+
+  const safeFetch = async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ) => {
+    let requestUrl: URL;
+    try {
+      requestUrl = new URL(
+        typeof input === "string" || input instanceof URL ? input : input.url,
+      );
+    } catch {
+      throw new UpGalError("validation", "AI provider request URL is invalid.");
+    }
+
+    if (requestUrl.protocol !== "https:") {
+      throw new UpGalError(
+        "validation",
+        "AI provider requests must use HTTPS.",
+      );
+    }
+
+    if (!configuredBaseUrl) {
+      const official = OFFICIAL_PROVIDER_HOSTS[provider]?.has(
+        requestUrl.hostname.toLowerCase().replace(/^\[|\]$/g, ""),
+      );
+      if (!official) {
+        throw new UpGalError(
+          "validation",
+          "AI provider requests must target the configured official provider endpoint.",
+        );
+      }
+    } else if (configuredOrigin !== requestUrl.origin) {
+      throw new UpGalError(
+        "validation",
+        "AI provider requests must remain on the configured provider origin.",
+      );
+    }
+
+    await assertSafeProviderBaseUrl(
+      requestUrl.origin,
+      provider,
+      resolveAddresses,
+    );
+
+    return baseFetch(input, { ...init, redirect: "error" });
+  };
+
+  return Object.assign(safeFetch, {
+    // Bun exposes this fetch companion method in its global type. Preserve it
+    // for SDK compatibility while all HTTP requests still pass through the
+    // guarded callable above.
+    preconnect: globalThis.fetch.preconnect,
+  }) as typeof fetch;
+}
+
+export function assertAllowedModel(model: string, provider: AIProvider): void {
+  const allowedModels = (env.UPGAL_ALLOWED_MODELS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (allowedModels.length === 0) return;
+  if (
+    allowedModels.includes(model) ||
+    allowedModels.includes(`${provider}/${model}`)
+  ) {
+    return;
+  }
+  throw new UpGalError(
+    "validation",
+    "The selected AI model is not in the operator allowlist.",
+  );
+}
+
+async function resolveProviderConfig(
   organizationId: string,
   ai: IAIRepository,
-  overrides: UpGalProviderOverrides = {},
-): Promise<UpGalResolvedProvider> {
+  overrides: UpGalProviderOverrides,
+): Promise<{
+  config: ResolvedProviderConfig | null;
+  stored: AIProviderConfigRecord | null;
+}> {
   let stored: AIProviderConfigRecord | null = null;
 
   if (overrides.providerConfigId) {
@@ -166,6 +274,52 @@ export async function getUpGalProvider(
         }
       : null;
 
+  return { config, stored };
+}
+
+/** Resolve model identity without decrypting credentials or contacting a provider. */
+export async function getUpGalProviderIdentity(
+  organizationId: string,
+  ai: IAIRepository,
+  overrides: UpGalProviderOverrides = {},
+): Promise<{ provider: AIProvider; modelId: string } | undefined> {
+  const { config } = await resolveProviderConfig(organizationId, ai, overrides);
+  if (!config?.enabled) return undefined;
+  return { provider: config.provider, modelId: config.model };
+}
+
+function decryptProviderApiKey(config: AIProviderConfigRecord | null) {
+  if (
+    !config?.apiKeyCiphertext ||
+    !config.apiKeyIv ||
+    !config.apiKeyAuthTag ||
+    !config.apiKeyVersion
+  ) {
+    return undefined;
+  }
+  return decryptSecret({
+    ciphertext: config.apiKeyCiphertext,
+    iv: config.apiKeyIv,
+    authTag: config.apiKeyAuthTag,
+    keyVersion: config.apiKeyVersion,
+  });
+}
+
+/**
+ * Resolve the provider assigned to one UpGal feature, applying test-time
+ * overrides only after the organization-scoped stored configuration is read.
+ */
+export async function getUpGalProvider(
+  organizationId: string,
+  ai: IAIRepository,
+  overrides: UpGalProviderOverrides = {},
+): Promise<UpGalResolvedProvider> {
+  const { config, stored } = await resolveProviderConfig(
+    organizationId,
+    ai,
+    overrides,
+  );
+
   if (!config?.enabled) {
     throw new UpGalError(
       "configuration",
@@ -174,6 +328,7 @@ export async function getUpGalProvider(
   }
 
   await assertSafeProviderBaseUrl(config.baseUrl, config.provider);
+  assertAllowedModel(config.model, config.provider);
 
   const apiKey = overrides.apiKey?.trim() || decryptProviderApiKey(stored);
   if (!apiKey) {
@@ -195,19 +350,30 @@ export async function getUpGalProvider(
     config.provider === "openai" && apiKey.startsWith("sk-or-v1-")
       ? "openrouter"
       : config.provider;
+  const safeFetch = createSafeProviderFetch(effectiveProvider, {
+    configuredBaseUrl: config.baseUrl,
+  });
 
   if (effectiveProvider === "gateway") {
-    const gateway = createGateway({ apiKey });
+    const gateway = createGateway({ apiKey, fetch: safeFetch });
     const modelId = config.model.includes("/")
       ? config.model
       : `openai/${config.model}`;
-    return { model: gateway(modelId), modelId, ...controls };
+    return {
+      model: gateway(modelId),
+      provider: effectiveProvider,
+      modelId,
+      ...controls,
+    };
   }
   if (effectiveProvider === "anthropic") {
     return {
-      model: createAnthropic({ apiKey, baseURL: config.baseUrl || undefined })(
-        config.model,
-      ),
+      model: createAnthropic({
+        apiKey,
+        baseURL: config.baseUrl || undefined,
+        fetch: safeFetch,
+      })(config.model),
+      provider: effectiveProvider,
       modelId: config.model,
       ...controls,
     };
@@ -217,7 +383,9 @@ export async function getUpGalProvider(
       model: createGoogleGenerativeAI({
         apiKey,
         baseURL: config.baseUrl || undefined,
+        fetch: safeFetch,
       })(config.model),
+      provider: effectiveProvider,
       modelId: config.model,
       ...controls,
     };
@@ -233,7 +401,9 @@ export async function getUpGalProvider(
         },
         appUrl: "https://upstand.dev",
         appName: "Upstand",
+        fetch: safeFetch,
       }).chat(config.model),
+      provider: effectiveProvider,
       modelId: config.model,
       ...controls,
     };
@@ -243,7 +413,9 @@ export async function getUpGalProvider(
     model: createOpenAI({
       apiKey,
       baseURL: config.baseUrl || undefined,
+      fetch: safeFetch,
     })(config.model),
+    provider: effectiveProvider,
     modelId: config.model,
     ...controls,
   };

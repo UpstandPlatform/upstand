@@ -1,18 +1,22 @@
 import { TRPCError } from "@trpc/server";
-import type { IUnitOfWork } from "@upstand/domain";
 import { env } from "@upstand/env/server";
 import {
   AccessLogCleanupCronSchema,
   AccessLogQuerySchema,
   aggregateAccessLogStats,
-  getDockerInstance,
   queryAccessLogEntries,
   resolveCaddyServiceForServer,
   TriggerUpdateInputSchema,
   UpdateWebServerSettingsInputSchema,
 } from "@upstand/usecases";
+import type {
+  DockerInventoryReaderPort,
+  DockerWebServerMaintenancePort,
+} from "@upstand/usecases/ports/docker";
 import {
   CaddyServiceToken,
+  DockerInventoryReaderToken,
+  DockerWebServerMaintenancePortToken,
   GetUpdateStatusUseCaseToken,
   GetWebServerLogsUseCaseToken,
   GetWebServerSettingsUseCaseToken,
@@ -28,15 +32,15 @@ import { requireInstanceOwnerContext } from "../instance-access";
 import { checkPermission } from "../permissions";
 import { webServerMaintenanceProcedures } from "./web-server/maintenance";
 import {
-  cleanDockerLogs,
-  dockerLogBuffer,
-  getRunningServiceContainer,
   requireWebServerOwner,
   UPSTAND_SERVER_SERVICE,
 } from "./web-server.shared";
 
-async function getSecurityAudit(uow: IUnitOfWork) {
-  const docker = getDockerInstance();
+async function getSecurityAudit(
+  uow: import("@upstand/domain").IUnitOfWork,
+  inventory: DockerInventoryReaderPort,
+  maintenance: DockerWebServerMaintenancePort,
+) {
   const checks: Array<{
     id: string;
     title: string;
@@ -45,18 +49,18 @@ async function getSecurityAudit(uow: IUnitOfWork) {
   }> = [];
 
   try {
-    const info = await docker.info();
+    const info = await inventory.getInfo({ kind: "local", name: "local" });
     checks.push({
       id: "docker-version",
       title: "Docker engine reachable",
       status: "pass",
-      detail: `${info.ServerVersion || "unknown"} on ${info.OperatingSystem || "unknown"}`,
+      detail: `${info.serverVersion || "unknown"} on ${info.operatingSystem || "unknown"}`,
     });
     checks.push({
       id: "swarm",
       title: "Swarm control plane",
-      status: info.Swarm?.LocalNodeState === "active" ? "pass" : "warn",
-      detail: `Local node state: ${info.Swarm?.LocalNodeState || "unknown"}`,
+      status: info.swarmState === "active" ? "pass" : "warn",
+      detail: `Local node state: ${info.swarmState || "unknown"}`,
     });
   } catch (error) {
     checks.push({
@@ -68,8 +72,8 @@ async function getSecurityAudit(uow: IUnitOfWork) {
   }
 
   try {
-    const network = await docker.getNetwork(env.DOCKER_NETWORK).inspect();
-    const valid = network.Driver === "overlay" && network.Attachable === true;
+    const network = await maintenance.inspectNetwork(env.DOCKER_NETWORK);
+    const valid = network.driver === "overlay" && network.attachable === true;
     checks.push({
       id: "managed-network",
       title: "Managed ingress network",
@@ -114,7 +118,11 @@ export const webServerRouter = router({
     .query(async ({ ctx }) => {
       await requireInstanceOwnerContext(ctx);
       try {
-        return await getSecurityAudit(ctx.scope.resolve(UnitOfWorkToken));
+        return await getSecurityAudit(
+          ctx.scope.resolve(UnitOfWorkToken),
+          ctx.scope.resolve(DockerInventoryReaderToken),
+          ctx.scope.resolve(DockerWebServerMaintenancePortToken),
+        );
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
@@ -299,38 +307,14 @@ export const webServerRouter = router({
     )
     .query(async ({ ctx, input }) => {
       await requireWebServerOwner(ctx);
-      const docker = getDockerInstance();
       const tail = input.tail || 100;
       try {
-        const service = docker.getService(UPSTAND_SERVER_SERVICE);
-        const logBuffer = await service.logs({
-          stdout: true,
-          stderr: true,
-          tail,
-        });
-        const text = cleanDockerLogs(await dockerLogBuffer(logBuffer));
-        if (text && !text.includes("no such service")) return text;
-      } catch {
-        // Fall through to container lookup
-      }
-
-      try {
-        const container = await getRunningServiceContainer(
-          UPSTAND_SERVER_SERVICE,
-        );
-        if (container) {
-          const logBuffer = await container.logs({
-            stdout: true,
-            stderr: true,
-            tail,
-          });
-          return cleanDockerLogs(await dockerLogBuffer(logBuffer));
-        }
+        return await ctx.scope
+          .resolve(DockerWebServerMaintenancePortToken)
+          .getServiceLogs(UPSTAND_SERVER_SERVICE, tail);
       } catch (err) {
         return `Failed to fetch server logs: ${getErrorMessage(err, "Unknown error")}`;
       }
-
-      return "No active Upstand server process or container found.";
     }),
 
   getUpdateData: twoFactorVerifiedProcedure.query(async ({ ctx }) => {

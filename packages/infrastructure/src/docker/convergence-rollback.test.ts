@@ -128,6 +128,45 @@ describe("Convergence Verification & Automated Rollback Engine", () => {
     expect(result.state).toBe("unhealthy");
   });
 
+  test("uses the typed broker for local resource convergence", async () => {
+    const inspectResourceConvergence = mock(async () => ({
+      tasks: [
+        {
+          state: "running",
+          desiredState: "running",
+          containerId: "c-typed",
+          health: "healthy",
+        },
+      ],
+    }));
+    const mockListTasks = mock(async () => {
+      throw new Error("raw task discovery must not be used");
+    });
+    const broker = {
+      execContainerCommand: mock(),
+      execResourceServiceCommand: mock(),
+      inspectResourceConvergence,
+    } as unknown as import("./docker-broker-client").DockerResourceCommandBrokerPort;
+    const service = new DockerService(
+      { listTasks: mockListTasks } as never,
+      {},
+      broker,
+    );
+
+    const result = await service.waitForServiceConvergence(sampleResource, {
+      timeoutSeconds: 1,
+      stabilityWindowSeconds: 0,
+    });
+
+    expect(result.healthy).toBe(true);
+    expect(inspectResourceConvergence).toHaveBeenCalledWith(
+      { kind: "local", name: "local" },
+      "res-app-1",
+      "web-app",
+    );
+    expect(mockListTasks).not.toHaveBeenCalled();
+  });
+
   test("transferImage streams docker image from build node to target server", async () => {
     const mockGetStream = mock(async () => "image-stream" as never);
     const mockLoadImage = mock(async () => {});

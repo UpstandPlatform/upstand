@@ -1,10 +1,10 @@
 import { useChangePassword, useUpdateUser } from "@better-auth-ui/react";
 import { toast } from "sonner";
-import { authClient } from "@/lib/auth-client";
+import { authUiClient } from "@/lib/auth-client";
 import { getServerApiUrl } from "@/lib/server-url";
 
 export function useProfileSettings(onPasswordSuccess?: () => void) {
-  const updateUserMutation = useUpdateUser(authClient, {
+  const updateUserMutation = useUpdateUser(authUiClient, {
     onSuccess: () => {
       toast.success("Profile updated");
     },
@@ -13,7 +13,7 @@ export function useProfileSettings(onPasswordSuccess?: () => void) {
     },
   });
 
-  const changePasswordMutation = useChangePassword(authClient, {
+  const changePasswordMutation = useChangePassword(authUiClient, {
     onSuccess: () => {
       toast.success("Password updated");
       if (onPasswordSuccess) {

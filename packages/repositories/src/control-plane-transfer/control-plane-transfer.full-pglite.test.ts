@@ -13,7 +13,9 @@ import {
   ExportControlPlaneTransferService,
   ImportControlPlaneTransferService,
 } from "@upstand/usecases/control-plane-transfer/control-plane-transfer.service";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
+import { DrizzleResourceRepository } from "../resource/drizzle-resource.repository";
 import { DrizzleControlPlaneExportSource } from "./drizzle-control-plane-export.source";
 import { DrizzleControlPlaneImportDestination } from "./drizzle-control-plane-import.destination";
 import { DrizzlePortableControlPlaneRecordApplier } from "./drizzle-portable-record.applier";
@@ -28,6 +30,112 @@ async function migratedDatabase() {
 }
 
 describe("full-schema portable PGlite transfer", () => {
+  test("keeps resource tenant discovery anchored to the normalized FK chain", async () => {
+    const { client, database } = await migratedDatabase();
+    try {
+      const createdAt = new Date("2026-08-09T10:00:00.000Z");
+      await database.insert(schema.organization).values([
+        {
+          id: "resource-organization-a",
+          name: "Resource Organization A",
+          slug: "resource-organization-a",
+          createdAt,
+        },
+        {
+          id: "resource-organization-b",
+          name: "Resource Organization B",
+          slug: "resource-organization-b",
+          createdAt,
+        },
+      ]);
+      await database.insert(schema.project).values([
+        {
+          id: "resource-project-a",
+          organizationId: "resource-organization-a",
+          name: "Resource Project A",
+          createdAt,
+        },
+        {
+          id: "resource-project-b",
+          organizationId: "resource-organization-b",
+          name: "Resource Project B",
+          createdAt,
+        },
+      ]);
+      await database.insert(schema.environment).values([
+        {
+          id: "resource-environment-a",
+          projectId: "resource-project-a",
+          name: "Resource Environment A",
+          slug: "resource-environment-a",
+          createdAt,
+        },
+        {
+          id: "resource-environment-b",
+          projectId: "resource-project-b",
+          name: "Resource Environment B",
+          slug: "resource-environment-b",
+          createdAt,
+        },
+      ]);
+      await database.insert(schema.resource).values([
+        {
+          id: "resource-a",
+          environmentId: "resource-environment-a",
+          name: "Resource A",
+          type: "application",
+          provider: "raw",
+          createdAt,
+          updatedAt: createdAt,
+        },
+        {
+          id: "resource-b",
+          environmentId: "resource-environment-b",
+          name: "Resource B",
+          type: "application",
+          provider: "raw",
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ]);
+
+      const resources = new DrizzleResourceRepository(database);
+      await expect(
+        resources.findIdsByOrganizationId("resource-organization-a"),
+      ).resolves.toEqual(["resource-a"]);
+      await expect(
+        resources.findIdsByOrganizationId("resource-organization-b"),
+      ).resolves.toEqual(["resource-b"]);
+
+      // Resource ownership is inherited from its non-null environment FK. A
+      // valid relational move changes the result for both tenant projections;
+      // there is no denormalized organization value that can become stale.
+      await database
+        .update(schema.resource)
+        .set({ environmentId: "resource-environment-b" })
+        .where(eq(schema.resource.id, "resource-a"));
+      await expect(
+        resources.findIdsByOrganizationId("resource-organization-a"),
+      ).resolves.toEqual([]);
+      await expect(
+        resources.findIdsByOrganizationId("resource-organization-b"),
+      ).resolves.toEqual(expect.arrayContaining(["resource-a", "resource-b"]));
+      await expect(
+        (async () => {
+          await database.insert(schema.resource).values({
+            id: "resource-orphan",
+            environmentId: "missing-environment",
+            name: "Orphan Resource",
+            type: "application",
+            provider: "raw",
+          });
+        })(),
+      ).rejects.toThrow();
+    } finally {
+      await client.close();
+    }
+  }, 60_000);
+
   test("exports every catalog table and restores tenant foundations", async () => {
     const source = await migratedDatabase();
     const destination = await migratedDatabase();

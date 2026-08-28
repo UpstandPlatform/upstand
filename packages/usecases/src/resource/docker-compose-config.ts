@@ -30,6 +30,26 @@ function composeMap(value: unknown): Record<string, string> {
   return {};
 }
 
+function scopeComposeFileBackedResources(
+  parsed: {
+    configs?: Record<string, unknown>;
+    secrets?: Record<string, unknown>;
+  },
+  resourceID: string,
+): void {
+  for (const kind of ["configs", "secrets"] as const) {
+    const definitions = parsed[kind];
+    if (!definitions) continue;
+    for (const [resourceName, rawDefinition] of Object.entries(definitions)) {
+      const definition = isUnknownRecord(rawDefinition)
+        ? { ...rawDefinition }
+        : {};
+      definition.name = `upstand-resource-${resourceID.toLowerCase()}-${kind.slice(0, -1)}-${resourceName.toLowerCase()}`;
+      definitions[resourceName] = definition;
+    }
+  }
+}
+
 export function applyComposeResourceConfig(
   rawCompose: string,
   resource: Resource,
@@ -38,6 +58,10 @@ export function applyComposeResourceConfig(
   validateComposeSecurity(rawCompose);
   const parsed = yaml.parse(rawCompose) as {
     services?: Record<string, Record<string, unknown>>;
+    networks?: Record<string, unknown>;
+    volumes?: Record<string, unknown>;
+    configs?: Record<string, unknown>;
+    secrets?: Record<string, unknown>;
   };
   if (!parsed?.services || typeof parsed.services !== "object")
     return rawCompose;
@@ -67,6 +91,12 @@ export function applyComposeResourceConfig(
     if (Object.keys(environment).length) service.environment = environment;
 
     const labels = { ...composeMap(service.labels), ...config.labels };
+    if (resource.id) {
+      // The broker uses this system-owned label to resolve and authorize
+      // resource-scoped container operations. User labels must not be able to
+      // redirect a command to another resource.
+      labels["com.upstand.resource-id"] = resource.id;
+    }
     if (Object.keys(labels).length) service.labels = labels;
 
     if (config.command.length) service.entrypoint = config.command;
@@ -163,7 +193,54 @@ export function applyComposeResourceConfig(
     }
   }
 
-  return yaml.stringify(parsed);
+  // Every service in a resource project carries the immutable ownership label,
+  // including services outside an optional serviceName override. The broker
+  // uses it to verify whole-project teardown before deleting containers.
+  if (resource.id) {
+    for (const service of Object.values(services)) {
+      const labels = composeMap(service.labels);
+      labels["com.upstand.resource-id"] = resource.id;
+      service.labels = labels;
+
+      // Swarm service ownership is stored on deploy.labels, while the
+      // service-level labels above become task/container labels. Keep both
+      // labels immutable so broker filters and daemon-side ownership checks
+      // work for Docker Compose and Docker Swarm deployments alike.
+      const deploy = isUnknownRecord(service.deploy) ? service.deploy : {};
+      const deployLabels = composeMap(deploy.labels);
+      deployLabels["com.upstand.resource-id"] = resource.id;
+      deploy.labels = deployLabels;
+      service.deploy = deploy;
+    }
+
+    for (const [name, definition] of Object.entries(parsed.networks ?? {})) {
+      const network = isUnknownRecord(definition) ? { ...definition } : {};
+      network.labels = {
+        ...composeMap(network.labels),
+        "com.upstand.resource-id": resource.id,
+      };
+      parsed.networks ??= {};
+      parsed.networks[name] = network;
+    }
+
+    for (const [name, definition] of Object.entries(parsed.volumes ?? {})) {
+      const volume = isUnknownRecord(definition) ? { ...definition } : {};
+      volume.labels = {
+        ...composeMap(volume.labels),
+        "com.upstand.resource-id": resource.id,
+      };
+      parsed.volumes ??= {};
+      parsed.volumes[name] = volume;
+    }
+
+    scopeComposeFileBackedResources(parsed, resource.id);
+  }
+
+  const updatedCompose = yaml.stringify(parsed);
+  // Config and environment overrides are user-controlled too, so validate the
+  // fully materialized document before it reaches the Docker CLI.
+  validateComposeSecurity(updatedCompose);
+  return updatedCompose;
 }
 
 export function applyComposeIngressNetwork(
@@ -182,6 +259,34 @@ export function applyComposeIngressNetwork(
   }
 
   const ingressNetwork = "upstand_ingress";
+  const scopedComposeName = (kind: string, name: string): string => {
+    if (!stackName) {
+      throw new Error(`A Compose resource needs a valid ${kind} scope`);
+    }
+    return `${stackName}_${name}`;
+  };
+
+  if (isUnknownRecord(parsed.networks)) {
+    for (const [name, definition] of Object.entries(parsed.networks)) {
+      if (name === ingressNetwork) {
+        throw new Error(
+          `Compose network '${ingressNetwork}' is reserved by Upstand`,
+        );
+      }
+      if (isUnknownRecord(definition) && typeof definition.name === "string") {
+        definition.name = scopedComposeName("network", name);
+      }
+    }
+  }
+
+  if (!prefixVolumes && isUnknownRecord(parsed.volumes)) {
+    for (const [name, definition] of Object.entries(parsed.volumes)) {
+      if (isUnknownRecord(definition) && typeof definition.name === "string") {
+        definition.name = scopedComposeName("volume", name);
+      }
+    }
+  }
+
   parsed.networks = {
     ...(isUnknownRecord(parsed.networks) ? parsed.networks : {}),
     [ingressNetwork]: {

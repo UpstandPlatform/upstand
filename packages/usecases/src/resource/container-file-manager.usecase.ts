@@ -229,11 +229,13 @@ export class ContainerFileManagerUseCase {
     containerId: string,
     mountPath: string,
     mutation: boolean,
+    resourceId: string,
   ): Promise<string> {
     const normalizedMountPath = assertMountPath(mountPath);
     const mounts = await this.fileSystem.getContainerMounts(
       target,
       containerId,
+      resourceId,
     );
     const mount = mounts.find(
       (candidate) => candidate.destination === normalizedMountPath,
@@ -260,7 +262,7 @@ export class ContainerFileManagerUseCase {
       options,
     );
     return this.fileSystem
-      .getContainerMounts(target, containerId)
+      .getContainerMounts(target, containerId, input.resourceId)
       .then((mounts) =>
         mounts.map((mount) => ({
           name: mount.name,
@@ -285,12 +287,14 @@ export class ContainerFileManagerUseCase {
       containerId,
       input.mountPath,
       false,
+      input.resourceId,
     );
     return this.fileSystem.listFiles(
       target,
       containerId,
       mountPath,
       assertFilePath(input.path, "Path"),
+      input.resourceId,
     );
   }
 
@@ -310,6 +314,7 @@ export class ContainerFileManagerUseCase {
       containerId,
       input.mountPath,
       false,
+      input.resourceId,
     );
     const result = await this.fileSystem.readFile(
       target,
@@ -317,6 +322,7 @@ export class ContainerFileManagerUseCase {
       mountPath,
       path,
       "base64",
+      input.resourceId,
     );
     const content =
       input.encoding === "base64"
@@ -341,6 +347,7 @@ export class ContainerFileManagerUseCase {
       containerId,
       input.mountPath,
       true,
+      input.resourceId,
     );
     await this.fileSystem.writeFile(
       target,
@@ -348,6 +355,7 @@ export class ContainerFileManagerUseCase {
       mountPath,
       path,
       assertContentSize(input.content, input.isBase64),
+      input.resourceId,
     );
     return { success: true };
   }
@@ -368,6 +376,7 @@ export class ContainerFileManagerUseCase {
       containerId,
       input.mountPath,
       true,
+      input.resourceId,
     );
     const name = assertItemName(input.name);
     const path = parentPath === "/" ? `/${name}` : `${parentPath}/${name}`;
@@ -377,6 +386,7 @@ export class ContainerFileManagerUseCase {
       mountPath,
       path,
       input.type,
+      input.resourceId,
     );
     return { success: true };
   }
@@ -398,6 +408,7 @@ export class ContainerFileManagerUseCase {
       containerId,
       input.mountPath,
       true,
+      input.resourceId,
     );
     await this.fileSystem.renameItem(
       target,
@@ -405,6 +416,7 @@ export class ContainerFileManagerUseCase {
       mountPath,
       oldPath,
       newPath,
+      input.resourceId,
     );
     return { success: true };
   }
@@ -425,8 +437,15 @@ export class ContainerFileManagerUseCase {
       containerId,
       input.mountPath,
       true,
+      input.resourceId,
     );
-    await this.fileSystem.deleteItem(target, containerId, mountPath, path);
+    await this.fileSystem.deleteItem(
+      target,
+      containerId,
+      mountPath,
+      path,
+      input.resourceId,
+    );
     return { success: true };
   }
 
@@ -446,6 +465,7 @@ export class ContainerFileManagerUseCase {
       containerId,
       input.mountPath,
       true,
+      input.resourceId,
     );
     await this.fileSystem.changePermissions(
       target,
@@ -453,6 +473,7 @@ export class ContainerFileManagerUseCase {
       mountPath,
       path,
       input.mode,
+      input.resourceId,
     );
     return { success: true };
   }
@@ -473,6 +494,7 @@ export class ContainerFileManagerUseCase {
       containerId,
       input.mountPath,
       false,
+      input.resourceId,
     );
     return this.fileSystem.searchFiles(
       target,
@@ -480,6 +502,7 @@ export class ContainerFileManagerUseCase {
       mountPath,
       assertFilePath(input.path, "Search path"),
       input.query,
+      input.resourceId,
     );
   }
 }

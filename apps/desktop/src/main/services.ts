@@ -12,6 +12,8 @@ let dashboardProcess: ChildProcess | null = null;
 let apiOrigin = "";
 let dashboardOrigin = "";
 let started = false;
+const serviceStartupTimeoutMs = 60_000;
+const serviceStartupPollIntervalMs = 250;
 
 function portsPath() {
   return join(app.getPath("userData"), "local-services.json");
@@ -111,7 +113,8 @@ async function localEncryptionKey() {
 }
 
 async function waitFor(url: string, processRef: ChildProcess): Promise<void> {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  const deadline = Date.now() + serviceStartupTimeoutMs;
+  while (Date.now() < deadline) {
     if (processRef.exitCode !== null) {
       throw new Error(`Local service exited before readiness: ${url}`);
     }
@@ -121,7 +124,9 @@ async function waitFor(url: string, processRef: ChildProcess): Promise<void> {
     } catch {
       // The process may still be binding its loopback port.
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) =>
+      setTimeout(resolve, serviceStartupPollIntervalMs),
+    );
   }
   throw new Error(`Local service did not become ready: ${url}`);
 }

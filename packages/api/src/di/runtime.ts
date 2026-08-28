@@ -6,31 +6,52 @@ export function registerRuntime(services: ServiceCollection) {
   // Swarm registrations
   services.addTransient(
     dependencies.InitSwarmUseCaseToken,
-    () => new dependencies.InitSwarmUseCase(),
+    (c) =>
+      new dependencies.InitSwarmUseCase(
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
+      ),
   );
   services.addTransient(
     dependencies.GetSwarmInfoUseCaseToken,
-    () => new dependencies.GetSwarmInfoUseCase(),
+    (c) =>
+      new dependencies.GetSwarmInfoUseCase(
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
+      ),
   );
   services.addTransient(
     dependencies.GetSwarmNodesUseCaseToken,
-    () => new dependencies.GetSwarmNodesUseCase(),
+    (c) =>
+      new dependencies.GetSwarmNodesUseCase(
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
+      ),
   );
   services.addTransient(
     dependencies.UpdateSwarmNodeUseCaseToken,
-    () => new dependencies.UpdateSwarmNodeUseCase(),
+    (c) =>
+      new dependencies.UpdateSwarmNodeUseCase(
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
+      ),
   );
   services.addTransient(
     dependencies.RemoveSwarmNodeUseCaseToken,
-    () => new dependencies.RemoveSwarmNodeUseCase(),
+    (c) =>
+      new dependencies.RemoveSwarmNodeUseCase(
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
+      ),
   );
   services.addTransient(
     dependencies.GetSwarmJoinCommandsUseCaseToken,
-    () => new dependencies.GetSwarmJoinCommandsUseCase(),
+    (c) =>
+      new dependencies.GetSwarmJoinCommandsUseCase(
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
+      ),
   );
   services.addTransient(
     dependencies.RotateSwarmJoinTokenUseCaseToken,
-    () => new dependencies.RotateSwarmJoinTokenUseCase(),
+    (c) =>
+      new dependencies.RotateSwarmJoinTokenUseCase(
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
+      ),
   );
 
   services.addTransient(
@@ -45,6 +66,15 @@ export function registerRuntime(services: ServiceCollection) {
     (c) =>
       new dependencies.ReconcileStaleDeploymentsUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
+    dependencies.ReconcilePreviewCleanupsUseCaseToken,
+    (c) =>
+      new dependencies.ReconcilePreviewCleanupsUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+        c.resolve(dependencies.DockerPreviewCleanupPortToken),
+        c.resolve(dependencies.CaddyServiceToken),
       ),
   );
   services.addTransient(
@@ -147,6 +177,7 @@ export function registerRuntime(services: ServiceCollection) {
       new dependencies.SetupServerUseCase(
         c.resolve(dependencies.UnitOfWorkToken),
         dependencies.createServerProvisioningPort(),
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
       ),
   );
   services.addTransient(
@@ -207,7 +238,7 @@ export function registerRuntime(services: ServiceCollection) {
     (c) =>
       new dependencies.DockerWorkloadMigrationPort(
         c.resolve(dependencies.UnitOfWorkToken),
-        c.resolve(dependencies.DockerServiceToken),
+        c.resolve(dependencies.DockerWorkloadMigrationPortToken),
         c.resolve(dependencies.CaddyServiceToken),
       ),
   );
@@ -251,7 +282,10 @@ export function registerRuntime(services: ServiceCollection) {
   // Swarm Containers registration
   services.addTransient(
     dependencies.GetSwarmContainersUseCaseToken,
-    () => new dependencies.GetSwarmContainersUseCase(),
+    (c) =>
+      new dependencies.GetSwarmContainersUseCase(
+        c.resolve(dependencies.DockerSwarmManagementPortToken),
+      ),
   );
 
   // Notifications

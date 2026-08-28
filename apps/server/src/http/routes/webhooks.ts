@@ -1,19 +1,24 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { parseDomainMappings } from "@upstand/domain";
-import { CaddyService, getDockerInstance } from "@upstand/infrastructure";
 import { redis, withRedisTimeout } from "@upstand/redis";
 import type { WebhookDeliveryStore } from "@upstand/usecases";
 import {
+  CreatePreviewDeploymentUseCase,
   gitProviderOAuthManifestWebhookKey,
   ProcessSourceWebhookUseCase,
   parseResourceCredentials,
   QueueDeploymentUseCase,
 } from "@upstand/usecases";
 import type { CaddyResource } from "@upstand/usecases/ports/caddy";
-import { UnitOfWorkToken } from "@upstand/usecases/tokens";
+import {
+  CaddyServiceToken,
+  DockerPreviewCleanupPortToken,
+  UnitOfWorkToken,
+} from "@upstand/usecases/tokens";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
+import { recordWebhookRequest } from "../server-metrics";
 import type { AppEnv } from "../types";
 
 const webhookDeliveryStore: WebhookDeliveryStore = {
@@ -46,6 +51,27 @@ function readWebhookDeliveryId(
 
 export function registerWebhookRoutes(app: Hono<AppEnv>): void {
   const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
+  app.use("/api/webhooks/*", async (c, next) => {
+    const startedAt = performance.now();
+    try {
+      await next();
+    } finally {
+      const provider = c.req.path.split("/")[3];
+      if (
+        provider === "github" ||
+        provider === "gitlab" ||
+        provider === "gitea" ||
+        provider === "bitbucket" ||
+        provider === "dockerhub"
+      ) {
+        recordWebhookRequest(
+          provider,
+          c.res.status,
+          performance.now() - startedAt,
+        );
+      }
+    }
+  });
   app.use(
     "/api/webhooks/*",
     createHttpRateLimitMiddleware({
@@ -251,38 +277,40 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
           let domain = preview?.domain;
 
           if (!preview) {
-            const existingPreviews =
-              await uow.previewDeploymentRepository.findByResourceId(
-                resource.id,
-              );
             const previewLimit = resource.previewLimit ?? 3;
-            if (
-              existingPreviews.filter(
-                (candidate) => candidate.status !== "failed",
-              ).length >= previewLimit
-            ) {
-              c.get("log").warn("Preview deployment limit reached", {
-                resourceId: resource.id,
-                previewLimit,
-              });
-              continue;
-            }
             const hash = randomBytes(3).toString("hex");
             appName = `pr-${prNumber}-${resource.name}-${hash}`
               .toLowerCase()
               .replace(/[^a-z0-9_-]/g, "-");
 
             domain = `${appName}.${resource.previewWildcard || "sslip.io"}`;
+            if (!appName || !domain) {
+              throw new Error("Preview identity generation failed");
+            }
+            const generatedAppName = appName;
+            const generatedDomain = domain;
 
             try {
-              preview = await uow.previewDeploymentRepository.create({
+              const result = await new CreatePreviewDeploymentUseCase(
+                uow,
+              ).execute({
                 resourceId: resource.id,
                 pullRequestId: prNumber,
                 branchName,
-                appName,
+                appName: generatedAppName,
                 status: "idle",
-                domain,
+                domain: generatedDomain,
+                previewLimit,
               });
+              if (result.limitReached) {
+                c.get("log").warn("Preview deployment limit reached", {
+                  resourceId: resource.id,
+                  previewLimit,
+                });
+                continue;
+              }
+              preview = result.preview;
+              if (!preview) throw new Error("Preview creation returned no row");
             } catch {
               // A concurrent delivery may have won the unique PR claim.
               preview =
@@ -318,17 +346,30 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
               `Cleaning up preview deployment ${preview.appName} on PR close...`,
             );
 
-            try {
-              const docker = getDockerInstance();
-              const service = docker.getService(preview.appName);
-              await service.remove();
-            } catch (err) {
-              c.get("log").error(err instanceof Error ? err : String(err), {
-                message: `Failed to remove Swarm service for preview ${preview.appName}`,
+            const serviceRemoved = await (async () => {
+              try {
+                await scope
+                  .resolve(DockerPreviewCleanupPortToken)
+                  .removeServiceByName(preview.appName, preview.resourceId);
+                return true;
+              } catch {
+                return false;
+              }
+            })();
+
+            if (serviceRemoved) {
+              await uow.previewDeploymentRepository.deleteById(preview.id);
+            } else {
+              // Retain a durable retry marker. Deleting the row after a
+              // failed remote cleanup loses the only record needed to retry.
+              await uow.previewDeploymentRepository.updateById(preview.id, {
+                status: "cleanup_pending",
+              });
+              c.get("log").warn("Preview cleanup retained for retry", {
+                previewId: preview.id,
+                appName: preview.appName,
               });
             }
-
-            await uow.previewDeploymentRepository.deleteById(preview.id);
 
             try {
               const [resources, settings, allPreviews] = await Promise.all([
@@ -340,8 +381,7 @@ export function registerWebhookRoutes(app: Hono<AppEnv>): void {
                   ? uow.previewDeploymentRepository.findForCaddy()
                   : uow.previewDeploymentRepository.findMany(),
               ]);
-              const docker = getDockerInstance();
-              const caddyService = new CaddyService(docker);
+              const caddyService = scope.resolve(CaddyServiceToken);
 
               const routingResources = resources.filter(
                 (candidate) =>

@@ -917,9 +917,5 @@ export const MCP_READ_ONLY_TOOL_NAMES = [
   "get_resource_tags",
   "list_schedules",
   "search_web",
-  "tavilySearch",
-  "tavilyExtract",
-  "tavilyCrawl",
-  "tavilyMap",
   "guide_upstand",
 ] as const satisfies readonly (keyof typeof MCP_TOOL_CAPABILITIES)[];

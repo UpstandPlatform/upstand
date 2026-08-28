@@ -42,6 +42,7 @@ export function registerWebServer(services: ServiceCollection) {
     dependencies.TriggerUpdateUseCaseToken,
     (c) =>
       new dependencies.TriggerUpdateUseCase(
+        c.resolve(dependencies.DockerSelfUpdatePortToken),
         c.resolve(dependencies.PublishNotificationUseCaseToken),
         new dependencies.DockerCleanupService(),
       ),

@@ -21,6 +21,17 @@ const desktopBuild = readFileSync(
   new URL("../build/build.ts", import.meta.url),
   "utf8",
 );
+const packagedRuntimeVerifier = readFileSync(
+  new URL("../scripts/verify-packaged-server-runtime.ts", import.meta.url),
+  "utf8",
+);
+const dockerBrokerClient = readFileSync(
+  new URL(
+    "../../../packages/infrastructure/src/docker/docker-broker-client.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 describe("packaged Desktop server runtime", () => {
   test("compiles a standalone local API instead of using Electron's Node ESM loader", () => {
@@ -29,6 +40,27 @@ describe("packaged Desktop server runtime", () => {
     expect(services).toContain('"upstand-local-server.exe"');
     expect(services).toContain("useElectronNode ? process.execPath : entry");
     expect(services).toContain("false,");
+  });
+
+  test("provides every required disposable secret to the packaged runtime verifier", () => {
+    expect(packagedRuntimeVerifier).toContain(
+      'BETTER_AUTH_SECRET: "desktop-runtime-test-secret-at-least-32-characters"',
+    );
+    expect(packagedRuntimeVerifier).toContain(
+      '"desktop-runtime-test-approval-secret-at-least-32-characters"',
+    );
+    expect(packagedRuntimeVerifier).toContain("ENCRYPTION_KEY_V1:");
+  });
+
+  test("allows slow packaged services a bounded startup window", () => {
+    expect(packagedRuntimeVerifier).toContain("startupTimeoutMs = 60_000");
+    expect(services).toContain("serviceStartupTimeoutMs = 60_000");
+  });
+
+  test("statically imports Docker context packaging dependencies", () => {
+    expect(dockerBrokerClient).toContain('from "tar-fs"');
+    expect(dockerBrokerClient).not.toContain('from "node:module"');
+    expect(dockerBrokerClient).not.toContain('require("tar-fs")');
   });
 
   test("uses Upstand Windows application metadata and icon assets", () => {

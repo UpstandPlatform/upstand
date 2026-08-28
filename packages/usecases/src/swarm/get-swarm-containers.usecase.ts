@@ -1,26 +1,5 @@
-import type Docker from "dockerode";
-import { getDockerInstance } from "../resource/docker-client";
-import { type DockerSwarmNode, requireActiveManager } from "./swarm.helpers";
-
-interface DockerSwarmService {
-  ID: string;
-  Spec?: { Name?: string };
-}
-
-interface DockerSwarmTask {
-  ID: string;
-  ServiceID?: string;
-  NodeID?: string;
-  Slot?: number;
-  DesiredState?: string;
-  Status?: {
-    State?: string;
-    Message?: string;
-    Err?: string;
-    Timestamp?: string;
-  };
-  Spec?: { ContainerSpec?: { Image?: string } };
-}
+import type { DockerSwarmManagementPort } from "../ports/swarm";
+import { assertActiveManager } from "./swarm.helpers";
 
 export interface SwarmContainerResult {
   id: string;
@@ -43,49 +22,42 @@ export interface SwarmContainersOverview {
 }
 
 export class GetSwarmContainersUseCase {
-  private readonly docker: Docker;
+  private readonly docker: DockerSwarmManagementPort;
 
-  constructor(docker?: Docker) {
-    this.docker = docker || getDockerInstance();
+  constructor(docker: DockerSwarmManagementPort) {
+    this.docker = docker;
   }
 
   async execute(): Promise<SwarmContainersOverview> {
-    await requireActiveManager(this.docker);
-    const [rawNodes, rawServices, rawTasks] = await Promise.all([
+    const info = await this.docker.getInfo();
+    assertActiveManager(info);
+    const [nodes, services, tasks] = await Promise.all([
       this.docker.listNodes(),
       this.docker.listServices(),
       this.docker.listTasks(),
     ]);
-    const nodes = rawNodes as DockerSwarmNode[];
-    const services = rawServices as DockerSwarmService[];
-    const tasks = rawTasks as DockerSwarmTask[];
 
-    const nodeNames = new Map(
-      nodes.map((node) => [
-        node.ID,
-        node.Description?.Hostname || node.Spec?.Name || node.ID,
-      ]),
-    );
+    const nodeNames = new Map(nodes.map((node) => [node.id, node.hostname]));
     const serviceNames = new Map(
-      services.map((service) => [service.ID, service.Spec?.Name || service.ID]),
+      services.map((service) => [service.id, service.name]),
     );
 
     const mappedTasks = tasks
       .map((task): SwarmContainerResult => {
-        const image = task.Spec?.ContainerSpec?.Image || "unknown";
+        const image = task.image || "unknown";
         return {
-          id: task.ID,
+          id: task.id,
           serviceName:
-            serviceNames.get(task.ServiceID ?? "") ||
-            task.ServiceID ||
+            serviceNames.get(task.serviceId ?? "") ||
+            task.serviceId ||
             "unknown",
-          nodeName: nodeNames.get(task.NodeID ?? "") || "unassigned",
-          slot: task.Slot || 0,
+          nodeName: nodeNames.get(task.nodeId ?? "") || "unassigned",
+          slot: task.slot,
           image: image.split("@sha256:")[0] || image,
-          desiredState: task.DesiredState || "unknown",
-          currentState: task.Status?.State || "unknown",
-          message: task.Status?.Message || task.Status?.Err || "",
-          updatedAt: task.Status?.Timestamp || null,
+          desiredState: task.desiredState,
+          currentState: task.currentState,
+          message: task.message,
+          updatedAt: task.updatedAt,
         };
       })
       .sort((left, right) => {

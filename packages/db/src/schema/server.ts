@@ -1,11 +1,13 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { organization } from "./auth";
 import { sshKey } from "./ssh-key";
@@ -46,8 +48,17 @@ export const server = pgTable(
       .notNull(),
   },
   (table) => [
+    uniqueIndex("server_organization_id_uidx").on(
+      table.organizationId,
+      table.id,
+    ),
     index("server_organization_idx").on(table.organizationId),
     index("server_ssh_key_idx").on(table.sshKeyId),
+    foreignKey({
+      columns: [table.organizationId, table.sshKeyId],
+      foreignColumns: [sshKey.organizationId, sshKey.id],
+      name: "server_organization_ssh_key_fk",
+    }),
   ],
 );
 

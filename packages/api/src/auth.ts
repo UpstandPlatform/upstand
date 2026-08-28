@@ -4,6 +4,7 @@ import { createStepUpAuth } from "@upstand/auth/step-up-auth";
 import { db } from "@upstand/db";
 import * as authSchema from "@upstand/db/schema/auth";
 import { backupRun, backupSchedule } from "@upstand/db/schema/backup";
+import { controlPlaneIdentity } from "@upstand/db/schema/control-plane-transfer";
 import { notificationChannel } from "@upstand/db/schema/notification";
 import { NotificationChannelSchema } from "@upstand/domain";
 import { env } from "@upstand/env/server";
@@ -14,7 +15,7 @@ import {
   getConfiguredControlPlaneMode,
 } from "@upstand/usecases";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { and, count, eq, gt, sql } from "drizzle-orm";
+import { and, count, eq, gt, isNull, sql } from "drizzle-orm";
 
 export const notificationTransport = new NotificationTransportRegistry();
 
@@ -27,6 +28,19 @@ const stepUp = createStepUpAuth({
 
 const secondaryStorage = {
   get: async (key: string) => (await withRedisTimeout(redis.get(key))) || null,
+  // Better Auth uses this operation for one-time secondary-storage values.
+  // Keep the read/delete pair atomic so a concurrent API replica cannot reuse
+  // a token, nonce, or rate-limit challenge after it has been consumed.
+  getAndDelete: async (key: string) => {
+    const result = await withRedisTimeout(
+      redis.eval(
+        "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
+        1,
+        key,
+      ),
+    );
+    return result === null ? null : String(result);
+  },
   set: async (key: string, value: string, ttl?: number) => {
     if (ttl) await withRedisTimeout(redis.set(key, value, "EX", ttl));
     else await withRedisTimeout(redis.set(key, value));
@@ -68,6 +82,25 @@ const callbacks: AuthCallbacks = {
         role: "owner",
         createdAt: new Date(),
       });
+      if (getConfiguredControlPlaneMode() !== "cloud") {
+        await tx
+          .insert(controlPlaneIdentity)
+          .values({
+            id: "global",
+            instanceId: randomUUID(),
+            ownerUserId: user.id,
+          })
+          .onConflictDoNothing({ target: controlPlaneIdentity.id });
+        await tx
+          .update(controlPlaneIdentity)
+          .set({ ownerUserId: user.id })
+          .where(
+            and(
+              eq(controlPlaneIdentity.id, "global"),
+              isNull(controlPlaneIdentity.ownerUserId),
+            ),
+          );
+      }
     });
   },
 
@@ -251,6 +284,7 @@ export const auth = createAuth({
     secret: resolveAuthSecret(),
     nodeEnv: env.NODE_ENV,
     trustedProxyHeaders: env.TRUSTED_PROXY_HEADERS,
+    directOrigins: env.UPSTAND_DIRECT_ORIGINS,
     sharedCookieDomain: env.AUTH_COOKIE_DOMAIN,
     googleClientId: env.GOOGLE_CLIENT_ID,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET,
@@ -272,6 +306,15 @@ export async function hasCredentialAccount(userId: string): Promise<boolean> {
     )
     .limit(1);
   return account.length > 0;
+}
+
+/**
+ * Returns whether a self-hosted instance is still waiting for its first
+ * account. The HTTP layer uses this to bound the explicit direct-IP bootstrap
+ * exception to the initial setup window.
+ */
+export async function canCreateInitialAccount(): Promise<boolean> {
+  return callbacks.canCreateInitialAccount();
 }
 
 export { stepUp };

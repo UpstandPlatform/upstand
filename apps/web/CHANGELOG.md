@@ -1,10 +1,12 @@
 # web
 
-## 0.2.26
+## 0.2.27
 
 ### Patch Changes
 
-- [#326](https://github.com/UpstandPlatform/upstand/pull/326) [`85ac540`](https://github.com/UpstandPlatform/upstand/commit/85ac5405f7eb5f2704bdd85e4af954abbe4a3d94) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production dashboard to reach the control plane over HTTP and WebSocket IP:port recovery URLs when a configured host is unavailable.
+- [#339](https://github.com/UpstandPlatform/upstand/pull/339) [`2ca7e87`](https://github.com/UpstandPlatform/upstand/commit/2ca7e8750a043033db8e59a7e5f4201a7aad3a1f) Thanks [@mhbdev](https://github.com/mhbdev)! - Prevent server-rendered session requests from trusting spoofed forwarded host and protocol headers.
+
+## 0.2.26
 
 ## 0.2.25
 

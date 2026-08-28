@@ -36,6 +36,8 @@ export type ResourceAutoscalingProjection = Pick<
 
 export interface IResourceRepository {
   findById(id: string): Promise<Resource | null>;
+  /** Serialize quota decisions that must be made against one resource. */
+  lockById(id: string): Promise<boolean>;
   findByAppName(appName: string): Promise<Resource | null>;
   findByWebhookTokenHash(hash: string): Promise<Resource | null>;
   findByEnvironmentId(environmentId: string): Promise<Resource[]>;

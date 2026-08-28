@@ -15,6 +15,7 @@ import {
 import { migratePglite } from "./pglite-migrator";
 import * as schema from "./schema";
 
+export { and, eq, isNull } from "drizzle-orm";
 export * from "./migration-preflight";
 export * from "./pglite-lock";
 export * from "./pglite-migrator";

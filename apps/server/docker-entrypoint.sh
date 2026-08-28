@@ -21,6 +21,7 @@ url_encode() {
 export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(read_secret "${POSTGRES_PASSWORD_FILE:-/run/secrets/postgres_password}")}"
 export REDIS_PASSWORD="${REDIS_PASSWORD:-$(read_secret "${REDIS_PASSWORD_FILE:-/run/secrets/redis_password}")}"
 export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(read_secret "${BETTER_AUTH_SECRET_FILE:-/run/secrets/better_auth_secret}")}"
+export UPGAL_TOOL_APPROVAL_SECRET="${UPGAL_TOOL_APPROVAL_SECRET:-$(read_secret "${UPGAL_TOOL_APPROVAL_SECRET_FILE:-/run/secrets/upgal_tool_approval_secret}")}"
 export ENCRYPTION_KEY_V1="${ENCRYPTION_KEY_V1:-${SSH_KEY_ENCRYPTION_KEY_V1:-$(read_secret "${ENCRYPTION_KEY_V1_FILE:-${SSH_KEY_ENCRYPTION_KEY_V1_FILE:-/run/secrets/encryption_key}}")}}"
 export SSH_KEY_ENCRYPTION_KEY_V1="$ENCRYPTION_KEY_V1"
 

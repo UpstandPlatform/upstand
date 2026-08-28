@@ -24,6 +24,7 @@ export interface AuthConfiguration {
   secret: string;
   nodeEnv: string;
   trustedProxyHeaders?: boolean;
+  directOrigins?: boolean;
   sharedCookieDomain?: string;
   googleClientId?: string;
   googleClientSecret?: string;
@@ -120,13 +121,83 @@ function isDirectHost(hostname: string): boolean {
   );
 }
 
-function isDirectHttpRequest(request: Request): boolean {
+function isPrivateIpv4Host(hostname: string): boolean {
+  const octets = hostname.split(".").map(Number);
+  if (
+    octets.length !== 4 ||
+    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  ) {
+    return false;
+  }
+  const first = octets[0] ?? -1;
+  const second = octets[1] ?? -1;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 169 && second === 254)
+  );
+}
+
+/**
+ * In production, plaintext direct-IP bootstrap is restricted to addresses
+ * that identify a local/private interface. Public-IP bootstrap would make an
+ * intentionally insecure session-cookie recovery mode remotely reachable.
+ */
+export function isPrivateDirectIpHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    normalized === "localhost" ||
+    normalized === "::" ||
+    normalized === "::1"
+  ) {
+    return true;
+  }
+  if (normalized.startsWith("::ffff:")) {
+    return isPrivateIpv4Host(normalized.slice("::ffff:".length));
+  }
+  if (isIpv4Host(normalized)) return isPrivateIpv4Host(normalized);
+  // Unique-local and link-local IPv6 addresses are not publicly routable.
+  return (
+    /^f[cd][0-9a-f]{2}:/.test(normalized) ||
+    /^fe[89ab][0-9a-f]{2}:/.test(normalized)
+  );
+}
+
+export function isDirectIpHttpRequest(request: Request): boolean {
   try {
     const url = new URL(request.url);
     return url.protocol === "http:" && isDirectHost(url.hostname);
   } catch {
     return false;
   }
+}
+
+export function isPrivateDirectIpHttpRequest(request: Request): boolean {
+  try {
+    const url = new URL(request.url);
+    return url.protocol === "http:" && isPrivateDirectIpHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isDirectHttpRequest(request: Request): boolean {
+  if (
+    process.env.NODE_ENV === "production" &&
+    ((process.env.UPSTAND_DIRECT_ORIGINS !== "true" &&
+      process.env.UPSTAND_DIRECT_ORIGINS !== "1") ||
+      (process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP !== "true" &&
+        process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP !== "1"))
+  ) {
+    return false;
+  }
+  if (!isDirectIpHttpRequest(request)) return false;
+  return process.env.NODE_ENV === "production"
+    ? isPrivateDirectIpHttpRequest(request)
+    : true;
 }
 
 function getSetCookieHeaders(headers: Headers): string[] {
@@ -282,7 +353,16 @@ export function createAuth(options: {
         if (origin) {
           try {
             const parsed = new URL(origin);
-            if (isDirectHost(parsed.hostname)) {
+            const requestUrl = new URL(request.url);
+            if (
+              configuration.directOrigins === true &&
+              isDirectHost(parsed.hostname) &&
+              isDirectHost(requestUrl.hostname) &&
+              parsed.hostname === requestUrl.hostname &&
+              (configuration.nodeEnv !== "production" ||
+                (isPrivateDirectIpHost(parsed.hostname) &&
+                  isPrivateDirectIpHost(requestUrl.hostname)))
+            ) {
               origins.push(parsed.origin);
             }
           } catch {}

@@ -11,6 +11,7 @@ import {
 import { serializeResourceEnvironmentVariables } from "./resource-environment";
 
 const resource = {
+  id: "resource-1",
   envVars: serializeResourceEnvironmentVariables({
     DATABASE_URL: "postgres://db",
   }),
@@ -22,7 +23,10 @@ describe("Docker Compose configuration", () => {
       ...DEFAULT_RESOURCE_ADVANCED_CONFIG,
       serviceName: "api",
       environment: { LOG_LEVEL: "debug" },
-      labels: { "upstand.test": "true" },
+      labels: {
+        "upstand.test": "true",
+        "com.upstand.resource-id": "resource-1",
+      },
       ports: [
         { publishedPort: 8080, targetPort: 80, protocol: "tcp" as const },
       ],
@@ -77,7 +81,52 @@ describe("Docker Compose configuration", () => {
     if (!api) throw new Error("Expected API service is missing");
     expect(api.security_opt).toContain("no-new-privileges:true");
     expect(api.cap_drop).toBeUndefined();
-    expect(result.services.worker).toEqual({ image: "worker:latest" });
+    expect(result.services.worker).toEqual({
+      image: "worker:latest",
+      labels: { "com.upstand.resource-id": "resource-1" },
+      deploy: { labels: { "com.upstand.resource-id": "resource-1" } },
+    });
+  });
+
+  test("adds the ownership label to Swarm service metadata", () => {
+    const result = yaml.parse(
+      applyComposeResourceConfig(
+        `
+services:
+  api:
+    image: nginx
+    deploy:
+      labels:
+        com.example.role: api
+  worker:
+    image: worker:latest
+`,
+        resource,
+        {
+          ...DEFAULT_RESOURCE_ADVANCED_CONFIG,
+          serviceName: "api",
+        },
+      ),
+    ) as {
+      services: Record<
+        string,
+        {
+          labels: Record<string, string>;
+          deploy: { labels: Record<string, string> };
+        }
+      >;
+    };
+
+    expect(result.services.api?.labels["com.upstand.resource-id"]).toBe(
+      "resource-1",
+    );
+    expect(result.services.api?.deploy.labels).toEqual({
+      "com.example.role": "api",
+      "com.upstand.resource-id": "resource-1",
+    });
+    expect(result.services.worker?.deploy.labels).toEqual({
+      "com.upstand.resource-id": "resource-1",
+    });
   });
 
   test("preserves explicit capability drops without imposing a blanket drop", () => {
@@ -173,5 +222,37 @@ describe("Docker Compose configuration", () => {
         DEFAULT_RESOURCE_ADVANCED_CONFIG,
       ),
     ).toThrow("host bind or Docker socket");
+  });
+
+  test("scopes Compose configs and secrets to the resource", () => {
+    const result = yaml.parse(
+      applyComposeResourceConfig(
+        [
+          "services:",
+          "  api:",
+          "    image: nginx:alpine",
+          "    configs: [app-config]",
+          "    secrets: [app-secret]",
+          "configs:",
+          "  app-config:",
+          "    content: example",
+          "secrets:",
+          "  app-secret:",
+          "    content: secret",
+        ].join("\n"),
+        resource,
+        DEFAULT_RESOURCE_ADVANCED_CONFIG,
+      ),
+    ) as {
+      configs: Record<string, Record<string, unknown>>;
+      secrets: Record<string, Record<string, unknown>>;
+    };
+
+    expect(result.configs["app-config"]?.name).toBe(
+      "upstand-resource-resource-1-config-app-config",
+    );
+    expect(result.secrets["app-secret"]?.name).toBe(
+      "upstand-resource-resource-1-secret-app-secret",
+    );
   });
 });

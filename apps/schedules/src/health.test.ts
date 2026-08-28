@@ -268,5 +268,7 @@ describe("Prometheus operational metrics", () => {
     expect(metrics).toContain("upstand_schedules_database_ready 0");
     expect(metrics).toContain("upstand_schedules_backup_success_present 0");
     expect(metrics).toContain("upstand_schedules_backup_age_seconds 0");
+    expect(metrics).toContain("upstand_schedules_job_executions_total");
+    expect(metrics).toContain("upstand_schedules_job_duration_seconds_total");
   });
 });

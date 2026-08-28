@@ -4,11 +4,30 @@ import {
   normalizeDirectIpAuthResponse,
 } from "@upstand/auth";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
+import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
 
 /** Registers Better Auth's protocol handler at the server boundary. */
 export function registerAuthRoutes(app: Hono<AppEnv>): void {
+  app.use(
+    "/api/auth/*",
+    createHttpRateLimitMiddleware({
+      path: "api.auth",
+      profile: "default",
+      onRejected: (c, message) => c.json({ error: message }, 429),
+    }),
+  );
+  app.use(
+    "/api/auth/*",
+    bodyLimit({
+      maxSize: 256 * 1024,
+      onError: (c) =>
+        c.json({ error: "Authentication request is too large" }, 413),
+    }),
+  );
+
   // Keep the documented API procedure reachable without stealing the rest of
   // Better Auth's /api/auth/* namespace. The wildcard handler below otherwise
   // turns this OpenAPI route into a Better Auth 404.
@@ -51,9 +70,10 @@ export function registerAuthRoutes(app: Hono<AppEnv>): void {
       );
     }
     try {
+      const request = normalizeDirectIpAuthRequest(c.req.raw);
       await auth.api.setPassword({
         body: { newPassword: body.data.newPassword },
-        headers: c.req.raw.headers,
+        headers: request.headers,
       });
       return c.json({ ok: true });
     } catch {

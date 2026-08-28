@@ -11,7 +11,7 @@ import {
 import { Spinner } from "@upstand/ui/components/spinner";
 import { useState } from "react";
 import { toast } from "sonner";
-import { authClient } from "@/lib/auth-client";
+import { authUiClient } from "@/lib/auth-client";
 
 interface ActiveSession {
   id: string;
@@ -48,10 +48,10 @@ function parseUA(ua: string): string {
 }
 
 export function SessionsPanel() {
-  const { data: sessions, refetch } = useListSessions(authClient);
+  const { data: sessions, refetch } = useListSessions(authUiClient);
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
-  const { mutate: revokeSession } = useRevokeSession(authClient, {
+  const { mutate: revokeSession } = useRevokeSession(authUiClient, {
     onSuccess: () => {
       toast.success("Session revoked");
       refetch();

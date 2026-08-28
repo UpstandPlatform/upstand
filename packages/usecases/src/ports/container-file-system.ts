@@ -22,12 +22,14 @@ export interface ContainerFileSystemPort {
   getContainerMounts(
     target: DockerInspectionTarget,
     containerId: string,
+    resourceId: string,
   ): Promise<ContainerVolumeMount[]>;
   listFiles(
     target: DockerInspectionTarget,
     containerId: string,
     mountPath: string,
     path: string,
+    resourceId: string,
   ): Promise<ContainerFileItem[]>;
   readFile(
     target: DockerInspectionTarget,
@@ -35,6 +37,7 @@ export interface ContainerFileSystemPort {
     mountPath: string,
     path: string,
     encoding: "text" | "base64",
+    resourceId: string,
   ): Promise<{ content: string }>;
   writeFile(
     target: DockerInspectionTarget,
@@ -42,6 +45,7 @@ export interface ContainerFileSystemPort {
     mountPath: string,
     path: string,
     contentBase64: string,
+    resourceId: string,
   ): Promise<void>;
   createItem(
     target: DockerInspectionTarget,
@@ -49,6 +53,7 @@ export interface ContainerFileSystemPort {
     mountPath: string,
     path: string,
     type: "file" | "directory",
+    resourceId: string,
   ): Promise<void>;
   renameItem(
     target: DockerInspectionTarget,
@@ -56,12 +61,14 @@ export interface ContainerFileSystemPort {
     mountPath: string,
     oldPath: string,
     newPath: string,
+    resourceId: string,
   ): Promise<void>;
   deleteItem(
     target: DockerInspectionTarget,
     containerId: string,
     mountPath: string,
     path: string,
+    resourceId: string,
   ): Promise<void>;
   changePermissions(
     target: DockerInspectionTarget,
@@ -69,6 +76,7 @@ export interface ContainerFileSystemPort {
     mountPath: string,
     path: string,
     mode: string,
+    resourceId: string,
   ): Promise<void>;
   searchFiles(
     target: DockerInspectionTarget,
@@ -76,5 +84,6 @@ export interface ContainerFileSystemPort {
     mountPath: string,
     path: string,
     query: string,
+    resourceId: string,
   ): Promise<ContainerFileItem[]>;
 }

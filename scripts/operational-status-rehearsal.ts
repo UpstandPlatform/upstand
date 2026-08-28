@@ -8,6 +8,7 @@ export type OperationalThresholds = {
   maxOutboxPublishingCount: number;
   maxBackupAgeSeconds: number;
   requireBackupSuccess: boolean;
+  requireBackupRestoreVerification: boolean;
   requestTimeoutMs: number;
 };
 
@@ -36,6 +37,7 @@ const DEFAULTS: OperationalThresholds = {
   maxOutboxPublishingCount: 100,
   maxBackupAgeSeconds: 0,
   requireBackupSuccess: false,
+  requireBackupRestoreVerification: false,
   requestTimeoutMs: 5_000,
 };
 
@@ -84,6 +86,17 @@ export function parseOperationalThresholds(
       "OPERATIONAL_STATUS_REQUIRE_BACKUP_SUCCESS must be true or false",
     );
   }
+  const requireBackupRestoreVerification =
+    source.OPERATIONAL_STATUS_REQUIRE_BACKUP_RESTORE_VERIFICATION;
+  if (
+    requireBackupRestoreVerification !== undefined &&
+    requireBackupRestoreVerification !== "true" &&
+    requireBackupRestoreVerification !== "false"
+  ) {
+    throw new Error(
+      "OPERATIONAL_STATUS_REQUIRE_BACKUP_RESTORE_VERIFICATION must be true or false",
+    );
+  }
 
   return {
     maxWaitingCount: parseNonNegativeInteger(
@@ -118,6 +131,8 @@ export function parseOperationalThresholds(
       604_800,
     ),
     requireBackupSuccess: requireBackupSuccess === "true",
+    requireBackupRestoreVerification:
+      requireBackupRestoreVerification === "true",
     requestTimeoutMs: parseNonNegativeInteger(
       source,
       "OPERATIONAL_STATUS_REQUEST_TIMEOUT_MS",
@@ -250,6 +265,22 @@ export function evaluateOperationalStatus(
     }
     if (thresholds.requireBackupSuccess && !Number.isFinite(succeededMs)) {
       violations.push("no successful backup has been recorded");
+    }
+    const restoreTestedAt = backup.lastSucceededRestoreTestedAt;
+    const restoreTestedMs = restoreTestedAt
+      ? Date.parse(String(restoreTestedAt))
+      : Number.NaN;
+    if (restoreTestedAt && !Number.isFinite(restoreTestedMs)) {
+      violations.push("backup lastSucceededRestoreTestedAt is invalid");
+    }
+    if (
+      thresholds.requireBackupRestoreVerification &&
+      (!Number.isFinite(restoreTestedMs) ||
+        (Number.isFinite(succeededMs) && restoreTestedMs < succeededMs))
+    ) {
+      violations.push(
+        "the most recent successful backup has no subsequent restore verification",
+      );
     }
     if (
       thresholds.maxBackupAgeSeconds > 0 &&

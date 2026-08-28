@@ -11,6 +11,7 @@ import {
   type ResourceRoutingProjection,
 } from "@upstand/domain";
 import { env } from "@upstand/env/server";
+import { withDeploymentScopeToken } from "@upstand/platform/crypto/deployment-scope";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import { closeRedis, createRedis, type Redis, redis } from "@upstand/redis";
 import { DelayedError, type Job, Worker } from "bullmq";
@@ -30,7 +31,11 @@ import type { DockerApiTarget } from "../ports/docker";
 import { getDatabaseEnvironment } from "../resource/database-environment";
 import type { DockerDeploymentService as DockerService } from "../resource/docker-client";
 import { createRemoteServices } from "../resource/docker-client";
-import { parseResourceCredentials } from "../resource/resource-credentials";
+import {
+  parseResourceCredentials,
+  parseResourceCredentialsStrict,
+  serializeResourceCredentials,
+} from "../resource/resource-credentials";
 import {
   resolveResourceBuildEnvironmentVariables,
   resolveResourceEnvironmentVariables,
@@ -287,7 +292,14 @@ export class DeploymentWorker {
                 },
               },
             },
-            () => this.processJob(job),
+            () => {
+              const scopeToken = isRecord(job.data)
+                ? stringField(job.data, "dockerScopeToken")
+                : undefined;
+              return withDeploymentScopeToken(scopeToken, () =>
+                this.processJob(job),
+              );
+            },
           );
         },
         {
@@ -422,6 +434,7 @@ export class DeploymentWorker {
       sourceRevision?: string;
       retryBaseSeconds?: number;
       retryMaxSeconds?: number;
+      dockerScopeToken?: string;
     };
     if (!resourceId || !deploymentId) {
       throw new Error("Deployment job is missing resourceId or deploymentId");
@@ -742,9 +755,11 @@ export class DeploymentWorker {
           deployedResource.name = previewDeploymentRecord.appName;
           deployedResource.appName = previewDeploymentRecord.appName;
 
-          const creds = parseResourceCredentials(deployedResource.credentials);
+          const creds = parseResourceCredentialsStrict(
+            deployedResource.credentials,
+          );
           creds.branch = previewDeploymentRecord.branchName;
-          deployedResource.credentials = JSON.stringify(creds);
+          deployedResource.credentials = serializeResourceCredentials(creds);
         }
       }
 
@@ -1477,6 +1492,7 @@ export class DeploymentWorker {
                   timeoutSeconds,
                   onLog: (chunk) => appendLog(chunk),
                 },
+                deployedResource.id,
               );
             } else if (supportsDockerHookService(dockerService)) {
               const output = await dockerService.runCommandInResourceContainer(
@@ -1671,6 +1687,7 @@ export class DeploymentWorker {
                 timeoutSeconds,
                 onLog: (chunk) => appendLog(chunk),
               },
+              deployedResource.id,
             );
           } else if (supportsDockerHookService(dockerService)) {
             const output = await dockerService.runCommandInResourceContainer(
