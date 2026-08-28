@@ -115,6 +115,13 @@ var deploymentWorkerRawContainerHostConfigFields = dockerFieldSet(
 )
 
 var deploymentWorkerRawContainerLogConfigFields = dockerFieldSet("Type", "Config")
+var deploymentWorkerRawContainerLogConfigOptionFields = dockerFieldSet(
+	"max-size",
+	"max-file",
+	"compress",
+	"labels",
+	"env",
+)
 var deploymentWorkerRawContainerRestartPolicyFields = dockerFieldSet("Name", "MaximumRetryCount")
 var deploymentWorkerRawContainerEndpointFields = dockerFieldSet(
 	"IPAMConfig",
@@ -457,6 +464,9 @@ func validateDeploymentWorkerRawContainerShape(body []byte) error {
 			if err := validateDockerObjectShape(logConfig, deploymentWorkerRawContainerLogConfigFields, "Docker container HostConfig.LogConfig"); err != nil {
 				return err
 			}
+			if err := validateDeploymentWorkerRawContainerLogConfig(logConfig); err != nil {
+				return err
+			}
 		}
 		if rawRestartPolicy, ok := dockerObjectField(hostConfig, "RestartPolicy"); ok {
 			restartPolicy, ok := rawRestartPolicy.(map[string]any)
@@ -491,6 +501,40 @@ func validateDeploymentWorkerRawContainerShape(body []byte) error {
 					return err
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateDeploymentWorkerRawContainerLogConfig prevents the legacy raw
+// container route from turning a resource-scoped deployment worker into a
+// Docker logging-plugin launcher or an unbounded daemon configuration channel.
+// Only Docker's built-in local and json-file drivers are allowed, with the
+// small set of bounded options supported by those drivers.
+func validateDeploymentWorkerRawContainerLogConfig(logConfig map[string]any) error {
+	logType := strings.ToLower(strings.TrimSpace(dockerStringField(logConfig, "Type")))
+	if logType != "" && logType != "json-file" && logType != "local" {
+		return fmt.Errorf("Docker container HostConfig.LogConfig type %q is not allowed", logType)
+	}
+
+	rawConfig, hasConfig := dockerObjectField(logConfig, "Config")
+	if !hasConfig || rawConfig == nil {
+		return nil
+	}
+	config, ok := rawConfig.(map[string]any)
+	if !ok || config == nil {
+		return errors.New("Docker container HostConfig.LogConfig.Config must be an object")
+	}
+	if len(config) > 16 {
+		return errors.New("Docker container HostConfig.LogConfig.Config is unbounded")
+	}
+	for key, rawValue := range config {
+		if _, ok := deploymentWorkerRawContainerLogConfigOptionFields[strings.ToLower(strings.TrimSpace(key))]; !ok {
+			return fmt.Errorf("Docker container HostConfig.LogConfig.Config option %q is not allowed", key)
+		}
+		value, ok := rawValue.(string)
+		if !ok || len(value) > 256 || strings.IndexFunc(value, func(r rune) bool { return r == '\r' || r == '\n' || r == 0 }) >= 0 {
+			return fmt.Errorf("Docker container HostConfig.LogConfig.Config option %q is invalid", key)
 		}
 	}
 	return nil

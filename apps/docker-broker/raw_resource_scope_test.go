@@ -807,6 +807,43 @@ func TestDeploymentWorkerRawContainerCreateAllowsReviewedComposeShape(t *testing
 	}
 }
 
+func TestDeploymentWorkerRawContainerCreateRejectsExternalLogDrivers(t *testing.T) {
+	for _, logType := range []string{"syslog", "fluentd", "gelf", "journald", "splunk"} {
+		t.Run(logType, func(t *testing.T) {
+			body := []byte(`{"Image":"example/app:latest","HostConfig":{"LogConfig":{"Type":"` + logType + `","Config":{}}}}`)
+			if err := validateDeploymentWorkerRawContainerShape(body); err == nil {
+				t.Fatalf("expected external Docker log driver %q to be rejected", logType)
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawContainerCreateAllowsBoundedBuiltinLogConfig(t *testing.T) {
+	for _, logType := range []string{"json-file", "local"} {
+		t.Run(logType, func(t *testing.T) {
+			body := []byte(`{"Image":"example/app:latest","HostConfig":{"LogConfig":{"Type":"` + logType + `","Config":{"max-size":"10m","max-file":"3","compress":"true"}}}}`)
+			if err := validateDeploymentWorkerRawContainerShape(body); err != nil {
+				t.Fatalf("expected bounded built-in Docker log driver %q to be allowed: %v", logType, err)
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawContainerCreateRejectsUnreviewedLogConfigOptions(t *testing.T) {
+	for _, config := range []string{
+		`{"plugin-endpoint":"http://collector"}`,
+		`{"max-size":true}`,
+		`{"max-size":"line\nbreak"}`,
+	} {
+		t.Run(config, func(t *testing.T) {
+			body := []byte(`{"Image":"example/app:latest","HostConfig":{"LogConfig":{"Type":"json-file","Config":` + config + `}}}`)
+			if err := validateDeploymentWorkerRawContainerShape(body); err == nil {
+				t.Fatalf("expected unsafe Docker log configuration to be rejected: %s", config)
+			}
+		})
+	}
+}
+
 func TestDeploymentWorkerRawServiceListingRequiresExactResourceFilter(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	for _, test := range []struct {
