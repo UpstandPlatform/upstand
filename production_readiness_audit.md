@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `6e194112`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `2d16a1d9`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -52,6 +52,13 @@ cross-resource/cross-target replay, transport header propagation, secret
 mounting, and release acceptance composition. This closes the worker
 identity-confusion gap, but does not turn the remaining raw Compose and
 secret-bearing build paths into fully typed capabilities.
+
+The latest grant-lifetime pass bounds deployment-scope identifiers before they
+can become transport headers and aligns the issuer and broker verifier on a
+two-hour maximum lifetime. This reduces replay and header-injection exposure
+after a worker compromise while preserving the broker's bounded build window;
+malformed, overlong, and overlong-lifetime claims have cross-language
+regression coverage.
 
 Resource-specific cleanup and replication fallbacks now also resolve through the
 resource-scoped Docker client, including service, volume, and isolated-network
@@ -515,6 +522,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Latest Compose build-privilege hardening:** Compose build mappings now reject `privileged: true` and its string-coercion form before Docker Compose execution. This closes a BuildKit build-container authority escape that was previously admitted by the reviewed field set; focused pipeline coverage proves the rejection while the broader raw Compose/service migration remains open.
 - **Latest Compose build-platform hardening:** Compose build mappings now reject the `platforms` field before Docker execution, preventing cross-platform emulation and multi-architecture BuildKit fan-out on the raw Compose boundary; focused pipeline coverage proves the rejection while the broader raw Compose/service migration remains open.
 - **Latest raw nested-service-shape hardening:** Deployment-worker raw Swarm service create/update payloads now apply explicit nested allowlists to mounts, volume options, secret/config file metadata, health checks, DNS configuration, placement preferences/platforms, and replicated/global job modes. Unknown or future nested fields fail closed before daemon inspection or mutation, with positive and negative regressions for the reviewed Compose/Swarm shape; the broader raw Compose/service migration remains open.
+- **Latest deployment-scope hardening:** The TypeScript grant issuer and Go broker verifier now enforce the same two-hour maximum lifetime and bounded identifier alphabet/length. Malformed or overlong deployment/server claims fail before they can become Docker custom headers, reducing replay and header-injection exposure while preserving the bounded build window; raw Compose/service authority remains open.
 - **Latest Compose task-boundary hardening:** Compose validation also rejects deploy-level privileged/capability/device/security/sysctl controls, reserved host devices, custom runtimes, host GPUs, and `service:host` namespace references. This closes equivalent host-escape controls expressed through the Swarm/Compose deployment model, including mapping-shaped sysctl declarations; focused regressions cover list and mapping forms.
 - **Latest worker-grant boundary hardening:** Deployment jobs now carry a short-lived HMAC grant signed by the control plane and bound to the exact resource, deployment, and target server. The deployment worker does not receive the signing secret; Dockerode, Docker CLI, and broker-stream transports propagate the grant from async-local job context; production broker requests reject missing, expired, tampered, or cross-resource grants. Go and TypeScript tests cover the verifier, transport propagation, and concurrent context isolation. The remaining raw Compose and secret-bearing build paths are still not fully typed.
 - **Latest raw service-network hardening:** Production deployment-worker raw service create/update requests now daemon-inspect every explicit `TaskTemplate.Networks` and top-level `Networks` target before forwarding. Only encrypted, attachable Swarm overlay networks are accepted, and targets must be the configured shared network or a managed network labelled for the same resource; update requests revalidate both existing and requested attachments. Focused fake-daemon regressions cover owned, configured-shared, foreign, missing-target, and update cases. Raw Compose/service-create transport remains an open migration slice.
@@ -950,6 +958,7 @@ Passed:
 - Compose build regressions covering privileged build execution and YAML string-boolean coercion
 - Compose build regressions covering cross-platform `build.platforms` rejection
 - Raw service-shape regressions covering unknown nested mount, volume-option, file-reference, health-check, DNS, placement, platform, and job-mode fields plus reviewed nested-shape acceptance
+- Deployment-scope regressions covering malformed/overlong identifiers and the issuer/verifier two-hour lifetime boundary
 
 Concerning or operationally incomplete:
 
