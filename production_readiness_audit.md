@@ -191,6 +191,13 @@ rebinding to loopback, and cross-origin request attempts. Provider billing
 reconciliation and adversarial model evaluation remain operational evidence
 requirements.
 
+The latest Tavily boundary pass applies the same DNS-aware public HTTPS policy
+immediately before extract, crawl, and map execution. Model-selected private,
+metadata, plaintext, and non-public destinations are rejected before the
+provider receives them; focused tests cover the shared URL guard and every
+URL-fetching Tavily tool. Provider billing reconciliation and adversarial model
+evaluation remain open.
+
 The release remains blocked by two current facts:
 
 1. Docker authority is now isolated in a dedicated broker, and deployment queue
@@ -559,7 +566,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Severity:** Major
 - **Category:** Prompt injection / tool authorization / data exfiltration
 - **Problem:** Logs, Compose, repository data, and external tool results enter model context. The typed boundary reduces accidental authority transfer, but model interpretation remains part of the enforcement story and requires adversarial evaluation.
-- **Evidence:** Web, Tavily, and opt-in MCP results now cross a bounded, schema-declared `external-untrusted` envelope under `data`; the serializer caps total characters/nodes, rejects cycles, unsafe metadata, prototype-shaped keys, and non-finite numbers, and focused execution/schema tests pass. The agent still receives dynamic instructions, tools, and runtime context; approval is selected by canonical tool name, mutations are approval-gated, and the AI SDK HMAC-signs approval continuations with a dedicated server-only secret so the browser cannot change the approved tool name or arguments. Every first-party tool validates input and re-checks tenant/resource scope, while MCP tools remain approval-gated and network-restricted.
+- **Evidence:** Web, Tavily, and opt-in MCP results now cross a bounded, schema-declared `external-untrusted` envelope under `data`; the serializer caps total characters/nodes, rejects cycles, unsafe metadata, prototype-shaped keys, and non-finite numbers, and focused execution/schema tests pass. Tavily extract/crawl/map destinations also receive a DNS-aware public-HTTPS check immediately before provider execution. The agent still receives dynamic instructions, tools, and runtime context; approval is selected by canonical tool name, mutations are approval-gated, and the AI SDK HMAC-signs approval continuations with a dedicated server-only secret so the browser cannot change the approved tool name or arguments. Every first-party tool validates input and re-checks tenant/resource scope, while MCP tools remain approval-gated and network-restricted.
 - **Impact:** External result strings are no longer indistinguishable from trusted tool-control metadata at the tool boundary, and provider amplification is bounded. A model can still misinterpret untrusted text or present a misleading explanation, so destructive-action adversarial evaluations remain required.
 - **Attack Scenario:** A tenant-controlled build log tells the agent to ignore policy and call a deployment or secret-adjacent tool; the model follows it or presents a misleading approval description.
 - **Recommended Fix:** Retain the typed provenance envelope, enforce scope in every tool, retain the signed approval binding and re-check authorization at execution, and run adversarial prompt-injection evaluations against every enabled provider/integration.
@@ -698,7 +705,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-005 | Partial/remediated for ownership safety — new self-hosted bootstrap persists the owner, missing legacy ownership fails closed, and configured legacy owners now have a one-time, explicit-confirmation, step-up-protected repair path; existing owners have an audited transfer path and live evidence remains. |
 | F-006/F-007 | Mostly remediated in runtime — direct-origin trust and cookie normalization are disabled in production unless both explicit bootstrap flags are enabled, production plaintext bootstrap accepts only loopback/private/link-local direct addresses, and non-health direct-IP HTTP is rejected after first account creation; installation cutover evidence remains. |
 | F-008 | Partial/remediated for token/cost admission — quota admission, bounded history, per-step aggregate token ceilings, standalone output caps, atomic per-organization run plus worst-case token plus model-aware conservative cents reservations, durable failed-run finalization, and an exact operator model allowlist exist; provider invoice reconciliation remains. |
-| F-009 | Partial/remediated in code — first-party scope checks, HMAC-bound approval gates, MCP restrictions with per-request endpoint/DNS revalidation, bounded provider output, and schema-declared model-facing provenance envelopes exist; adversarial evaluation remains. |
+| F-009 | Partial/remediated in code — first-party scope checks, HMAC-bound approval gates, MCP restrictions with per-request endpoint/DNS revalidation, Tavily public-HTTPS destination checks, bounded provider output, and schema-declared model-facing provenance envelopes exist; adversarial evaluation remains. |
 | F-010/F-011 | Remediated in code — preview quota uses a mandatory resource-row transaction lock and a tested quota use case; failed cleanup remains `cleanup_pending`; preview cleanup now carries the owning resource ID, requires an exact service ownership label before deletion, and has a bounded restart-safe scheduler retry path; focused use-case coverage passes, while repeated-close and live remote-target evidence remain. |
 | F-012 | Remediated in source and migrations — generated migrations `0091` and `0092` add composite uniqueness first and same-organization foreign keys second for backup, AI, notification, server/SSH-key, registry/server, and S3/certificate relationships; fresh-schema portable transfer coverage and fresh-plus-upgraded external PostgreSQL migration smoke pass; and full-schema PGlite coverage proves normalized resource ownership follows the non-null resource/environment/project chain. |
 | F-013 | Remediated — device approval claims before API-key creation, completes only from the claim, and cleans up both key and claim on failure; focused tests pass. |

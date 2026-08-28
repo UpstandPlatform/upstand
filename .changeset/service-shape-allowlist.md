@@ -1,5 +1,7 @@
 ---
+"@upstand/api": patch
 "@upstand/infrastructure": patch
+"@upstand/usecases": patch
 ---
 
 Fail closed on unknown or future fields in legacy deployment-worker raw
