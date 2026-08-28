@@ -316,6 +316,32 @@ func TestAuthorizeDockerRequestAppliesCallerSpecificCapabilities(t *testing.T) {
 	}
 }
 
+func TestAuthorizeDockerRequestRejectsSchedulesRawMutationsInProduction(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v1.43/build"},
+		{http.MethodPost, "/v1.43/containers/create"},
+		{http.MethodPost, "/v1.43/images/create"},
+		{http.MethodPost, "/v1.43/networks/create"},
+		{http.MethodPost, "/v1.43/volumes/create"},
+		{http.MethodPost, "/v1.43/services/create"},
+		{http.MethodPost, "/v1.43/services/service-1/update"},
+		{http.MethodPost, "/v1.43/networks/network-1/connect"},
+		{http.MethodDelete, "/v1.43/services/service-1"},
+		{http.MethodDelete, "/v1.43/volumes/volume-1"},
+	} {
+		req := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
+		req.Header.Set("X-Upstand-Resource-ID", "resource-1")
+		if err := authorizeDockerRequestForCaller("schedules", req, nil); err == nil {
+			t.Fatalf("expected production schedules caller to reject raw mutation %s %s", test.method, test.path)
+		}
+	}
+}
+
 func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing.T) {
 	tests := []struct {
 		name   string

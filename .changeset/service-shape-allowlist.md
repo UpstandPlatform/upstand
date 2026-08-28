@@ -7,4 +7,6 @@ ServiceSpec payloads and Compose documents. Bounded Compose and Swarm service
 shapes remain covered by regression tests before Docker inspection or mutation;
 unsupported future fields are rejected at the document, service, build, deploy,
 and nested resource boundaries. Compose API and runtime ingress is also capped
-at 1 MiB when encoded as UTF-8.
+at 1 MiB when encoded as UTF-8. In production, the schedules caller is also
+denied legacy raw Docker mutation endpoints and must use the reviewed typed
+resource capabilities.

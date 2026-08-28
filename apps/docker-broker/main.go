@@ -768,10 +768,22 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 	}
 
 	if caller == "schedules" {
-		// Workload migration and backup orchestration do not build images or
-		// create ad-hoc containers. Those capabilities belong to the deployment
-		// worker or the API server's explicitly reviewed workflows.
-		if method == http.MethodPost && (path == "/build" || path == "/build/prune" || path == "/containers/create" || path == "/images/create") {
+		// Preserve the existing caller contract in all environments: the
+		// schedules process never builds images or creates ad-hoc containers.
+		if method == http.MethodPost &&
+			(path == "/build" ||
+				path == "/build/prune" ||
+				path == "/containers/create" ||
+				path == "/images/create") {
+			return false
+		}
+		// Workload migration and backup orchestration use typed resource
+		// capabilities in production. Keep the schedules identity from falling
+		// back to the legacy raw mutation surface, which would otherwise let a
+		// schedules compromise create or reconfigure arbitrary daemon objects.
+		// Development and remote-target paths remain compatible because this
+		// restriction is enabled only when production caller identity is active.
+		if brokerRequiresProductionIdentity() && isSchedulesRawMutation(method, path) {
 			return false
 		}
 	}
@@ -807,6 +819,31 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 	}
 
 	return true
+}
+
+func isSchedulesRawMutation(method, path string) bool {
+	if method == http.MethodPost &&
+		(path == "/build" ||
+			path == "/build/prune" ||
+			path == "/containers/create" ||
+			path == "/containers/prune" ||
+			path == "/images/create" ||
+			path == "/images/prune" ||
+			path == "/networks/create" ||
+			path == "/volumes/create" ||
+			path == "/services/create" ||
+			resourceActionPath(path, "networks", "connect") ||
+			resourceActionPath(path, "networks", "disconnect") ||
+			resourceActionPath(path, "images", "tag") ||
+			resourceActionPath(path, "services", "update")) {
+		return true
+	}
+	return method == http.MethodDelete &&
+		(resourceItemPath(path, "containers") ||
+			resourceItemPath(path, "images") ||
+			resourceItemPath(path, "networks") ||
+			resourceItemPath(path, "volumes") ||
+			resourceItemPath(path, "services"))
 }
 
 func brokerRequiresProductionIdentity() bool {
