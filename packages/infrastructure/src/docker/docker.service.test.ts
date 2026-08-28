@@ -81,6 +81,63 @@ describe("deployment command log safety", () => {
     );
   });
 
+  test("preserves the authenticated local broker transport for CLI subprocesses", () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-broker-cli-"),
+    );
+    const tokenFile = path.join(directory, "broker-token");
+    const previous = {
+      DOCKER_HOST: process.env.DOCKER_HOST,
+      DOCKER_TLS_VERIFY: process.env.DOCKER_TLS_VERIFY,
+      DOCKER_CERT_PATH: process.env.DOCKER_CERT_PATH,
+      UPSTAND_DOCKER_BROKER_TOKEN_FILE:
+        process.env.UPSTAND_DOCKER_BROKER_TOKEN_FILE,
+      UPSTAND_DOCKER_BROKER_CALLER: process.env.UPSTAND_DOCKER_BROKER_CALLER,
+      DOCKER_CUSTOM_HEADERS: process.env.DOCKER_CUSTOM_HEADERS,
+    };
+    process.env.DOCKER_HOST = "https://docker-broker:2375";
+    process.env.DOCKER_TLS_VERIFY = "1";
+    process.env.DOCKER_CERT_PATH = "/run/secrets";
+    process.env.UPSTAND_DOCKER_BROKER_TOKEN_FILE = tokenFile;
+    process.env.UPSTAND_DOCKER_BROKER_CALLER = "server";
+    process.env.DOCKER_CUSTOM_HEADERS =
+      "X-Test=preserved,X-Upstand-Resource-ID=stale";
+    fs.writeFileSync(tokenFile, "b".repeat(64), { mode: 0o600 });
+
+    try {
+      const service = new DockerService(
+        {} as never,
+        {},
+        {} as unknown as DockerResourceCommandBrokerPort,
+      ) as unknown as {
+        getDockerCommandEnvironment: (
+          resourceId: string,
+        ) => Record<string, string | undefined>;
+      };
+      const environment = service.getDockerCommandEnvironment("resource-1");
+
+      expect(environment.DOCKER_HOST).toBe("https://docker-broker:2375");
+      expect(environment.DOCKER_TLS_VERIFY).toBe("1");
+      expect(environment.DOCKER_CERT_PATH).toBe("/run/secrets");
+      expect(environment.DOCKER_CUSTOM_HEADERS).toContain(
+        `X-Upstand-Docker-Broker-Token=${"b".repeat(64)}`,
+      );
+      expect(environment.DOCKER_CUSTOM_HEADERS).toContain(
+        "X-Upstand-Docker-Caller=server",
+      );
+      expect(environment.DOCKER_CUSTOM_HEADERS).toContain(
+        "X-Upstand-Resource-ID=resource-1",
+      );
+      expect(environment.DOCKER_CUSTOM_HEADERS).not.toContain("stale");
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("does not inherit control-plane secrets into isolated command environments", async () => {
     const key = `UPSTAND_TEST_CONTROL_PLANE_SECRET_${process.pid}`;
     const sentinel = "control-plane-secret";

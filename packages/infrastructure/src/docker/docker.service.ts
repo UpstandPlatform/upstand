@@ -86,7 +86,7 @@ import {
   createDockerResourceCommandBrokerClient,
   type DockerResourceCommandBrokerPort,
 } from "./docker-broker-client";
-import { getDockerInstance } from "./docker-client";
+import { getDockerInstance, readDockerBrokerToken } from "./docker-client";
 import { createPinnedGitSshEnvironment, isSshGitUrl } from "./git-host-key";
 import {
   getRailpackArtifact,
@@ -3126,7 +3126,9 @@ export class DockerService implements DockerSwarmManagementPort {
     }
     const inheritedHeaders = (
       this.commandEnvironment.DOCKER_CUSTOM_HEADERS ??
-      process.env.DOCKER_CUSTOM_HEADERS ??
+      (Object.keys(this.commandEnvironment).length === 0
+        ? process.env.DOCKER_CUSTOM_HEADERS
+        : undefined) ??
       ""
     )
       .split(",")
@@ -3140,7 +3142,54 @@ export class DockerService implements DockerSwarmManagementPort {
           !header.toLowerCase().startsWith("x-upstand-server-id="),
       );
     const scopeHeaders = readDeploymentScopeHeaders();
+    const transportSource =
+      Object.keys(this.commandEnvironment).length > 0
+        ? this.commandEnvironment
+        : process.env;
+    const dockerHost = transportSource.DOCKER_HOST?.trim();
+    const transportEnvironment: Record<string, string | undefined> = {};
+    for (const name of [
+      "DOCKER_HOST",
+      "DOCKER_TLS_VERIFY",
+      "DOCKER_CERT_PATH",
+    ]) {
+      const value = transportSource[name];
+      if (value !== undefined) transportEnvironment[name] = value;
+    }
+
+    // Dockerode receives the broker token through its HTTP client options,
+    // while Docker CLI reads custom headers from the environment. Preserve
+    // the same caller identity for Compose, Stack, BuildKit, and other CLI
+    // subprocesses. Only the fixed in-stack broker authority is eligible for
+    // this translation; remote Docker tunnels do not receive a broker token.
+    if (dockerHost) {
+      let parsedHost: URL | undefined;
+      try {
+        parsedHost = new URL(dockerHost);
+      } catch {
+        // Docker's Unix socket and tunnel forms do not need broker headers.
+      }
+      if (
+        parsedHost &&
+        (parsedHost.protocol === "http:" || parsedHost.protocol === "https:") &&
+        parsedHost.hostname === "docker-broker"
+      ) {
+        const brokerToken = readDockerBrokerToken();
+        const brokerCaller =
+          transportSource.UPSTAND_DOCKER_BROKER_CALLER?.trim();
+        if (!brokerToken || !brokerCaller) {
+          throw new Error(
+            "Docker broker CLI transport requires a broker token and caller identity",
+          );
+        }
+        inheritedHeaders.push(
+          `X-Upstand-Docker-Broker-Token=${brokerToken}`,
+          `X-Upstand-Docker-Caller=${brokerCaller}`,
+        );
+      }
+    }
     return {
+      ...transportEnvironment,
       DOCKER_CUSTOM_HEADERS: [
         ...inheritedHeaders,
         `X-Upstand-Resource-ID=${resourceId}`,

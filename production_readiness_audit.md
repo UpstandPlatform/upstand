@@ -143,6 +143,16 @@ publication, custom endpoint fields, unsupported modes, invalid port ranges,
 and custom logging backends. This reduces service transport authority but does
 not close the broader raw Compose/service migration finding.
 
+The latest Docker CLI transport pass fixes local broker-backed subprocesses
+running with an intentionally minimal environment: trusted `DOCKER_HOST`, TLS
+verification, and the standard certificate directory are now preserved, and
+the broker token plus caller identity are translated into Docker CLI custom
+headers alongside the exact resource and deployment scope. Resource-provided
+environment values cannot override these transport settings. A regression test
+covers endpoint, mTLS, token, caller, stale-scope removal, and resource-scope
+propagation. This restores the production Compose/Stack CLI path without
+changing the still-open broader raw Compose/service authority boundary.
+
 The latest legacy-build query pass changes deployment-worker raw Docker builds
 from a known-dangerous-option denylist to an explicit allowlist. Only reviewed
 metadata/lifecycle options, bounded targets, safe built-in network modes,
@@ -661,7 +671,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Impact:** The web server no longer makes server-rendered session requests to an attacker-selected sibling domain through forwarded-header inference.
 - **Recommended Fix:** Retain the configured-origin requirement and verify the production proxy preserves the canonical `Host` header; do not reintroduce forwarded-header inference without an explicit trusted-proxy contract.
 
-## Iteration Status (2026-08-27)
+## Iteration Status (2026-08-28)
 
 | Finding | Current status |
 |---|---|
