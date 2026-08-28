@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `a0b3e6b6`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `7675cb33`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -87,6 +87,14 @@ typed broker capabilities before externalizing them in the private manifest.
 The deployment worker's raw network/volume creation endpoints are denied in
 production, and shared-network creation uses a typed, configured-name-only
 operation.
+
+The latest raw-container boundary pass applies the same deny-by-default shape
+policy to the legacy production deployment-worker `containers/create` route.
+Top-level Docker create fields, HostConfig, logging/restart sub-objects, and
+network endpoint settings are explicitly allowlisted before daemon inspection;
+unknown or future fields fail closed while a representative Compose container
+shape remains accepted. This narrows the remaining raw Compose transport
+without claiming that the whole orchestration path is typed.
 
 Compose create, update, and inspection inputs now share a 1 MiB UTF-8 byte
 limit, and the runtime security validator enforces that limit again for legacy
@@ -451,6 +459,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Latest raw Swarm task-policy hardening:** The broker’s case-insensitive Docker JSON host-escape walker now rejects Swarm `CapabilityAdd`/`capabilityadd`, non-empty `Sysctls` list or mapping forms, and `service:` namespace modes in addition to the existing container/host/device/security checks. This closes equivalent raw `/services/create` and `/services/{id}/update` task controls that are not represented by the REST container `HostConfig` field names; focused broker policy regressions cover mixed-case capability/sysctl payloads and `service:host`.
 - **Latest raw service isolation hardening:** Resource-scoped deployment-worker raw Swarm service create/update requests now apply an explicit deny-by-default check to service `TaskTemplate` and `ContainerSpec` fields that can request custom runtimes, host/shared namespaces, devices, added capabilities, weakened security options, sysctls, host resource controls, shared volumes, or credential/privilege specifications. The check runs before any Docker inspection and is covered by table-driven policy tests plus a mutation-path regression; broader raw Compose orchestration and secret-bearing build transport remain open migration slices.
 - **Latest raw service-shape hardening:** The legacy deployment-worker service mutation boundary now applies an explicit nested allowlist to the ServiceSpec, TaskTemplate, ContainerSpec, resource, restart, placement, update, rollback, mode, and network-attachment shapes before any Docker inspection. The raw Compose deployment path now applies the same deny-by-default principle to the document, service, build, deploy, healthcheck, logging, network, volume, config, secret, and nested resource shapes before Docker CLI execution. Unknown or future fields fail closed, while representative bounded Compose/Swarm fields remain accepted; focused regressions cover top-level, task, container, network, Compose service, build, deploy, and nested resource future-field rejection plus valid bounded shapes. The broader raw Compose/service migration and credential-safe secret-bearing build transport remain open.
+- **Latest raw container-shape hardening:** Production deployment-worker `containers/create` requests now apply an explicit allowlist to top-level Docker create fields, HostConfig, logging/restart sub-objects, and network endpoint settings before live network inspection. Unknown or future fields fail closed, with regression coverage for top-level, HostConfig, and endpoint escapes plus a representative reviewed Compose container shape. The broader raw Compose/service migration remains open.
 - **Latest command-output hardening:** Docker command execution now bounds combined stdout/stderr streaming to 8 MiB per invocation and terminates the child with a fixed diagnostic when the limit is exceeded. A lower-limit regression test proves oversized untrusted output is rejected without retaining the full payload; the existing timeout and cancellation paths remain covered. This reduces worker/broker log-flood and resource-exhaustion risk but does not replace the remaining raw Compose/service transport migration.
 - **Latest typed service-shape hardening:** The typed resource-service route now also applies an explicit allowlist to nested `ContainerSpec` fields, including the currently emitted DNS, capability-drop, security, mount, healthcheck, secret, and config fields. Unknown or future nested daemon controls fail closed before service inspection or mutation; reviewed-field acceptance and future-field rejection are covered by broker tests. The broader raw Compose/service transport and credential-safe secret-bearing build transport remain open.
 - **Latest raw service authority hardening:** The same pre-inspection policy now rejects host-side `LogDriver` selection, secondary `NetworkAttachmentConfig`, generic device reservations, host alias injection, unbounded ulimits, host OOM-priority changes, and oversized shared-memory requests in raw Swarm service payloads. Focused table-driven regressions cover each class; broader raw Compose orchestration and secret-bearing build transport remain open migration slices.
@@ -818,7 +827,7 @@ Passed:
 - deployment-worker raw and typed service file-backed-resource preflight tests covering owned, foreign, malformed, and update-time secret/config references
 - MCP transport tests covering per-request DNS revalidation, blocked-address rejection before forwarding, request deadlines, endpoint safety, and untrusted-output provenance
 - AI provider endpoint tests covering per-request DNS revalidation, loopback rebinding rejection, configured-origin enforcement, and redirect blocking
-- `go test ./...` in `apps/docker-broker` and typed-route authorization tests
+- `go test ./...` and `go vet ./...` in `apps/docker-broker`, including raw container-create shape regressions and typed-route authorization tests
 - Docker-broker case-insensitive raw-policy regression tests covering lower-case/mixed-case labels, mounts, binds, privilege, namespace-sharing, and security-option escapes
 - typed self-update runtime tests with a fake Docker transport (managed services only, immutable digest mutation, source-install rejection)
 - typed Swarm runtime tests with a fake Docker transport (inventory mapping and bounded node update)
