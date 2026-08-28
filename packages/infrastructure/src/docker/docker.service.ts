@@ -142,6 +142,8 @@ const DOCKER_BUILD_SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,255}$/;
 const MAX_DOCKER_BUILD_SECRETS = 64;
 const MAX_DOCKER_BUILD_SECRET_BYTES = 16 * 1024;
 const MAX_DOCKER_BUILD_SECRET_TOTAL_BYTES = 512 * 1024;
+const MAX_DOCKER_PROCESS_ENVIRONMENT_VARIABLES = 256;
+const MAX_DOCKER_PROCESS_ENVIRONMENT_TOTAL_BYTES = 512 * 1024;
 
 function validateDockerBuildArguments(buildArgs: Record<string, string>): void {
   const entries = Object.entries(buildArgs);
@@ -171,12 +173,21 @@ function validateDockerBuildArguments(buildArgs: Record<string, string>): void {
   }
 }
 
-function validateDockerBuildSecretEnvironment(
-  buildSecrets: Record<string, string>,
+function validateDockerEnvironmentShape(
+  environment: Record<string, string>,
+  options: {
+    label: string;
+    maxEntries: number;
+    maxTotalBytes: number;
+    countError?: string;
+    aggregateError?: string;
+  },
 ): void {
-  const entries = Object.entries(buildSecrets);
-  if (entries.length > MAX_DOCKER_BUILD_SECRETS) {
-    throw new Error("Docker build secrets exceed their limit");
+  const entries = Object.entries(environment);
+  if (entries.length > options.maxEntries) {
+    throw new Error(
+      options.countError ?? `${options.label} exceeds its variable-count limit`,
+    );
   }
   let totalBytes = 0;
   for (const [name, value] of entries) {
@@ -188,18 +199,35 @@ function validateDockerBuildSecretEnvironment(
       Buffer.byteLength(value, "utf8") > MAX_DOCKER_BUILD_SECRET_BYTES
     ) {
       throw new Error(
-        `Docker build secret '${name}' has an invalid name or value`,
-      );
-    }
-    if (COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase())) {
-      throw new Error(
-        `Docker build secret '${name}' cannot override Docker or Compose control environment`,
+        `${options.label} '${name}' has an invalid name or value`,
       );
     }
     totalBytes +=
       Buffer.byteLength(name, "utf8") + Buffer.byteLength(value, "utf8");
-    if (totalBytes > MAX_DOCKER_BUILD_SECRET_TOTAL_BYTES) {
-      throw new Error("Docker build secrets exceed their aggregate size limit");
+    if (totalBytes > options.maxTotalBytes) {
+      throw new Error(
+        options.aggregateError ??
+          `${options.label} exceeds its aggregate size limit`,
+      );
+    }
+  }
+}
+
+function validateDockerBuildSecretEnvironment(
+  buildSecrets: Record<string, string>,
+): void {
+  validateDockerEnvironmentShape(buildSecrets, {
+    label: "Docker build secret",
+    maxEntries: MAX_DOCKER_BUILD_SECRETS,
+    maxTotalBytes: MAX_DOCKER_BUILD_SECRET_TOTAL_BYTES,
+    countError: "Docker build secrets exceed their limit",
+    aggregateError: "Docker build secrets exceed their aggregate size limit",
+  });
+  for (const name of Object.keys(buildSecrets)) {
+    if (COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase())) {
+      throw new Error(
+        `Docker build secret '${name}' cannot override Docker or Compose control environment`,
+      );
     }
   }
 }
@@ -213,15 +241,21 @@ function getMinimalCommandEnv(): Record<string, string> {
   );
 }
 
-function getComposeCliEnvironment(
+export function getComposeCliEnvironment(
   resourceEnvironment: Record<string, string>,
 ): NodeJS.ProcessEnv {
-  return Object.fromEntries(
+  const safeEnvironment = Object.fromEntries(
     Object.entries(resourceEnvironment).filter(
       ([name]) =>
         !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase()),
     ),
-  ) as NodeJS.ProcessEnv;
+  );
+  validateDockerEnvironmentShape(safeEnvironment, {
+    label: "Docker Compose environment",
+    maxEntries: MAX_DOCKER_PROCESS_ENVIRONMENT_VARIABLES,
+    maxTotalBytes: MAX_DOCKER_PROCESS_ENVIRONMENT_TOTAL_BYTES,
+  });
+  return safeEnvironment as NodeJS.ProcessEnv;
 }
 
 function isDockerTarget(value: unknown): value is Docker {
@@ -3138,7 +3172,11 @@ export class DockerService implements DockerSwarmManagementPort {
           !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase()),
       ),
     );
-    validateDockerBuildSecretEnvironment(safeEnvironment);
+    validateDockerEnvironmentShape(safeEnvironment, {
+      label: "Docker build environment",
+      maxEntries: MAX_DOCKER_PROCESS_ENVIRONMENT_VARIABLES,
+      maxTotalBytes: MAX_DOCKER_PROCESS_ENVIRONMENT_TOTAL_BYTES,
+    });
     return {
       ...getInheritedEnv(safeEnvironment),
       ...(resourceId ? this.getDockerCommandEnvironment(resourceId) : {}),

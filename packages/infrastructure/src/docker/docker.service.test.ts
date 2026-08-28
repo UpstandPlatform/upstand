@@ -7,6 +7,7 @@ import yaml from "yaml";
 import {
   applyComposePlacementConstraints,
   DockerService,
+  getComposeCliEnvironment,
   redactCommandOutput,
   shouldSuppressComposeRestart,
 } from "./docker.service";
@@ -114,6 +115,36 @@ describe("deployment command log safety", () => {
           ]),
         ),
         "resource-1",
+      ),
+    ).toThrow("aggregate size limit");
+  });
+
+  test("bounds the Compose subprocess environment after filtering Docker controls", () => {
+    expect(
+      getComposeCliEnvironment({
+        DOCKER_HOST: "tcp://attacker.example:2375",
+        VALID_NAME: "value",
+      }),
+    ).toEqual({ VALID_NAME: "value" });
+    expect(() => getComposeCliEnvironment({ "BAD-NAME": "value" })).toThrow(
+      "has an invalid name or value",
+    );
+    expect(() =>
+      getComposeCliEnvironment({ VALID_NAME: "value\u0000" }),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      getComposeCliEnvironment({
+        VALID_NAME: "x".repeat(16 * 1024 + 1),
+      }),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      getComposeCliEnvironment(
+        Object.fromEntries(
+          Array.from({ length: 33 }, (_, index) => [
+            `VARIABLE_${index}`,
+            "x".repeat(16 * 1024),
+          ]),
+        ),
       ),
     ).toThrow("aggregate size limit");
   });
