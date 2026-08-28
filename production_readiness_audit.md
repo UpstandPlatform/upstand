@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `aa7c370e`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `8782bc73`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -35,6 +35,14 @@ same daemon-side ownership check. Ownership-checked typed service, network, and
 database-volume removal covers local cleanup paths; the score remains
 unchanged because the remaining Compose orchestration and secret-bearing build
 paths are not yet a fully typed deployment capability.
+
+The latest credential-handling slice also makes preview deployment branch
+overrides use strict credential parsing and encrypted serialization. Corrupt
+or undecryptable stored resource credentials now fail the deployment instead
+of becoming an empty plaintext object, and valid preview overrides remain
+encrypted in the in-memory deployment payload; a focused regression covers
+the encryption-preserving transformation. This improves the secret boundary
+without closing the broader raw Compose/service transport gap.
 
 The latest scoped-authority slice replaces the worker's self-asserted resource
 header with a short-lived HMAC grant issued by the control-plane queueing path.
@@ -530,6 +538,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Latest raw nested-service-shape hardening:** Deployment-worker raw Swarm service create/update payloads now apply explicit nested allowlists to mounts, volume options, secret/config file metadata, health checks, DNS configuration, placement preferences/platforms, and replicated/global job modes. Unknown or future nested fields fail closed before daemon inspection or mutation, with positive and negative regressions for the reviewed Compose/Swarm shape; the broader raw Compose/service migration remains open.
 - **Latest deployment-scope hardening:** The TypeScript grant issuer and Go broker verifier now enforce the same two-hour maximum lifetime and bounded identifier alphabet/length. Malformed or overlong deployment/server claims fail before they can become Docker custom headers, reducing replay and header-injection exposure while preserving the bounded build window; raw Compose/service authority remains open.
 - **Latest build-secret fail-closed hardening:** Persisted application build secrets now reject malformed, undecryptable, non-object, and unsafe-key documents with an explicit validation error instead of returning an empty secret map. This prevents a damaged secret record from silently selecting a secret-free build path; valid encrypted and legacy-compatible documents remain supported, while credential-safe typed streaming transport remains open.
+- **Latest preview-credential hardening:** Preview deployment branch overrides now use strict resource-credential parsing and encrypted serialization. Corrupt or undecryptable credentials fail closed, and valid overrides do not rewrite protected credentials as plaintext; focused credential-storage regression coverage passes while broader raw Compose/service transport remains open.
 - **Latest Compose task-boundary hardening:** Compose validation also rejects deploy-level privileged/capability/device/security/sysctl controls, reserved host devices, custom runtimes, host GPUs, and `service:host` namespace references. This closes equivalent host-escape controls expressed through the Swarm/Compose deployment model, including mapping-shaped sysctl declarations; focused regressions cover list and mapping forms.
 - **Latest worker-grant boundary hardening:** Deployment jobs now carry a short-lived HMAC grant signed by the control plane and bound to the exact resource, deployment, and target server. The deployment worker does not receive the signing secret; Dockerode, Docker CLI, and broker-stream transports propagate the grant from async-local job context; production broker requests reject missing, expired, tampered, or cross-resource grants. Go and TypeScript tests cover the verifier, transport propagation, and concurrent context isolation. The remaining raw Compose and secret-bearing build paths are still not fully typed.
 - **Latest raw service-network hardening:** Production deployment-worker raw service create/update requests now daemon-inspect every explicit `TaskTemplate.Networks` and top-level `Networks` target before forwarding. Only encrypted, attachable Swarm overlay networks are accepted, and targets must be the configured shared network or a managed network labelled for the same resource; update requests revalidate both existing and requested attachments. Focused fake-daemon regressions cover owned, configured-shared, foreign, missing-target, and update cases. Raw Compose/service-create transport remains an open migration slice.
@@ -810,6 +819,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-017 | Remediated in code — docs-chat messages, parts, text, search query, and output are bounded. |
 | F-018 | Remediated in code — Better Auth routes now have shared distributed request limiting and a 256 KiB body cap; protected HTTP middleware records low-cardinality authentication outcomes and Prometheus alerts on sustained rejection rates; live auth-failure paging evidence remains. |
 | F-019 | Remediated in code — server-rendered session routing validates the Host authority, ignores forwarded host/protocol headers, uses configured/internal origins for normal domains, and preserves only the explicit validated direct-IP bootstrap path; focused URL-resolution tests pass. |
+| F-001/F-014 credential boundary | Remediated for the preview deployment override path — stored resource credentials are parsed strictly and re-encrypted after the branch override, so malformed/undecryptable values fail closed and valid credentials are not downgraded to plaintext; focused regression coverage passes. Broader secret-bearing build and raw Compose/service transport remains open. |
 
 ## Security Risk Matrix
 
@@ -945,6 +955,7 @@ Passed:
 - aggregate AI budget admission/request-cost metrics, sustained-rejection alert, and low-cardinality contract coverage
 - shared background-job lifecycle metrics for deployment/backup/notification/migration/outbox operations, continuous-failure alert, and identifier-exclusion tests
 - preview cleanup resource-ID propagation, typed ownership delegation, and unowned-service rejection tests
+- preview deployment credential override encryption-preservation regression
 - typed revision-promotion ownership validation and local deployment delegation tests
 - typed resource-service scaling validation and local autoscaling delegation tests
 - Compose security regression tests covering interpolated/long-syntax binds, host-backed volume/network driver options, unsupported drivers, typed resource-service named-volume enforcement, host-gateway `extra_hosts`, service resource controls, and weakened security options
