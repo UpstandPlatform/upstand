@@ -789,13 +789,11 @@ func isAllowedCallerDockerOperation(caller, method, path string) bool {
 	}
 
 	if caller == "server" && brokerRequiresProductionIdentity() {
-		// Production API processes do not own image-build or arbitrary Swarm
-		// service-mutation authority. Resource service mutations, including
-		// deletion, use typed routes; deployment builds and Compose remain
-		// isolated in the deployment worker.
-		if (method == http.MethodPost && (path == "/build" || path == "/services/create")) ||
-			(method == http.MethodPost && resourceActionPath(path, "services", "update")) ||
-			(method == http.MethodDelete && resourceItemPath(path, "services")) {
+		// Production API processes use typed broker capabilities for Docker
+		// mutations. Keeping the legacy mutation surface available to the
+		// server would let a compromised API process choose a newly-added
+		// daemon field before that operation receives a typed policy review.
+		if isServerRawMutation(method, path) {
 			return false
 		}
 	}
@@ -844,6 +842,42 @@ func isSchedulesRawMutation(method, path string) bool {
 			resourceItemPath(path, "networks") ||
 			resourceItemPath(path, "volumes") ||
 			resourceItemPath(path, "services"))
+}
+
+func isServerRawMutation(method, path string) bool {
+	if method == http.MethodPost {
+		if path == "/containers/create" ||
+			path == "/containers/prune" ||
+			path == "/images/create" ||
+			path == "/images/prune" ||
+			path == "/build" ||
+			path == "/build/prune" ||
+			path == "/volumes/create" ||
+			path == "/networks/create" ||
+			path == "/services/create" ||
+			resourceActionPath(path, "networks", "connect") ||
+			resourceActionPath(path, "networks", "disconnect") ||
+			resourceActionPath(path, "images", "tag") ||
+			resourceActionPath(path, "services", "update") ||
+			containerActionPath(path, "exec") ||
+			isContainerMutationPath(path) ||
+			execPath(path, "start") ||
+			execPath(path, "resize") {
+			return true
+		}
+	}
+	if method == http.MethodPut && containerActionPath(path, "archive") {
+		return true
+	}
+	if method == http.MethodDelete &&
+		(containerPath(path, "") ||
+			resourceItemPath(path, "images") ||
+			resourceItemPath(path, "volumes") ||
+			resourceItemPath(path, "networks") ||
+			resourceItemPath(path, "services")) {
+		return true
+	}
+	return false
 }
 
 func brokerRequiresProductionIdentity() bool {

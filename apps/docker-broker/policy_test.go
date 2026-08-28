@@ -793,6 +793,47 @@ func TestProductionServerCannotUseRawBuildOrServiceMutation(t *testing.T) {
 	}
 }
 
+func TestProductionServerCannotUseAnyRawDockerMutation(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v1.43/containers/create"},
+		{http.MethodPost, "/v1.43/containers/container-1/start"},
+		{http.MethodPost, "/v1.43/containers/container-1/exec"},
+		{http.MethodPost, "/v1.43/exec/exec-1/start"},
+		{http.MethodPut, "/v1.43/containers/container-1/archive"},
+		{http.MethodPost, "/v1.43/images/create"},
+		{http.MethodPost, "/v1.43/networks/create"},
+		{http.MethodPost, "/v1.43/volumes/create"},
+		{http.MethodPost, "/v1.43/networks/network-1/connect"},
+		{http.MethodDelete, "/v1.43/containers/container-1"},
+		{http.MethodDelete, "/v1.43/images/image-1"},
+		{http.MethodDelete, "/v1.43/networks/network-1"},
+		{http.MethodDelete, "/v1.43/volumes/volume-1"},
+	} {
+		req := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
+		if err := authorizeDockerRequestForCaller("server", req, nil); err == nil {
+			t.Fatalf("expected production server raw Docker mutation to be rejected: %s %s", test.method, test.path)
+		}
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1.43/version"},
+		{http.MethodGet, "/v1.43/containers/container-1/json"},
+		{http.MethodGet, "/v1.43/services"},
+	} {
+		req := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
+		if err := authorizeDockerRequestForCaller("server", req, nil); err != nil {
+			t.Fatalf("expected production server read to remain available: %s %s: %v", test.method, test.path, err)
+		}
+	}
+}
+
 func TestProductionDeploymentWorkerBuildRequiresResourceScope(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 
