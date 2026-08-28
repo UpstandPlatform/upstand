@@ -94,6 +94,37 @@ describe("deployment scope grants", () => {
     ).toThrow("at least 32 bytes");
   });
 
+  test("bounds signed grant identifiers before putting them in transport headers", () => {
+    expect(() =>
+      withScopeEnvironment({ value: secret }, () =>
+        createDeploymentScopeToken({
+          resourceId: "resource-1",
+          deploymentId: "deployment\n-injected",
+          serverId: "server-1",
+        }),
+      ),
+    ).toThrow("Deployment scope deploymentId is invalid");
+  });
+
+  test("uses a two-hour grant lifetime", () => {
+    const issuedAt = 1_700_000_000_000;
+    const token = withScopeEnvironment({ value: secret }, () =>
+      createDeploymentScopeToken({
+        resourceId: "resource-1",
+        deploymentId: "deployment-1",
+        serverId: "server-1",
+        now: issuedAt,
+      }),
+    );
+    if (!token) throw new Error("expected a signed deployment scope token");
+    const encodedPayload = token.split(".")[1];
+    if (!encodedPayload) throw new Error("signed grant payload is missing");
+    const claims = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as { issuedAt: number; expiresAt: number };
+    expect(claims.expiresAt - claims.issuedAt).toBe(2 * 60 * 60 * 1_000);
+  });
+
   test("keeps concurrent deployment grants isolated", async () => {
     await withDeploymentScopeToken("grant-a", async () => {
       const first = withDeploymentScopeToken("grant-a", async () => {
