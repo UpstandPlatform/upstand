@@ -138,6 +138,10 @@ const SENSITIVE_DOCKER_BUILD_ARGUMENT_MARKERS = [
   "access_key",
   "accesskey",
 ] as const;
+const DOCKER_BUILD_SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,255}$/;
+const MAX_DOCKER_BUILD_SECRETS = 64;
+const MAX_DOCKER_BUILD_SECRET_BYTES = 16 * 1024;
+const MAX_DOCKER_BUILD_SECRET_TOTAL_BYTES = 512 * 1024;
 
 function validateDockerBuildArguments(buildArgs: Record<string, string>): void {
   const entries = Object.entries(buildArgs);
@@ -170,11 +174,32 @@ function validateDockerBuildArguments(buildArgs: Record<string, string>): void {
 function validateDockerBuildSecretEnvironment(
   buildSecrets: Record<string, string>,
 ): void {
-  for (const name of Object.keys(buildSecrets)) {
+  const entries = Object.entries(buildSecrets);
+  if (entries.length > MAX_DOCKER_BUILD_SECRETS) {
+    throw new Error("Docker build secrets exceed their limit");
+  }
+  let totalBytes = 0;
+  for (const [name, value] of entries) {
+    if (
+      !DOCKER_BUILD_SECRET_NAME_PATTERN.test(name) ||
+      [...name, ...value].some(
+        (character) => character.charCodeAt(0) < 0x20 || character === "\u007f",
+      ) ||
+      Buffer.byteLength(value, "utf8") > MAX_DOCKER_BUILD_SECRET_BYTES
+    ) {
+      throw new Error(
+        `Docker build secret '${name}' has an invalid name or value`,
+      );
+    }
     if (COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase())) {
       throw new Error(
         `Docker build secret '${name}' cannot override Docker or Compose control environment`,
       );
+    }
+    totalBytes +=
+      Buffer.byteLength(name, "utf8") + Buffer.byteLength(value, "utf8");
+    if (totalBytes > MAX_DOCKER_BUILD_SECRET_TOTAL_BYTES) {
+      throw new Error("Docker build secrets exceed their aggregate size limit");
     }
   }
 }

@@ -1259,6 +1259,82 @@ volumes:
     }
   });
 
+  test("rejects malformed or unbounded Docker build secrets before execution", async () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      null as never,
+    ) as unknown as {
+      buildDockerfileImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        buildEnvVars: Record<string, string>,
+        onLog: (message: string) => void,
+        buildSecrets: Record<string, string>,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+    };
+    const contextPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-invalid-secret-build-"),
+    );
+    fs.writeFileSync(
+      path.join(contextPath, "Dockerfile"),
+      "FROM alpine:3.20\n",
+    );
+    const config = {
+      dockerfilePath: "Dockerfile",
+      dockerContextPath: ".",
+      dockerNoCache: false,
+      dockerBuildStage: undefined,
+      dockerBuildArgs: {},
+      dockerCleanupCache: false,
+    };
+    const build = (buildSecrets: Record<string, string>) =>
+      service.buildDockerfileImage(
+        "resource-1",
+        contextPath,
+        "upstand-app-resource-1:latest",
+        config,
+        {},
+        () => {},
+        buildSecrets,
+        false,
+      );
+
+    try {
+      await expect(build({ "BAD-NAME": "value" })).rejects.toThrow(
+        "has an invalid name or value",
+      );
+      await expect(build({ VALID_NAME: "value\u0000" })).rejects.toThrow(
+        "has an invalid name or value",
+      );
+      await expect(
+        build({ VALID_NAME: "x".repeat(16 * 1024 + 1) }),
+      ).rejects.toThrow("has an invalid name or value");
+      await expect(
+        build(
+          Object.fromEntries(
+            Array.from({ length: 65 }, (_, index) => [`SECRET_${index}`, "x"]),
+          ),
+        ),
+      ).rejects.toThrow("exceed their limit");
+      await expect(
+        build({
+          ...Object.fromEntries(
+            Array.from({ length: 33 }, (_, index) => [
+              `SECRET_${index}`,
+              "x".repeat(16 * 1024),
+            ]),
+          ),
+        }),
+      ).rejects.toThrow("aggregate size limit");
+    } finally {
+      fs.rmSync(contextPath, { recursive: true, force: true });
+    }
+  });
+
   test("includes resource ownership labels on raw Dockerfile builds", async () => {
     const service = new DockerService(
       {} as never,
