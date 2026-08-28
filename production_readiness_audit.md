@@ -1,7 +1,7 @@
 # Upstand Production-Readiness Audit
 
 Date: 2026-08-28
-Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `55b5bc4c`, PR #354)
+Revision: follow-up infrastructure hardening branch `feat/service-shape-allowlist-v2` (post-PR #350, commit `0796f696`, PR #354)
 Scope: control plane, web console, Fumadocs, Go monitoring, PostgreSQL/Drizzle, Redis/BullMQ, Docker Swarm, installer, CI/CD, auth/authz, webhooks, AI, backups, and observability.
 
 ## Executive Summary
@@ -41,6 +41,15 @@ resource ownership label for every Swarm secret/config reference. Deterministic
 names are no longer treated as proof of ownership, closing stale or externally
 created name-collision cases; the existing update-time and new unlabelled-name
 regressions pass.
+
+The latest broker boundary iteration also denies production server callers the
+legacy raw Docker mutation surface, including container/image/network/volume
+mutation, exec/archive writes, and raw service mutation. Production server
+workflows continue through reviewed typed capabilities while read-only raw
+inspection remains available for compatibility; development behavior is
+unchanged. Focused policy regressions cover the denied mutation classes and
+allowed read-only requests. This narrows the control-plane blast radius, but
+does not close the broader deployment-worker Compose/service transport gap.
 
 The latest credential-handling slice also makes preview deployment branch
 overrides use strict credential parsing and encrypted serialization. Corrupt
@@ -549,6 +558,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 - **Latest worker-grant boundary hardening:** Deployment jobs now carry a short-lived HMAC grant signed by the control plane and bound to the exact resource, deployment, and target server. The deployment worker does not receive the signing secret; Dockerode, Docker CLI, and broker-stream transports propagate the grant from async-local job context; production broker requests reject missing, expired, tampered, or cross-resource grants. Go and TypeScript tests cover the verifier, transport propagation, and concurrent context isolation. The remaining raw Compose and secret-bearing build paths are still not fully typed.
 - **Latest raw service-network hardening:** Production deployment-worker raw service create/update requests now daemon-inspect every explicit `TaskTemplate.Networks` and top-level `Networks` target before forwarding. Only encrypted, attachable Swarm overlay networks are accepted, and targets must be the configured shared network or a managed network labelled for the same resource; update requests revalidate both existing and requested attachments. Focused fake-daemon regressions cover owned, configured-shared, foreign, missing-target, and update cases. Raw Compose/service-create transport remains an open migration slice.
 - **Latest raw file-backed-resource hardening:** Production deployment-worker raw and typed resource-service create/update flows now inspect every Swarm `SecretID`/`SecretName` and `ConfigID`/`ConfigName` reference through the daemon before service mutation. References must resolve to the requested resource's exact ownership label; deterministic names alone are not accepted as an ownership proof because stale or externally-created objects can collide with naming conventions. Named service volumes must also use the exact deterministic database or resource-Compose ownership prefix, with case-insensitive Docker field parsing covered. Missing, mismatched, foreign, unbounded, and malformed references fail closed. Compose config/secret definitions now reject external resources and unsafe file/name paths, and owned definitions receive deterministic resource-scoped Docker names. Focused Go and use-case regressions cover raw create, raw update-time revalidation, unlabelled deterministic-name collision rejection, typed upsert, typed cross-resource and mixed-case volume mounts, Compose scoping, and external/host-backed rejection. The broader raw Compose/service orchestration transport remains an open migration slice.
+- **Latest production server mutation-boundary hardening:** When production broker identity is required, server callers are denied legacy raw Docker mutation endpoints for container/image/network/volume mutation, exec start/resize, archive writes, and raw service mutation. Server read-only inspection remains available for compatibility, while local mutation workflows use the reviewed typed broker capabilities. Focused policy regressions cover representative mutation classes and read-only compatibility; development mode remains unchanged. The deployment-worker raw Compose/service orchestration and credential-safe secret-bearing build migrations remain open.
 - **Latest raw service-volume hardening:** Production deployment-worker raw and typed resource-service create/update flows now re-inspect every named service volume through the Docker daemon immediately before mutation. The live volume must have the exact requested identity, the built-in local driver, no driver options, and either the exact legacy database-volume name or managed resource-isolation labels; prefix-only names, foreign labels, and host-backed options fail closed. Focused Go regressions cover raw service mounts, typed service mounts, foreign ownership, hostile options, and the legacy database-volume compatibility path. The broader raw Compose/service orchestration transport remains an open migration slice.
 - **Latest worker-read hardening:** Production deployment-worker callers are denied global Docker metadata and inventory (`/info`, `/images/json`, `/nodes`, `/system/df`, and `/volumes`). Worker Swarm status now uses the bounded typed `swarm` info operation; resource-scoped service, task, network, volume, and container reads remain available only through exact filters or live ownership checks; typed inventory remains the preferred control-plane path.
 - **Latest broker-policy parsing hardening:** Raw Docker JSON policy walkers now normalize field names case-insensitively before evaluating ownership, host escape, namespace-sharing, security-option, bind/mount, and volume-driver rules. This closes the Go JSON decoder’s case-insensitive field-matching gap for lower-case or mixed-case payload keys; regression coverage rejects lower-case resource-volume binds, Docker-socket binds, privileged mode, `container:` namespace sharing, and `no-new-privileges=false`. The broader raw Compose/service-create transport remains an open migration slice.
@@ -826,6 +836,7 @@ Overall: **8.9/10**. This is an interim score, not a release approval.
 | F-018 | Remediated in code — Better Auth routes now have shared distributed request limiting and a 256 KiB body cap; protected HTTP middleware records low-cardinality authentication outcomes and Prometheus alerts on sustained rejection rates; live auth-failure paging evidence remains. |
 | F-019 | Remediated in code — server-rendered session routing validates the Host authority, ignores forwarded host/protocol headers, uses configured/internal origins for normal domains, and preserves only the explicit validated direct-IP bootstrap path; focused URL-resolution tests pass. |
 | F-001 raw file-reference ownership | Hardened — raw service secret/config references now require the exact daemon-side `com.upstand.resource-id` label; deterministic names alone no longer establish ownership, with regression coverage for an unlabelled collision. |
+| F-001 server raw mutation boundary | Hardened for production server callers — legacy raw container/image/network/volume, exec/archive, and service mutation endpoints are denied; reviewed typed broker capabilities remain the server mutation path, with read-only compatibility and focused policy coverage. Deployment-worker Compose/service transport remains open. |
 | F-001/F-014 credential boundary | Remediated for the preview deployment override path — stored resource credentials are parsed strictly and re-encrypted after the branch override, so malformed/undecryptable values fail closed and valid credentials are not downgraded to plaintext; focused regression coverage passes. Broader secret-bearing build and raw Compose/service transport remains open. |
 
 ## Security Risk Matrix
@@ -930,6 +941,7 @@ Passed:
 - AI provider endpoint tests covering per-request DNS revalidation, loopback rebinding rejection, configured-origin enforcement, and redirect blocking
 - `go test ./...` and `go vet ./...` in `apps/docker-broker`, including raw container-create shape regressions and typed-route authorization tests
 - raw service file-reference ownership regression rejecting unlabelled deterministic secret/config name collisions
+- production server raw Docker mutation-boundary policy regressions covering container/image/network/volume, exec/archive, and service mutation denial plus read-only compatibility
 - Docker-broker case-insensitive raw-policy regression tests covering lower-case/mixed-case labels, mounts, binds, privilege, namespace-sharing, and security-option escapes
 - typed self-update runtime tests with a fake Docker transport (managed services only, immutable digest mutation, source-install rejection)
 - typed Swarm runtime tests with a fake Docker transport (inventory mapping and bounded node update)
