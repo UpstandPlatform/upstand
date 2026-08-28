@@ -3138,6 +3138,7 @@ export class DockerService implements DockerSwarmManagementPort {
           !COMPOSE_CLI_RESERVED_ENVIRONMENT_NAMES.has(name.toUpperCase()),
       ),
     );
+    validateDockerBuildSecretEnvironment(safeEnvironment);
     return {
       ...getInheritedEnv(safeEnvironment),
       ...(resourceId ? this.getDockerCommandEnvironment(resourceId) : {}),

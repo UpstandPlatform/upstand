@@ -81,6 +81,43 @@ describe("deployment command log safety", () => {
     );
   });
 
+  test("rejects malformed or unbounded build environments before subprocesses", () => {
+    const service = new DockerService(
+      {} as never,
+      { DOCKER_HOST: "ssh://builder" },
+      undefined,
+    ) as unknown as {
+      getBuildEnvironment: (
+        envVars: Record<string, string>,
+        resourceId: string,
+      ) => NodeJS.ProcessEnv;
+    };
+
+    expect(() =>
+      service.getBuildEnvironment({ "BAD-NAME": "value" }, "resource-1"),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      service.getBuildEnvironment({ VALID_NAME: "value\u0000" }, "resource-1"),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      service.getBuildEnvironment(
+        { VALID_NAME: "x".repeat(16 * 1024 + 1) },
+        "resource-1",
+      ),
+    ).toThrow("has an invalid name or value");
+    expect(() =>
+      service.getBuildEnvironment(
+        Object.fromEntries(
+          Array.from({ length: 33 }, (_, index) => [
+            `SECRET_${index}`,
+            "x".repeat(16 * 1024),
+          ]),
+        ),
+        "resource-1",
+      ),
+    ).toThrow("aggregate size limit");
+  });
+
   test("preserves the authenticated local broker transport for CLI subprocesses", () => {
     const directory = fs.mkdtempSync(
       path.join(os.tmpdir(), "upstand-broker-cli-"),
