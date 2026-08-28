@@ -855,6 +855,58 @@ func TestDeploymentWorkerRawContainerCreateRejectsUnreviewedLogConfigOptions(t *
 	}
 }
 
+func TestDeploymentWorkerRawContainerCreateRejectsHostGatewayAndCrossContainerLinks(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "host gateway extra host",
+			body: `{"Image":"example/app:latest","HostConfig":{"ExtraHosts":["host.docker.internal:host-gateway"]}}`,
+		},
+		{
+			name: "legacy host config link",
+			body: `{"Image":"example/app:latest","HostConfig":{"Links":["foreign-container:alias"]}}`,
+		},
+		{
+			name: "endpoint link",
+			body: `{"Image":"example/app:latest","NetworkingConfig":{"EndpointsConfig":{"upstand-resource-resource-1":{"Links":["foreign-container:alias"]}}}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateDeploymentWorkerRawContainerShape([]byte(test.body)); err == nil {
+				t.Fatalf("expected unsafe raw container control to be rejected: %s", test.body)
+			}
+		})
+	}
+}
+
+func TestDeploymentWorkerRawContainerCreateRejectsUntypedSecurityControls(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "string privileged flag",
+			body: `{"Image":"example/app:latest","HostConfig":{"Privileged":"true"}}`,
+		},
+		{
+			name: "non-string network mode",
+			body: `{"Image":"example/app:latest","HostConfig":{"NetworkMode":true}}`,
+		},
+		{
+			name: "string network disabled flag",
+			body: `{"Image":"example/app:latest","NetworkDisabled":"true"}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateDeploymentWorkerRawContainerShape([]byte(test.body)); err == nil {
+				t.Fatalf("expected untyped raw container security control to be rejected: %s", test.body)
+			}
+		})
+	}
+}
+
 func TestDeploymentWorkerRawServiceListingRequiresExactResourceFilter(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	for _, test := range []struct {

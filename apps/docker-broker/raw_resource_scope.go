@@ -456,6 +456,9 @@ func validateDeploymentWorkerRawContainerShape(body []byte) error {
 		if err := validateDockerObjectShape(hostConfig, deploymentWorkerRawContainerHostConfigFields, "Docker container HostConfig"); err != nil {
 			return err
 		}
+		if err := validateDeploymentWorkerRawContainerHostConfig(hostConfig); err != nil {
+			return err
+		}
 		if rawLogConfig, ok := dockerObjectField(hostConfig, "LogConfig"); ok {
 			logConfig, ok := rawLogConfig.(map[string]any)
 			if !ok || logConfig == nil {
@@ -500,10 +503,94 @@ func validateDeploymentWorkerRawContainerShape(body []byte) error {
 				if err := validateDockerObjectShape(endpoint, deploymentWorkerRawContainerEndpointFields, "Docker container network endpoint"); err != nil {
 					return err
 				}
+				if rawLinks, ok := dockerObjectField(endpoint, "Links"); ok {
+					links, ok := rawLinks.([]any)
+					if !ok || len(links) > 0 {
+						return fmt.Errorf("Docker container network endpoint %q cannot use container links", networkName)
+					}
+				}
+			}
+		}
+	}
+	if rawNetworkDisabled, ok := dockerObjectField(payload, "NetworkDisabled"); ok && rawNetworkDisabled != nil {
+		if _, ok := rawNetworkDisabled.(bool); !ok {
+			return errors.New("Docker container NetworkDisabled must be a boolean")
+		}
+	}
+	return nil
+}
+
+// validateDeploymentWorkerRawContainerHostConfig closes nested legacy
+// container controls that are otherwise only protected by the generic JSON
+// walker. Docker's JSON decoder is not a security policy: it may reject some
+// malformed values, while a future API version could coerce or reinterpret
+// them. Keep host namespace, link, and host-gateway controls typed and
+// explicit at the broker boundary.
+func validateDeploymentWorkerRawContainerHostConfig(hostConfig map[string]any) error {
+	for _, field := range []string{"Privileged", "PublishAllPorts", "AutoRemove", "ReadonlyRootfs", "OomKillDisable", "Init"} {
+		if value, ok := dockerObjectField(hostConfig, field); ok && value != nil {
+			if _, ok := value.(bool); !ok {
+				return fmt.Errorf("Docker container HostConfig.%s must be a boolean", field)
+			}
+		}
+	}
+
+	for _, field := range []string{"NetworkMode", "PidMode", "IpcMode", "UTSMode", "UsernsMode", "CgroupnsMode", "Isolation", "Runtime"} {
+		if value, ok := dockerObjectField(hostConfig, field); ok && value != nil {
+			text, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("Docker container HostConfig.%s must be a string", field)
+			}
+			if field != "NetworkMode" && field != "PidMode" && field != "IpcMode" && field != "UTSMode" && field != "UsernsMode" && field != "CgroupnsMode" {
+				continue
+			}
+			mode := strings.ToLower(strings.TrimSpace(text))
+			if mode == "host" || mode == "hostipc" || mode == "hostpid" || mode == "hostnetwork" || strings.HasPrefix(mode, "container:") || strings.HasPrefix(mode, "service:") {
+				return fmt.Errorf("Docker container HostConfig.%s requests a shared or host namespace", field)
+			}
+		}
+	}
+
+	for _, field := range []string{"Links", "VolumesFrom"} {
+		if value, ok := dockerObjectField(hostConfig, field); !ok || value == nil {
+			continue
+		} else if links, ok := value.([]any); !ok {
+			return fmt.Errorf("Docker container HostConfig.%s must be an array", field)
+		} else if len(links) > 0 {
+			return fmt.Errorf("Docker container HostConfig.%s cannot use cross-container references", field)
+		}
+	}
+
+	if rawExtraHosts, ok := dockerObjectField(hostConfig, "ExtraHosts"); ok && rawExtraHosts != nil {
+		extraHosts, ok := rawExtraHosts.([]any)
+		if !ok || len(extraHosts) > 64 {
+			return errors.New("Docker container HostConfig.ExtraHosts must be a bounded array")
+		}
+		for index, rawHost := range extraHosts {
+			host, ok := rawHost.(string)
+			if !ok || host == "" || hasControlCharacter(host) {
+				return fmt.Errorf("Docker container HostConfig.ExtraHosts[%d] is invalid", index)
+			}
+			if isHostGatewayExtraHostValue(host) {
+				return errors.New("Docker container HostConfig.ExtraHosts cannot request host-gateway access")
 			}
 		}
 	}
 	return nil
+}
+
+func isHostGatewayExtraHostValue(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "host.docker.internal" || normalized == "gateway.docker.internal" {
+		return true
+	}
+	separator := strings.IndexAny(normalized, ":=")
+	if separator == -1 {
+		return false
+	}
+	host := strings.TrimSpace(normalized[:separator])
+	address := strings.TrimSpace(normalized[separator+1:])
+	return host == "host.docker.internal" || host == "gateway.docker.internal" || address == "host-gateway"
 }
 
 // validateDeploymentWorkerRawContainerLogConfig prevents the legacy raw
