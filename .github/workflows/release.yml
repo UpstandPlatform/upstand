@@ -509,7 +509,10 @@ jobs:
       - name: Set up environment paths
         env:
           BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt
-          BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-backup-rehearsal.json
+          # Keep the machine-readable backup evidence beside the other
+          # recovery evidence so the verifier and artifact upload consume the
+          # same path. The directory is created before the rehearsal runs.
+          BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-acceptance-evidence/backup-restore-rehearsal.json
           ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence
         run: |
           {
