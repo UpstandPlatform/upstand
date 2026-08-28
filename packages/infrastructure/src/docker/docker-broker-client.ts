@@ -654,6 +654,11 @@ export function createBoundedDockerBuildContext(
       "The Dockerfile must be located inside the Docker build context",
     );
   }
+  if (isSensitiveDockerBuildContextPath(dockerfileRelative)) {
+    throw new Error(
+      "The Dockerfile must not use a credential-bearing or VCS metadata path",
+    );
+  }
 
   const ignore = dockerIgnore();
   const ignorePath = path.join(contextPath, ".dockerignore");

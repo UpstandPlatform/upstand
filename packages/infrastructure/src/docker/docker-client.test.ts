@@ -102,6 +102,22 @@ describe("remote Docker client", () => {
     }
   });
 
+  test("rejects a sensitive path selected as the Dockerfile", () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-build-context-test-"),
+    );
+    try {
+      const envPath = path.join(directory, ".env");
+      fs.writeFileSync(envPath, "TOKEN=must-not-ship\n");
+
+      expect(() => createBoundedDockerBuildContext(directory, envPath)).toThrow(
+        "must not use a credential-bearing or VCS metadata path",
+      );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("honors an explicit Unix-socket Docker transport", () => {
     const docker = createDockerClientFromEnvironment(
       "unix:///run/upstand/docker-broker.sock",
