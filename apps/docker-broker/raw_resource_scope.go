@@ -1449,9 +1449,11 @@ func authorizeServiceFileBackedReferences(
 		if objectName != "" && objectName != inspection.Spec.Name {
 			return fmt.Errorf("service %s reference %d name does not match daemon identity", strings.ToLower(kind), index)
 		}
-		expectedPrefix := "upstand-resource-" + strings.ToLower(resourceID) + "-" + objectKind + "-"
-		if inspection.Spec.Labels["com.upstand.resource-id"] != resourceID &&
-			!strings.HasPrefix(strings.ToLower(inspection.Spec.Name), expectedPrefix) {
+		// Names are caller-controlled and are not an ownership proof. A stale
+		// or externally-created object can deliberately reuse the deterministic
+		// Upstand naming convention, so file-backed service references must carry
+		// the daemon-side ownership label as well as the requested identity.
+		if inspection.Spec.Labels["com.upstand.resource-id"] != resourceID {
 			return fmt.Errorf("service %s reference %d is not owned by the requested Upstand resource", strings.ToLower(kind), index)
 		}
 	}

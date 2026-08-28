@@ -508,7 +508,7 @@ func TestDeploymentWorkerRawServiceUpdateRevalidatesExistingSecretsAndConfigs(t 
 		case "/services/service-1":
 			return dockerResponse(http.StatusOK, `{"Spec":{"Name":"service-1","Labels":{"com.upstand.resource-id":"resource-1"},"TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1"}]}}}}`)
 		case "/secrets/secret-1":
-			return dockerResponse(http.StatusOK, `{"ID":"secret-1","Spec":{"Name":"upstand-resource-resource-1-secret-app"}}`)
+			return dockerResponse(http.StatusOK, `{"ID":"secret-1","Spec":{"Name":"upstand-resource-resource-1-secret-app","Labels":{"com.upstand.resource-id":"resource-1"}}}`)
 		case "/configs/config-foreign":
 			return dockerResponse(http.StatusOK, `{"ID":"config-foreign","Spec":{"Name":"upstand-resource-resource-2-config-app","Labels":{"com.upstand.resource-id":"resource-2"}}}`)
 		default:
@@ -517,6 +517,22 @@ func TestDeploymentWorkerRawServiceUpdateRevalidatesExistingSecretsAndConfigs(t 
 	})
 	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, engine); err == nil {
 		t.Fatal("expected an update adding a foreign config to be rejected")
+	}
+}
+
+func TestDeploymentWorkerRawServiceRejectsUnlabelledDeterministicFileReference(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	body := []byte(`{"Name":"service-1","TaskTemplate":{"ContainerSpec":{"Secrets":[{"SecretID":"secret-1"}]}}}`)
+	request := httptest.NewRequest(http.MethodPost, "http://broker/v1.43/services/create", strings.NewReader(string(body)))
+	request.Header.Set("X-Upstand-Resource-ID", "resource-1")
+	engine := rawScopeTestEngine(func(request *http.Request) *http.Response {
+		if request.URL.Path == "/secrets/secret-1" {
+			return dockerResponse(http.StatusOK, `{"ID":"secret-1","Spec":{"Name":"upstand-resource-resource-1-secret-app","Labels":{}}}`)
+		}
+		return dockerResponse(http.StatusNotFound, `{}`)
+	})
+	if err := authorizeDeploymentWorkerRawResourceScope(context.Background(), "deployment-worker", request, body, engine); err == nil {
+		t.Fatal("expected an unlabelled deterministic secret name to be rejected")
 	}
 }
 
