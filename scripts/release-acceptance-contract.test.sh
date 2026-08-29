@@ -109,11 +109,11 @@ require_workflow_text "bash scripts/verify-recovery-evidence.sh"
 require_workflow_text "verify-recovery-evidence-contract.test.sh"
 require_workflow_text "ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network"
 require_workflow_text "DOCKER_CONTROL_NETWORK: upstand-release-acceptance-control-network"
+require_workflow_text "STACK_NAME: upstand-release"
 require_workflow_text "OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector"
 require_workflow_text "OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config"
 require_workflow_text "otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7"
 require_workflow_text 'docker config create "$OTEL_COLLECTOR_CONFIG" scripts/otel-collector-acceptance.yaml'
-require_workflow_text 'docker network create --driver overlay --attachable "$DOCKER_CONTROL_NETWORK"'
 require_workflow_text 'export OTLP_ENDPOINT="http://${OTEL_COLLECTOR_SERVICE}:4318"'
 require_workflow_text "upstand acceptance OTLP probe"
 require_workflow_text "OTLP collector did not record the acceptance probe"
@@ -121,7 +121,6 @@ require_workflow_text "Production encrypted-network configuration is enforced by
 require_workflow_text "hosted Swarm runtime probe is skipped"
 require_workflow_text "UPSTAND_ACCEPTANCE_REQUIRE_ENCRYPTED_NETWORK=false"
 require_workflow_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true"
-require_workflow_text "STACK_NAME: upstand-release"
 require_workflow_text 'docker pull "$UPSTAND_MONITORING_IMAGE"'
 require_workflow_text 'docker pull "$UPSTAND_DOCKER_BROKER_IMAGE"'
 require_workflow_text 'docker pull "$UPSTAND_DEPLOYMENT_WORKER_IMAGE"'
@@ -133,6 +132,9 @@ require_workflow_text 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0'
 require_workflow_text 'HOME=/tmp'
 require_workflow_text 'docker node update'
 require_workflow_text '--label-add upstand.control-plane=true'
+require_workflow_text 'docker network create \'
+require_workflow_text '--driver overlay --attachable --internal "$DOCKER_CONTROL_NETWORK"'
+require_workflow_text 'docker network rm "$DOCKER_CONTROL_NETWORK"'
 require_workflow_text 'docker service ps "${STACK_NAME}_${service}" --no-trunc'
 require_workflow_text 'release_version="${RELEASE_REF##*/}"'
 require_workflow_text 'ACCEPTANCE_PROFILE: ${{ github.event_name == '\''push'\'' && '\''full'\'' || inputs.acceptance_profile || '\''full'\'' }}'

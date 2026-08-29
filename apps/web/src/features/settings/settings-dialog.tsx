@@ -58,6 +58,7 @@ import { AppInfoPanel } from "./components/app-info-panel";
 import { ControlPlaneTransferPanel } from "./components/control-plane-transfer-panel";
 import { MembersPanel } from "./components/members-panel";
 import { OrganizationPanel } from "./components/organization-panel";
+import { PasskeysPanel } from "./components/passkeys-panel";
 import { ProfilePanel } from "./components/profile-panel";
 import { SecurityPanel } from "./components/security-panel";
 import { SessionsPanel } from "./components/sessions-panel";
@@ -114,6 +115,7 @@ export function SettingsDialog() {
         { name: "profile", label: "Profile", icon: UserIcon },
         { name: "sessions", label: "Sessions", icon: Monitor },
         { name: "security", label: "Security & 2FA", icon: ShieldCheck },
+        { name: "passkeys", label: "Passkeys", icon: Key01Icon },
       ],
     },
     {
@@ -289,6 +291,7 @@ export function SettingsDialog() {
                 {activeTab === "api-keys" && <ApiKeysPanel />}
                 {activeTab === "organization" && <OrganizationPanel />}
                 {activeTab === "security" && <SecurityPanel />}
+                {activeTab === "passkeys" && <PasskeysPanel />}
                 {activeTab === "upgal" && <UpGalSettingsPanel />}
                 {activeTab === "transfer" && <ControlPlaneTransferPanel />}
                 {activeTab === "app" && (!isCloud || isInstanceOwner) && (

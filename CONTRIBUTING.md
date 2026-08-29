@@ -99,10 +99,9 @@ Changesets owns release intent, version updates, and changelog generation. The
 automated release PR is created after Changesets land on `canary`. Review and
 merge it into `canary`, then promote the resulting commit to `master` through a
 pull request. The stable-tag workflow creates the immutable
-`vMAJOR.MINOR.PATCH` tag. The stable-tag workflow explicitly dispatches both
-the production release workflow and CLI publication with that immutable tag
-(the tag is created with `GITHUB_TOKEN`, so relying on a tag-push event would
-not start the other workflows); the separate Docker dispatch workflow remains
+`vMAJOR.MINOR.PATCH` tag. The tag-triggered release workflow publishes the
+production images, while the stable-tag workflow dispatches CLI publication
+with that immutable tag; the separate Docker dispatch workflow remains
 available for explicit retries.
 
 Production dependency updates need a patch release just like product changes.

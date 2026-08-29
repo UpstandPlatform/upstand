@@ -1,3 +1,4 @@
+import { passkeyClient } from "@better-auth/passkey/client";
 import { ssoClient } from "@better-auth/sso/client";
 import {
   organizationClient,
@@ -18,13 +19,14 @@ const authClientBaseOptions = {
 // becoming an unsafe structural cast at the UI boundary.
 export const authUiClient = createAuthClient({
   ...authClientBaseOptions,
-  plugins: [organizationClient(), ssoClient()],
+  plugins: [organizationClient(), passkeyClient(), ssoClient()],
 });
 
 export const authClient = createAuthClient({
   ...authClientBaseOptions,
   plugins: [
     organizationClient(),
+    passkeyClient(),
     twoFactorClient({
       onTwoFactorRedirect() {
         window.location.href = "/2fa-verify";

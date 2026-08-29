@@ -20,8 +20,11 @@ require_text() {
 require_text "$RELEASE_WORKFLOW" "tags:"
 require_text "$RELEASE_WORKFLOW" "- 'v*'"
 require_text "$STABLE_WORKFLOW" 'gh workflow run "Publish CLI Package"'
-require_text "$STABLE_WORKFLOW" 'gh workflow run "Release and Publish Docker Images"'
 require_text "$STABLE_WORKFLOW" "github.ref == 'refs/heads/master'"
+if grep -Fq -- 'Dispatch Release and Publish Docker Images' "$STABLE_WORKFLOW"; then
+  echo "stable-tag must not dispatch Docker publication in addition to the tag trigger" >&2
+  exit 1
+fi
 
 require_text "$RELEASE_WORKFLOW" "release:desktop-version"
 require_text "$RELEASE_WORKFLOW" 'release:desktop-version -- "${{ inputs.release_ref || github.ref }}"'
@@ -62,6 +65,12 @@ done
 require_text "$ROOT_DIR/apps/schedules/Dockerfile.worker" 'FROM buildpacksio/pack:'
 require_text "$ROOT_DIR/apps/schedules/Dockerfile.worker" 'FROM docker/buildx-bin:'
 require_text "$ROOT_DIR/apps/schedules/Dockerfile.worker" 'NIXPACKS_VERSION='
+require_text "$ROOT_DIR/apps/server/Dockerfile" 'https://github.com/rclone/rclone/releases/download/'
+require_text "$ROOT_DIR/apps/schedules/Dockerfile" 'https://github.com/rclone/rclone/releases/download/'
+if grep -Fq -- 'https://downloads.rclone.org/' "$ROOT_DIR/apps/server/Dockerfile" "$ROOT_DIR/apps/schedules/Dockerfile"; then
+  echo "runtime images must not depend on the unreliable rclone download host" >&2
+  exit 1
+fi
 for forbidden in \
   'FROM buildpacksio/pack:' \
   'FROM docker/buildx-bin:' \

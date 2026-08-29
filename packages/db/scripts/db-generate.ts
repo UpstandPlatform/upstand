@@ -48,10 +48,23 @@ function run(args: string[]) {
   }
 }
 
-// Better Auth's CLI must match the Better Auth runtime exactly. The
-// workspace intentionally keeps migration generation in Drizzle so schema
-// changes are generated from the checked-in TypeScript schema without
-// rewriting the auth tables through a separately versioned CLI.
+// Generate Better Auth's core and plugin tables from the composition root so
+// the checked-in Drizzle schema cannot silently drift from the runtime auth
+// configuration. The CLI output is then consumed by Drizzle Kit below along
+// with Upstand-owned tables.
+run([
+  "@better-auth/cli@1.4.21",
+  "generate",
+  "--cwd",
+  cwd,
+  "--config",
+  "../api/src/auth.ts",
+  "--output",
+  "src/schema/auth.ts",
+  "--yes",
+]);
+run(["biome", "check", "--write", "src/schema/auth.ts"]);
+
 run(["drizzle-kit", "generate", ...generatorOptions]);
 
 // Keep generated metadata aligned with the repository formatter so the CI

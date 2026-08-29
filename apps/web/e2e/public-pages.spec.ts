@@ -54,6 +54,9 @@ test.describe("public web production surface", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page).toHaveTitle(/Upstand/);
     await expect(page.locator("body")).toContainText("Upstand");
+    await expect(
+      page.getByRole("button", { name: "Continue with passkey" }),
+    ).toBeVisible();
     await assertAccessible(page);
 
     // Firefox can report Next's vendor-chunk eval diagnostic as a CSP console

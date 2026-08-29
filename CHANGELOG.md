@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.0 - 2026-08-29
+
+Add passkey enrollment in account settings and passkey sign-in on the login page.
+
+
 ## 0.2.28 - 2026-08-28
 
 Fix production Swarm broker mTLS paths so the server, scheduler, and deployment worker read the secret filenames mounted by Docker.

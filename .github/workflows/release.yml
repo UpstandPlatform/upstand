@@ -763,7 +763,8 @@ jobs:
             --label-add upstand.control-plane=true \
             "$swarm_node_id" >/dev/null
           timeout --foreground 60 docker network create --driver overlay --attachable "$DOCKER_NETWORK"
-          timeout --foreground 60 docker network create --driver overlay --attachable "$DOCKER_CONTROL_NETWORK"
+          timeout --foreground 60 docker network create \
+            --driver overlay --attachable --internal "$DOCKER_CONTROL_NETWORK"
           # Production retains encrypted overlays; hosted Docker cannot create
           # them because its kernel lacks the required IPSec/netfilter path.
           # The production encryption requirement remains enforced by the
