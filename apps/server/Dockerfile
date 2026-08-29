@@ -65,8 +65,10 @@ RUN case "$TARGETARCH" in \
       arm64) RCLONE_ARCH="arm64"; RCLONE_SHA256="$RCLONE_SHA256_ARM64" ;; \
       *) echo "Unsupported rclone architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac \
-    && curl --fail --location --retry 3 --retry-all-errors \
-      "https://downloads.rclone.org/v${UPSTAND_RCLONE_VERSION}/rclone-v${UPSTAND_RCLONE_VERSION}-linux-${RCLONE_ARCH}.zip" \
+    && curl --fail --location --proto '=https' --tlsv1.2 \
+      --connect-timeout 20 --max-time 600 --retry 5 --retry-delay 5 --retry-max-time 1800 \
+      --retry-all-errors \
+      "https://github.com/rclone/rclone/releases/download/v${UPSTAND_RCLONE_VERSION}/rclone-v${UPSTAND_RCLONE_VERSION}-linux-${RCLONE_ARCH}.zip" \
       --output /tmp/rclone.zip \
     && echo "${RCLONE_SHA256}  /tmp/rclone.zip" | sha256sum --check --strict \
     && python3 -c "import zipfile; zipfile.ZipFile('/tmp/rclone.zip').extractall('/tmp/rclone')" \
