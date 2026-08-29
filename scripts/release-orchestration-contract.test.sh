@@ -65,6 +65,12 @@ done
 require_text "$ROOT_DIR/apps/schedules/Dockerfile.worker" 'FROM buildpacksio/pack:'
 require_text "$ROOT_DIR/apps/schedules/Dockerfile.worker" 'FROM docker/buildx-bin:'
 require_text "$ROOT_DIR/apps/schedules/Dockerfile.worker" 'NIXPACKS_VERSION='
+require_text "$ROOT_DIR/apps/server/Dockerfile" 'https://github.com/rclone/rclone/releases/download/'
+require_text "$ROOT_DIR/apps/schedules/Dockerfile" 'https://github.com/rclone/rclone/releases/download/'
+if grep -Fq -- 'https://downloads.rclone.org/' "$ROOT_DIR/apps/server/Dockerfile" "$ROOT_DIR/apps/schedules/Dockerfile"; then
+  echo "runtime images must not depend on the unreliable rclone download host" >&2
+  exit 1
+fi
 for forbidden in \
   'FROM buildpacksio/pack:' \
   'FROM docker/buildx-bin:' \
