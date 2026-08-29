@@ -1,4 +1,5 @@
 import { apiKey } from "@better-auth/api-key";
+import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import {
   ORGANIZATION_ROLE_STATEMENTS,
@@ -29,6 +30,13 @@ export interface AuthConfiguration {
   googleClientId?: string;
   googleClientSecret?: string;
   isCloud?: boolean;
+}
+
+export function resolvePasskeyConfiguration(
+  configuration: Pick<AuthConfiguration, "corsOrigin">,
+): { rpID: string; origin: string } {
+  const origin = new URL(configuration.corsOrigin);
+  return { rpID: origin.hostname, origin: origin.origin };
 }
 
 export interface AuthCallbacks {
@@ -333,6 +341,7 @@ export function createAuth(options: {
   const { database, secondaryStorage, configuration, callbacks, stepUp } =
     options;
   const sharedCookieDomain = resolveSharedCookieDomain(configuration);
+  const passkeyConfiguration = resolvePasskeyConfiguration(configuration);
   // The self-hosted installer can intentionally run the first boot on direct
   // HTTP origins when DNS/TLS are not configured yet. Secure cookies are
   // correct for HTTPS production deployments, but browsers reject them over
@@ -609,6 +618,7 @@ export function createAuth(options: {
                 defaultValue: true,
               },
               scimExternalId: { type: "string", required: false },
+              scimDisplayName: { type: "string", required: false },
             },
           },
           invitation: {
@@ -681,6 +691,11 @@ export function createAuth(options: {
         issuer: "Upstand",
         allowPasswordless: true,
       }),
+      passkey({
+        rpID: passkeyConfiguration.rpID,
+        rpName: "Upstand",
+        origin: passkeyConfiguration.origin,
+      }),
       sso({
         domainVerification: {
           enabled: true,
@@ -704,3 +719,5 @@ export function createAuth(options: {
 
   return auth;
 }
+
+export type AuthInstance = ReturnType<typeof createAuth>;

@@ -4,6 +4,7 @@ import {
   isPrivateDirectIpHost,
   normalizeDirectIpAuthRequest,
   normalizeDirectIpAuthResponse,
+  resolvePasskeyConfiguration,
   resolveSharedCookieDomain,
   resolveTrustedOrigins,
 } from "./index";
@@ -21,6 +22,32 @@ function configuration(
 }
 
 describe("authentication origin configuration", () => {
+  test("derives the WebAuthn relying party from the configured dashboard origin", () => {
+    expect(
+      resolvePasskeyConfiguration({
+        corsOrigin: "https://dashboard.example.com:8443/path",
+      }),
+    ).toEqual({
+      rpID: "dashboard.example.com",
+      origin: "https://dashboard.example.com:8443",
+    });
+  });
+
+  test("registers the passkey plugin in the Better Auth composition root", async () => {
+    const { createAuth } = await import("./index");
+    const auth = createAuth({
+      database: { db: {} } as never,
+      secondaryStorage: {} as never,
+      callbacks: {} as never,
+      stepUp: {} as never,
+      configuration: configuration(),
+    });
+
+    expect(auth.options.plugins?.map((plugin) => plugin.id)).toContain(
+      "passkey",
+    );
+  });
+
   test("classifies only non-public direct addresses as private bootstrap targets", () => {
     expect(isPrivateDirectIpHost("127.0.0.1")).toBe(true);
     expect(isPrivateDirectIpHost("10.0.0.8")).toBe(true);

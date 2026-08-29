@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { type AuthCallbacks, createAuth } from "@upstand/auth";
+import {
+  type AuthCallbacks,
+  type AuthInstance,
+  createAuth,
+} from "@upstand/auth";
 import { createStepUpAuth } from "@upstand/auth/step-up-auth";
 import { db } from "@upstand/db";
 import * as authSchema from "@upstand/db/schema/auth";
@@ -270,7 +274,7 @@ function resolveAuthSecret(): string {
   );
 }
 
-export const auth = createAuth({
+export const auth: AuthInstance = createAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: authSchema,

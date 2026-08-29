@@ -15,6 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CliAuthorizePanel } from "@/components/auth/cli-authorize-panel";
+import { PasskeySignInButton } from "@/components/passkey-sign-in-button";
 import SignInForm from "@/components/sign-in-form";
 import SignUpForm from "@/components/sign-up-form";
 import { SsoSignInForm } from "@/components/sso-sign-in-form";
@@ -329,6 +330,12 @@ function LoginPageContent() {
                     onSwitchToSignUp={
                       isCloud ? () => setAuthMode("signup") : undefined
                     }
+                  />
+                )}
+
+                {!isSignUp && (
+                  <PasskeySignInButton
+                    successPath={cliUserCode ? cliPath : "/dashboard"}
                   />
                 )}
 
