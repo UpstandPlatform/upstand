@@ -1,5 +1,11 @@
 # server
 
+## 0.3.3
+
+### Patch Changes
+
+- [#371](https://github.com/UpstandPlatform/upstand/pull/371) [`6721782`](https://github.com/UpstandPlatform/upstand/commit/6721782982264e44b5315db5a2fa6b9eba84465a) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production control plane to reconcile its fixed, least-privilege monitoring sidecar through the Docker broker without reopening general raw Docker mutations.
+
 ## 0.3.2
 
 ### Patch Changes
