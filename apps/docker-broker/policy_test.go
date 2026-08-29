@@ -850,6 +850,54 @@ func TestProductionServerCannotUseAnyRawDockerMutation(t *testing.T) {
 	}
 }
 
+func TestProductionServerCanReconcileOnlyTheManagedMonitoringContainer(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	const image = "ghcr.io/upstandplatform/upstand-monitoring@sha256:" +
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	validBody := `{"Image":"` + image + `","Env":["METRICS_CONFIG={}","DB_PATH=/data/monitoring.db","DOCKER_HOST=https://docker-broker:2375"],"Labels":{"com.upstand.component":"monitoring-agent","com.upstand.platform":"true"},"HostConfig":{"Binds":["/proc:/host/proc:ro","/sys:/host/sys:ro","/etc/os-release:/etc/os-release:ro","upstand-monitoring-data:/data"],"NetworkMode":"upstand-docker-control","CapDrop":["ALL"],"ReadonlyRootfs":true,"Memory":268435456,"PidsLimit":128,"RestartPolicy":{"Name":"always"},"SecurityOpt":["no-new-privileges:true"],"Tmpfs":{"/tmp":"rw,nosuid,nodev,size=16m"},"LogConfig":{"Type":"json-file","Config":{"max-size":"10m","max-file":"3"}}},"ExposedPorts":{"3001/tcp":{}}}`
+
+	createRequest := httptest.NewRequest(
+		http.MethodPost,
+		"http://broker/v1.43/containers/create?name=upstand-monitoring-agent",
+		strings.NewReader(validBody),
+	)
+	if err := authorizeDockerRequestForCaller("server", createRequest, []byte(validBody)); err != nil {
+		t.Fatalf("expected managed monitoring create to be allowed: %v", err)
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v1.43/containers/upstand-monitoring-agent/start"},
+		{http.MethodDelete, "/v1.43/containers/upstand-monitoring-agent"},
+	} {
+		request := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
+		if err := authorizeDockerRequestForCaller("server", request, nil); err != nil {
+			t.Fatalf("expected managed monitoring mutation to be allowed: %s %s: %v", test.method, test.path, err)
+		}
+	}
+
+	unsafeBody := strings.Replace(validBody, `"upstand-monitoring-data:/data"`, `"/var/run/docker.sock:/var/run/docker.sock:ro"`, 1)
+	unsafeRequest := httptest.NewRequest(
+		http.MethodPost,
+		"http://broker/v1.43/containers/create?name=upstand-monitoring-agent",
+		strings.NewReader(unsafeBody),
+	)
+	if err := authorizeDockerRequestForCaller("server", unsafeRequest, []byte(unsafeBody)); err == nil {
+		t.Fatal("expected monitoring create with a Docker socket mount to be rejected")
+	}
+
+	wrongName := httptest.NewRequest(
+		http.MethodPost,
+		"http://broker/v1.43/containers/create?name=other-container",
+		strings.NewReader(validBody),
+	)
+	if err := authorizeDockerRequestForCaller("server", wrongName, []byte(validBody)); err == nil {
+		t.Fatal("expected server raw create for another container to be rejected")
+	}
+}
+
 func TestProductionDeploymentWorkerBuildRequiresResourceScope(t *testing.T) {
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 
