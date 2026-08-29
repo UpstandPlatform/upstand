@@ -82,6 +82,7 @@ require_workflow_text 'UPSTAND_BACKUP_REHEARSAL_IMAGE="$UPSTAND_SERVER_IMAGE"'
 require_workflow_text 'UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS=900'
 require_workflow_text 'UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS=300'
 require_workflow_text 'BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt'
+require_workflow_text 'BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-acceptance-evidence/backup-restore-rehearsal.json'
 require_workflow_text 'production-recovery-evidence'
 require_workflow_text 'ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence'
 require_workflow_text 'production-evidence-collect.sh'
@@ -108,6 +109,7 @@ require_workflow_text "bash scripts/verify-recovery-evidence.sh"
 require_workflow_text "verify-recovery-evidence-contract.test.sh"
 require_workflow_text "ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network"
 require_workflow_text "DOCKER_CONTROL_NETWORK: upstand-release-acceptance-control-network"
+require_workflow_text "STACK_NAME: upstand-release"
 require_workflow_text "OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector"
 require_workflow_text "OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config"
 require_workflow_text "otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7"
