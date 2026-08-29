@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.1 - 2026-08-29
+
+Keep the production Docker broker healthy under mandatory mTLS and validate its isolated control-network placement during release acceptance.
+
+
 ## 0.3.0 - 2026-08-29
 
 Add passkey enrollment in account settings and passkey sign-in on the login page.
