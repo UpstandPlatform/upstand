@@ -39,6 +39,7 @@ require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1
 require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3002/health/ready')"
 require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:3001/')"
 require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:4000/')"
+require_compose_text "test: [\"CMD\", \"wget\", \"--quiet\", \"--spider\", \"http://127.0.0.1:2376/health\"]"
 require_compose_text "type: tmpfs"
 require_compose_text "target: /tmp"
 require_compose_text "target: /app/.builds"

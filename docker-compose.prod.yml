@@ -246,6 +246,11 @@ services:
       docker-control:
         aliases:
           - docker-broker
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2376/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
     deploy:
       replicas: 1
       endpoint_mode: dnsrr
