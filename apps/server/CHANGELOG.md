@@ -1,5 +1,11 @@
 # server
 
+## 0.3.0
+
+### Minor Changes
+
+- [#363](https://github.com/UpstandPlatform/upstand/pull/363) [`f25c604`](https://github.com/UpstandPlatform/upstand/commit/f25c604473cc481b5a00413aceb4f8ec60b8b1cb) Thanks [@mhbdev](https://github.com/mhbdev)! - Add passkey enrollment in account settings and passkey sign-in on the login page.
+
 ## 0.2.28
 
 ### Patch Changes
