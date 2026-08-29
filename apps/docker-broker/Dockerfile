@@ -20,5 +20,5 @@ RUN chmod 0555 /usr/local/bin/docker-broker
 
 USER upstand
 EXPOSE 2375
-HEALTHCHECK --interval=10s --timeout=3s --retries=6 CMD wget --no-check-certificate --quiet --spider https://127.0.0.1:2375/health || exit 1
+HEALTHCHECK --interval=10s --timeout=3s --retries=6 CMD wget --quiet --spider http://127.0.0.1:2376/health || exit 1
 ENTRYPOINT ["/usr/local/bin/docker-broker"]

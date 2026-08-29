@@ -8,6 +8,7 @@ COMPOSE="$ROOT_DIR/docker-compose.prod.yml"
 WEB_DOCKERFILE="$ROOT_DIR/apps/web/Dockerfile"
 FUMADOCS_DOCKERFILE="$ROOT_DIR/apps/fumadocs/Dockerfile"
 SCHEDULES_ENTRYPOINT="$ROOT_DIR/apps/schedules/docker-entrypoint.sh"
+DOCKER_BROKER_DOCKERFILE="$ROOT_DIR/apps/docker-broker/Dockerfile"
 
 require_workflow_text() {
   local text="$1"
@@ -56,6 +57,7 @@ require_file_text "$FUMADOCS_DOCKERFILE" "FROM node:24-slim@"
 require_file_text "$FUMADOCS_DOCKERFILE" 'CMD ["node", "apps/fumadocs/server.js"]'
 require_file_text "$SCHEDULES_ENTRYPOINT" '${UPSTAND_SERVER_INTERNAL_URL%/}/health/live'
 require_file_text "$ROOT_DIR/apps/monitoring/Dockerfile" "mkdir -p /data && chown appuser:appgroup /data"
+require_file_text "$DOCKER_BROKER_DOCKERFILE" "2376/health"
 if grep -Fq -- '${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready' "$SCHEDULES_ENTRYPOINT"; then
   echo "schedules entrypoint must not wait for server readiness (circular dependency)" >&2
   exit 1
