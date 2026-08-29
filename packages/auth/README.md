@@ -4,7 +4,7 @@ The `@upstand/auth` package manages multi-tenant authentication, user sessions, 
 
 ## Features
 
-- **Better Auth Integration**: Email/password authentication, TOTP two-factor authentication (2FA), session cookie management.
+- **Better Auth Integration**: Email/password and passkey authentication, TOTP two-factor authentication (2FA), session cookie management.
 - **Organization RBAC**: Multi-tenant organization scoping, role-based access control (Owner, Admin, Member, Custom Roles), team invitations.
 - **API Keys Plugin**: Managed API keys (`upk_...`) via `@better-auth/api-key` with granular capability permissions.
 - **Enterprise SSO (SAML & OIDC)**: Single Sign-On integration with DNS TXT domain ownership verification.
