@@ -1,5 +1,11 @@
 # schedules
 
+## 0.2.28
+
+### Patch Changes
+
+- [#360](https://github.com/UpstandPlatform/upstand/pull/360) [`587dc40`](https://github.com/UpstandPlatform/upstand/commit/587dc4075afdc43fa8e17f086bf3f17798d3a8d8) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix production Swarm broker mTLS paths so the server, scheduler, and deployment worker read the secret filenames mounted by Docker.
+
 ## 0.2.27
 
 ### Patch Changes

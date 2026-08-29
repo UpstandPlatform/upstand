@@ -85,10 +85,12 @@ for required_text in \
 done
 for required_text in \
   'UPSTAND_DOCKER_BROKER_TLS_REQUIRED: "true"' \
-  'UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/docker_broker_ca' \
-  'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_server_client_cert' \
-  'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_schedules_client_cert' \
-  'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/docker_broker_deployment_worker_client_cert'; do
+  'UPSTAND_DOCKER_BROKER_CA_FILE: /run/secrets/ca.pem' \
+  'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE: /run/secrets/cert.pem' \
+  'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE: /run/secrets/key.pem' \
+  'target: ca.pem' \
+  'target: cert.pem' \
+  'target: key.pem'; do
   grep -Fq "$required_text" "$ROOT_DIR/docker-compose.prod.yml" || {
     echo "production Compose is missing Docker broker mTLS configuration: $required_text" >&2
     exit 1

@@ -486,9 +486,11 @@ printf '%s\n' "$server_auth_environment" | grep -Fxq 'DOCKER_TLS_VERIFY=1' \
   || fail "server Docker CLI must verify the broker TLS certificate"
 printf '%s\n' "$server_auth_environment" | grep -Fxq 'DOCKER_CERT_PATH=/run/secrets' \
   || fail "server Docker CLI must use the mounted broker client certificate directory"
-printf '%s\n' "$server_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_server_client_cert' \
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/ca.pem' \
+  || fail "server must use the mounted broker CA"
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/cert.pem' \
   || fail "server must use its mTLS client certificate"
-printf '%s\n' "$server_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_server_client_key' \
+printf '%s\n' "$server_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/key.pem' \
   || fail "server must use its mTLS client key"
 schedules_auth_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_schedules")" \
   || fail "schedules environment could not be inspected for Docker broker authentication"
@@ -500,9 +502,11 @@ printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'DOCKER_TLS_VERIFY=1' \
   || fail "schedules Docker CLI must verify the broker TLS certificate"
 printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'DOCKER_CERT_PATH=/run/secrets' \
   || fail "schedules Docker CLI must use the mounted broker client certificate directory"
-printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_schedules_client_cert' \
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/ca.pem' \
+  || fail "schedules must use the mounted broker CA"
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/cert.pem' \
   || fail "schedules must use its mTLS client certificate"
-printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_schedules_client_key' \
+printf '%s\n' "$schedules_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/key.pem' \
   || fail "schedules must use its mTLS client key"
 worker_auth_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_deployment-worker")" \
   || fail "deployment-worker environment could not be inspected for Docker broker authentication"
@@ -514,9 +518,11 @@ printf '%s\n' "$worker_auth_environment" | grep -Fxq 'DOCKER_TLS_VERIFY=1' \
   || fail "deployment-worker Docker CLI must verify the broker TLS certificate"
 printf '%s\n' "$worker_auth_environment" | grep -Fxq 'DOCKER_CERT_PATH=/run/secrets' \
   || fail "deployment-worker Docker CLI must use the mounted broker client certificate directory"
-printf '%s\n' "$worker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/docker_broker_deployment_worker_client_cert' \
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CA_FILE=/run/secrets/ca.pem' \
+  || fail "deployment-worker must use the mounted broker CA"
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE=/run/secrets/cert.pem' \
   || fail "deployment-worker must use its mTLS client certificate"
-printf '%s\n' "$worker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/docker_broker_deployment_worker_client_key' \
+printf '%s\n' "$worker_auth_environment" | grep -Fxq 'UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE=/run/secrets/key.pem' \
   || fail "deployment-worker must use its mTLS client key"
 broker_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_docker-broker")" \
   || fail "service '${STACK_NAME}_docker-broker' environment could not be inspected for caller policy"

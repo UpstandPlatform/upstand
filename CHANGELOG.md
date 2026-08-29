@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.2.28 - 2026-08-28
+
+Fix production Swarm broker mTLS paths so the server, scheduler, and deployment worker read the secret filenames mounted by Docker.
+
+
 ## 0.2.27 - 2026-08-27
 
 Prevent Compose CLI interpolation from inheriting unrelated control-plane environment variables or Docker transport credentials.
