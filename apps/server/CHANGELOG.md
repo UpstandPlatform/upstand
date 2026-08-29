@@ -1,5 +1,11 @@
 # server
 
+## 0.3.2
+
+### Patch Changes
+
+- [#369](https://github.com/UpstandPlatform/upstand/pull/369) [`2be269f`](https://github.com/UpstandPlatform/upstand/commit/2be269f605835dfa0cb0e028c373b005012f346b) Thanks [@mhbdev](https://github.com/mhbdev)! - Configure the Docker broker health check in production Compose so release acceptance can verify the mTLS-protected broker without probing its authenticated API.
+
 ## 0.3.1
 
 ### Patch Changes
