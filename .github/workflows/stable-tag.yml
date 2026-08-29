@@ -55,3 +55,15 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --ref master \
             -f "release_ref=v${release_version}"
+
+      - name: Dispatch Docker release for the stable tag
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_version="$(node -p "require('./package.json').version")"
+          gh workflow run "Dispatch Release and Publish Docker Images" \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref master \
+            -f "release_ref=v${release_version}"

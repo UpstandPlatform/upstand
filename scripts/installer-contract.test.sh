@@ -31,6 +31,14 @@ grep -Fq 'ClientAuth: tls.RequireAndVerifyClientCert' "$ROOT_DIR/apps/docker-bro
   echo "Docker broker must require verified client certificates during the TLS handshake" >&2
   exit 1
 }
+grep -Fq 'healthListenAddress      = "127.0.0.1:2376"' "$ROOT_DIR/apps/docker-broker/main.go" || {
+  echo "Docker broker must expose its health endpoint only on the loopback interface" >&2
+  exit 1
+}
+grep -Fq 'HEALTHCHECK --interval=10s --timeout=3s --retries=6 CMD wget --quiet --spider http://127.0.0.1:2376/health' "$ROOT_DIR/apps/docker-broker/Dockerfile" || {
+  echo "Docker broker healthcheck must use the loopback health endpoint without weakening mTLS" >&2
+  exit 1
+}
 grep -Fq 'docker_broker_server_token' "$ROOT_DIR/install.sh" || {
 	echo "installer must provision the server-specific Docker broker authentication secret" >&2
 	exit 1

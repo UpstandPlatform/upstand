@@ -283,9 +283,12 @@ control_network_driver="$(docker_cmd network inspect -f '{{.Driver}}' "$CONTROL_
 control_network_scope="$(docker_cmd network inspect -f '{{.Scope}}' "$CONTROL_NETWORK_NAME")"
 control_network_attachable="$(docker_cmd network inspect -f '{{.Attachable}}' "$CONTROL_NETWORK_NAME")"
 control_network_internal="$(docker_cmd network inspect -f '{{.Internal}}' "$CONTROL_NETWORK_NAME")"
+control_network_id="$(docker_cmd network inspect -f '{{.Id}}' "$CONTROL_NETWORK_NAME")"
 control_network_options="$(docker_cmd network inspect -f '{{json .Options}}' "$CONTROL_NETWORK_NAME")"
 [[ "$control_network_driver" == "overlay" && "$control_network_scope" == "swarm" && "$control_network_attachable" == "true" && "$control_network_internal" == "true" ]] \
   || fail "Docker control network '$CONTROL_NETWORK_NAME' is not an attachable Swarm overlay"
+[[ -n "$control_network_id" && "$control_network_id" != "<no value>" ]] \
+  || fail "Docker control network '$CONTROL_NETWORK_NAME' has no inspectable network ID"
 if [[ "$REQUIRE_ENCRYPTED_NETWORK" == true ]]; then
   [[ "$control_network_options" == *'"encrypted"'* \
     && "$control_network_options" != *'"encrypted":false'* \
@@ -327,6 +330,8 @@ echo "acceptance: current database migration completed, image=$migration_image"
 
 assert_service() {
   local service_name="$1"
+  local expected_network_id="${2:-$network_id}"
+  local expected_network_name="${3:-$NETWORK_NAME}"
   local desired running image healthcheck container_id health service_networks container_count
   local readonly_rootfs container_readonly runtime_user
 
@@ -337,8 +342,8 @@ assert_service() {
 
   service_networks="$(docker_cmd service inspect --format '{{json .Spec.TaskTemplate.Networks}}' "$service_name")" \
     || fail "service '$service_name' networks could not be inspected"
-  [[ "$service_networks" == *"$network_id"* ]] \
-    || fail "service '$service_name' is not attached to network '$NETWORK_NAME': $service_networks"
+  [[ "$service_networks" == *"$expected_network_id"* ]] \
+    || fail "service '$service_name' is not attached to network '$expected_network_name': $service_networks"
 
   running="$(docker_cmd service ps "$service_name" --filter desired-state=running --format '{{.CurrentState}}' | grep -c '^Running ' || true)"
   [[ "$running" -eq "$desired" ]] \
@@ -443,7 +448,7 @@ for service in postgres redis; do
   fi
 done
 
-assert_service "${STACK_NAME}_docker-broker"
+assert_service "${STACK_NAME}_docker-broker" "$control_network_id" "$CONTROL_NETWORK_NAME"
 for service in server schedules deployment-worker web fumadocs; do
   assert_service "${STACK_NAME}_${service}"
 done

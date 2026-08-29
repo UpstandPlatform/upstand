@@ -20,11 +20,8 @@ require_text() {
 require_text "$RELEASE_WORKFLOW" "tags:"
 require_text "$RELEASE_WORKFLOW" "- 'v*'"
 require_text "$STABLE_WORKFLOW" 'gh workflow run "Publish CLI Package"'
+require_text "$STABLE_WORKFLOW" 'gh workflow run "Dispatch Release and Publish Docker Images"'
 require_text "$STABLE_WORKFLOW" "github.ref == 'refs/heads/master'"
-if grep -Fq -- 'Dispatch Release and Publish Docker Images' "$STABLE_WORKFLOW"; then
-  echo "stable-tag must not dispatch Docker publication in addition to the tag trigger" >&2
-  exit 1
-fi
 
 require_text "$RELEASE_WORKFLOW" "release:desktop-version"
 require_text "$RELEASE_WORKFLOW" 'release:desktop-version -- "${{ inputs.release_ref || github.ref }}"'

@@ -25,6 +25,7 @@ import (
 
 const (
 	listenAddress            = ":2375"
+	healthListenAddress      = "127.0.0.1:2376"
 	maxPolicyBody            = 16 << 20
 	defaultMaxInflight       = 64
 	minimumMaxInflight       = 1
@@ -84,8 +85,7 @@ func main() {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/health" {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("ok\n"))
+			writeHealthResponse(w)
 			return
 		}
 		audit := newDockerAudit(r, normalizeDockerPath(r.URL.Path))
@@ -211,6 +211,20 @@ func main() {
 		IdleTimeout:       5 * time.Minute,
 		MaxHeaderBytes:    32 << 10,
 	}
+	healthListener, err := net.Listen("tcp", healthListenAddress)
+	if err != nil {
+		log.Fatalf("listen for Docker broker health checks: %v", err)
+	}
+	healthServer := &http.Server{
+		Handler:           http.HandlerFunc(healthHandler),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		if serveErr := healthServer.Serve(healthListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			log.Printf("Docker broker health server stopped: %v", serveErr)
+		}
+	}()
+	defer func() { _ = healthServer.Close() }()
 	log.Printf("Upstand Docker broker listening on %s", listenAddress)
 	var serveErr error
 	if brokerTLS != nil {
@@ -222,6 +236,19 @@ func main() {
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatal(serveErr)
 	}
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet || r.URL.Path != "/health" {
+		http.NotFound(w, r)
+		return
+	}
+	writeHealthResponse(w)
+}
+
+func writeHealthResponse(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
 }
 
 func validateRawDockerBuildContentLength(method, path string, contentLength int64) error {

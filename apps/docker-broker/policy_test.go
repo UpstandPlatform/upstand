@@ -9,6 +9,22 @@ import (
 	"testing"
 )
 
+func TestHealthHandlerIsLoopbackHealthOnly(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:2376/health", nil)
+	recorder := httptest.NewRecorder()
+	healthHandler(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "ok\n" {
+		t.Fatalf("expected a successful health response, got %d %q", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "http://127.0.0.1:2376/other", nil)
+	recorder = httptest.NewRecorder()
+	healthHandler(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected non-health paths to be rejected, got %d", recorder.Code)
+	}
+}
+
 func TestAuthorizeDockerRequestAllowsNormalContainerLifecycle(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, "http://broker/v1.43/containers/create", nil)
 	body := []byte(`{"Image":"alpine","HostConfig":{"ReadonlyRootfs":true}}`)
