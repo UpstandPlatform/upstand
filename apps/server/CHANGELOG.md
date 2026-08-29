@@ -1,5 +1,11 @@
 # server
 
+## 0.3.1
+
+### Patch Changes
+
+- [#367](https://github.com/UpstandPlatform/upstand/pull/367) [`6190d97`](https://github.com/UpstandPlatform/upstand/commit/6190d97846410fd1c134d2db594e0df8951db88d) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep the production Docker broker healthy under mandatory mTLS and validate its isolated control-network placement during release acceptance.
+
 ## 0.3.0
 
 ### Minor Changes
