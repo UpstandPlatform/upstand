@@ -1140,6 +1140,9 @@ func isAllowedDockerOperation(method, path string) bool {
 	if method == http.MethodGet && path == "/containers/json" {
 		return true
 	}
+	if method == http.MethodGet && imageInspectPath(path) {
+		return true
+	}
 	if method == http.MethodPost && path == "/containers/create" {
 		return true
 	}
@@ -1200,6 +1203,28 @@ func isAllowedDockerOperation(method, path string) bool {
 	}
 
 	return false
+}
+
+// Docker image names may contain slash-separated registry and repository
+// components, so an image inspection path cannot use the fixed three-segment
+// resourceActionPath helper. Keep this read-only exception bounded to a valid
+// image name and the exact /json suffix.
+func imageInspectPath(path string) bool {
+	const prefix = "/images/"
+	const suffix = "/json"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return false
+	}
+	image := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if image == "" {
+		return false
+	}
+	for _, part := range strings.Split(image, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func splitResourcePath(path, resource string) ([]string, bool) {
