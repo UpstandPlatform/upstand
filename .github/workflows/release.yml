@@ -1002,13 +1002,21 @@ jobs:
             label="$2"
             for attempt in {1..60}; do
               set +e
-              status_code="$(docker run --rm --network "$DOCKER_NETWORK" \
+              response="$(docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
                 --user 10001:10001 --entrypoint /bin/sh "$HEALTH_LOAD_IMAGE" \
-                -c 'curl --silent --output /dev/null --write-out "%{http_code}" --max-time 10 "http://$1:3000/health/ready"' \
+                -c 'curl --silent --show-error --write-out "\n%{http_code}" --max-time 10 "http://$1:3000/health/ready"' \
                 sh "${STACK_NAME}_server" 2>/dev/null)"
               set -e
-              printf '%s attempt=%s status=%s\n' "$label" "$attempt" "$status_code" | tee -a "$dependency_failure_log"
+              if [[ "$response" == *$'\n'* ]]; then
+                status_code="${response##*$'\n'}"
+                response_body="${response%$'\n'*}"
+              else
+                status_code=""
+                response_body="$response"
+              fi
+              response_body="$(printf '%s' "$response_body" | tr '\n' ' ' | cut -c1-500)"
+              printf '%s attempt=%s status=%s body=%s\n' "$label" "$attempt" "$status_code" "$response_body" | tee -a "$dependency_failure_log"
               if [[ "$status_code" == "$expected" ]]; then
                 return 0
               fi
