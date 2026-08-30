@@ -40,6 +40,7 @@ import { registerWebhookRoutes } from "./http/routes/webhooks";
 import type { AppEnv } from "./http/types";
 import { initializeMonitoring } from "./monitoring-agent";
 import { runDatabaseMigrations } from "./startup";
+import { retryStartupOperation } from "./startup-retry";
 import { terminalBroker } from "./terminal-broker";
 
 const fileDrain = createFsDrain({
@@ -189,25 +190,37 @@ registerSystemRoutes(app, {
 });
 
 // Initialize Caddy Web Server on Startup
-const caddyInitScope = getServiceProvider().createScope();
-const getCaddySettingsUseCase = caddyInitScope.resolve(
-  GetWebServerSettingsUseCaseToken,
-);
-getCaddySettingsUseCase
-  .execute({ reconcile: true })
+retryStartupOperation(async () => {
+  const caddyInitScope = getServiceProvider().createScope();
+  try {
+    await caddyInitScope
+      .resolve(GetWebServerSettingsUseCaseToken)
+      .execute({ reconcile: true });
+  } finally {
+    await caddyInitScope.dispose();
+  }
+})
   .then(() => {
     caddyReady = true;
     log.info({ message: "Caddy Web Server initialized successfully. ✅" });
   })
-  .catch((err) =>
+  .catch((err) => {
     log.error(
       err instanceof Error ? err.message : String(err),
       "Failed to initialize Caddy Web Server",
-    ),
-  )
-  .finally(() => caddyInitScope.dispose());
+    );
+  });
 
-initializeMonitoring()
+retryStartupOperation(() => initializeMonitoring(), {
+  onRetry: ({ attempt, delayMs, error }) =>
+    log.warn({
+      message: "Monitoring initialization is waiting for startup dependencies",
+      component: "monitoring",
+      attempt,
+      delayMs,
+      err: error instanceof Error ? error.message : String(error),
+    }),
+})
   .then(() => {
     monitoringReady = true;
   })
