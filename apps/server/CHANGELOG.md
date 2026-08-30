@@ -1,5 +1,11 @@
 # server
 
+## 0.3.9
+
+### Patch Changes
+
+- [#388](https://github.com/UpstandPlatform/upstand/pull/388) [`a09bb9d`](https://github.com/UpstandPlatform/upstand/commit/a09bb9d6f8e51b19c96fef541a04a102253bc0b6) Thanks [@mhbdev](https://github.com/mhbdev)! - Recover production readiness after a Redis dependency outage by reconnecting stale health-check clients.
+
 ## 0.3.8
 
 ### Patch Changes
