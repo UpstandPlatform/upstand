@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.6 - 2026-08-30
+
+Retry Caddy and monitoring initialization during startup so a newly deployed
+Swarm can converge when the Docker broker is still starting.
+
+
 ## 0.3.5 - 2026-08-30
 
 Allow the production control plane to pull only its immutable monitoring image through the Docker broker before reconciling the managed monitoring sidecar.
