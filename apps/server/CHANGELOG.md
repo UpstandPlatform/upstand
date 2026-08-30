@@ -1,5 +1,11 @@
 # server
 
+## 0.3.14
+
+### Patch Changes
+
+- [#399](https://github.com/UpstandPlatform/upstand/pull/399) [`8425d7c`](https://github.com/UpstandPlatform/upstand/commit/8425d7cc67b15cda6d8fa2d56c96237cb4ef69d1) Thanks [@mhbdev](https://github.com/mhbdev)! - Bound the total duration of the production acceptance schedules recovery loop in addition to each individual Docker probe.
+
 ## 0.3.13
 
 ### Patch Changes
