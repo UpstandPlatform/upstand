@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.10 - 2026-08-30
+
+Route production control-plane IP access reconciliation through the typed Docker broker so Caddy startup can complete with the server's restricted Docker identity.
+
+
 ## 0.3.9 - 2026-08-30
 
 Recover production readiness after a Redis dependency outage by reconnecting stale health-check clients.

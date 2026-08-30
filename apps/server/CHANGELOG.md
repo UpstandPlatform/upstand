@@ -1,5 +1,11 @@
 # server
 
+## 0.3.10
+
+### Patch Changes
+
+- [#391](https://github.com/UpstandPlatform/upstand/pull/391) [`669b5f2`](https://github.com/UpstandPlatform/upstand/commit/669b5f25dab87e50879e5b6cf6c16ffebc6fb344) Thanks [@mhbdev](https://github.com/mhbdev)! - Route production control-plane IP access reconciliation through the typed Docker broker so Caddy startup can complete with the server's restricted Docker identity.
+
 ## 0.3.9
 
 ### Patch Changes
