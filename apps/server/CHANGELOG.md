@@ -1,5 +1,11 @@
 # server
 
+## 0.3.13
+
+### Patch Changes
+
+- [#397](https://github.com/UpstandPlatform/upstand/pull/397) [`a0cd377`](https://github.com/UpstandPlatform/upstand/commit/a0cd37794b321466a73b2a7f547708809c672bae) Thanks [@mhbdev](https://github.com/mhbdev)! - Bound the production acceptance schedules recovery probe so a stalled Docker Engine or network setup cannot hang the release job indefinitely.
+
 ## 0.3.12
 
 ### Patch Changes
