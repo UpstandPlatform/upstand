@@ -1,5 +1,11 @@
 # server
 
+## 0.3.8
+
+### Patch Changes
+
+- [#384](https://github.com/UpstandPlatform/upstand/pull/384) [`8df3b63`](https://github.com/UpstandPlatform/upstand/commit/8df3b63704019e132ce645694f308ffbd153950d) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep critical Caddy and monitoring startup initialization retrying until dependencies recover so transient deployment races cannot leave production readiness permanently blocked.
+
 ## 0.3.7
 
 ### Patch Changes
