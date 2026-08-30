@@ -1,5 +1,6 @@
 export interface StartupRetryOptions {
   attempts?: number;
+  retryForever?: boolean;
   initialDelayMs?: number;
   maxDelayMs?: number;
   sleep?: (delayMs: number) => Promise<void>;
@@ -34,12 +35,16 @@ export async function retryStartupOperation<T>(
   let delayMs = initialDelayMs;
   let lastError: unknown;
 
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+  for (
+    let attempt = 1;
+    options.retryForever || attempt <= attempts;
+    attempt += 1
+  ) {
     try {
       return await operation();
     } catch (error) {
       lastError = error;
-      if (attempt === attempts) throw error;
+      if (!options.retryForever && attempt === attempts) throw error;
 
       await options.onRetry?.({ attempt, delayMs, error });
       await sleep(delayMs);
