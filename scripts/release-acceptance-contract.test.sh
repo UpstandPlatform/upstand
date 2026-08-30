@@ -229,7 +229,11 @@ require_workflow_text 'for attempt in {1..180}; do'
 require_workflow_text 'docker service update --replicas 0 "${STACK_NAME}_migrate"'
 require_workflow_text 'docker service update --replicas 1 "${STACK_NAME}_migrate"'
 require_workflow_text 'Migration task did not complete after external Postgres restoration'
-require_workflow_text '--force --update-parallelism 2 --detach=false'
+require_workflow_text '--force --update-parallelism 2'
+if grep -Fq -- '--force --update-parallelism 2 --detach=false' "$WORKFLOW"; then
+  echo "release acceptance must not wait on detached=false Swarm rollout monitoring" >&2
+  exit 1
+fi
 require_workflow_text 'for service in server schedules deployment-worker; do'
 require_workflow_text 'curl --fail --silent --show-error --max-time 2'
 require_workflow_text 'scripts/operational-status-rehearsal.ts'
