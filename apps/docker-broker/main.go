@@ -653,7 +653,7 @@ func validateServerMonitoringContainerCreate(body []byte) error {
 		return errors.New("monitoring container security settings are invalid")
 	}
 	if len(payload.HostConfig.Tmpfs) != 1 ||
-		payload.HostConfig.Tmpfs["/tmp"] != "rw,nosuid,nodev,size=16m" {
+		payload.HostConfig.Tmpfs["/tmp"] != "rw,noexec,nosuid,nodev,size=16m" {
 		return errors.New("monitoring container temporary filesystem is invalid")
 	}
 	if payload.HostConfig.LogConfig.Type != "json-file" ||
