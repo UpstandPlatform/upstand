@@ -854,7 +854,7 @@ func TestProductionServerCanReconcileOnlyTheManagedMonitoringContainer(t *testin
 	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
 	const image = "ghcr.io/upstandplatform/upstand-monitoring@sha256:" +
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	validBody := `{"Image":"` + image + `","Env":["METRICS_CONFIG={}","DB_PATH=/data/monitoring.db","DOCKER_HOST=https://docker-broker:2375"],"Labels":{"com.upstand.component":"monitoring-agent","com.upstand.platform":"true"},"HostConfig":{"Binds":["/proc:/host/proc:ro","/sys:/host/sys:ro","/etc/os-release:/etc/os-release:ro","upstand-monitoring-data:/data"],"NetworkMode":"upstand-docker-control","CapDrop":["ALL"],"ReadonlyRootfs":true,"Memory":268435456,"PidsLimit":128,"RestartPolicy":{"Name":"always"},"SecurityOpt":["no-new-privileges:true"],"Tmpfs":{"/tmp":"rw,nosuid,nodev,size=16m"},"LogConfig":{"Type":"json-file","Config":{"max-size":"10m","max-file":"3"}}},"ExposedPorts":{"3001/tcp":{}}}`
+	validBody := `{"Image":"` + image + `","Env":["METRICS_CONFIG={}","DB_PATH=/data/monitoring.db","DOCKER_HOST=https://docker-broker:2375"],"Labels":{"com.upstand.component":"monitoring-agent","com.upstand.platform":"true"},"HostConfig":{"Binds":["/proc:/host/proc:ro","/sys:/host/sys:ro","/etc/os-release:/etc/os-release:ro","upstand-monitoring-data:/data"],"NetworkMode":"upstand-docker-control","CapDrop":["ALL"],"ReadonlyRootfs":true,"Memory":268435456,"PidsLimit":128,"RestartPolicy":{"Name":"always"},"SecurityOpt":["no-new-privileges:true"],"Tmpfs":{"/tmp":"rw,noexec,nosuid,nodev,size=16m"},"LogConfig":{"Type":"json-file","Config":{"max-size":"10m","max-file":"3"}}},"ExposedPorts":{"3001/tcp":{}}}`
 
 	createRequest := httptest.NewRequest(
 		http.MethodPost,
@@ -863,6 +863,21 @@ func TestProductionServerCanReconcileOnlyTheManagedMonitoringContainer(t *testin
 	)
 	if err := authorizeDockerRequestForCaller("server", createRequest, []byte(validBody)); err != nil {
 		t.Fatalf("expected managed monitoring create to be allowed: %v", err)
+	}
+
+	legacyTmpfsBody := strings.Replace(
+		validBody,
+		"rw,noexec,nosuid,nodev,size=16m",
+		"rw,nosuid,nodev,size=16m",
+		1,
+	)
+	legacyTmpfsRequest := httptest.NewRequest(
+		http.MethodPost,
+		"http://broker/v1.43/containers/create?name=upstand-monitoring-agent",
+		strings.NewReader(legacyTmpfsBody),
+	)
+	if err := authorizeDockerRequestForCaller("server", legacyTmpfsRequest, []byte(legacyTmpfsBody)); err == nil {
+		t.Fatal("expected monitoring create with the legacy tmpfs policy to be rejected")
 	}
 
 	for _, test := range []struct {
