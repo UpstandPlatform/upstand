@@ -291,6 +291,7 @@ func TestAuthorizeDockerRequestAllowsReviewedLifecycleOperations(t *testing.T) {
 		{http.MethodPost, "/v1.43/containers/abc/start"},
 		{http.MethodPut, "/v1.43/containers/abc/archive"},
 		{http.MethodGet, "/v1.43/images/alpine/json"},
+		{http.MethodGet, "/v1.43/images/ghcr.io/upstandplatform/upstand-monitoring:v0.3.6@sha256:" + strings.Repeat("a", 64) + "/json"},
 		{http.MethodPost, "/v1.43/images/create"},
 		{http.MethodGet, "/v1.43/services/abc"},
 		{http.MethodDelete, "/v1.43/services/abc"},
