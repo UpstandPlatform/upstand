@@ -534,6 +534,11 @@ func configuredSharedNetworkName() string {
 	return name
 }
 
+func acceptanceAllowsUnencryptedNetwork() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(`UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK`)))
+	return value == `true` || value == `1`
+}
+
 func validateTypedSwarmFieldSet(body []byte, operation string) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(body, &fields); err != nil {

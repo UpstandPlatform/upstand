@@ -751,6 +751,34 @@ func TestTypedCaddyProvisioningUsesOnlyManagedShape(t *testing.T) {
 	}
 }
 
+func TestTypedCaddyNetworkHonorsAcceptanceEncryptionOverride(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		allow       string
+		wantSuccess bool
+	}{
+		{name: "production requires encryption", allow: "false", wantSuccess: false},
+		{name: "acceptance may use hosted unencrypted overlay", allow: "true", wantSuccess: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK", test.allow)
+			engine := &dockerEngineClient{httpClient: &http.Client{
+				Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+					if request.Method == http.MethodGet && request.URL.Path == "/networks/upstand-network" {
+						return dockerResponse(http.StatusOK, `{"Id":"network-id","Name":"upstand-network","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{}}`), nil
+					}
+					return dockerResponse(http.StatusNotFound, `{}`), nil
+				}),
+			}}
+
+			_, err := engine.ensureTypedCaddyNetwork(context.Background(), "upstand-network")
+			if (err == nil) != test.wantSuccess {
+				t.Fatalf("expected success=%t, got error=%v", test.wantSuccess, err)
+			}
+		})
+	}
+}
+
 func TestTypedCaddyProvisioningRejectsUnownedContainer(t *testing.T) {
 	const digest = "af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17"
 	engine := &dockerEngineClient{httpClient: &http.Client{
