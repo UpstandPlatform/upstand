@@ -1,5 +1,11 @@
 # server
 
+## 0.3.12
+
+### Patch Changes
+
+- [#395](https://github.com/UpstandPlatform/upstand/pull/395) [`bd54c27`](https://github.com/UpstandPlatform/upstand/commit/bd54c27ef9e20c1212ca9aec305b9ed75da430fa) Thanks [@mhbdev](https://github.com/mhbdev)! - Avoid waiting on hosted Swarm's detached rollout monitor during external-Postgres recovery acceptance; the existing readiness and status probes still verify that database-backed services converge.
+
 ## 0.3.11
 
 ### Patch Changes
