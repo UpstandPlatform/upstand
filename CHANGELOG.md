@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.11 - 2026-08-30
+
+Allow the constrained Caddy broker to honor the explicit hosted-acceptance override for unencrypted Swarm overlays while keeping production encryption enforcement enabled by default.
+
+
 ## 0.3.10 - 2026-08-30
 
 Route production control-plane IP access reconciliation through the typed Docker broker so Caddy startup can complete with the server's restricted Docker identity.

@@ -1,5 +1,11 @@
 # server
 
+## 0.3.11
+
+### Patch Changes
+
+- [#393](https://github.com/UpstandPlatform/upstand/pull/393) [`3a239ba`](https://github.com/UpstandPlatform/upstand/commit/3a239baa8cfa43184fc0446b6375d4f13cfbeaf3) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the constrained Caddy broker to honor the explicit hosted-acceptance override for unencrypted Swarm overlays while keeping production encryption enforcement enabled by default.
+
 ## 0.3.10
 
 ### Patch Changes
