@@ -63,6 +63,23 @@ test("pingRedis does not enqueue commands while the client is reconnecting", asy
   expect(pingCalls).toBe(0);
 });
 
+test("pingRedis reconnects a ready client after a failed ping", async () => {
+  let disconnectArgument: boolean | undefined;
+  const result = await pingRedis(
+    {
+      status: "ready",
+      ping: () => new Promise<string>(() => undefined),
+      disconnect: (reconnect: boolean) => {
+        disconnectArgument = reconnect;
+      },
+    } as never,
+    10,
+  );
+
+  expect(result).toBe(false);
+  expect(disconnectArgument).toBe(true);
+});
+
 test("closeRedis forces a disconnected client closed after the deadline", async () => {
   let disconnected = false;
   await closeRedis(
