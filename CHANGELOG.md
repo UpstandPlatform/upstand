@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.13 - 2026-08-30
+
+Bound the production acceptance schedules recovery probe so a stalled Docker Engine or network setup cannot hang the release job indefinitely.
+
+
 ## 0.3.12 - 2026-08-30
 
 Avoid waiting on hosted Swarm's detached rollout monitor during external-Postgres recovery acceptance; the existing readiness and status probes still verify that database-backed services converge.
