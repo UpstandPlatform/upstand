@@ -33,7 +33,10 @@ const (
 	brokerBusyRetryAfterSecs = 1
 )
 
-const serverMonitoringContainerName = "upstand-monitoring-agent"
+const (
+	serverMonitoringContainerName   = "upstand-monitoring-agent"
+	serverMonitoringImageRepository = "ghcr.io/upstandplatform/upstand-monitoring"
+)
 
 var immutableImageReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,510}@sha256:[a-fA-F0-9]{64}$`)
 
@@ -574,6 +577,8 @@ func authorizeDockerRequestForCaller(caller string, r *http.Request, body []byte
 func isServerMonitoringMutation(r *http.Request, body []byte) bool {
 	path := normalizeDockerPath(r.URL.Path)
 	switch {
+	case r.Method == http.MethodPost && path == "/images/create":
+		return isServerMonitoringImagePull(r)
 	case r.Method == http.MethodPost && path == "/containers/create":
 		return r.URL.Query().Get("name") == serverMonitoringContainerName &&
 			validateServerMonitoringContainerCreate(body) == nil
@@ -586,6 +591,32 @@ func isServerMonitoringMutation(r *http.Request, body []byte) bool {
 	default:
 		return false
 	}
+}
+
+func isServerMonitoringImagePull(r *http.Request) bool {
+	fromImage := strings.TrimSpace(r.URL.Query().Get("fromImage"))
+	if isServerMonitoringImageReference(fromImage) {
+		return true
+	}
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	return isServerMonitoringImageReference(fromImage+"@"+tag) ||
+		(strings.EqualFold(fromImage, serverMonitoringImageRepository) &&
+			isServerMonitoringImageReference(fromImage+":"+tag))
+}
+
+func isServerMonitoringImageReference(image string) bool {
+	trimmed := strings.TrimSpace(image)
+	if !immutableImageReferencePattern.MatchString(trimmed) {
+		return false
+	}
+	if strings.Count(trimmed, "@") != 1 {
+		return false
+	}
+	normalized := strings.ToLower(trimmed)
+	repository := strings.ToLower(serverMonitoringImageRepository)
+	return strings.HasPrefix(normalized, repository) &&
+		len(normalized) > len(repository) &&
+		(normalized[len(repository)] == ':' || normalized[len(repository)] == '@')
 }
 
 func validateServerMonitoringContainerCreate(body []byte) error {
@@ -620,8 +651,8 @@ func validateServerMonitoringContainerCreate(body []byte) error {
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return fmt.Errorf("monitoring container body is invalid: %w", err)
 	}
-	if !immutableImageReferencePattern.MatchString(strings.TrimSpace(payload.Image)) {
-		return errors.New("monitoring container image must be immutable")
+	if !isServerMonitoringImageReference(payload.Image) {
+		return errors.New("monitoring container image must be the immutable Upstand monitoring image")
 	}
 	if payload.Labels["com.upstand.component"] != "monitoring-agent" ||
 		payload.Labels["com.upstand.platform"] != "true" {

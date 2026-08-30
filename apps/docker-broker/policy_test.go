@@ -865,6 +865,43 @@ func TestProductionServerCanReconcileOnlyTheManagedMonitoringContainer(t *testin
 		t.Fatalf("expected managed monitoring create to be allowed: %v", err)
 	}
 
+	for _, imagePullURL := range []string{
+		"http://broker/v1.43/images/create?fromImage=" + url.QueryEscape(image),
+		"http://broker/v1.43/images/create?fromImage=" +
+			url.QueryEscape("ghcr.io/upstandplatform/upstand-monitoring:v0.3.4") +
+			"&tag=" + url.QueryEscape("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+	} {
+		request := httptest.NewRequest(http.MethodPost, imagePullURL, nil)
+		if err := authorizeDockerRequestForCaller("server", request, nil); err != nil {
+			t.Fatalf("expected immutable monitoring image pull to be allowed: %v", err)
+		}
+	}
+
+	for _, imagePullURL := range []string{
+		"http://broker/v1.43/images/create?fromImage=ghcr.io/upstandplatform/upstand-monitoring:latest",
+		"http://broker/v1.43/images/create?fromImage=ghcr.io/other/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	} {
+		request := httptest.NewRequest(http.MethodPost, imagePullURL, nil)
+		if err := authorizeDockerRequestForCaller("server", request, nil); err == nil {
+			t.Fatalf("expected unsafe monitoring image pull to be rejected: %s", imagePullURL)
+		}
+	}
+
+	unsafeImageBody := strings.Replace(
+		validBody,
+		image,
+		"ghcr.io/other/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		1,
+	)
+	unsafeImageRequest := httptest.NewRequest(
+		http.MethodPost,
+		"http://broker/v1.43/containers/create?name=upstand-monitoring-agent",
+		strings.NewReader(unsafeImageBody),
+	)
+	if err := authorizeDockerRequestForCaller("server", unsafeImageRequest, []byte(unsafeImageBody)); err == nil {
+		t.Fatal("expected monitoring create with a different image repository to be rejected")
+	}
+
 	legacyTmpfsBody := strings.Replace(
 		validBody,
 		"rw,noexec,nosuid,nodev,size=16m",
