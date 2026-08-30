@@ -1,5 +1,11 @@
 # server
 
+## 0.3.5
+
+### Patch Changes
+
+- [#375](https://github.com/UpstandPlatform/upstand/pull/375) [`e3a6ee7`](https://github.com/UpstandPlatform/upstand/commit/e3a6ee710c4f15247c37a7c91e083a226e8505a0) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production control plane to pull only its immutable monitoring image through the Docker broker before reconciling the managed monitoring sidecar.
+
 ## 0.3.4
 
 ### Patch Changes
