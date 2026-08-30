@@ -400,6 +400,14 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			allow:  true,
 		},
 		{
+			name:   "typed control-plane IP access",
+			caller: "server",
+			method: http.MethodPost,
+			path:   "/upstand/v1/web-server/control-plane-access",
+			body:   `{"operation":"set_ip_access","enabled":true}`,
+			allow:  true,
+		},
+		{
 			name:   "typed Caddy configuration",
 			caller: "server",
 			method: http.MethodPost,

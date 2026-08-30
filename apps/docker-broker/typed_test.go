@@ -780,6 +780,68 @@ func TestTypedCaddyProvisioningRejectsUnownedContainer(t *testing.T) {
 	}
 }
 
+func TestTypedControlPlaneAccessUpdatesOnlyManagedServices(t *testing.T) {
+	updated := make(map[string]map[string]any)
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			switch {
+			case request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/services/"):
+				name := strings.TrimPrefix(request.URL.Path, "/services/")
+				return dockerResponse(http.StatusOK, `{"ID":"`+name+`-id","Version":{"Index":7},"Spec":{"Name":"`+name+`","Labels":{},"TaskTemplate":{},"EndpointSpec":{"Ports":[]}}}`), nil
+			case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/update"):
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					return nil, err
+				}
+				var spec map[string]any
+				if err := json.Unmarshal(body, &spec); err != nil {
+					return nil, err
+				}
+				serviceName, _ := spec["Name"].(string)
+				updated[serviceName] = spec
+				return dockerResponse(http.StatusOK, `{}`), nil
+			default:
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+		}),
+	}}
+
+	body := []byte(`{"operation":"set_ip_access","enabled":true}`)
+	input, err := validateTypedControlPlaneAccessRequest(body)
+	if err != nil {
+		t.Fatalf("expected valid typed control-plane access input: %v", err)
+	}
+	if err := engine.setTypedControlPlaneIpAccess(context.Background(), *input.Enabled); err != nil {
+		t.Fatalf("expected typed control-plane access update to succeed: %v", err)
+	}
+	if len(updated) != 3 {
+		t.Fatalf("expected all managed control-plane services to be updated, got %d", len(updated))
+	}
+	expectedPorts := map[string]float64{
+		"upstand_server":   3000,
+		"upstand_web":      3001,
+		"upstand_fumadocs": 4000,
+	}
+	for name, spec := range updated {
+		endpoint, ok := spec["EndpointSpec"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected endpoint spec for %s, got %#v", name, spec["EndpointSpec"])
+		}
+		ports, ok := endpoint["Ports"].([]any)
+		if !ok || len(ports) != 1 {
+			t.Fatalf("expected one published port for %s, got %#v", name, endpoint["Ports"])
+		}
+		port, ok := ports[0].(map[string]any)
+		if !ok || port["TargetPort"] != expectedPorts[name] || port["PublishedPort"] != expectedPorts[name] {
+			t.Fatalf("expected the managed port mapping for %s, got %#v", name, ports[0])
+		}
+	}
+
+	if _, err := validateTypedControlPlaneAccessRequest([]byte(`{"operation":"set_ip_access","enabled":true,"service_name":"attacker"}`)); err == nil {
+		t.Fatal("expected control-plane access to reject unknown fields")
+	}
+}
+
 func TestTypedCaddyConfigurationUsesBoundedArchiveAndTransactionalReload(t *testing.T) {
 	commands := make(map[string][]string)
 	archiveBody := []byte(nil)

@@ -44,6 +44,20 @@ test("uses the typed broker for local Caddy provisioning", async () => {
   ]);
 });
 
+test("uses the typed broker for control-plane IP access", async () => {
+  let enabled: boolean | undefined;
+  const service = new CaddyService({} as never, ["localhost"], {
+    ensureCaddyContainer: async () => {},
+    setControlPlaneIpAccess: async (value) => {
+      enabled = value;
+    },
+  });
+
+  await service.setControlPlaneIpAccess(false);
+
+  expect(enabled).toBe(false);
+});
+
 test("uses the typed broker for local Caddy configuration sync", async () => {
   let configurationInput:
     | { caddyfileBase64: string; certificates: unknown[] }
