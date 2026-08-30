@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.1 - 2026-08-30
+
+Retry Caddy and monitoring initialization during startup so a newly deployed
+Swarm can converge when the Docker broker is still starting.
+
+
 ## 0.3.0 - 2026-08-29
 
 Add passkey enrollment in account settings and passkey sign-in on the login page.

@@ -1,5 +1,12 @@
 # server
 
+## 0.3.1
+
+### Patch Changes
+
+- [#377](https://github.com/UpstandPlatform/upstand/pull/377) [`f91554e`](https://github.com/UpstandPlatform/upstand/commit/f91554e75ada744aa3d0eb664a3bee20b47e2385) Thanks [@mhbdev](https://github.com/mhbdev)! - Retry Caddy and monitoring initialization during startup so a newly deployed
+  Swarm can converge when the Docker broker is still starting.
+
 ## 0.3.0
 
 ### Minor Changes
