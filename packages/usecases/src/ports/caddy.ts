@@ -54,6 +54,7 @@ export type CaddyConfigurationInput = {
  */
 export interface CaddyProvisioningPort {
   ensureCaddyContainer(input: CaddyProvisioningInput): Promise<void>;
+  setControlPlaneIpAccess?(enabled: boolean): Promise<void>;
   applyCaddyConfiguration?(input: CaddyConfigurationInput): Promise<{
     changed: boolean;
   }>;

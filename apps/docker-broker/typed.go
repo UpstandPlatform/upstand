@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	typedBrokerPrefix       = "/upstand/v1/web-server/"
-	typedServerPrefix       = "/upstand/v1/server/"
-	maxTypedResponseBytes   = 8 << 20
-	maxTypedLogTail         = 1000
-	maxTypedCommandPassword = 512
+	typedBrokerPrefix           = "/upstand/v1/web-server/"
+	typedControlPlaneAccessPath = typedBrokerPrefix + "control-plane-access"
+	typedServerPrefix           = "/upstand/v1/server/"
+	maxTypedResponseBytes       = 8 << 20
+	maxTypedLogTail             = 1000
+	maxTypedCommandPassword     = 512
 )
 
 var managedWebServerServicePattern = regexp.MustCompile(`^upstand_(server|redis)$`)
@@ -109,6 +110,7 @@ func isTypedDockerPath(path string) bool {
 		typedBrokerPrefix + `service-logs`,
 		typedBrokerPrefix + `service-command`,
 		typedCaddyPath,
+		typedControlPlaneAccessPath,
 		typedCaddyConfigurationPath:
 		return true
 	default:
@@ -401,6 +403,12 @@ func authorizeTypedDockerRequest(caller string, r *http.Request, body []byte) er
 		}
 		_, err := validateTypedCaddyRequest(body)
 		return err
+	case typedControlPlaneAccessPath:
+		if r.Method != http.MethodPost {
+			return errors.New(`typed control-plane access requires POST`)
+		}
+		_, err := validateTypedControlPlaneAccessRequest(body)
+		return err
 	case typedCaddyConfigurationPath:
 		if r.Method != http.MethodPost {
 			return errors.New(`typed Caddy configuration requires POST`)
@@ -587,6 +595,12 @@ func serveTypedDockerRequest(w http.ResponseWriter, r *http.Request, body []byte
 		if err == nil {
 			err = engine.ensureCaddyContainer(r.Context(), input)
 		}
+	case typedControlPlaneAccessPath:
+		var input typedControlPlaneAccessRequest
+		input, err = validateTypedControlPlaneAccessRequest(body)
+		if err == nil {
+			err = engine.setTypedControlPlaneIpAccess(r.Context(), *input.Enabled)
+		}
 	case typedCaddyConfigurationPath:
 		var input typedCaddyConfigurationRequest
 		input, err = validateTypedCaddyConfigurationRequest(body)
@@ -695,7 +709,7 @@ func serveTypedDockerRequest(w http.ResponseWriter, r *http.Request, body []byte
 		return http.StatusBadGateway
 	}
 	path := normalizeDockerPath(r.URL.Path)
-	if path == typedBrokerPrefix+`service-update` || path == typedBrokerPrefix+`service-command` || path == typedCaddyPath || path == typedServerPrefix+`cleanup` || path == typedResourceServicePath || path == typedResourcePullPath || path == typedResourceNetworkPath || path == typedResourceVolumePath || path == typedResourceTeardownPath || path == typedResourcePushPath || path == typedResourceRollbackPath {
+	if path == typedBrokerPrefix+`service-update` || path == typedBrokerPrefix+`service-command` || path == typedCaddyPath || path == typedControlPlaneAccessPath || path == typedServerPrefix+`cleanup` || path == typedResourceServicePath || path == typedResourcePullPath || path == typedResourceNetworkPath || path == typedResourceVolumePath || path == typedResourceTeardownPath || path == typedResourcePushPath || path == typedResourceRollbackPath {
 		w.WriteHeader(http.StatusNoContent)
 		return http.StatusNoContent
 	}
