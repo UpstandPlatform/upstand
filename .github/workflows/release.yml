@@ -1088,7 +1088,10 @@ jobs:
 
           schedules_status_recovered=false
           for attempt in {1..180}; do
-            if docker run --rm --network "$DOCKER_NETWORK" \
+            # Bound both the curl and Docker Engine/network setup. The inner
+            # curl timeout cannot interrupt a docker run that never starts.
+            # shellcheck disable=SC2016 # $1 expands in the container shell.
+            if timeout --foreground 15 docker run --rm --network "$DOCKER_NETWORK" \
               --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
               --user 10001:10001 \
               --entrypoint /bin/sh \
