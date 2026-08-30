@@ -9,6 +9,8 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 Keep critical Caddy and monitoring startup initialization retrying until dependencies recover so transient deployment races cannot leave production readiness permanently blocked.
 
 
+Reset stale Redis connections after a failed health ping so readiness can recover after a dependency outage.
+
 ## 0.3.7 - 2026-08-30
 
 Retry Caddy and monitoring initialization during startup so a newly deployed
