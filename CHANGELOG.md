@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.14 - 2026-08-30
+
+Bound the total duration of the production acceptance schedules recovery loop in addition to each individual Docker probe.
+
+
 ## 0.3.13 - 2026-08-30
 
 Bound the production acceptance schedules recovery probe so a stalled Docker Engine or network setup cannot hang the release job indefinitely.
