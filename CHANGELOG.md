@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.3 - 2026-08-29
+
+Allow the production control plane to reconcile its fixed, least-privilege monitoring sidecar through the Docker broker without reopening general raw Docker mutations.
+
+
 ## 0.3.2 - 2026-08-29
 
 Configure the Docker broker health check in production Compose so release acceptance can verify the mTLS-protected broker without probing its authenticated API.
