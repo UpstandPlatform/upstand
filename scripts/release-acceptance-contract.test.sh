@@ -45,6 +45,11 @@ require_compose_text "target: /tmp"
 require_compose_text "target: /app/.builds"
 require_compose_text "target: /home/upstand/.docker"
 require_compose_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: \${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}"
+acceptance_network_override_count="$(grep -Fc -- 'UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: ${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}' "$COMPOSE")"
+[[ "$acceptance_network_override_count" -ge 3 ]] || {
+  echo "production Compose must pass the explicit acceptance network override to all Docker clients" >&2
+  exit 1
+}
 require_compose_text "UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret"
 require_compose_text "- upgal_tool_approval_secret"
 require_compose_text "UPSTAND_DR_READINESS_GATE: \${UPSTAND_DR_READINESS_GATE:-true}"

@@ -592,8 +592,8 @@ func (engine *dockerEngineClient) ensureTypedCaddyNetwork(ctx context.Context, n
 	if err := json.Unmarshal(body, &network); err != nil {
 		return ``, fmt.Errorf(`invalid Caddy network inspection: %w`, err)
 	}
-	if network.ID == `` || network.Name != name || network.Driver != `overlay` || network.Scope != `swarm` || !network.Attachable || !hasEncryptedNetworkOption(network.Options) {
-		return ``, errors.New(`Caddy network is not an encrypted attachable Swarm overlay`)
+	if network.ID == `` || network.Name != name || network.Driver != `overlay` || network.Scope != `swarm` || !network.Attachable || (!acceptanceAllowsUnencryptedNetwork() && !hasEncryptedNetworkOption(network.Options)) {
+		return ``, errors.New(`Caddy network is not a compatible attachable Swarm overlay`)
 	}
 	return network.ID, nil
 }
