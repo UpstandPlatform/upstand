@@ -1,5 +1,11 @@
 # server
 
+## 0.3.4
+
+### Patch Changes
+
+- [#373](https://github.com/UpstandPlatform/upstand/pull/373) [`ff4350e`](https://github.com/UpstandPlatform/upstand/commit/ff4350e2011824064ea516863145d4065a6dfe0a) Thanks [@mhbdev](https://github.com/mhbdev)! - Align the production Docker broker's monitoring-sidecar policy with the hardened temporary filesystem emitted by the control plane.
+
 ## 0.3.3
 
 ### Patch Changes

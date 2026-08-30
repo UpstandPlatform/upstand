@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.4 - 2026-08-30
+
+Align the production Docker broker's monitoring-sidecar policy with the hardened temporary filesystem emitted by the control plane.
+
+
 ## 0.3.3 - 2026-08-29
 
 Allow the production control plane to reconcile its fixed, least-privilege monitoring sidecar through the Docker broker without reopening general raw Docker mutations.
