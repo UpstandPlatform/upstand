@@ -1087,7 +1087,11 @@ jobs:
           done
 
           schedules_status_recovered=false
+          schedules_status_deadline=$(( $(date +%s) + 300 ))
           for attempt in {1..180}; do
+            if (( $(date +%s) >= schedules_status_deadline )); then
+              break
+            fi
             # Bound both the curl and Docker Engine/network setup. The inner
             # curl timeout cannot interrupt a docker run that never starts.
             # shellcheck disable=SC2016 # $1 expands in the container shell.
