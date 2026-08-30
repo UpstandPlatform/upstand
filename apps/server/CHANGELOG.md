@@ -1,5 +1,15 @@
 # server
 
+## 0.3.7
+
+### Patch Changes
+
+- [#382](https://github.com/UpstandPlatform/upstand/pull/382) [`fc83b2f`](https://github.com/UpstandPlatform/upstand/commit/fc83b2f4d6420666ba201d1e9f03070abba90590) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production Docker broker to inspect immutable images whose registry
+  and repository names contain slash-separated path components.
+
+- [#382](https://github.com/UpstandPlatform/upstand/pull/382) [`fc83b2f`](https://github.com/UpstandPlatform/upstand/commit/fc83b2f4d6420666ba201d1e9f03070abba90590) Thanks [@mhbdev](https://github.com/mhbdev)! - Retry Caddy and monitoring initialization during startup so a newly deployed
+  Swarm can converge when the Docker broker is still starting.
+
 ## 0.3.6
 
 ### Patch Changes
