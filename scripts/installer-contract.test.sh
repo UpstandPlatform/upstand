@@ -27,6 +27,18 @@ grep -Fq 'apps/docker-broker/Dockerfile' "$ROOT_DIR/install.sh" || {
   echo "source-build installer must build the Docker broker image" >&2
   exit 1
 }
+grep -Fq 'UPSTAND_VERSION="$requested_version"' "$ROOT_DIR/install.sh" || {
+  echo "installer must preserve an explicitly selected release version when updating an existing installation" >&2
+  exit 1
+}
+grep -Fq 'UPSTAND_MONITORING_IMAGE=""' "$ROOT_DIR/install.sh" || {
+  echo "installer must resolve release images instead of carrying a stale monitoring image into a version change" >&2
+  exit 1
+}
+grep -Fq 'UPSTAND_DOCKER_BROKER_IMAGE=""' "$ROOT_DIR/install.sh" || {
+  echo "installer must resolve the Docker broker image instead of carrying a stale broker image into a version change" >&2
+  exit 1
+}
 grep -Fq 'ClientAuth: tls.RequireAndVerifyClientCert' "$ROOT_DIR/apps/docker-broker/main.go" || {
   echo "Docker broker must require verified client certificates during the TLS handshake" >&2
   exit 1

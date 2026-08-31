@@ -12,14 +12,23 @@ container hardening, release images, and shutdown behavior.
 
 The repository checks and local acceptance contracts are green, but this is not
 a production sign-off. The current verdict is **conditionally ready for
-controlled acceptance only**. General production use remains blocked until the
-release workflow completes on native Linux Docker Swarm and the target operator
-environment completes the external-service, backup-recovery, egress, and
-observability checks listed below.
+controlled acceptance only**. The native Linux release workflow now completes
+its disposable Swarm acceptance and publish gates. General production use
+remains blocked until the target operator environment completes the
+external-service, backup-recovery, egress, and observability checks listed
+below.
 
-This report records the state on **2026-08-02**. It is intentionally a release
+This report records the state on **2026-08-31**. It is intentionally a release
 gate, not a claim that a local Windows Docker Desktop environment is equivalent
 to a production Linux Swarm.
+
+The managed test host also exposed an important upgrade-path condition: its
+application services had been moved to a newer release while persisted image
+metadata still selected an older monitoring image. The versioned installer now
+treats an explicitly selected release as authoritative and clears stale image
+overrides before resolving the complete release manifest. The host must be
+reconciled with that installer path and re-audited before this operational
+finding can be considered closed.
 
 ## Open findings register
 
