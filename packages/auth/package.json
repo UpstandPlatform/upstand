@@ -16,9 +16,9 @@
   },
   "dependencies": {
     "@better-auth/api-key": "catalog:",
-    "@better-auth/passkey": "1.7.1",
-    "@better-auth/sso": "1.7.1",
-    "@simplewebauthn/server": "^13.3.1",
+    "@better-auth/passkey": "1.7.2",
+    "@better-auth/sso": "1.7.2",
+    "@simplewebauthn/server": "^13.3.3",
     "@upstand/domain": "workspace:*",
     "better-auth": "catalog:"
   },

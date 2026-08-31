@@ -33,9 +33,9 @@
     "test": "bun test src"
   },
   "dependencies": {
-    "@opentui/core": "^0.4.5",
-    "@opentui/keymap": "^0.4.5",
-    "zod": "^4.4.3"
+    "@opentui/core": "^0.5.9",
+    "@opentui/keymap": "^0.5.9",
+    "zod": "^4.5.1"
   },
   "devDependencies": {
     "@upstand/config": "workspace:*",

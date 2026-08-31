@@ -26,8 +26,8 @@
     "@electron-forge/shared-types": "^7.11.1",
     "@types/bun": "catalog:",
     "@types/electron-squirrel-startup": "^1.0.2",
-    "@types/node": "^26.0.0",
-    "electron": "^41.10.3",
+    "@types/node": "^26.4.0",
+    "electron": "^44.0.0",
     "electron-squirrel-startup": "^1.0.1",
     "typescript": "catalog:"
   }
