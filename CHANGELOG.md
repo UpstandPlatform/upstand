@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.15 - 2026-08-31
+
+Recreate the completed migration service during external-database recovery acceptance so hosted Swarm managers do not hang on a one-shot service scale-up.
+
+
 ## 0.3.14 - 2026-08-30
 
 Bound the total duration of the production acceptance schedules recovery loop in addition to each individual Docker probe.
