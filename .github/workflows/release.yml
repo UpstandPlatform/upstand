@@ -1051,8 +1051,14 @@ jobs:
           # The disposable external Postgres fixture has no persistent volume.
           # Restoring its task therefore restores an empty database, so rerun
           # the real migration service before asserting database-backed status.
-          docker service update --replicas 0 "${STACK_NAME}_migrate" >/dev/null
-          docker service update --replicas 1 "${STACK_NAME}_migrate" >/dev/null
+          # A completed one-shot Swarm service can remain at replicas=0 after
+          # scale-down, but hosted Swarm managers may hang while scaling that
+          # completed task back to one. Recreate it through the same stack
+          # definition used for production instead of relying on that update
+          # path.
+          timeout --foreground 60 docker service rm "${STACK_NAME}_migrate" >/dev/null 2>&1 || true
+          timeout --foreground 300 docker stack deploy --with-registry-auth \
+            --compose-file docker-compose.prod.yml "$STACK_NAME"
           migration_completed=false
           for attempt in {1..60}; do
             migration_state="$(docker service ps "${STACK_NAME}_migrate" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
