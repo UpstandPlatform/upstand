@@ -1,5 +1,11 @@
 # server
 
+## 0.3.15
+
+### Patch Changes
+
+- [#401](https://github.com/UpstandPlatform/upstand/pull/401) [`064e4ff`](https://github.com/UpstandPlatform/upstand/commit/064e4ff3ca8fca6eadf6c0abf6bf9237f46fab8b) Thanks [@mhbdev](https://github.com/mhbdev)! - Recreate the completed migration service during external-database recovery acceptance so hosted Swarm managers do not hang on a one-shot service scale-up.
+
 ## 0.3.14
 
 ### Patch Changes
