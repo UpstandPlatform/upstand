@@ -818,6 +818,9 @@ write_environment() {
     # shellcheck disable=SC1090
     source "$ENV_FILE"
   fi
+  if [[ -n "$requested_version" ]]; then
+    UPSTAND_VERSION="$requested_version"
+  fi
   if [[ -n "$requested_allow_insecure_bootstrap" ]]; then
     UPSTAND_ALLOW_INSECURE_BOOTSTRAP="$requested_allow_insecure_bootstrap"
   fi
