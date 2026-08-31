@@ -4,6 +4,16 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.18 - 2026-08-31
+
+Reconcile the self-hosting, release, authentication, monitoring, infrastructure,
+and database documentation with the current brokered Docker architecture and
+the supported installer workflow. Make unavailable Docker telemetry quiet and
+explicit instead of retrying an unusable transport indefinitely.
+
+Ensure an explicitly selected release remains authoritative when the installer upgrades an existing installation, preventing stale release metadata and image configuration from being carried into the new deployment.
+
+
 ## 0.3.17 - 2026-08-31
 
 Fix passkey route availability in production-shaped releases and make self-updates validate the complete control-plane service set before applying immutable images. Failed multi-service updates now roll back instead of leaving a mixed-version installation.

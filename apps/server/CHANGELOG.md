@@ -1,5 +1,11 @@
 # server
 
+## 0.3.18
+
+### Patch Changes
+
+- [#407](https://github.com/UpstandPlatform/upstand/pull/407) [`f349e5a`](https://github.com/UpstandPlatform/upstand/commit/f349e5a1711c5e2c5536e4e84b4ce6d35b29051e) Thanks [@mhbdev](https://github.com/mhbdev)! - Ensure an explicitly selected release remains authoritative when the installer upgrades an existing installation, preventing stale release metadata and image configuration from being carried into the new deployment.
+
 ## 0.3.17
 
 ### Patch Changes
