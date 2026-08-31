@@ -229,8 +229,12 @@ require_workflow_text 'schedules_status_deadline=$(( $(date +%s) + 300 ))'
 require_workflow_text 'if (( $(date +%s) >= schedules_status_deadline )); then'
 require_workflow_text 'for attempt in {1..180}; do'
 require_workflow_text 'timeout --foreground 15 docker run --rm --network "$DOCKER_NETWORK"'
-require_workflow_text 'docker service update --replicas 0 "${STACK_NAME}_migrate"'
-require_workflow_text 'docker service update --replicas 1 "${STACK_NAME}_migrate"'
+require_workflow_text 'timeout --foreground 60 docker service rm "${STACK_NAME}_migrate"'
+require_workflow_text 'timeout --foreground 300 docker stack deploy --with-registry-auth'
+if grep -Fq 'docker service update --replicas 1 "${STACK_NAME}_migrate"' "$WORKFLOW"; then
+  echo "release acceptance must recreate the completed migration service instead of scaling it" >&2
+  exit 1
+fi
 require_workflow_text 'Migration task did not complete after external Postgres restoration'
 require_workflow_text '--force --update-parallelism 2'
 if grep -Fq -- '--force --update-parallelism 2 --detach=false' "$WORKFLOW"; then
