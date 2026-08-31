@@ -1,5 +1,11 @@
 # server
 
+## 0.3.16
+
+### Patch Changes
+
+- [#403](https://github.com/UpstandPlatform/upstand/pull/403) [`93bfa2d`](https://github.com/UpstandPlatform/upstand/commit/93bfa2d4c1799fbed90506674ed77f057361d7dd) Thanks [@mhbdev](https://github.com/mhbdev)! - Treat omitted soak latency budgets as unbounded so production acceptance does not fail on a zero-millisecond SLO.
+
 ## 0.3.15
 
 ### Patch Changes
