@@ -1,5 +1,14 @@
 # fumadocs
 
+## 0.3.18
+
+### Patch Changes
+
+- [#407](https://github.com/UpstandPlatform/upstand/pull/407) [`f349e5a`](https://github.com/UpstandPlatform/upstand/commit/f349e5a1711c5e2c5536e4e84b4ce6d35b29051e) Thanks [@mhbdev](https://github.com/mhbdev)! - Reconcile the self-hosting, release, authentication, monitoring, infrastructure,
+  and database documentation with the current brokered Docker architecture and
+  the supported installer workflow. Make unavailable Docker telemetry quiet and
+  explicit instead of retrying an unusable transport indefinitely.
+
 ## 0.3.17
 
 ### Patch Changes
