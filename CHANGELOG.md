@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.17 - 2026-08-31
+
+Fix passkey route availability in production-shaped releases and make self-updates validate the complete control-plane service set before applying immutable images. Failed multi-service updates now roll back instead of leaving a mixed-version installation.
+
+
 ## 0.3.16 - 2026-08-31
 
 Treat omitted soak latency budgets as unbounded so production acceptance does not fail on a zero-millisecond SLO.
