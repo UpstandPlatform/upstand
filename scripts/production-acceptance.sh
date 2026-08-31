@@ -549,6 +549,16 @@ printf '%s\n' "$server_metrics_environment" | grep -Fxq 'UPSTAND_METRICS_TOKEN_F
   || fail "service '${STACK_NAME}_server' must protect API metrics with a Swarm secret"
 echo "acceptance: API metrics authentication is configured"
 
+server_container_id="$(docker_cmd ps -q --filter "label=com.docker.swarm.service.name=${STACK_NAME}_server" | head -n 1)" \
+  || fail "server container could not be located for the authentication route probe"
+[[ -n "$server_container_id" ]] \
+  || fail "server container could not be located for the authentication route probe"
+passkey_route_status="$(docker_cmd exec "$server_container_id" sh -c 'curl --silent --show-error --output /dev/null --write-out "%{http_code}" http://127.0.0.1:3000/api/auth/passkey/list-user-passkeys')" \
+  || fail "passkey route probe could not reach the server"
+[[ "$passkey_route_status" == "401" ]] \
+  || fail "passkey list route is not registered or does not require authentication (HTTP ${passkey_route_status:-unknown})"
+echo "acceptance: Better Auth passkey routes are registered"
+
 schedules_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_schedules")" \
   || fail "service '${STACK_NAME}_schedules' environment could not be inspected for backup policy"
 backup_require_success="$(printf '%s\n' "$schedules_environment" | sed -n 's/^UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS=//p' | head -n 1)"
