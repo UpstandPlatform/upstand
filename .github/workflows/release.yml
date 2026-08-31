@@ -1187,8 +1187,6 @@ jobs:
             --env HEALTH_SOAK_WINDOW_REQUESTS=120 \
             --env HEALTH_SOAK_WINDOW_CONCURRENCY=12 \
             --env HEALTH_SOAK_MAX_FAILURES_PER_WINDOW=0 \
-            --env HEALTH_SOAK_MAX_P95_MS=0 \
-            --env HEALTH_SOAK_MAX_P99_MS=0 \
             --env HEALTH_SOAK_OUTPUT_FILE=/tmp/health-soak.txt \
             "$HEALTH_LOAD_IMAGE" \
             /tmp/health-soak-rehearsal.sh "http://${STACK_NAME}_server:3000" \

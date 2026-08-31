@@ -7,8 +7,8 @@ DURATION_SECONDS="${HEALTH_SOAK_DURATION_SECONDS:-600}"
 WINDOW_REQUESTS="${HEALTH_SOAK_WINDOW_REQUESTS:-120}"
 WINDOW_CONCURRENCY="${HEALTH_SOAK_WINDOW_CONCURRENCY:-12}"
 MAX_FAILURES_PER_WINDOW="${HEALTH_SOAK_MAX_FAILURES_PER_WINDOW:-0}"
-MAX_P95_MS="${HEALTH_SOAK_MAX_P95_MS:-0}"
-MAX_P99_MS="${HEALTH_SOAK_MAX_P99_MS:-0}"
+MAX_P95_MS="${HEALTH_SOAK_MAX_P95_MS-}"
+MAX_P99_MS="${HEALTH_SOAK_MAX_P99_MS-}"
 MAX_WINDOWS="${HEALTH_SOAK_MAX_WINDOWS:-10000}"
 REQUEST_TIMEOUT_SECONDS="${HEALTH_LOAD_REQUEST_TIMEOUT_SECONDS:-10}"
 REQUEST_PATH="${HEALTH_LOAD_REQUEST_PATH:-}"
@@ -46,10 +46,14 @@ is_bounded_integer "$WINDOW_CONCURRENCY" 1 100 \
   || fail "HEALTH_SOAK_WINDOW_CONCURRENCY must be an integer from 1 to 100"
 is_bounded_integer "$MAX_FAILURES_PER_WINDOW" 0 "$WINDOW_REQUESTS" \
   || fail "HEALTH_SOAK_MAX_FAILURES_PER_WINDOW must be an integer from 0 to $WINDOW_REQUESTS"
-is_bounded_integer "$MAX_P95_MS" 0 600000 \
-  || fail "HEALTH_SOAK_MAX_P95_MS must be an integer from 0 to 600000"
-is_bounded_integer "$MAX_P99_MS" 0 600000 \
-  || fail "HEALTH_SOAK_MAX_P99_MS must be an integer from 0 to 600000"
+if [ -n "$MAX_P95_MS" ]; then
+  is_bounded_integer "$MAX_P95_MS" 0 600000 \
+    || fail "HEALTH_SOAK_MAX_P95_MS must be an integer from 0 to 600000"
+fi
+if [ -n "$MAX_P99_MS" ]; then
+  is_bounded_integer "$MAX_P99_MS" 0 600000 \
+    || fail "HEALTH_SOAK_MAX_P99_MS must be an integer from 0 to 600000"
+fi
 is_bounded_integer "$MAX_WINDOWS" 1 10000 \
   || fail "HEALTH_SOAK_MAX_WINDOWS must be an integer from 1 to 10000"
 is_bounded_integer "$REQUEST_TIMEOUT_SECONDS" 1 60 \

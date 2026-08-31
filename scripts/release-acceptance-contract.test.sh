@@ -217,6 +217,10 @@ require_workflow_text 'upstand_schedules_collection_success 1'
 require_workflow_text 'schedules-metrics.txt'
 require_workflow_text 'scripts/health-soak-rehearsal.sh:/tmp/health-soak-rehearsal.sh:ro'
 require_workflow_text 'HEALTH_SOAK_DURATION_SECONDS=60'
+if grep -Fq -- '--env HEALTH_SOAK_MAX_P95_MS=0' "$WORKFLOW" || grep -Fq -- '--env HEALTH_SOAK_MAX_P99_MS=0' "$WORKFLOW"; then
+  echo "release acceptance must not configure zero-millisecond soak latency limits" >&2
+  exit 1
+fi
 require_workflow_text 'health-soak.txt'
 require_workflow_text 'printf "%s" "$status" | grep -Fq'
 require_workflow_text 'grep -Fq "\"queues\""'
