@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.16 - 2026-08-31
+
+Treat omitted soak latency budgets as unbounded so production acceptance does not fail on a zero-millisecond SLO.
+
+
 ## 0.3.15 - 2026-08-31
 
 Recreate the completed migration service during external-database recovery acceptance so hosted Swarm managers do not hang on a one-shot service scale-up.
