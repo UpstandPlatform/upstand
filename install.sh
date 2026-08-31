@@ -819,6 +819,15 @@ write_environment() {
     source "$ENV_FILE"
   fi
   if [[ -n "$requested_version" ]]; then
+    if [[ "$requested_version" != "${UPSTAND_VERSION:-}" ]]; then
+      [[ -n "$requested_server_image" ]] || UPSTAND_SERVER_IMAGE=""
+      [[ -n "$requested_schedules_image" ]] || UPSTAND_SCHEDULES_IMAGE=""
+      [[ -n "$requested_deployment_worker_image" ]] || UPSTAND_DEPLOYMENT_WORKER_IMAGE=""
+      [[ -n "$requested_web_image" ]] || UPSTAND_WEB_IMAGE=""
+      [[ -n "$requested_docs_image" ]] || UPSTAND_DOCS_IMAGE=""
+      [[ -n "$requested_monitoring_image" ]] || UPSTAND_MONITORING_IMAGE=""
+      [[ -n "$requested_docker_broker_image" ]] || UPSTAND_DOCKER_BROKER_IMAGE=""
+    fi
     UPSTAND_VERSION="$requested_version"
   fi
   if [[ -n "$requested_allow_insecure_bootstrap" ]]; then

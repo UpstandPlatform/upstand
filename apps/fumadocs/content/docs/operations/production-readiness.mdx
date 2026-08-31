@@ -46,7 +46,9 @@ Before deploying a release:
    `docker_broker_schedules_token`, while each caller receives only its own
    secret. The broker derives caller identity from the credential rather than
    trusting the attribution header. The monitoring sidecar has no Docker
-   socket and uses the broker for Docker telemetry.
+   socket. Its system metrics remain available from the host namespaces; its
+   optional container-metrics collector runs only when a usable Docker socket
+   or complete broker client identity is explicitly provided.
    Validate the rebuilt server image against disposable external PostgreSQL
    and Redis services before publishing it:
 
