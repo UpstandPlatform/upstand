@@ -712,7 +712,7 @@ export class CaddyService {
   // mutation process-wide to retain the last complete, validated configuration.
   private static configurationTail: Promise<void> = Promise.resolve();
   private readonly docker: Docker;
-  private readonly networkName = env.DOCKER_NETWORK;
+  private readonly networkName = env.DOCKER_NETWORK || "upstand-network";
   private readonly outboundAllowlistedHosts: readonly string[];
   private readonly provisioningBroker?: CaddyProvisioningPort;
 
