@@ -1252,6 +1252,16 @@ var managedSelfUpdateServices = map[string]string{
 	"upstand_fumadocs":  "fumadocs",
 }
 
+var requiredSelfUpdateImages = []string{"server", "schedules", "web", "fumadocs"}
+
+type selfUpdateServicePlan struct {
+	id           string
+	name         string
+	version      uint64
+	originalSpec map[string]any
+	updatedSpec  map[string]any
+}
+
 func (engine *dockerEngineClient) applySelfUpdate(ctx context.Context, body []byte) (int, error) {
 	var input typedSelfUpdateRequest
 	if err := decodeTypedJSON(body, &input); err != nil {
@@ -1271,7 +1281,7 @@ func (engine *dockerEngineClient) applySelfUpdate(ctx context.Context, body []by
 	if err := json.Unmarshal(serviceBody, &services); err != nil {
 		return 0, fmt.Errorf(`invalid Docker service list: %w`, err)
 	}
-	updatedCount := 0
+	plansByImage := make(map[string]selfUpdateServicePlan, len(requiredSelfUpdateImages))
 	for _, service := range services {
 		if service.ID == `` || service.Version.Index == 0 || service.Spec == nil {
 			continue
@@ -1281,20 +1291,35 @@ func (engine *dockerEngineClient) applySelfUpdate(ctx context.Context, body []by
 		if !managed {
 			continue
 		}
+		if _, exists := plansByImage[imageName]; exists {
+			return 0, fmt.Errorf(`self-update found duplicate managed service for %s`, imageName)
+		}
 		taskTemplate, ok := service.Spec[`TaskTemplate`].(map[string]any)
 		if !ok {
-			continue
+			return 0, fmt.Errorf(`self-update service %q has no task template`, name)
 		}
 		containerSpec, ok := taskTemplate[`ContainerSpec`].(map[string]any)
 		if !ok {
-			continue
+			return 0, fmt.Errorf(`self-update service %q has no container specification`, name)
 		}
 		currentImage, _ := containerSpec[`Image`].(string)
 		if currentImage == `` {
-			continue
+			return 0, fmt.Errorf(`self-update service %q has no container image`, name)
 		}
 		if strings.Contains(currentImage, `:source-`) {
 			return 0, errors.New(`self-update is unavailable for source installations`)
+		}
+		updatedSpec, err := cloneJSONMap(service.Spec)
+		if err != nil {
+			return 0, fmt.Errorf(`clone self-update service %q: %w`, name, err)
+		}
+		updatedTaskTemplate, ok := updatedSpec[`TaskTemplate`].(map[string]any)
+		if !ok {
+			return 0, fmt.Errorf(`self-update service %q has no cloned task template`, name)
+		}
+		updatedContainerSpec, ok := updatedTaskTemplate[`ContainerSpec`].(map[string]any)
+		if !ok {
+			return 0, fmt.Errorf(`self-update service %q has no cloned container specification`, name)
 		}
 		baseImage := normalizeSelfUpdateImage(currentImage)
 		if !strings.Contains(baseImage, `/`) || strings.HasPrefix(baseImage, `upstand-`) {
@@ -1322,21 +1347,104 @@ func (engine *dockerEngineClient) applySelfUpdate(ctx context.Context, body []by
 				monitoringBaseImage+`@`+input.Images.Monitoring,
 			)
 		}
-		containerSpec[`Image`] = newImage
-		containerSpec[`Env`] = envValues
-		forceUpdate, _ := taskTemplate[`ForceUpdate`].(float64)
-		taskTemplate[`ForceUpdate`] = forceUpdate + 1
-		updateBody, err := json.Marshal(service.Spec)
-		if err != nil {
-			return 0, err
+		updatedContainerSpec[`Image`] = newImage
+		updatedContainerSpec[`Env`] = envValues
+		forceUpdate, _ := updatedTaskTemplate[`ForceUpdate`].(float64)
+		updatedTaskTemplate[`ForceUpdate`] = forceUpdate + 1
+		plansByImage[imageName] = selfUpdateServicePlan{
+			id:           service.ID,
+			name:         name,
+			version:      service.Version.Index,
+			originalSpec: service.Spec,
+			updatedSpec:  updatedSpec,
 		}
-		updatePath := `/services/` + url.PathEscape(service.ID) + `/update?version=` + strconv.FormatUint(service.Version.Index, 10)
-		if _, _, err := engine.request(ctx, http.MethodPost, updatePath, updateBody); err != nil {
-			return 0, err
-		}
-		updatedCount++
 	}
-	return updatedCount, nil
+
+	plans := make([]selfUpdateServicePlan, 0, len(requiredSelfUpdateImages))
+	missing := make([]string, 0)
+	for _, imageName := range requiredSelfUpdateImages {
+		plan, ok := plansByImage[imageName]
+		if !ok {
+			missing = append(missing, imageName)
+			continue
+		}
+		plans = append(plans, plan)
+	}
+	if len(missing) > 0 {
+		return 0, fmt.Errorf(`self-update requires all managed services; missing: %s`, strings.Join(missing, `, `))
+	}
+
+	applied := make([]selfUpdateServicePlan, 0, len(plans))
+	for _, plan := range plans {
+		updateBody, err := json.Marshal(plan.updatedSpec)
+		if err != nil {
+			return 0, fmt.Errorf(`encode self-update service %q: %w`, plan.name, err)
+		}
+		updatePath := `/services/` + url.PathEscape(plan.id) + `/update?version=` + strconv.FormatUint(plan.version, 10)
+		if _, _, err := engine.request(ctx, http.MethodPost, updatePath, updateBody); err != nil {
+			rollbackErr := engine.rollbackSelfUpdate(ctx, append(applied, plan))
+			if rollbackErr != nil {
+				return 0, fmt.Errorf(`self-update service %q failed: %w; rollback failed: %v`, plan.name, err, rollbackErr)
+			}
+			return 0, fmt.Errorf(`self-update service %q failed and was rolled back: %w`, plan.name, err)
+		}
+		applied = append(applied, plan)
+	}
+	return len(applied), nil
+}
+
+func (engine *dockerEngineClient) rollbackSelfUpdate(ctx context.Context, plans []selfUpdateServicePlan) error {
+	var rollbackErrors []string
+	for index := len(plans) - 1; index >= 0; index-- {
+		plan := plans[index]
+		serviceBody, _, err := engine.request(
+			ctx,
+			http.MethodGet,
+			`/services/`+url.PathEscape(plan.id),
+			nil,
+		)
+		if err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf(`%s inspect: %v`, plan.name, err))
+			continue
+		}
+		var current struct {
+			Version struct {
+				Index uint64 `json:"Index"`
+			} `json:"Version"`
+		}
+		if err := json.Unmarshal(serviceBody, &current); err != nil || current.Version.Index == 0 {
+			if err == nil {
+				err = errors.New(`missing service version index`)
+			}
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf(`%s inspect: %v`, plan.name, err))
+			continue
+		}
+		body, err := json.Marshal(plan.originalSpec)
+		if err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf(`%s encode: %v`, plan.name, err))
+			continue
+		}
+		path := `/services/` + url.PathEscape(plan.id) + `/update?version=` + strconv.FormatUint(current.Version.Index, 10)
+		if _, _, err := engine.request(ctx, http.MethodPost, path, body); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf(`%s update: %v`, plan.name, err))
+		}
+	}
+	if len(rollbackErrors) > 0 {
+		return errors.New(strings.Join(rollbackErrors, `; `))
+	}
+	return nil
+}
+
+func cloneJSONMap(input map[string]any) (map[string]any, error) {
+	body, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	var clone map[string]any
+	if err := json.Unmarshal(body, &clone); err != nil {
+		return nil, err
+	}
+	return clone, nil
 }
 
 func normalizeSelfUpdateImage(image string) string {

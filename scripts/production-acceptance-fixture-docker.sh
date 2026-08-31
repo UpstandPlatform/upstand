@@ -325,6 +325,10 @@ if [[ "${1:-}" == "top" ]]; then
 fi
 
 if [[ "${1:-}" == "exec" ]]; then
+  if [[ "$*" == *"/api/auth/passkey/list-user-passkeys"* ]]; then
+    printf '401\n'
+    exit 0
+  fi
   if [[ "$mode" == proc-fallback || "$mode" == proc-fallback-root || "$mode" == proc-fallback-runtime-user ]]; then
     if [[ "$mode" == proc-fallback-runtime-user && "$*" != *"999:1000"* ]]; then
       echo "fixture requires the configured Redis identity for process inspection" >&2
