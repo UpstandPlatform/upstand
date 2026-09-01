@@ -132,6 +132,14 @@ grep -Fq 'UPSTAND_DR_READINESS_GATE="${requested_dr_readiness_gate:-${UPSTAND_DR
   echo "installer must preserve an explicitly selected recovery-readiness gate" >&2
   exit 1
 }
+for required_text in \
+  'DATABASE_URL="postgresql://upstand:${POSTGRES_PASSWORD}@postgres:5432/upstand"' \
+  'REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"'; do
+  grep -Fq "$required_text" "$ROOT_DIR/install.sh" || {
+    echo "bundled data installs must provision non-empty internal connection URLs" >&2
+    exit 1
+  }
+done
 grep -Fq 'verify-installation-recovery-evidence.sh' "$ROOT_DIR/install.sh" || {
   echo "installer must install and verify the installation recovery evidence verifier" >&2
   exit 1
