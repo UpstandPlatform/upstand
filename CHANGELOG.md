@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.19 - 2026-09-01
+
+Make installation-specific disaster-recovery attestations optional for explicitly marked disposable and test installations while keeping the production readiness gate enabled by default.
+
+
 ## 0.3.18 - 2026-08-31
 
 Reconcile the self-hosting, release, authentication, monitoring, infrastructure,

@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.3.19
+
+### Patch Changes
+
+- [#410](https://github.com/UpstandPlatform/upstand/pull/410) [`768f872`](https://github.com/UpstandPlatform/upstand/commit/768f8729a7d5bdce63d7e60e36f88bd2a865a816) Thanks [@mhbdev](https://github.com/mhbdev)! - Make installation-specific disaster-recovery attestations optional for explicitly marked disposable and test installations while keeping the production readiness gate enabled by default.
+
 ## 0.3.18
 
 ### Patch Changes
