@@ -4,6 +4,13 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.21 - 2026-09-01
+
+Fix Better Auth 1.7 account issuer schema generation and migrate legacy account
+rows safely so initial sign-up, passkey listing, and passkey registration work
+after upgrading from earlier releases.
+
+
 ## 0.3.20 - 2026-09-01
 
 Fix fresh bundled-data installs so PostgreSQL and Redis connection secrets are generated instead of being left empty.
