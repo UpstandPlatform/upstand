@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   MigrationPreconditionError,
   migrateDatabase,
+  normalizeLegacyAccountIssuers,
   pool,
   validateMigrationPreconditions,
 } from "@upstand/db";
@@ -50,6 +51,7 @@ export async function runDatabaseMigrations(options?: {
     try {
       await validateMigrationPreconditions(pool);
       await migrateDatabase(migrationsFolder);
+      await normalizeLegacyAccountIssuers(pool);
       log.info({
         message: "Database migrations completed",
         migrationsFolder,
