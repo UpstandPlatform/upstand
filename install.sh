@@ -1015,6 +1015,10 @@ write_environment() {
   DOCKER_BROKER_SCOPE_SECRET="${DOCKER_BROKER_SCOPE_SECRET:-$(openssl rand -hex 32)}"
   METRICS_TOKEN="${METRICS_TOKEN:-$(openssl rand -hex 32)}"
   ENCRYPTION_KEY_V1="${ENCRYPTION_KEY_V1:-${SSH_KEY_ENCRYPTION_KEY_V1:-$(openssl rand -base64 32 | tr -d '\n')}}"
+  if [[ "$external_data" == false ]]; then
+    DATABASE_URL="postgresql://upstand:${POSTGRES_PASSWORD}@postgres:5432/upstand"
+    REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"
+  fi
   ensure_docker_broker_mtls
   printf '%s' "$POSTGRES_PASSWORD" >"$INSTALL_DIR/secrets/postgres_password"
   printf '%s' "$REDIS_PASSWORD" >"$INSTALL_DIR/secrets/redis_password"
