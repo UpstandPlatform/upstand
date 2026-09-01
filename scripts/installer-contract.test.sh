@@ -150,6 +150,12 @@ for required_text in 'published: 3000' 'published: 3001' 'published: 4000'; do
     exit 1
   }
 done
+for required_text in 'endpoint_mode: vip'; do
+  [[ "$(grep -Fc "$required_text" "$ROOT_DIR/docker-compose.prod.yml")" == 3 ]] || {
+    echo "public control-plane services must use Swarm VIP routing with ingress ports" >&2
+    exit 1
+  }
+done
 grep -Fq 'verify_release_artifact_hash "$stack_file" dockerComposeProdSha256' "$ROOT_DIR/install.sh" || {
   echo "installer must verify the downloaded acceptance script against the release manifest" >&2
   exit 1

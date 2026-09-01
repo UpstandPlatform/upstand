@@ -69,6 +69,7 @@ export const account = pgTable(
     updatedAt: timestamp("updated_at")
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
+    issuer: text("issuer").default("local:credential").notNull(),
   },
   (table) => [index("account_userId_idx").on(table.userId)],
 );
