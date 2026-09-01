@@ -4,7 +4,7 @@
 # services; the bundled stateful services then scale to zero.
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2}
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -74,7 +74,7 @@ services:
         max-file: "5"
 
   redis:
-    image: ${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
+    image: ${REDIS_IMAGE:-redis:8.10-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576}
     security_opt:
       - no-new-privileges:true
     cap_drop:
