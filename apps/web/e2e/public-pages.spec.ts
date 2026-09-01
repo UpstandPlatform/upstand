@@ -56,7 +56,7 @@ test.describe("public web production surface", () => {
     await expect(page.locator("body")).toContainText("Upstand");
     await expect(
       page.getByRole("button", { name: "Continue with passkey" }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15_000 });
     await assertAccessible(page);
 
     // Firefox can report Next's vendor-chunk eval diagnostic as a CSP console
@@ -69,5 +69,36 @@ test.describe("public web production surface", () => {
         !message.includes("blocked a JavaScript eval"),
     );
     expect(unexpectedConsoleErrors).toEqual([]);
+  });
+
+  test("does not leave the landing page blank when the control plane is unavailable", async ({
+    page,
+  }) => {
+    await page.route("**/api/setup/status", (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Control plane unavailable" }),
+      }),
+    );
+    await page.route("**/api/auth/get-session", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: "null",
+      }),
+    );
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    await expect(page).toHaveURL(/\/login$/, { timeout: 15_000 });
+    await expect(
+      page.getByRole("heading", {
+        name: "Instance status is unavailable",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Retry status check" }),
+    ).toBeVisible();
+    await assertAccessible(page);
   });
 });

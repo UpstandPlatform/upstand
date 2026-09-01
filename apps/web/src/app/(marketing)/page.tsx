@@ -9,6 +9,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@upstand/ui/components/button";
+import { Spinner } from "@upstand/ui/components/spinner";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -45,7 +46,7 @@ const DEPLOY_LOG = [
 
 export default function Home() {
   const router = useRouter();
-  const { isCloud, isLoading } = useSystemConfig();
+  const { isCloud, isError, isLoading } = useSystemConfig();
 
   useEffect(() => {
     if (!isLoading && !isCloud) {
@@ -53,8 +54,47 @@ export default function Home() {
     }
   }, [isLoading, isCloud, router]);
 
+  if (isLoading) {
+    return (
+      <div
+        className="flex min-h-[calc(100svh-4rem)] items-center justify-center px-6"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-center gap-3 text-muted-foreground text-sm">
+          <Spinner aria-hidden="true" />
+          <span>Checking instance configuration…</span>
+        </div>
+      </div>
+    );
+  }
+
   if (!isCloud) {
-    return null;
+    return (
+      <div
+        className="flex min-h-[calc(100svh-4rem)] items-center justify-center px-6"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="max-w-sm space-y-4 text-center">
+          <h1 className="font-semibold text-xl">
+            {isError ? "Upstand is temporarily unavailable" : "Opening Upstand"}
+          </h1>
+          <p className="text-muted-foreground text-sm leading-6">
+            {isError
+              ? "We could not confirm the control-plane mode. Continue to the sign-in page to retry the connection."
+              : "Self-hosted instances are managed from the sign-in page."}
+          </p>
+          <Button
+            size="lg"
+            render={<Link href="/login" />}
+            nativeButton={false}
+          >
+            Continue to sign in
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -39,7 +39,6 @@
     "@upstand/redis": "workspace:*",
     "@upstand/repositories": "workspace:*",
     "@upstand/usecases": "workspace:*",
-    "@simplewebauthn/server": "^13.3.1",
     "ai": "^7.0.22",
     "better-auth": "catalog:",
     "bullmq": "^5.81.2",

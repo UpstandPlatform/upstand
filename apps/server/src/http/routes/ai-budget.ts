@@ -1,6 +1,5 @@
 export {
   incrementUpGalDailyBudget,
-  renderUpGalBudgetMetrics,
   reserveUpGalDailyRunTokenAndCostBudget,
   reserveUpGalDailyTokenAndCostBudget,
   secondsUntilNextUtcDay,
