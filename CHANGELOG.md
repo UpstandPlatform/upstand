@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.3.20 - 2026-09-01
+
+Fix fresh bundled-data installs so PostgreSQL and Redis connection secrets are generated instead of being left empty.
+
+
 ## 0.3.19 - 2026-09-01
 
 Make installation-specific disaster-recovery attestations optional for explicitly marked disposable and test installations while keeping the production readiness gate enabled by default.

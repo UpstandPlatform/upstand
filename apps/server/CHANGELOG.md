@@ -1,5 +1,11 @@
 # server
 
+## 0.3.20
+
+### Patch Changes
+
+- [#413](https://github.com/UpstandPlatform/upstand/pull/413) [`b01fc61`](https://github.com/UpstandPlatform/upstand/commit/b01fc614a2c9ad90a514d8e1f3a926d9c87f39d1) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix fresh bundled-data installs so PostgreSQL and Redis connection secrets are generated instead of being left empty.
+
 ## 0.3.19
 
 ## 0.3.18
