@@ -1,5 +1,13 @@
 # web
 
+## 0.3.21
+
+### Patch Changes
+
+- [#415](https://github.com/UpstandPlatform/upstand/pull/415) [`c9bfb16`](https://github.com/UpstandPlatform/upstand/commit/c9bfb16eb3901bd8d4e9268274c67a38f29d54a0) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix Better Auth 1.7 account issuer schema generation and migrate legacy account
+  rows safely so initial sign-up, passkey listing, and passkey registration work
+  after upgrading from earlier releases.
+
 ## 0.3.20
 
 ## 0.3.19
