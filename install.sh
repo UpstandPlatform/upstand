@@ -47,13 +47,17 @@ approved external telemetry path is unavailable.
 For a durable HA data plane, provide DATABASE_URL and REDIS_URL (or the
 UPSTAND_DATABASE_URL and UPSTAND_REDIS_URL aliases). The URLs are stored as
 Docker secrets and the bundled PostgreSQL and Redis services are disabled.
-Before installing, also record the recovery plan with
+The installation-specific recovery readiness gate defaults to enabled. Production
+installs must record the recovery plan with
 UPSTAND_DR_OFFSITE_CONFIRMED=true, UPSTAND_DR_KEY_ESCROW_CONFIRMED=true,
 UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true, positive
 UPSTAND_DR_RPO_SECONDS and UPSTAND_DR_RTO_SECONDS, and a non-secret
-UPSTAND_DR_EVIDENCE_REFERENCE. These values are an operator attestation and
-traceability gate. Production acceptance additionally requires the signed
-installation recovery evidence files documented in the production runbook.
+UPSTAND_DR_EVIDENCE_REFERENCE. Set UPSTAND_DR_READINESS_GATE=false only for a
+disposable or test installation that intentionally does not provide these
+attestations. This disables the installation-specific recovery gate; it does
+not make the installation production-ready. Production acceptance additionally
+requires the signed installation recovery evidence files documented in the
+production runbook when the gate is enabled.
 
 Options:
   --interactive         prompt for the Swarm advertise address
@@ -101,6 +105,20 @@ validate_disaster_recovery_plan() {
     || fail "UPSTAND_DR_EVIDENCE_REFERENCE must not contain newlines"
   [[ "${#UPSTAND_DR_EVIDENCE_REFERENCE}" -le 256 ]] \
     || fail "UPSTAND_DR_EVIDENCE_REFERENCE must be at most 256 characters"
+}
+
+validate_recovery_readiness() {
+  case "${UPSTAND_DR_READINESS_GATE:-true}" in
+    true)
+      validate_disaster_recovery_plan
+      ;;
+    false)
+      echo "warning: installation-specific disaster-recovery readiness gate is disabled; this installation is not production-ready" >&2
+      ;;
+    *)
+      fail "UPSTAND_DR_READINESS_GATE must be true or false"
+      ;;
+  esac
 }
 
 parse_args() {
@@ -792,6 +810,7 @@ write_environment() {
   local requested_secret_provider_allowed_hosts="${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}"
   local requested_git_provider_allowed_hosts="${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}"
   local requested_backup_command_timeout_ms="${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-}"
+  local requested_dr_readiness_gate="${UPSTAND_DR_READINESS_GATE:-}"
   local requested_dr_offsite_confirmed="${UPSTAND_DR_OFFSITE_CONFIRMED:-}"
   local requested_dr_key_escrow_confirmed="${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-}"
   local requested_dr_immutable_retention_confirmed="${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-}"
@@ -860,7 +879,9 @@ write_environment() {
   UPGAL_DAILY_COST_LIMIT_USD="${requested_upgal_daily_cost_limit_usd:-${UPGAL_DAILY_COST_LIMIT_USD:-100}}"
   UPGAL_MAX_COST_PER_MILLION_TOKENS_USD="${requested_upgal_max_cost_per_million_tokens_usd:-${UPGAL_MAX_COST_PER_MILLION_TOKENS_USD:-100}}"
   UPGAL_ALLOWED_MODELS="${requested_upgal_allowed_models:-${UPGAL_ALLOWED_MODELS:-}}"
-  UPSTAND_DR_READINESS_GATE=true
+  UPSTAND_DR_READINESS_GATE="${requested_dr_readiness_gate:-${UPSTAND_DR_READINESS_GATE:-true}}"
+  [[ "$UPSTAND_DR_READINESS_GATE" == true || "$UPSTAND_DR_READINESS_GATE" == false ]] \
+    || fail "UPSTAND_DR_READINESS_GATE must be true or false"
   UPSTAND_DATABASE_POOL_MAX="${requested_database_pool_max:-${UPSTAND_DATABASE_POOL_MAX:-20}}"
   UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS="${requested_database_pool_idle_timeout_ms:-${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-30000}}"
   UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS="${requested_database_pool_connection_timeout_ms:-${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-5000}}"
@@ -886,7 +907,7 @@ write_environment() {
     || fail "UPGAL_ALLOWED_MODELS must be a single comma-separated line"
   [[ "${#UPGAL_ALLOWED_MODELS}" -le 4096 ]] \
     || fail "UPGAL_ALLOWED_MODELS must be at most 4096 characters"
-  validate_disaster_recovery_plan
+  validate_recovery_readiness
   for configured_value in \
     "$AUTH_COOKIE_DOMAIN" \
     "$UPSTAND_INSTANCE_OWNER_USER_ID" \
