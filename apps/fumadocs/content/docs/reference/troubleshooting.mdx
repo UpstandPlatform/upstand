@@ -67,6 +67,13 @@ server state:
    and migration task belong to the same release. Do not expose the endpoint
    without authentication or manually edit the generated auth schema.
 
+Better Auth 1.7 stores an issuer on every account. During an upgrade from an
+older Upstand release, the migration task adds that column and the server
+normalizes existing credential and Google accounts before serving requests.
+Keep the migration and server images on the same release and wait for the
+migration task to complete; a mixed release can produce the same passkey and
+sign-up errors.
+
 ---
 
 ## 3. Service Startup Failures

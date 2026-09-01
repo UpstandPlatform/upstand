@@ -1,8 +1,26 @@
 import { expect, test } from "bun:test";
+import { normalizeLegacyAccountIssuers } from "./auth-account-migration";
 import {
   MigrationPreconditionError,
   validateMigrationPreconditions,
 } from "./migration-preflight";
+
+test("normalizes legacy OAuth account issuers without changing credential rows", async () => {
+  const queries: string[] = [];
+  await normalizeLegacyAccountIssuers({
+    query: async (query: string) => {
+      queries.push(query);
+      if (query.includes("to_regclass"))
+        return { rows: [{ relation: "account" }] };
+      if (query.includes("information_schema.columns"))
+        return { rows: [{ exists: true }] };
+      return { rows: [] };
+    },
+  } as never);
+
+  expect(queries.at(-1)).toContain("https://accounts.google.com");
+  expect(queries.at(-1)).toContain("provider_id\" <> 'credential'");
+});
 
 test("migration preflight accepts fresh tables and clean data", async () => {
   await validateMigrationPreconditions({
