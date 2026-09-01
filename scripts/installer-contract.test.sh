@@ -124,8 +124,12 @@ grep -Fq 'write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION' "$ROOT_DIR/i
   echo "installer must persist the explicit unobserved-production acknowledgement" >&2
   exit 1
 }
-grep -Fq 'validate_disaster_recovery_plan' "$ROOT_DIR/install.sh" || {
-  echo "installer must enforce an explicit disaster-recovery readiness attestation" >&2
+grep -Fq 'validate_recovery_readiness' "$ROOT_DIR/install.sh" || {
+  echo "installer must expose the explicit disaster-recovery readiness gate" >&2
+  exit 1
+}
+grep -Fq 'UPSTAND_DR_READINESS_GATE="${requested_dr_readiness_gate:-${UPSTAND_DR_READINESS_GATE:-true}}"' "$ROOT_DIR/install.sh" || {
+  echo "installer must preserve an explicitly selected recovery-readiness gate" >&2
   exit 1
 }
 grep -Fq 'verify-installation-recovery-evidence.sh' "$ROOT_DIR/install.sh" || {
@@ -280,6 +284,17 @@ expect_replica_rejection true 2 1 2 2 1 1 0
   UPSTAND_DR_EVIDENCE_REFERENCE=change-1234
   validate_disaster_recovery_plan
 )
+(
+  UPSTAND_DR_READINESS_GATE=false
+  validate_recovery_readiness
+)
+if (
+  UPSTAND_DR_READINESS_GATE=invalid
+  validate_recovery_readiness
+); then
+  echo "installer unexpectedly accepted an invalid recovery-readiness gate" >&2
+  exit 1
+fi
 if (
   UPSTAND_DR_OFFSITE_CONFIRMED=true
   UPSTAND_DR_KEY_ESCROW_CONFIRMED=true

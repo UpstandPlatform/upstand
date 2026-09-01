@@ -272,7 +272,8 @@ installation requires independent key control. Keep the encryption key and
 object-store credentials in a separate recovery escrow from the backup
 objects, and test that escrow during the restore rehearsal.
 
-The production installer requires an explicit recovery-plan attestation:
+The production installer enables the recovery-readiness gate by default and
+requires an explicit recovery-plan attestation:
 `UPSTAND_DR_OFFSITE_CONFIRMED=true`,
 `UPSTAND_DR_KEY_ESCROW_CONFIRMED=true`,
 `UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true`, positive
@@ -291,6 +292,14 @@ assertion, off-site destination, immutable retention, key escrow, measured
 RPO/RTO, and evidence freshness. Synthetic disposable rehearsals therefore
 cannot satisfy the installation gate. The release installer verifies the
 verifier script against the signed release manifest.
+
+For a disposable test installation only, set `UPSTAND_DR_READINESS_GATE=false`
+before running the installer. The installer then allows the recovery-plan
+fields to remain unset and the acceptance script skips the
+installation-specific attestation. Backup freshness and restore-verification
+policy still apply, and disabling this gate is an explicit statement that the
+installation is not production-ready. Keep the default `true` for any
+production or customer-managed deployment.
 
 Backup execution leases are five minutes and are renewed while a worker is
 active. BullMQ retries an unclaimed delivery, and the schedules service

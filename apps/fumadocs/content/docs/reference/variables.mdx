@@ -99,7 +99,7 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_BACKUP_ALERT_MAX_AGE_MS` | No | Maximum age of the last successful backup before a structured alert; defaults to 2 days, and `0` disables the freshness check. |
 | `UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS` | No | Emits an alert when no successful backup exists; set `true` when backup coverage is mandatory. |
 | `UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION` | No | Emits an alert when the latest successful backup has not been restore-tested; production installs default this to `true`. |
-| `UPSTAND_DR_READINESS_GATE` | Installer-managed | Enables installation-specific disaster-recovery attestation checks in production acceptance. Production Compose defaults this to `true`; disposable release environments must explicitly set it to `false`. |
+| `UPSTAND_DR_READINESS_GATE` | Installer-managed | Enables installation-specific disaster-recovery attestation checks. Defaults to `true`; set it to `false` only for a disposable or test installation that intentionally has no recovery-plan attestations. This does not make the installation production-ready. |
 | `UPSTAND_DR_OFFSITE_CONFIRMED` | Installer-managed | Confirms that the configured backup destination is independent/off-site; required when the recovery gate is enabled. |
 | `UPSTAND_DR_KEY_ESCROW_CONFIRMED` | Installer-managed | Confirms that encryption keys and object-store credentials have a tested recovery escrow separate from backup objects. |
 | `DOCKER_TLS_VERIFY` | Production Compose | Set to `1` for the server and schedules Docker CLI subprocesses; the broker CA and caller certificate are mounted using Docker's standard `ca.pem`, `cert.pem`, and `key.pem` names. |
