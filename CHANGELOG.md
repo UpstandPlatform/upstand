@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.8.0 - 2026-09-02
+
+Keep Caddy and monitoring initialization retrying until transient dependency outages recover, so the control plane cannot remain permanently unready after startup.
+
+
 ## 0.7.0 - 2026-09-02
 
 Record the redacted readiness response during dependency recovery acceptance so failed Redis or database recovery checks identify the unhealthy component.

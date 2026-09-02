@@ -1,5 +1,11 @@
 # server
 
+## 0.8.0
+
+### Minor Changes
+
+- [#456](https://github.com/UpstandPlatform/upstand/pull/456) [`bc22e09`](https://github.com/UpstandPlatform/upstand/commit/bc22e09205031505bf3edfd9f7019c0158fd1b8c) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep Caddy and monitoring initialization retrying until transient dependency outages recover, so the control plane cannot remain permanently unready after startup.
+
 ## 0.7.0
 
 ### Minor Changes
