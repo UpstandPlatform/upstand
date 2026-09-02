@@ -1,5 +1,11 @@
 # server
 
+## 0.7.0
+
+### Minor Changes
+
+- [#453](https://github.com/UpstandPlatform/upstand/pull/453) [`e40bc41`](https://github.com/UpstandPlatform/upstand/commit/e40bc41b86f3190168111579c1444273bab568f2) Thanks [@mhbdev](https://github.com/mhbdev)! - Record the redacted readiness response during dependency recovery acceptance so failed Redis or database recovery checks identify the unhealthy component.
+
 ## 0.6.0
 
 ### Minor Changes

@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.7.0 - 2026-09-02
+
+Record the redacted readiness response during dependency recovery acceptance so failed Redis or database recovery checks identify the unhealthy component.
+
+
 ## 0.6.0 - 2026-09-02
 
 Recover schedules queue workers automatically after a transient Redis outage so production readiness can converge again without restarting the whole control plane.
