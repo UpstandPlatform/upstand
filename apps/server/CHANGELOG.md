@@ -1,5 +1,11 @@
 # server
 
+## 0.5.6
+
+### Patch Changes
+
+- [#447](https://github.com/UpstandPlatform/upstand/pull/447) [`9a851ef`](https://github.com/UpstandPlatform/upstand/commit/9a851efec5fffb16c6b15eaa3d29104e741c7201) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production acceptance harness to explicitly opt into its hosted Swarm's unencrypted control overlay while keeping encrypted networks mandatory by default.
+
 ## 0.5.5
 
 ### Patch Changes
