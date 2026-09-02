@@ -242,6 +242,11 @@ services:
       - docker_broker_scope_secret
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "--quiet", "--spider", "https://127.0.0.1:2375/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
     networks:
       docker-control:
         aliases:
