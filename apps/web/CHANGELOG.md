@@ -1,5 +1,11 @@
 # web
 
+## 0.5.3
+
+### Patch Changes
+
+- [#438](https://github.com/UpstandPlatform/upstand/pull/438) [`2a47832`](https://github.com/UpstandPlatform/upstand/commit/2a4783256522d15decb3b8bbadb85cd3ab8653f2) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix the production Docker broker healthcheck so TLS health probes succeed without weakening client-certificate enforcement on protected API routes.
+
 ## 0.5.2
 
 ### Patch Changes

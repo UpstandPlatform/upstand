@@ -27,8 +27,8 @@ grep -Fq 'apps/docker-broker/Dockerfile' "$ROOT_DIR/install.sh" || {
   echo "source-build installer must build the Docker broker image" >&2
   exit 1
 }
-grep -Fq 'ClientAuth: tls.RequireAndVerifyClientCert' "$ROOT_DIR/apps/docker-broker/main.go" || {
-  echo "Docker broker must require verified client certificates during the TLS handshake" >&2
+grep -Fq 'ClientAuth: tls.VerifyClientCertIfGiven' "$ROOT_DIR/apps/docker-broker/main.go" || {
+  echo "Docker broker must allow its encrypted health probe without weakening protected API authentication" >&2
   exit 1
 }
 grep -Fq 'docker_broker_server_token' "$ROOT_DIR/install.sh" || {
