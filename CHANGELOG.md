@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.5.4 - 2026-09-02
+
+Configure the production Compose service healthcheck for the Docker broker so Swarm tracks its TLS health endpoint.
+
+
 ## 0.5.3 - 2026-09-02
 
 Fix the production Docker broker healthcheck so TLS health probes succeed without weakening client-certificate enforcement on protected API routes.
