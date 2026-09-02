@@ -1,5 +1,11 @@
 # server
 
+## 0.5.5
+
+### Patch Changes
+
+- [#444](https://github.com/UpstandPlatform/upstand/pull/444) [`73ee3a9`](https://github.com/UpstandPlatform/upstand/commit/73ee3a981ae97a2e40781bd230cae3ca7e8d1a76) Thanks [@mhbdev](https://github.com/mhbdev)! - Provision the local monitoring agent through the production Docker broker's typed, ownership-checked capability.
+
 ## 0.5.4
 
 ## 0.5.3

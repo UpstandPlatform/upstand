@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.5.5 - 2026-09-02
+
+Provision the local monitoring agent through the production Docker broker's typed, ownership-checked capability.
+
+
 ## 0.5.4 - 2026-09-02
 
 Configure the production Compose service healthcheck for the Docker broker so Swarm tracks its TLS health endpoint.
