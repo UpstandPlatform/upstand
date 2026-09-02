@@ -61,6 +61,7 @@ export const SESSION_ONLY_PROCEDURES = [
   "outbox.retryDeadLetter",
   "outbox.summary",
   "resource.getSecrets",
+  "resource.move",
   "secret.createProvider",
   "secret.deleteProvider",
   "secret.providers",
