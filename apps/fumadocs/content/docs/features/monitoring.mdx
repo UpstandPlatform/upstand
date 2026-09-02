@@ -3,7 +3,16 @@ title: Monitoring and metrics
 description: Inspect server health, historical metrics, containers, and deployment logs from the Upstand dashboard or UpGal.
 ---
 
-Upstand exposes two complementary monitoring views: live Docker state for operational control and historical server metrics for capacity and trend analysis. Both are organization-scoped and permission checked.
+Upstand exposes two complementary monitoring views: live Docker state for
+operational control and historical server metrics for capacity and trend
+analysis. Both are organization-scoped and permission checked.
+
+The available container telemetry path depends on the server topology. A local
+control-plane server reaches Docker through the constrained mTLS broker, while
+an isolated remote server is queried through its verified SSH channel. The
+monitoring agent does not require a raw Docker socket in the application
+container. If a target cannot provide container telemetry, the dashboard marks
+that series unavailable; missing metrics do not mean that a workload is down.
 
 ![UpGal capability map showing authorization between the dashboard and platform tools](/images/upgal-capability-map.svg)
 
