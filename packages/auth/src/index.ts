@@ -403,6 +403,23 @@ export function createAuth(options: {
         enabled: true,
         trustedProviders: ["google"],
       },
+      // Better Auth 1.7 scopes account identity by issuer. Keep the field in
+      // the explicit configuration as well as the runtime default so the
+      // repository's pinned schema generator (which may lag the runtime
+      // package) emits the same account shape.
+      additionalFields: {
+        issuer: {
+          type: "string",
+          required: true,
+          defaultValue: "local:credential",
+        },
+      },
+      indexes: [
+        {
+          fields: ["issuer", "accountId"],
+          unique: true,
+        },
+      ],
     },
     socialProviders: {
       google:
