@@ -234,6 +234,13 @@ export function registerRuntime(services: ServiceCollection) {
       ),
   );
   services.addTransient(
+    dependencies.MoveResourceUseCaseToken,
+    (c) =>
+      new dependencies.MoveResourceUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
     dependencies.WorkloadMigrationPortToken,
     (c) =>
       new dependencies.DockerWorkloadMigrationPort(

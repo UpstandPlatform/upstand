@@ -1,65 +1,10 @@
 # fumadocs
 
-## 0.3.21
+## 0.5.1
 
-### Patch Changes
+## 0.5.0
 
-- [#415](https://github.com/UpstandPlatform/upstand/pull/415) [`c9bfb16`](https://github.com/UpstandPlatform/upstand/commit/c9bfb16eb3901bd8d4e9268274c67a38f29d54a0) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix Better Auth 1.7 account issuer schema generation and migrate legacy account
-  rows safely so initial sign-up, passkey listing, and passkey registration work
-  after upgrading from earlier releases.
-
-## 0.3.20
-
-## 0.3.19
-
-### Patch Changes
-
-- [#410](https://github.com/UpstandPlatform/upstand/pull/410) [`768f872`](https://github.com/UpstandPlatform/upstand/commit/768f8729a7d5bdce63d7e60e36f88bd2a865a816) Thanks [@mhbdev](https://github.com/mhbdev)! - Make installation-specific disaster-recovery attestations optional for explicitly marked disposable and test installations while keeping the production readiness gate enabled by default.
-
-## 0.3.18
-
-### Patch Changes
-
-- [#407](https://github.com/UpstandPlatform/upstand/pull/407) [`f349e5a`](https://github.com/UpstandPlatform/upstand/commit/f349e5a1711c5e2c5536e4e84b4ce6d35b29051e) Thanks [@mhbdev](https://github.com/mhbdev)! - Reconcile the self-hosting, release, authentication, monitoring, infrastructure,
-  and database documentation with the current brokered Docker architecture and
-  the supported installer workflow. Make unavailable Docker telemetry quiet and
-  explicit instead of retrying an unusable transport indefinitely.
-
-## 0.3.17
-
-### Patch Changes
-
-- [#405](https://github.com/UpstandPlatform/upstand/pull/405) [`743f28d`](https://github.com/UpstandPlatform/upstand/commit/743f28dbf7dab9c5a46823438dc283f6014705ce) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix passkey route availability in production-shaped releases and make self-updates validate the complete control-plane service set before applying immutable images. Failed multi-service updates now roll back instead of leaving a mixed-version installation.
-
-## 0.3.16
-
-## 0.3.15
-
-## 0.3.14
-
-## 0.3.13
-
-## 0.3.12
-
-## 0.3.11
-
-## 0.3.10
-
-## 0.3.9
-
-## 0.3.8
-
-## 0.3.7
-
-## 0.3.6
-
-## 0.3.5
-
-## 0.3.4
-
-## 0.3.3
-
-## 0.3.2
+## 0.4.0
 
 ## 0.3.1
 

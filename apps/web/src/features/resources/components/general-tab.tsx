@@ -89,6 +89,8 @@ import {
 import { WorkloadMigrationStatusCard } from "./workload-migration-status-card";
 
 interface GeneralTabProps {
+  projectId: string;
+  environmentId: string;
   resource: NonNullable<ResourceDetailState["resource"]>;
   secrets: ResourceDetailState["secrets"];
   refetchSecrets: ResourceDetailState["refetchSecrets"];
@@ -125,6 +127,8 @@ function isResourceProvider(value: string): value is ResourceProvider {
 }
 
 export function GeneralTab({
+  projectId,
+  environmentId,
   resource,
   secrets,
   refetchSecrets,
@@ -156,7 +160,8 @@ export function GeneralTab({
       organizationId: organizationState.organizationId as string,
     }),
     enabled:
-      resource.type === "application" && organizationState.status === "ready",
+      (resource.type === "application" || resource.type === "compose") &&
+      organizationState.status === "ready",
   });
   const previewsQuery = useQuery({
     ...trpc.resource.getPreviews.queryOptions({ id: resource.id }),
@@ -167,6 +172,17 @@ export function GeneralTab({
   const [deleteVolumes, setDeleteVolumes] = useState(false);
   const [rebuildDialogOpen, setRebuildDialogOpen] = useState(false);
   const [migrationDialogOpen, setMigrationDialogOpen] = useState(false);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [targetProjectId, setTargetProjectId] = useState("");
+  const [targetEnvironmentId, setTargetEnvironmentId] = useState("");
+  const [targetServerId, setTargetServerId] = useState("");
+  const [targetBuildServerId, setTargetBuildServerId] = useState("");
+  const [targetBuildRegistryId, setTargetBuildRegistryId] = useState("");
+  const [targetRollbackRegistryId, setTargetRollbackRegistryId] = useState("");
+  const [targetRegistryId, setTargetRegistryId] = useState("");
+  const [targetGitProviderId, setTargetGitProviderId] = useState("");
+  const [targetSshKeyId, setTargetSshKeyId] = useState("");
+  const [targetCertificateIdsJson, setTargetCertificateIdsJson] = useState("");
 
   useEffect(() => {
     if (!deleteDialogOpen) {
@@ -245,6 +261,24 @@ export function GeneralTab({
           }),
         });
       }
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const moveResource = useMutation({
+    ...trpc.resource.move.mutationOptions(),
+    onSuccess: (result) => {
+      setMoveDialogOpen(false);
+      toast.success("Resource moved successfully");
+      const destination = new URL(window.location.origin);
+      destination.pathname = [
+        "projects",
+        result.targetProjectId,
+        targetEnvironmentId,
+        resource.id,
+      ]
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+      window.location.assign(destination.toString());
     },
     onError: (error) => toast.error(error.message),
   });
@@ -706,6 +740,9 @@ export function GeneralTab({
         ...config,
         composeFile: rawComposeFile,
       };
+    }
+    if (resource.type === "compose" && dockerRegistryId) {
+      config.registryId = dockerRegistryId;
     }
 
     const updatePayload = {
@@ -2339,6 +2376,48 @@ export function GeneralTab({
                 })}
               </div>
 
+              {resource.type === "compose" && providerType !== "raw" && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="compose-provider-registry">
+                    Private registry for Compose images (optional)
+                  </Label>
+                  <Select
+                    items={[
+                      { value: "none", label: "Public images / no registry" },
+                      ...(dockerRegistriesQuery.data || []).map((registry) => ({
+                        value: registry.id,
+                        label: registry.name,
+                      })),
+                    ]}
+                    value={dockerRegistryId || "none"}
+                    onValueChange={(value) =>
+                      setDockerRegistryId(value === "none" ? "" : (value ?? ""))
+                    }
+                  >
+                    <SelectTrigger
+                      id="compose-provider-registry"
+                      className="w-full"
+                    >
+                      <SelectValue placeholder="Use public image credentials" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        Public images / no registry
+                      </SelectItem>
+                      {(dockerRegistriesQuery.data || []).map((registry) => (
+                        <SelectItem key={registry.id} value={registry.id}>
+                          {registry.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-muted-foreground text-xs">
+                    The selected organization registry is used to authenticate
+                    private images during Compose or Stack deployment.
+                  </p>
+                </div>
+              )}
+
               {providerType === "drop" && (
                 <div className="flex flex-col gap-3 pt-2">
                   <Label>Source Archive (ZIP or Tarball)</Label>
@@ -3105,6 +3184,46 @@ export function GeneralTab({
               {providerType === "raw" && (
                 <div className="space-y-4 pt-2">
                   <div className="space-y-2">
+                    <Label htmlFor="compose-registry">
+                      Private registry for Compose images (optional)
+                    </Label>
+                    <Select
+                      items={[
+                        { value: "none", label: "Public images / no registry" },
+                        ...(dockerRegistriesQuery.data || []).map(
+                          (registry) => ({
+                            value: registry.id,
+                            label: registry.name,
+                          }),
+                        ),
+                      ]}
+                      value={dockerRegistryId || "none"}
+                      onValueChange={(value) =>
+                        setDockerRegistryId(
+                          value === "none" ? "" : (value ?? ""),
+                        )
+                      }
+                    >
+                      <SelectTrigger id="compose-registry" className="w-full">
+                        <SelectValue placeholder="Use public image credentials" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">
+                          Public images / no registry
+                        </SelectItem>
+                        {(dockerRegistriesQuery.data || []).map((registry) => (
+                          <SelectItem key={registry.id} value={registry.id}>
+                            {registry.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-xs">
+                      Credentials are used only for this deployment and removed
+                      after Docker authentication.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
                       <Label>Compose File</Label>
                       <div className="flex flex-wrap justify-end gap-2">
@@ -3383,6 +3502,27 @@ export function GeneralTab({
           onAction={() => setDeleteDialogOpen(true)}
           pending={isDeletingResource}
         />
+        <Card className="border border-border/40 bg-card/20">
+          <CardHeader>
+            <CardTitle className="font-semibold text-lg">
+              Move Resource
+            </CardTitle>
+            <CardDescription className="text-muted-foreground text-sm">
+              Move this resource to another project, including a project in
+              another organization. Live runtime state and deployment history
+              are preserved.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="border-border/20 border-t pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMoveDialogOpen(true)}
+            >
+              Move to another project
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Right Column: details info */}
@@ -3438,6 +3578,177 @@ export function GeneralTab({
         pending={isUpdatingResource || migrateResource.isPending}
         onConfirm={queueWorkloadMigration}
       />
+
+      <Dialog open={moveDialogOpen} onOpenChange={setMoveDialogOpen}>
+        <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Move {resource.name}</DialogTitle>
+            <DialogDescription>
+              Enter the destination project and environment IDs. For a
+              cross-organization move, map every resource-owned server,
+              registry, Git provider, SSH key, or custom certificate that the
+              resource uses.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (organizationState.status !== "ready") return;
+              let targetCertificateIds: Record<string, string> | undefined;
+              if (targetCertificateIdsJson.trim()) {
+                try {
+                  const parsed: unknown = JSON.parse(targetCertificateIdsJson);
+                  if (
+                    !parsed ||
+                    typeof parsed !== "object" ||
+                    Array.isArray(parsed) ||
+                    Object.values(parsed).some(
+                      (value) => typeof value !== "string",
+                    )
+                  ) {
+                    throw new Error();
+                  }
+                  targetCertificateIds = parsed as Record<string, string>;
+                } catch {
+                  toast.error(
+                    "Certificate mappings must be a JSON object of source ID to target ID",
+                  );
+                  return;
+                }
+              }
+              moveResource.mutate({
+                resourceId: resource.id,
+                sourceOrganizationId: organizationState.organizationId,
+                targetProjectId: targetProjectId.trim(),
+                targetEnvironmentId: targetEnvironmentId.trim(),
+                targetServerId: targetServerId.trim() || undefined,
+                targetBuildServerId: targetBuildServerId.trim() || undefined,
+                targetBuildRegistryId:
+                  targetBuildRegistryId.trim() || undefined,
+                targetRollbackRegistryId:
+                  targetRollbackRegistryId.trim() || undefined,
+                targetRegistryId: targetRegistryId.trim() || undefined,
+                targetGitProviderId: targetGitProviderId.trim() || undefined,
+                targetSshKeyId: targetSshKeyId.trim() || undefined,
+                targetCertificateIds,
+              });
+            }}
+          >
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="target-project-id">
+                  Target project ID
+                </FieldLabel>
+                <Input
+                  id="target-project-id"
+                  required
+                  value={targetProjectId}
+                  onChange={(e) => setTargetProjectId(e.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="target-environment-id">
+                  Target environment ID
+                </FieldLabel>
+                <Input
+                  id="target-environment-id"
+                  required
+                  value={targetEnvironmentId}
+                  onChange={(e) => setTargetEnvironmentId(e.target.value)}
+                />
+              </Field>
+            </FieldGroup>
+            <FieldDescription>
+              Current source: project {projectId}, environment {environmentId}.
+              Leave mapping fields empty for same-organization moves when the
+              existing references should be preserved.
+            </FieldDescription>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                [
+                  "target-server-id",
+                  "Target deployment server ID",
+                  targetServerId,
+                  setTargetServerId,
+                ],
+                [
+                  "target-build-server-id",
+                  "Target build server ID",
+                  targetBuildServerId,
+                  setTargetBuildServerId,
+                ],
+                [
+                  "target-build-registry-id",
+                  "Target build registry ID",
+                  targetBuildRegistryId,
+                  setTargetBuildRegistryId,
+                ],
+                [
+                  "target-rollback-registry-id",
+                  "Target rollback registry ID",
+                  targetRollbackRegistryId,
+                  setTargetRollbackRegistryId,
+                ],
+                [
+                  "target-registry-id",
+                  "Target application registry ID",
+                  targetRegistryId,
+                  setTargetRegistryId,
+                ],
+                [
+                  "target-git-provider-id",
+                  "Target Git provider ID",
+                  targetGitProviderId,
+                  setTargetGitProviderId,
+                ],
+                [
+                  "target-ssh-key-id",
+                  "Target SSH key ID",
+                  targetSshKeyId,
+                  setTargetSshKeyId,
+                ],
+              ].map(([id, label, value, setValue]) => (
+                <Field key={id as string}>
+                  <FieldLabel htmlFor={id as string}>
+                    {label as string} (optional)
+                  </FieldLabel>
+                  <Input
+                    id={id as string}
+                    value={value as string}
+                    onChange={(e) =>
+                      (setValue as (value: string) => void)(e.target.value)
+                    }
+                  />
+                </Field>
+              ))}
+            </div>
+            <Field>
+              <FieldLabel htmlFor="target-certificate-ids">
+                Target custom certificate mappings (optional JSON)
+              </FieldLabel>
+              <Input
+                id="target-certificate-ids"
+                placeholder='{"source-certificate-id":"target-certificate-id"}'
+                value={targetCertificateIdsJson}
+                onChange={(e) => setTargetCertificateIdsJson(e.target.value)}
+              />
+            </Field>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setMoveDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={moveResource.isPending}>
+                {moveResource.isPending ? "Moving…" : "Move resource"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Dialog */}
       <ConfirmActionDialog

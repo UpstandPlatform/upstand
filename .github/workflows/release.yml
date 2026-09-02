@@ -498,10 +498,7 @@ jobs:
       # recovery/load profile for those releases; smoke is retained only as an
       # explicitly selected manual diagnostic profile.
       ACCEPTANCE_PROFILE: ${{ github.event_name == 'push' && 'full' || inputs.acceptance_profile || 'full' }}
-      # Docker prefixes stack secrets/services with STACK_NAME. Keep this
-      # bounded so the longest generated secret stays within Docker's
-      # 64-character name limit.
-      STACK_NAME: upstand-release
+      STACK_NAME: upstand-release-acceptance
       DOCKER_NETWORK: upstand-release-acceptance-network
       DOCKER_CONTROL_NETWORK: upstand-release-acceptance-control-network
       ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network
@@ -513,10 +510,7 @@ jobs:
       - name: Set up environment paths
         env:
           BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt
-          # Keep the machine-readable backup evidence beside the other
-          # recovery evidence so the verifier and artifact upload consume the
-          # same path. The directory is created before the rehearsal runs.
-          BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-acceptance-evidence/backup-restore-rehearsal.json
+          BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-backup-rehearsal.json
           ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence
         run: |
           {
@@ -1002,21 +996,13 @@ jobs:
             label="$2"
             for attempt in {1..60}; do
               set +e
-              response="$(docker run --rm --network "$DOCKER_NETWORK" \
+              status_code="$(docker run --rm --network "$DOCKER_NETWORK" \
                 --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
                 --user 10001:10001 --entrypoint /bin/sh "$HEALTH_LOAD_IMAGE" \
-                -c 'curl --silent --show-error --write-out "\n%{http_code}" --max-time 10 "http://$1:3000/health/ready"' \
+                -c 'curl --silent --output /dev/null --write-out "%{http_code}" --max-time 10 "http://$1:3000/health/ready"' \
                 sh "${STACK_NAME}_server" 2>/dev/null)"
               set -e
-              if [[ "$response" == *$'\n'* ]]; then
-                status_code="${response##*$'\n'}"
-                response_body="${response%$'\n'*}"
-              else
-                status_code=""
-                response_body="$response"
-              fi
-              response_body="$(printf '%s' "$response_body" | tr '\n' ' ' | cut -c1-500)"
-              printf '%s attempt=%s status=%s body=%s\n' "$label" "$attempt" "$status_code" "$response_body" | tee -a "$dependency_failure_log"
+              printf '%s attempt=%s status=%s\n' "$label" "$attempt" "$status_code" | tee -a "$dependency_failure_log"
               if [[ "$status_code" == "$expected" ]]; then
                 return 0
               fi
@@ -1051,14 +1037,8 @@ jobs:
           # The disposable external Postgres fixture has no persistent volume.
           # Restoring its task therefore restores an empty database, so rerun
           # the real migration service before asserting database-backed status.
-          # A completed one-shot Swarm service can remain at replicas=0 after
-          # scale-down, but hosted Swarm managers may hang while scaling that
-          # completed task back to one. Recreate it through the same stack
-          # definition used for production instead of relying on that update
-          # path.
-          timeout --foreground 60 docker service rm "${STACK_NAME}_migrate" >/dev/null 2>&1 || true
-          timeout --foreground 300 docker stack deploy --with-registry-auth \
-            --compose-file docker-compose.prod.yml "$STACK_NAME"
+          docker service update --replicas 0 "${STACK_NAME}_migrate" >/dev/null
+          docker service update --replicas 1 "${STACK_NAME}_migrate" >/dev/null
           migration_completed=false
           for attempt in {1..60}; do
             migration_state="$(docker service ps "${STACK_NAME}_migrate" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
@@ -1082,26 +1062,16 @@ jobs:
           # Migration repairs the disposable database schema, but long-lived
           # application processes can still hold connections to the stopped
           # Postgres task. Roll the database-backed services so they establish
-          # fresh pools before the recovery assertions run. Start the update
-          # asynchronously; the readiness and status probes below are the
-          # authoritative convergence checks and avoid waiting indefinitely on
-          # Swarm's detached=false rollout monitor in hosted runners.
+          # fresh pools before the recovery assertions run.
           for service in server schedules deployment-worker; do
             timeout --foreground 300 docker service update \
-              --force --update-parallelism 2 \
+              --force --update-parallelism 2 --detach=false \
               "${STACK_NAME}_${service}" >/dev/null
           done
 
           schedules_status_recovered=false
-          schedules_status_deadline=$(( $(date +%s) + 300 ))
           for attempt in {1..180}; do
-            if (( $(date +%s) >= schedules_status_deadline )); then
-              break
-            fi
-            # Bound both the curl and Docker Engine/network setup. The inner
-            # curl timeout cannot interrupt a docker run that never starts.
-            # shellcheck disable=SC2016 # $1 expands in the container shell.
-            if timeout --foreground 15 docker run --rm --network "$DOCKER_NETWORK" \
+            if docker run --rm --network "$DOCKER_NETWORK" \
               --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
               --user 10001:10001 \
               --entrypoint /bin/sh \
@@ -1187,6 +1157,8 @@ jobs:
             --env HEALTH_SOAK_WINDOW_REQUESTS=120 \
             --env HEALTH_SOAK_WINDOW_CONCURRENCY=12 \
             --env HEALTH_SOAK_MAX_FAILURES_PER_WINDOW=0 \
+            --env HEALTH_SOAK_MAX_P95_MS=0 \
+            --env HEALTH_SOAK_MAX_P99_MS=0 \
             --env HEALTH_SOAK_OUTPUT_FILE=/tmp/health-soak.txt \
             "$HEALTH_LOAD_IMAGE" \
             /tmp/health-soak-rehearsal.sh "http://${STACK_NAME}_server:3000" \

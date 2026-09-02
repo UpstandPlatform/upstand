@@ -25,20 +25,12 @@ import (
 
 const (
 	listenAddress            = ":2375"
-	healthListenAddress      = "127.0.0.1:2376"
 	maxPolicyBody            = 16 << 20
 	defaultMaxInflight       = 64
 	minimumMaxInflight       = 1
 	maximumMaxInflight       = 256
 	brokerBusyRetryAfterSecs = 1
 )
-
-const (
-	serverMonitoringContainerName   = "upstand-monitoring-agent"
-	serverMonitoringImageRepository = "ghcr.io/upstandplatform/upstand-monitoring"
-)
-
-var immutableImageReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,510}@sha256:[a-fA-F0-9]{64}$`)
 
 var deploymentWorkerVolumeKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
@@ -92,7 +84,8 @@ func main() {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/health" {
-			writeHealthResponse(w)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok\n"))
 			return
 		}
 		audit := newDockerAudit(r, normalizeDockerPath(r.URL.Path))
@@ -218,20 +211,6 @@ func main() {
 		IdleTimeout:       5 * time.Minute,
 		MaxHeaderBytes:    32 << 10,
 	}
-	healthListener, err := net.Listen("tcp", healthListenAddress)
-	if err != nil {
-		log.Fatalf("listen for Docker broker health checks: %v", err)
-	}
-	healthServer := &http.Server{
-		Handler:           http.HandlerFunc(healthHandler),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	go func() {
-		if serveErr := healthServer.Serve(healthListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			log.Printf("Docker broker health server stopped: %v", serveErr)
-		}
-	}()
-	defer func() { _ = healthServer.Close() }()
 	log.Printf("Upstand Docker broker listening on %s", listenAddress)
 	var serveErr error
 	if brokerTLS != nil {
@@ -243,19 +222,6 @@ func main() {
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatal(serveErr)
 	}
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet || r.URL.Path != "/health" {
-		http.NotFound(w, r)
-		return
-	}
-	writeHealthResponse(w)
-}
-
-func writeHealthResponse(w http.ResponseWriter) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok\n"))
 }
 
 func validateRawDockerBuildContentLength(method, path string, contentLength int64) error {
@@ -546,9 +512,7 @@ func authorizeDockerRequestForCaller(caller string, r *http.Request, body []byte
 	if !isAllowedDockerOperation(r.Method, path) {
 		return fmt.Errorf("operation %s %s is outside the broker contract", r.Method, path)
 	}
-	serverMonitoringMutation := caller == "server" && brokerRequiresProductionIdentity() &&
-		isServerMonitoringMutation(r, body)
-	if !serverMonitoringMutation && !isAllowedCallerDockerOperation(caller, r.Method, path) {
+	if !isAllowedCallerDockerOperation(caller, r.Method, path) {
 		return fmt.Errorf("operation %s %s is outside the %s caller contract", r.Method, path, caller)
 	}
 	if err := requireDeploymentWorkerResourceScope(caller, r, r.Method, path); err != nil {
@@ -566,187 +530,6 @@ func authorizeDockerRequestForCaller(caller string, r *http.Request, body []byte
 		}
 	}
 	return nil
-}
-
-// isServerMonitoringMutation is the only exception to the production server's
-// raw Docker mutation ban. The control-plane process must reconcile its own
-// monitoring sidecar, but that sidecar must not turn the server identity into a
-// general-purpose container launcher. Keep the exception bound to the fixed
-// container name and the exact least-privilege shape emitted by the monitoring
-// initializer.
-func isServerMonitoringMutation(r *http.Request, body []byte) bool {
-	path := normalizeDockerPath(r.URL.Path)
-	switch {
-	case r.Method == http.MethodPost && path == "/images/create":
-		return isServerMonitoringImagePull(r)
-	case r.Method == http.MethodPost && path == "/containers/create":
-		return r.URL.Query().Get("name") == serverMonitoringContainerName &&
-			validateServerMonitoringContainerCreate(body) == nil
-	case r.Method == http.MethodPost &&
-		path == "/containers/"+serverMonitoringContainerName+"/start":
-		return true
-	case r.Method == http.MethodDelete &&
-		path == "/containers/"+serverMonitoringContainerName:
-		return true
-	default:
-		return false
-	}
-}
-
-func isServerMonitoringImagePull(r *http.Request) bool {
-	fromImage := strings.TrimSpace(r.URL.Query().Get("fromImage"))
-	if isServerMonitoringImageReference(fromImage) {
-		return true
-	}
-	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
-	return isServerMonitoringImageReference(fromImage+"@"+tag) ||
-		(strings.EqualFold(fromImage, serverMonitoringImageRepository) &&
-			isServerMonitoringImageReference(fromImage+":"+tag))
-}
-
-func isServerMonitoringImageReference(image string) bool {
-	trimmed := strings.TrimSpace(image)
-	if !immutableImageReferencePattern.MatchString(trimmed) {
-		return false
-	}
-	if strings.Count(trimmed, "@") != 1 {
-		return false
-	}
-	normalized := strings.ToLower(trimmed)
-	repository := strings.ToLower(serverMonitoringImageRepository)
-	return strings.HasPrefix(normalized, repository) &&
-		len(normalized) > len(repository) &&
-		(normalized[len(repository)] == ':' || normalized[len(repository)] == '@')
-}
-
-func validateServerMonitoringContainerCreate(body []byte) error {
-	var payload struct {
-		Image      string            `json:"Image"`
-		Env        []string          `json:"Env"`
-		Labels     map[string]string `json:"Labels"`
-		HostConfig struct {
-			Binds          []string `json:"Binds"`
-			NetworkMode    string   `json:"NetworkMode"`
-			CapDrop        []string `json:"CapDrop"`
-			ReadonlyRootfs bool     `json:"ReadonlyRootfs"`
-			Memory         int64    `json:"Memory"`
-			PidsLimit      int64    `json:"PidsLimit"`
-			RestartPolicy  struct {
-				Name string `json:"Name"`
-			} `json:"RestartPolicy"`
-			SecurityOpt []string          `json:"SecurityOpt"`
-			Tmpfs       map[string]string `json:"Tmpfs"`
-			LogConfig   struct {
-				Type   string            `json:"Type"`
-				Config map[string]string `json:"Config"`
-			} `json:"LogConfig"`
-			PortBindings map[string][]struct {
-				HostIp   string `json:"HostIp"`
-				HostPort string `json:"HostPort"`
-			} `json:"PortBindings"`
-		} `json:"HostConfig"`
-		ExposedPorts map[string]struct{} `json:"ExposedPorts"`
-	}
-
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return fmt.Errorf("monitoring container body is invalid: %w", err)
-	}
-	if !isServerMonitoringImageReference(payload.Image) {
-		return errors.New("monitoring container image must be the immutable Upstand monitoring image")
-	}
-	if payload.Labels["com.upstand.component"] != "monitoring-agent" ||
-		payload.Labels["com.upstand.platform"] != "true" {
-		return errors.New("monitoring container labels are invalid")
-	}
-	if !containsEnvPrefix(payload.Env, "METRICS_CONFIG=") ||
-		!containsEnvValue(payload.Env, "DB_PATH=/data/monitoring.db") {
-		return errors.New("monitoring container environment is incomplete")
-	}
-	if payload.HostConfig.NetworkMode != "" &&
-		(!managedNetworkPattern.MatchString(payload.HostConfig.NetworkMode) ||
-			strings.EqualFold(payload.HostConfig.NetworkMode, "host")) {
-		return errors.New("monitoring container network mode is invalid")
-	}
-	if !sameStringValues(payload.HostConfig.Binds, []string{
-		"/proc:/host/proc:ro",
-		"/sys:/host/sys:ro",
-		"/etc/os-release:/etc/os-release:ro",
-		"upstand-monitoring-data:/data",
-	}) {
-		return errors.New("monitoring container mounts are invalid")
-	}
-	if !sameStringValues(payload.HostConfig.CapDrop, []string{"ALL"}) ||
-		!payload.HostConfig.ReadonlyRootfs ||
-		payload.HostConfig.Memory != 256*1024*1024 ||
-		payload.HostConfig.PidsLimit != 128 ||
-		payload.HostConfig.RestartPolicy.Name != "always" ||
-		!containsEnvValue(payload.HostConfig.SecurityOpt, "no-new-privileges:true") {
-		return errors.New("monitoring container security settings are invalid")
-	}
-	if len(payload.HostConfig.Tmpfs) != 1 ||
-		payload.HostConfig.Tmpfs["/tmp"] != "rw,noexec,nosuid,nodev,size=16m" {
-		return errors.New("monitoring container temporary filesystem is invalid")
-	}
-	if payload.HostConfig.LogConfig.Type != "json-file" ||
-		payload.HostConfig.LogConfig.Config["max-size"] != "10m" ||
-		payload.HostConfig.LogConfig.Config["max-file"] != "3" {
-		return errors.New("monitoring container logging policy is invalid")
-	}
-	if len(payload.ExposedPorts) != 1 {
-		return errors.New("monitoring container exposed ports are invalid")
-	}
-	if _, ok := payload.ExposedPorts["3001/tcp"]; !ok {
-		return errors.New("monitoring container exposed ports are invalid")
-	}
-	if bindings := payload.HostConfig.PortBindings; len(bindings) > 0 {
-		entries, ok := bindings["3001/tcp"]
-		if !ok || len(entries) != 1 ||
-			(entries[0].HostIp != "127.0.0.1" && entries[0].HostIp != "") ||
-			entries[0].HostPort != "3005" {
-			return errors.New("monitoring container published port is invalid")
-		}
-	}
-	return nil
-}
-
-func containsEnvPrefix(values []string, prefix string) bool {
-	for _, value := range values {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsEnvValue(values []string, expected string) bool {
-	for _, value := range values {
-		if value == expected {
-			return true
-		}
-	}
-	return false
-}
-
-func sameStringValues(actual, expected []string) bool {
-	if len(actual) != len(expected) {
-		return false
-	}
-	counts := make(map[string]int, len(expected))
-	for _, value := range expected {
-		counts[value]++
-	}
-	for _, value := range actual {
-		counts[value]--
-		if counts[value] < 0 {
-			return false
-		}
-	}
-	for _, count := range counts {
-		if count != 0 {
-			return false
-		}
-	}
-	return true
 }
 
 func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method, path string) error {
@@ -1140,9 +923,6 @@ func isAllowedDockerOperation(method, path string) bool {
 	if method == http.MethodGet && path == "/containers/json" {
 		return true
 	}
-	if method == http.MethodGet && imageInspectPath(path) {
-		return true
-	}
 	if method == http.MethodPost && path == "/containers/create" {
 		return true
 	}
@@ -1203,28 +983,6 @@ func isAllowedDockerOperation(method, path string) bool {
 	}
 
 	return false
-}
-
-// Docker image names may contain slash-separated registry and repository
-// components, so an image inspection path cannot use the fixed three-segment
-// resourceActionPath helper. Keep this read-only exception bounded to a valid
-// image name and the exact /json suffix.
-func imageInspectPath(path string) bool {
-	const prefix = "/images/"
-	const suffix = "/json"
-	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
-		return false
-	}
-	image := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
-	if image == "" {
-		return false
-	}
-	for _, part := range strings.Split(image, "/") {
-		if part == "" || part == "." || part == ".." {
-			return false
-		}
-	}
-	return true
 }
 
 func splitResourcePath(path, resource string) ([]string, bool) {

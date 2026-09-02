@@ -9,11 +9,7 @@ This guide outlines the production installation process, environment variable op
 
 ## Infrastructure Architecture
 
-Upstand's production self-hosting architecture separates public routing, the
-control-plane services, persistent data, and Docker control traffic into
-isolated Docker Swarm networks. The broker is the only control-plane service
-that receives the host Docker socket; the server, schedules orchestrator, and
-deployment worker use its constrained mTLS API.
+Upstand's production self-hosting architecture separates the control plane services, Caddy proxy, persistent volumes, and compute nodes into an isolated Docker Swarm network:
 
 ```mermaid
 graph TD
@@ -24,24 +20,19 @@ graph TD
 
     subgraph Host["Production Host / Virtual Machine"]
         Caddy["Caddy Application Proxy (Public :80/:443)"]
-        Monitoring["upstand-monitoring-agent (sidecar)"]
 
         subgraph SwarmCluster["Docker Swarm Stack: upstand"]
             WebUI["upstand-web (Next.js Dashboard)"]
-            ServerAPI["upstand-server (Hono API)"]
-            Schedules["upstand-schedules (orchestrator)"]
-            DeployWorker["upstand-deployment-worker"]
-            Broker["upstand-docker-broker (socket boundary)"]
+            ServerAPI["upstand-server (Hono API & Workers)"]
             Fumadocs["upstand-docs (Fumadocs Engine)"]
             DB[(PostgreSQL 18 Engine)]
             Cache[(Redis 8.8 Cache & Task Queue)]
         end
 
-        subgraph StorageLayer["Persistent Docker Volumes and Installer Files"]
-            VolData["upstand_postgres_data_v18 + upstand_redis_data"]
-            VolMonitoring["upstand-monitoring-data"]
+        subgraph StorageLayer["Persistent Host Volumes"]
+            VolData["/etc/upstand/data (App Data)"]
             VolSecrets["/etc/upstand/secrets (0600 File Vault)"]
-            VolCaddy["upstand-caddy-data/config (TLS state)"]
+            VolCaddy["caddy_data (TLS Certs)"]
         end
     end
 
@@ -52,22 +43,10 @@ graph TD
     Caddy -->|"Proxy Fumadocs (port 4000)"| Fumadocs
     ServerAPI --> DB
     ServerAPI --> Cache
-    ServerAPI -->|mTLS| Broker
-    Schedules -->|mTLS| Broker
-    DeployWorker -->|mTLS| Broker
-    Broker -->|host socket only| Swarm["Docker Swarm Engine"]
     DB --> VolData
-    Monitoring --> VolMonitoring
     ServerAPI --> VolSecrets
-    Caddy --> VolCaddy
+            Caddy --> VolCaddy
 ```
-
-The installer creates both the application overlay (`upstand-network`) and the
-encrypted internal Docker-control overlay (`upstand-docker-control`), then
-creates the broker's CA, server certificate, caller certificates, and scoped
-tokens as Docker secrets. Caddy is a separate host-level container managed by
-Upstand's infrastructure integration and routes public HTTPS traffic to the
-private stack services.
 
 ---
 
@@ -102,15 +81,22 @@ The Upstand installer supports two compilation strategies:
   <Step>
     ### Prepare the environment variables
     
-    Configure the HTTPS origins before running the installer. It will generate cryptographic secrets under `/etc/upstand/secrets/`, resolve the selected stable release, verify its immutable GitHub release manifest and deployment-artifact hashes, and pull the exact published GHCR image digests. Releases without deployment-artifact hashes are rejected. Source builds require the explicit `UPSTAND_BUILD_FROM_SOURCE=true` opt-in.
+    Configure the HTTPS origins before running the installer. It will generate cryptographic secrets under `/etc/upstand/secrets/`, resolve the latest stable release, verify its immutable GitHub release manifest and deployment-artifact hashes, and pull the exact published GHCR image digests. Releases without deployment-artifact hashes are rejected. Source builds require the explicit `UPSTAND_BUILD_FROM_SOURCE=true` opt-in.
 
-    For a production deployment with DNS and pre-built immutable images, export your target domains first. The release manifest supplies the service image digests; do not copy a partial image list from an older installation:
+    For a production deployment with DNS and pre-built immutable images, export your target domains and image digests first:
     
     ```bash
     export BETTER_AUTH_URL=https://api.example.com
     export CORS_ORIGIN=https://app.example.com
     export NEXT_PUBLIC_SERVER_URL=https://api.example.com
     
+    # Specify the image digests to pin for your rollout
+    export UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<digest>
+    export UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<digest>
+    export UPSTAND_DEPLOYMENT_WORKER_IMAGE=ghcr.io/upstandplatform/upstand-deployment-worker@sha256:<digest>
+    export UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
+    export UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
+    export UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
     ```
   </Step>
 
@@ -120,7 +106,7 @@ The Upstand installer supports two compilation strategies:
     Execute the bootstrap command to download and run the installer:
     
     ```bash
-    export UPSTAND_VERSION="vX.Y.Z" # replace with the reviewed stable release tag
+    export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
     curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
     ```
 
@@ -195,26 +181,98 @@ ip -4 route get 1.1.1.1
 If you have multiple network interfaces, run behind a firewall/NAT, or want to specify a manual IP, set the `SWARM_ADVERTISE_ADDR` environment variable before running the installer:
 ```bash
 export SWARM_ADVERTISE_ADDR=192.168.1.50
-    export UPSTAND_VERSION="vX.Y.Z" # replace with the reviewed stable release tag
+export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
 Alternatively, run the installer with the `--interactive` flag to be prompted for the IP address interactively:
 ```bash
-    export UPSTAND_VERSION="vX.Y.Z" # replace with the reviewed stable release tag
+export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash -s -- --interactive
 ```
 
 ---
 
-## Direct stack deployment
+## Manual Installation
 
-Directly creating `/etc/upstand/.env` and running `docker stack deploy` is not
-a supported production installation path. It bypasses release-manifest
-verification, mTLS secret generation, the migration barrier, encrypted-network
-checks, the broker contract, and the post-deploy health probes. Use the
-versioned installer for initial installs and upgrades; it is safe to rerun
-after backing up `/etc/upstand/` and the database.
+If you prefer to set up Docker Swarm, configuration directories, and dependencies manually:
+
+### 1. Initialize Docker Swarm manually
+Run the following command on your manager server, specifying the advertise IP address:
+```bash
+sudo docker swarm init --advertise-addr <your-server-ip>
+sudo docker swarm update --task-history-limit 1
+```
+
+### 2. Create the attachable overlay network
+Initialize the shared container communication network:
+```bash
+sudo docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true upstand-network
+```
+
+The `encrypted` option protects service-to-service traffic across Swarm nodes.
+The installer verifies this option and refuses to reuse an unencrypted network.
+If an existing network has the same name without encryption, create a new
+encrypted network with a temporary `DOCKER_NETWORK` name during a maintenance
+window, or remove the old network only after its attached services have been
+stopped and drained.
+
+### 3. Setup configuration and secrets directories
+Create the standard directory layout for config and secrets:
+```bash
+sudo mkdir -p /etc/upstand/secrets
+sudo chmod 700 /etc/upstand /etc/upstand/secrets
+```
+
+Store your database, redis, and session encryption credentials as secure docker secrets files:
+```bash
+openssl rand -hex 32 | sudo tee /etc/upstand/secrets/postgres_password >/dev/null
+openssl rand -hex 32 | sudo tee /etc/upstand/secrets/redis_password >/dev/null
+openssl rand -hex 32 | sudo tee /etc/upstand/secrets/better_auth_secret >/dev/null
+openssl rand -base64 32 | tr -d '\n' | sudo tee /etc/upstand/secrets/encryption_key >/dev/null
+# The production stack always mounts these optional URL secrets. Leave them
+# empty for bundled PostgreSQL/Redis; the installer writes real values when
+# external HA data services are configured.
+: | sudo tee /etc/upstand/secrets/database_url >/dev/null
+: | sudo tee /etc/upstand/secrets/redis_url >/dev/null
+sudo chmod 600 /etc/upstand/secrets/*
+```
+
+### 4. Create the Environment File
+Create `/etc/upstand/.env` with the following variables configured:
+```bash
+DOCKER_NETWORK=upstand-network
+BETTER_AUTH_URL=https://api.yourdomain.com
+CORS_ORIGIN=https://app.yourdomain.com
+NEXT_PUBLIC_SERVER_URL=https://api.yourdomain.com
+UPSTAND_DASHBOARD_HOST=app.yourdomain.com
+UPSTAND_API_HOST=api.yourdomain.com
+UPSTAND_DOCS_HOST=docs.yourdomain.com
+TRUSTED_PROXY_CIDRS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+UPSTAND_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+UPSTAND_MIGRATION_ID=upstand-$(date +%s)
+
+# Specify the target image digests to pin
+UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<digest>
+UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<digest>
+UPSTAND_DEPLOYMENT_WORKER_IMAGE=ghcr.io/upstandplatform/upstand-deployment-worker@sha256:<digest>
+UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
+UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
+UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
+EOF
+```
+
+### 5. Deploy the Stack
+Fetch the `docker-compose.prod.yml` and deploy it as a Docker Stack:
+```bash
+export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
+sudo curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/docker-compose.prod.yml" -o /etc/upstand/docker-compose.yml
+sudo chmod 600 /etc/upstand/docker-compose.yml
+
+# Export environment variables and deploy
+set -a && source /etc/upstand/.env && set +a
+sudo docker stack deploy --compose-file /etc/upstand/docker-compose.yml upstand
+```
 
 ---
 

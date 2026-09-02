@@ -27,13 +27,11 @@
     "@upstand/redis": "workspace:*",
     "bullmq": "catalog:",
     "croner": "^10.0.1",
-    "dockerode": "^5.0.1",
     "evlog": "catalog:",
     "yaml": "^2.9.0",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/dockerode": "^4.0.1",
     "@upstand/config": "workspace:*",
     "typescript": "catalog:"
   }

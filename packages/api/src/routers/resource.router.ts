@@ -15,6 +15,7 @@ import {
   GetResourceStatsInputSchema,
   GetResourcesInputSchema,
   getManagedDatabaseEnvironment,
+  MoveResourceInputSchema,
   parseResourceEnvironmentVariables,
   QueueDeploymentUseCase,
   RandomizeComposeInputSchema,
@@ -40,6 +41,7 @@ import {
   GetResourceStatsUseCaseToken,
   GetResourcesUseCaseToken,
   GetResourceUseCaseToken,
+  MoveResourceUseCaseToken,
   RandomizeComposeUseCaseToken,
   RebuildDatabaseUseCaseToken,
   RollbackResourceUseCaseToken,
@@ -265,6 +267,64 @@ export const resourceRouter = router({
           organizationId: project.organizationId,
         });
         return updated ? publicResource(updated) : updated;
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  move: twoFactorVerifiedProcedure
+    .input(MoveResourceInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const resource = await ctx.scope
+        .resolve(GetResourceUseCaseToken)
+        .execute({ id: input.resourceId });
+      if (!resource) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Resource not found",
+        });
+      }
+      const sourceEnvironment = await ctx.scope
+        .resolve(GetEnvironmentUseCaseToken)
+        .execute({ id: resource.environmentId });
+      const sourceProject = sourceEnvironment
+        ? await ctx.scope
+            .resolve(GetProjectUseCaseToken)
+            .execute({ id: sourceEnvironment.projectId })
+        : null;
+      const targetProject = await ctx.scope
+        .resolve(GetProjectUseCaseToken)
+        .execute({ id: input.targetProjectId });
+      if (
+        !sourceProject ||
+        sourceProject.organizationId !== input.sourceOrganizationId ||
+        !targetProject
+      ) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Resource or target project not found",
+        });
+      }
+
+      await checkPermission(
+        ctx.session.user.id,
+        sourceProject.organizationId,
+        "resource:update",
+      );
+      await checkPermission(
+        ctx.session.user.id,
+        targetProject.organizationId,
+        "resource:create",
+      );
+
+      try {
+        const result = await ctx.scope
+          .resolve(MoveResourceUseCaseToken)
+          .execute(input);
+        return {
+          ...result,
+          resource: publicResource(result.resource),
+        };
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }

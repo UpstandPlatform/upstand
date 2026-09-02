@@ -1,54 +1,18 @@
 # web
 
-## 0.3.21
+## 0.5.1
 
 ### Patch Changes
 
-- [#415](https://github.com/UpstandPlatform/upstand/pull/415) [`c9bfb16`](https://github.com/UpstandPlatform/upstand/commit/c9bfb16eb3901bd8d4e9268274c67a38f29d54a0) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix Better Auth 1.7 account issuer schema generation and migrate legacy account
-  rows safely so initial sign-up, passkey listing, and passkey registration work
-  after upgrading from earlier releases.
+- [#425](https://github.com/UpstandPlatform/upstand/pull/425) [`e242145`](https://github.com/UpstandPlatform/upstand/commit/e242145f6883f6ba36537c94c0ff99a55bd175a5) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden the resource-move success redirect against path injection and cross-origin navigation.
 
-## 0.3.20
+## 0.5.0
 
-## 0.3.19
+## 0.4.0
 
-## 0.3.18
+### Minor Changes
 
-## 0.3.17
-
-### Patch Changes
-
-- [#405](https://github.com/UpstandPlatform/upstand/pull/405) [`743f28d`](https://github.com/UpstandPlatform/upstand/commit/743f28dbf7dab9c5a46823438dc283f6014705ce) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix passkey route availability in production-shaped releases and make self-updates validate the complete control-plane service set before applying immutable images. Failed multi-service updates now roll back instead of leaving a mixed-version installation.
-
-## 0.3.16
-
-## 0.3.15
-
-## 0.3.14
-
-## 0.3.13
-
-## 0.3.12
-
-## 0.3.11
-
-## 0.3.10
-
-## 0.3.9
-
-## 0.3.8
-
-## 0.3.7
-
-## 0.3.6
-
-## 0.3.5
-
-## 0.3.4
-
-## 0.3.3
-
-## 0.3.2
+- [#419](https://github.com/UpstandPlatform/upstand/pull/419) [`150eebc`](https://github.com/UpstandPlatform/upstand/commit/150eebc0dc4484bb4171aec8a6b566333eeede42) Thanks [@mhbdev](https://github.com/mhbdev)! - Improve the public entry experience when the control plane is loading or unavailable, and remove unused runtime and UI code from the production bundle.
 
 ## 0.3.1
 

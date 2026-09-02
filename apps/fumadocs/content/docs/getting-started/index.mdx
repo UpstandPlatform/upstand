@@ -5,13 +5,13 @@ description: The self-hostable container-first control plane for Docker Swarm, a
 
 Welcome to **Upstand**, a modern, container-first self-hosted Platform-as-a-Service (PaaS) designed to manage, deploy, and scale application workloads, multi-container Compose stacks, and persistent databases across single-node or multi-node Docker Swarm clusters.
 
-Upstand consolidates server management, SSL termination, Git build queues, backups, monitoring, and user authentication into a unified dashboard, backed by **UpGal**, your AI operations assistant.
+Upstand consolidates server management, SSL termination, Git build queues, backups, monitoring, and user authentication into a unified, secure dashboard, backed by **UpGal**, your AI operations assistant.
 
 ---
 
 ## Architectural Layout
 
-Upstand is engineered following a clean package-based architecture. The Hono/TypeScript control plane persists state in PostgreSQL, dispatches durable work through Redis/BullMQ, and delegates Docker operations through a constrained, mutually authenticated broker. Remote Docker hosts are managed through verified SSH sessions; the control plane does not expose a host Docker socket to application services.
+Upstand is engineered following a clean package-based architecture. A high-performance Hono/TypeScript control plane communicates with deployment workers via BullMQ queues, orchestrating Docker Swarm through the host or remote Docker sockets.
 
 ```mermaid
 flowchart TD
@@ -21,15 +21,10 @@ flowchart TD
     UpGal -->|Tool Loop / MCP| Server
     Server --> DB[(PostgreSQL System DB)]
     Server --> Queue[(Redis / BullMQ Queue)]
-    Queue --> Schedules[Schedules Orchestrator]
-    Queue --> DeployWorker[Deployment Worker]
-    Server -->|mTLS typed Docker API| Broker[Constrained Docker Broker]
-    Schedules -->|mTLS typed Docker API| Broker
-    DeployWorker -->|mTLS typed Docker API| Broker
-    Broker -->|Host socket| Swarm[Docker Swarm Engine]
-    Caddy[Caddy Reverse Proxy] --> Web
-    Caddy --> Server
-    Swarm -->|Overlay Network| Containers["App & Database Containers"]
+    Queue --> Worker[Deployment & Backup Workers]
+    Worker -->|Docker API / SSH| Engine[Docker Swarm Engine]
+    Worker -->|Dynamic Config Reloads| Caddy[Caddy Reverse Proxy]
+    Engine -->|Overlay Network| Containers["App & Database Containers"]
 ```
 
 ---
@@ -46,7 +41,7 @@ Pin the exact release tag that has been reviewed before downloading the
 installer:
 
 ```bash
-export UPSTAND_VERSION="vX.Y.Z" # replace with the reviewed stable release tag
+export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
 curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
   | sudo -E bash
@@ -54,8 +49,8 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
 
 Do not use a mutable `latest` image, a mutable branch URL, plaintext database
 credentials, or a direct Docker Compose deployment for production. The
-installer creates the broker and its mTLS identities; only the broker receives
-the host Docker socket.
+installer also requires explicit acknowledgement before granting the control
+plane access to the host Docker socket.
 
 For a local development or evaluation environment, use the repository's
 development setup instructions instead of adapting a production deployment.

@@ -5,12 +5,7 @@ description: Safely upgrade the bundled PostgreSQL and Redis images in local and
 
 Upstand now uses PostgreSQL 18 and Redis 8.8 for new control-plane deployments. These are image upgrades, not Drizzle schema migrations. Always back up the data and test the procedure on a disposable host before upgrading production.
 
-## Legacy PostgreSQL data to 18
-
-This section applies only when an existing installation still has a PostgreSQL
-16 or 17 data volume. New installations already use PostgreSQL 18, and a
-routine Upstand application release does not require a database major-version
-migration.
+## PostgreSQL 16/17 to 18
 
 PostgreSQL major versions do not share an on-disk data format. PostgreSQL 18 must start with a new data directory, then the database must be migrated with a logical dump/restore, `pg_upgrade`, or logical replication. The official PostgreSQL upgrade documentation describes these supported approaches: [PostgreSQL 18 upgrade guide](https://www.postgresql.org/docs/18/upgrading.html).
 
@@ -60,11 +55,7 @@ For large installations, use `pg_upgrade --check` or logical replication to redu
 
 ### Local development
 
-The local development Compose file uses `postgres_data_v18:/var/lib/postgresql`
-with `PGDATA=/var/lib/postgresql/18/docker`. Existing local PostgreSQL 16 data
-remains in its old volume and is not deleted. If that data is disposable,
-remove the old local stack and volume explicitly; otherwise migrate it with the
-same logical dump/restore approach before copying it into the new volume.
+`docker-compose.local.yml` uses `postgres_data_v18:/var/lib/postgresql` with `PGDATA=/var/lib/postgresql/18/docker`. Existing local PostgreSQL 16 data remains in the old volume and is not deleted. If the old data is disposable, remove the old local stack and volume explicitly; otherwise migrate it with the same logical dump/restore approach before copying it into the new volume.
 
 ## Redis 7 to 8.8
 

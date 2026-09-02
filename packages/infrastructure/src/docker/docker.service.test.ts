@@ -839,6 +839,95 @@ volumes:
     });
   });
 
+  test("authenticates Compose and Stack deployments with an ephemeral registry config", async () => {
+    const ensureUpstandNetwork = mock(async () => ({
+      id: "shared-network-id",
+      created: false,
+    }));
+    const ensureResourceNetwork = mock(async () => ({
+      id: "private-network-id",
+      name: "upstand-resource-resource-registry-private",
+      created: true,
+    }));
+    const ensureResourceVolume = mock(async () => {});
+    const broker = {
+      ensureUpstandNetwork,
+      ensureResourceNetwork,
+      ensureResourceVolume,
+    } as unknown as DockerResourceCommandBrokerPort;
+    const service = new DockerService({} as never, {}, broker) as unknown as {
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (log: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: {
+          stdin?: string;
+          resourceId?: string;
+          redactions?: readonly string[];
+          inheritEnvironment?: boolean;
+        },
+      ) => Promise<void>;
+      waitForComposeConvergence: (
+        projectName: string,
+        resourceId: string,
+        onLog: (log: string) => void,
+      ) => Promise<void>;
+      deployComposeStack: DockerService["deployComposeStack"];
+    };
+    const calls: Array<{
+      args: string[];
+      env?: NodeJS.ProcessEnv;
+      options?: { stdin?: string; redactions?: readonly string[] };
+    }> = [];
+    let configPath = "";
+    service.runCommandAsync = async (_command, args, _onLog, env, options) => {
+      calls.push({ args, env, options });
+      if (args.includes("--file")) {
+        const fileIndex = args.indexOf("--file");
+        expect(fs.existsSync(args[fileIndex + 1] || "")).toBe(true);
+      }
+      if (env?.DOCKER_CONFIG) configPath = env.DOCKER_CONFIG;
+    };
+    service.waitForComposeConvergence = async () => {};
+
+    await service.deployComposeStack(
+      {
+        id: "resource-registry",
+        name: "Private Stack",
+        appName: "private-stack",
+        type: "compose",
+        composeType: "stack",
+        advancedConfig: "{}",
+        envVars: null,
+      } as never,
+      "services:\n  app:\n    image: registry.example.com/team/app:1\n",
+      () => {},
+      undefined,
+      undefined,
+      {
+        username: "robot",
+        password: "registry-password",
+        serveraddress: "registry.example.com",
+      },
+    );
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0]?.args).toEqual([
+      "login",
+      "--username",
+      "robot",
+      "--password-stdin",
+      "registry.example.com",
+    ]);
+    expect(calls[0]?.options?.stdin).toBe("registry-password\n");
+    expect(calls[1]?.args).toContain("--with-registry-auth");
+    expect(calls[2]?.args).toEqual(["logout", "registry.example.com"]);
+    expect(calls[1]?.env?.DOCKER_CONFIG).toBe(configPath);
+    expect(configPath).not.toBe("");
+    expect(fs.existsSync(configPath)).toBe(false);
+  });
+
   test("uses the typed owned-service removal for local deployment revisions", async () => {
     const removeResourceService = mock(async () => {});
     const broker = {

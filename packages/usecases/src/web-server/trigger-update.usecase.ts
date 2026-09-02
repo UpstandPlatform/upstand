@@ -23,108 +23,6 @@ export type TriggerUpdateInput = z.infer<typeof TriggerUpdateInputSchema>;
 export const SELF_UPDATE_LOCK_KEY = "upstand:control-plane:self-update";
 export const SELF_UPDATE_LOCK_TTL_MS = 30 * 60 * 1_000;
 
-const requiredSelfUpdateImages = [
-  "server",
-  "schedules",
-  "web",
-  "fumadocs",
-] as const;
-const managedSelfUpdateImages = new Map<
-  string,
-  (typeof requiredSelfUpdateImages)[number]
->([
-  ["upstand-server", "server"],
-  ["upstand-schedules", "schedules"],
-  ["upstand-web", "web"],
-  ["upstand-fumadocs", "fumadocs"],
-  ["upstand_server", "server"],
-  ["upstand_schedules", "schedules"],
-  ["upstand_web", "web"],
-  ["upstand_fumadocs", "fumadocs"],
-] as const);
-
-function buildSelfUpdateServiceUpdate(
-  inspect: Awaited<ReturnType<DockerSelfUpdatePort["inspectService"]>>,
-  imageName: (typeof requiredSelfUpdateImages)[number],
-  version: string,
-  repository: string,
-  images: TriggerUpdateInput["images"],
-) {
-  const currentImage = inspect.taskTemplate.ContainerSpec?.Image || "";
-  if (!currentImage) {
-    throw new Error(
-      `Self-update service '${inspect.name}' has no container image`,
-    );
-  }
-  if (currentImage.includes(":source-")) {
-    throw new Error(
-      "This installation was built from source. Run the GitHub installer to update it, or reinstall from a published release image.",
-    );
-  }
-
-  let baseImage = currentImage;
-  if (baseImage.includes("@sha256:")) {
-    baseImage = baseImage.split("@sha256:")[0] ?? baseImage;
-  }
-  const digestSeparator = baseImage.lastIndexOf("@");
-  if (digestSeparator >= 0) baseImage = baseImage.slice(0, digestSeparator);
-  const tagSeparator = baseImage.lastIndexOf(":");
-  if (tagSeparator > baseImage.lastIndexOf("/")) {
-    baseImage = baseImage.slice(0, tagSeparator);
-  }
-  if (!baseImage.includes("/") || baseImage.startsWith("upstand-")) {
-    baseImage = `ghcr.io/${repository}-${imageName}`;
-  }
-
-  const currentEnv = inspect.taskTemplate.ContainerSpec?.Env ?? [];
-  let nextEnv = currentEnv.some((entry) => entry.startsWith("UPSTAND_VERSION="))
-    ? currentEnv.map((entry) =>
-        entry.startsWith("UPSTAND_VERSION=")
-          ? `UPSTAND_VERSION=${version}`
-          : entry,
-      )
-    : [...currentEnv, `UPSTAND_VERSION=${version}`];
-  nextEnv = nextEnv.some((entry) =>
-    entry.startsWith("UPSTAND_UPDATE_COMPLETION_VERSION="),
-  )
-    ? nextEnv.map((entry) =>
-        entry.startsWith("UPSTAND_UPDATE_COMPLETION_VERSION=")
-          ? `UPSTAND_UPDATE_COMPLETION_VERSION=${version}`
-          : entry,
-      )
-    : [...nextEnv, `UPSTAND_UPDATE_COMPLETION_VERSION=${version}`];
-  if (imageName === "server") {
-    const monitoringBaseImage = baseImage.replace(/-server$/, "-monitoring");
-    const monitoringImage = `${monitoringBaseImage}@${images.monitoring}`;
-    nextEnv = nextEnv.some((entry) =>
-      entry.startsWith("UPSTAND_MONITORING_IMAGE="),
-    )
-      ? nextEnv.map((entry) =>
-          entry.startsWith("UPSTAND_MONITORING_IMAGE=")
-            ? `UPSTAND_MONITORING_IMAGE=${monitoringImage}`
-            : entry,
-        )
-      : [...nextEnv, `UPSTAND_MONITORING_IMAGE=${monitoringImage}`];
-  }
-
-  return {
-    version: inspect.version,
-    name: inspect.name,
-    taskTemplate: {
-      ...inspect.taskTemplate,
-      ContainerSpec: {
-        ...inspect.taskTemplate.ContainerSpec,
-        Image: `${baseImage}@${images[imageName]}`,
-        Env: nextEnv,
-      },
-      ForceUpdate: (inspect.taskTemplate.ForceUpdate || 0) + 1,
-    },
-    updateConfig: inspect.updateConfig,
-    rollbackConfig: inspect.rollbackConfig,
-    endpointSpec: inspect.endpointSpec,
-  };
-}
-
 export type UpdateArtifactCleanup = {
   run(action: "images" | "builder"): Promise<unknown>;
 };
@@ -213,99 +111,147 @@ export class TriggerUpdateUseCase {
             }));
           } else {
             const services = await this.docker.listServices();
-            const plans = new Map<
-              (typeof requiredSelfUpdateImages)[number],
-              {
-                serviceId: string;
-                inspect: Awaited<
-                  ReturnType<DockerSelfUpdatePort["inspectService"]>
-                >;
-                update: Awaited<
-                  ReturnType<DockerSelfUpdatePort["inspectService"]>
-                >;
-              }
-            >();
-
-            for (const service of services) {
-              const imageName = managedSelfUpdateImages.get(service.name);
-              if (!imageName) continue;
-              if (plans.has(imageName)) {
+            const candidateServices = services.filter(({ name }) => {
+              return [
+                "upstand-server",
+                "upstand-schedules",
+                "upstand-web",
+                "upstand-fumadocs",
+                "upstand_server",
+                "upstand_schedules",
+                "upstand_web",
+                "upstand_fumadocs",
+              ].includes(name);
+            });
+            const inspectedServices = await Promise.all(
+              candidateServices.map(({ id }) => this.docker.inspectService(id)),
+            );
+            for (const inspect of inspectedServices) {
+              const image = inspect.taskTemplate.ContainerSpec?.Image || "";
+              if (image.includes(":source-")) {
                 throw new Error(
-                  `Self-update found duplicate managed service for ${imageName}`,
+                  "This installation was built from source. Run the GitHub installer to update it, or reinstall from a published release image.",
                 );
               }
-              const inspect = await this.docker.inspectService(service.id);
-              const update = buildSelfUpdateServiceUpdate(
-                inspect,
-                imageName,
-                version,
-                env.GITHUB_REPOSITORY,
-                input.images,
-              );
-              plans.set(imageName, { serviceId: service.id, inspect, update });
             }
 
-            const missing = requiredSelfUpdateImages.filter(
-              (imageName) => !plans.has(imageName),
-            );
-            if (missing.length > 0) {
-              throw new Error(
-                `Self-update requires all managed services; missing: ${missing.join(", ")}`,
-              );
-            }
+            for (const s of services) {
+              const name = s.name;
+              if (
+                name === "upstand-server" ||
+                name === "upstand-schedules" ||
+                name === "upstand-web" ||
+                name === "upstand-fumadocs" ||
+                name === "upstand_server" ||
+                name === "upstand_schedules" ||
+                name === "upstand_web" ||
+                name === "upstand_fumadocs"
+              ) {
+                const inspect = await this.docker.inspectService(s.id);
+                const currentImage =
+                  inspect.taskTemplate.ContainerSpec?.Image || "";
 
-            const applied: (typeof plans extends Map<string, infer Value>
-              ? Value
-              : never)[] = [];
-            try {
-              for (const imageName of requiredSelfUpdateImages) {
-                const plan = plans.get(imageName);
-                if (!plan)
-                  throw new Error(`Missing self-update plan for ${imageName}`);
-                log.info({
-                  message: `Updating Swarm service '${plan.update.name}'...`,
-                });
-                await this.docker.updateService(plan.serviceId, plan.update);
-                applied.push(plan);
-                updatedCount++;
-              }
-            } catch (error) {
-              const failedImageName = requiredSelfUpdateImages[applied.length];
-              const failedPlan = failedImageName
-                ? plans.get(failedImageName)
-                : undefined;
-              const rollbackPlans = failedPlan
-                ? [...applied, failedPlan]
-                : [...applied];
-              const rollbackErrors: string[] = [];
-              for (const plan of rollbackPlans.reverse()) {
-                try {
-                  const current = await this.docker.inspectService(
-                    plan.serviceId,
-                  );
-                  await this.docker.updateService(plan.serviceId, {
-                    version: current.version,
-                    name: plan.inspect.name,
-                    taskTemplate: plan.inspect.taskTemplate,
-                    updateConfig: plan.inspect.updateConfig,
-                    rollbackConfig: plan.inspect.rollbackConfig,
-                    endpointSpec: plan.inspect.endpointSpec,
-                  });
-                } catch (rollbackError) {
-                  rollbackErrors.push(
-                    `${plan.inspect.name}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+                if (!currentImage) continue;
+
+                if (currentImage.includes(":source-")) {
+                  throw new Error(
+                    "This installation was built from source. Run the GitHub installer to update it, or reinstall from a published release image.",
                   );
                 }
+
+                let baseImage = currentImage;
+                if (baseImage.includes("@sha256:")) {
+                  baseImage = baseImage.split("@sha256:")[0] ?? baseImage;
+                }
+                const digestSeparator = baseImage.lastIndexOf("@");
+                if (digestSeparator >= 0)
+                  baseImage = baseImage.slice(0, digestSeparator);
+                const tagSeparator = baseImage.lastIndexOf(":");
+                if (tagSeparator > baseImage.lastIndexOf("/")) {
+                  baseImage = baseImage.slice(0, tagSeparator);
+                }
+
+                const imageName = name.includes("fumadocs")
+                  ? "fumadocs"
+                  : name.includes("schedules")
+                    ? "schedules"
+                    : name.includes("web")
+                      ? "web"
+                      : "server";
+
+                if (
+                  !baseImage.includes("/") ||
+                  baseImage.startsWith("upstand-")
+                ) {
+                  const repo = env.GITHUB_REPOSITORY;
+                  baseImage = `ghcr.io/${repo}-${imageName}`;
+                }
+
+                const newImage = `${baseImage}@${input.images[imageName]}`;
+                const currentEnv =
+                  inspect.taskTemplate.ContainerSpec?.Env ?? [];
+                let nextEnv = currentEnv.some((entry) =>
+                  entry.startsWith("UPSTAND_VERSION="),
+                )
+                  ? currentEnv.map((entry) =>
+                      entry.startsWith("UPSTAND_VERSION=")
+                        ? `UPSTAND_VERSION=${version}`
+                        : entry,
+                    )
+                  : [...currentEnv, `UPSTAND_VERSION=${version}`];
+                nextEnv = nextEnv.some((entry) =>
+                  entry.startsWith("UPSTAND_UPDATE_COMPLETION_VERSION="),
+                )
+                  ? nextEnv.map((entry) =>
+                      entry.startsWith("UPSTAND_UPDATE_COMPLETION_VERSION=")
+                        ? `UPSTAND_UPDATE_COMPLETION_VERSION=${version}`
+                        : entry,
+                    )
+                  : [
+                      ...nextEnv,
+                      `UPSTAND_UPDATE_COMPLETION_VERSION=${version}`,
+                    ];
+                if (imageName === "server") {
+                  const monitoringBaseImage = baseImage.replace(
+                    /-server$/,
+                    "-monitoring",
+                  );
+                  const monitoringImage = `${monitoringBaseImage}@${input.images.monitoring}`;
+                  nextEnv = nextEnv.some((entry) =>
+                    entry.startsWith("UPSTAND_MONITORING_IMAGE="),
+                  )
+                    ? nextEnv.map((entry) =>
+                        entry.startsWith("UPSTAND_MONITORING_IMAGE=")
+                          ? `UPSTAND_MONITORING_IMAGE=${monitoringImage}`
+                          : entry,
+                      )
+                    : [
+                        ...nextEnv,
+                        `UPSTAND_MONITORING_IMAGE=${monitoringImage}`,
+                      ];
+                }
+                log.info({
+                  message: `Updating Swarm service '${name}' to use image '${newImage}'...`,
+                });
+
+                await this.docker.updateService(s.id, {
+                  version: inspect.version,
+                  name,
+                  taskTemplate: {
+                    ...inspect.taskTemplate,
+                    ContainerSpec: {
+                      ...inspect.taskTemplate.ContainerSpec,
+                      Image: newImage,
+                      Env: nextEnv,
+                    },
+                    ForceUpdate: (inspect.taskTemplate.ForceUpdate || 0) + 1,
+                  },
+                  updateConfig: inspect.updateConfig,
+                  rollbackConfig: inspect.rollbackConfig,
+                  endpointSpec: inspect.endpointSpec,
+                });
+                updatedCount++;
               }
-              if (rollbackErrors.length > 0) {
-                throw new Error(
-                  `Self-update failed and rollback failed: ${rollbackErrors.join("; ")}`,
-                  { cause: error },
-                );
-              }
-              throw new Error("Self-update failed and was rolled back", {
-                cause: error,
-              });
             }
           }
 

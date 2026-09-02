@@ -33,7 +33,7 @@ if [[ "${1:-}" == "network" && "${2:-}" == "inspect" ]]; then
         *Scope*) printf 'swarm\n' ;;
         *Attachable*) printf 'true\n' ;;
         *Internal*) [[ "${5:-}" == upstand-docker-control ]] && printf 'true\n' || printf 'false\n' ;;
-        *Id*) [[ "${5:-}" == upstand-docker-control ]] && printf 'control-network-id\n' || printf 'network-id\n' ;;
+        *Id*) printf 'network-id\n' ;;
         *Options*)
           [[ "$mode" == unencrypted ]] && printf '{"com.docker.network.driver.overlay.vxlanid_list":"4101"}\n' || printf '{"encrypted":""}\n'
           ;;
@@ -83,8 +83,6 @@ fi
   if [[ "$format" == *TaskTemplate.Networks* ]]; then
     if [[ "$mode" == wrong-network ]]; then
       printf '[{"Target":"wrong-network"}]\n'
-    elif [[ "$service" == upstand_docker-broker ]]; then
-      printf '[{"Target":"control-network-id"}]\n'
     else
       printf '[{"Target":"network-id"}]\n'
     fi
@@ -325,10 +323,6 @@ if [[ "${1:-}" == "top" ]]; then
 fi
 
 if [[ "${1:-}" == "exec" ]]; then
-  if [[ "$*" == *"/api/auth/passkey/list-user-passkeys"* ]]; then
-    printf '401\n'
-    exit 0
-  fi
   if [[ "$mode" == proc-fallback || "$mode" == proc-fallback-root || "$mode" == proc-fallback-runtime-user ]]; then
     if [[ "$mode" == proc-fallback-runtime-user && "$*" != *"999:1000"* ]]; then
       echo "fixture requires the configured Redis identity for process inspection" >&2

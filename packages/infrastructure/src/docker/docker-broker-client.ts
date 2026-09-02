@@ -868,14 +868,6 @@ export function createDockerCaddyBrokerClient():
   if (!configuration) return undefined;
 
   return {
-    async setControlPlaneIpAccess(enabled) {
-      await callBroker(
-        configuration,
-        "POST",
-        "/upstand/v1/web-server/control-plane-access",
-        { operation: "set_ip_access", enabled },
-      );
-    },
     async ensureCaddyContainer(input: CaddyProvisioningInput) {
       await callBroker(configuration, "POST", "/upstand/v1/web-server/caddy", {
         operation: "ensure",

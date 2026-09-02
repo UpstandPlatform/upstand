@@ -1,133 +1,21 @@
 # server
 
-## 0.3.21
+## 0.5.1
 
-### Patch Changes
+## 0.5.0
 
-- [#415](https://github.com/UpstandPlatform/upstand/pull/415) [`c9bfb16`](https://github.com/UpstandPlatform/upstand/commit/c9bfb16eb3901bd8d4e9268274c67a38f29d54a0) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix Better Auth 1.7 account issuer schema generation and migrate legacy account
-  rows safely so initial sign-up, passkey listing, and passkey registration work
-  after upgrading from earlier releases.
+### Minor Changes
 
-## 0.3.20
+- [#421](https://github.com/UpstandPlatform/upstand/pull/421) [`1a01d25`](https://github.com/UpstandPlatform/upstand/commit/1a01d25a4d43860134921fbb52d333b2289a800f) Thanks [@mhbdev](https://github.com/mhbdev)! - Add production-safe GitHub App registration and installation management, end-to-end organization-aware Docker registry authentication for application and Compose deployments, safe self-hosted Swarm network repair, and atomic cross-project resource movement with explicit credential and infrastructure mappings.
 
-### Patch Changes
-
-- [#413](https://github.com/UpstandPlatform/upstand/pull/413) [`b01fc61`](https://github.com/UpstandPlatform/upstand/commit/b01fc614a2c9ad90a514d8e1f3a926d9c87f39d1) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix fresh bundled-data installs so PostgreSQL and Redis connection secrets are generated instead of being left empty.
-
-## 0.3.19
-
-## 0.3.18
-
-### Patch Changes
-
-- [#407](https://github.com/UpstandPlatform/upstand/pull/407) [`f349e5a`](https://github.com/UpstandPlatform/upstand/commit/f349e5a1711c5e2c5536e4e84b4ce6d35b29051e) Thanks [@mhbdev](https://github.com/mhbdev)! - Ensure an explicitly selected release remains authoritative when the installer upgrades an existing installation, preventing stale release metadata and image configuration from being carried into the new deployment.
-
-## 0.3.17
-
-### Patch Changes
-
-- [#405](https://github.com/UpstandPlatform/upstand/pull/405) [`743f28d`](https://github.com/UpstandPlatform/upstand/commit/743f28dbf7dab9c5a46823438dc283f6014705ce) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix passkey route availability in production-shaped releases and make self-updates validate the complete control-plane service set before applying immutable images. Failed multi-service updates now roll back instead of leaving a mixed-version installation.
-
-## 0.3.16
-
-### Patch Changes
-
-- [#403](https://github.com/UpstandPlatform/upstand/pull/403) [`93bfa2d`](https://github.com/UpstandPlatform/upstand/commit/93bfa2d4c1799fbed90506674ed77f057361d7dd) Thanks [@mhbdev](https://github.com/mhbdev)! - Treat omitted soak latency budgets as unbounded so production acceptance does not fail on a zero-millisecond SLO.
-
-## 0.3.15
-
-### Patch Changes
-
-- [#401](https://github.com/UpstandPlatform/upstand/pull/401) [`064e4ff`](https://github.com/UpstandPlatform/upstand/commit/064e4ff3ca8fca6eadf6c0abf6bf9237f46fab8b) Thanks [@mhbdev](https://github.com/mhbdev)! - Recreate the completed migration service during external-database recovery acceptance so hosted Swarm managers do not hang on a one-shot service scale-up.
-
-## 0.3.14
-
-### Patch Changes
-
-- [#399](https://github.com/UpstandPlatform/upstand/pull/399) [`8425d7c`](https://github.com/UpstandPlatform/upstand/commit/8425d7cc67b15cda6d8fa2d56c96237cb4ef69d1) Thanks [@mhbdev](https://github.com/mhbdev)! - Bound the total duration of the production acceptance schedules recovery loop in addition to each individual Docker probe.
-
-## 0.3.13
-
-### Patch Changes
-
-- [#397](https://github.com/UpstandPlatform/upstand/pull/397) [`a0cd377`](https://github.com/UpstandPlatform/upstand/commit/a0cd37794b321466a73b2a7f547708809c672bae) Thanks [@mhbdev](https://github.com/mhbdev)! - Bound the production acceptance schedules recovery probe so a stalled Docker Engine or network setup cannot hang the release job indefinitely.
-
-## 0.3.12
-
-### Patch Changes
-
-- [#395](https://github.com/UpstandPlatform/upstand/pull/395) [`bd54c27`](https://github.com/UpstandPlatform/upstand/commit/bd54c27ef9e20c1212ca9aec305b9ed75da430fa) Thanks [@mhbdev](https://github.com/mhbdev)! - Avoid waiting on hosted Swarm's detached rollout monitor during external-Postgres recovery acceptance; the existing readiness and status probes still verify that database-backed services converge.
-
-## 0.3.11
-
-### Patch Changes
-
-- [#393](https://github.com/UpstandPlatform/upstand/pull/393) [`3a239ba`](https://github.com/UpstandPlatform/upstand/commit/3a239baa8cfa43184fc0446b6375d4f13cfbeaf3) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the constrained Caddy broker to honor the explicit hosted-acceptance override for unencrypted Swarm overlays while keeping production encryption enforcement enabled by default.
-
-## 0.3.10
-
-### Patch Changes
-
-- [#391](https://github.com/UpstandPlatform/upstand/pull/391) [`669b5f2`](https://github.com/UpstandPlatform/upstand/commit/669b5f25dab87e50879e5b6cf6c16ffebc6fb344) Thanks [@mhbdev](https://github.com/mhbdev)! - Route production control-plane IP access reconciliation through the typed Docker broker so Caddy startup can complete with the server's restricted Docker identity.
-
-## 0.3.9
-
-### Patch Changes
-
-- [#388](https://github.com/UpstandPlatform/upstand/pull/388) [`a09bb9d`](https://github.com/UpstandPlatform/upstand/commit/a09bb9d6f8e51b19c96fef541a04a102253bc0b6) Thanks [@mhbdev](https://github.com/mhbdev)! - Recover production readiness after a Redis dependency outage by reconnecting stale health-check clients.
-
-## 0.3.8
-
-### Patch Changes
-
-- [#384](https://github.com/UpstandPlatform/upstand/pull/384) [`8df3b63`](https://github.com/UpstandPlatform/upstand/commit/8df3b63704019e132ce645694f308ffbd153950d) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep critical Caddy and monitoring startup initialization retrying until dependencies recover so transient deployment races cannot leave production readiness permanently blocked.
-
-## 0.3.7
-
-### Patch Changes
-
-- [#382](https://github.com/UpstandPlatform/upstand/pull/382) [`fc83b2f`](https://github.com/UpstandPlatform/upstand/commit/fc83b2f4d6420666ba201d1e9f03070abba90590) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production Docker broker to inspect immutable images whose registry
-  and repository names contain slash-separated path components.
-
-- [#382](https://github.com/UpstandPlatform/upstand/pull/382) [`fc83b2f`](https://github.com/UpstandPlatform/upstand/commit/fc83b2f4d6420666ba201d1e9f03070abba90590) Thanks [@mhbdev](https://github.com/mhbdev)! - Retry Caddy and monitoring initialization during startup so a newly deployed
-  Swarm can converge when the Docker broker is still starting.
-
-## 0.3.6
-
-### Patch Changes
-
-- [#380](https://github.com/UpstandPlatform/upstand/pull/380) [`aeed863`](https://github.com/UpstandPlatform/upstand/commit/aeed863eef008bb6acfb7b7d9213e8b4099eec30) Thanks [@mhbdev](https://github.com/mhbdev)! - Retry Caddy and monitoring initialization during startup so a newly deployed
-  Swarm can converge when the Docker broker is still starting.
-
-## 0.3.5
-
-### Patch Changes
-
-- [#375](https://github.com/UpstandPlatform/upstand/pull/375) [`e3a6ee7`](https://github.com/UpstandPlatform/upstand/commit/e3a6ee710c4f15247c37a7c91e083a226e8505a0) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production control plane to pull only its immutable monitoring image through the Docker broker before reconciling the managed monitoring sidecar.
-
-## 0.3.4
-
-### Patch Changes
-
-- [#373](https://github.com/UpstandPlatform/upstand/pull/373) [`ff4350e`](https://github.com/UpstandPlatform/upstand/commit/ff4350e2011824064ea516863145d4065a6dfe0a) Thanks [@mhbdev](https://github.com/mhbdev)! - Align the production Docker broker's monitoring-sidecar policy with the hardened temporary filesystem emitted by the control plane.
-
-## 0.3.3
-
-### Patch Changes
-
-- [#371](https://github.com/UpstandPlatform/upstand/pull/371) [`6721782`](https://github.com/UpstandPlatform/upstand/commit/6721782982264e44b5315db5a2fa6b9eba84465a) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the production control plane to reconcile its fixed, least-privilege monitoring sidecar through the Docker broker without reopening general raw Docker mutations.
-
-## 0.3.2
-
-### Patch Changes
-
-- [#369](https://github.com/UpstandPlatform/upstand/pull/369) [`2be269f`](https://github.com/UpstandPlatform/upstand/commit/2be269f605835dfa0cb0e028c373b005012f346b) Thanks [@mhbdev](https://github.com/mhbdev)! - Configure the Docker broker health check in production Compose so release acceptance can verify the mTLS-protected broker without probing its authenticated API.
+## 0.4.0
 
 ## 0.3.1
 
 ### Patch Changes
 
-- [#367](https://github.com/UpstandPlatform/upstand/pull/367) [`6190d97`](https://github.com/UpstandPlatform/upstand/commit/6190d97846410fd1c134d2db594e0df8951db88d) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep the production Docker broker healthy under mandatory mTLS and validate its isolated control-network placement during release acceptance.
+- [#377](https://github.com/UpstandPlatform/upstand/pull/377) [`f91554e`](https://github.com/UpstandPlatform/upstand/commit/f91554e75ada744aa3d0eb664a3bee20b47e2385) Thanks [@mhbdev](https://github.com/mhbdev)! - Retry Caddy and monitoring initialization during startup so a newly deployed
+  Swarm can converge when the Docker broker is still starting.
 
 ## 0.3.0
 

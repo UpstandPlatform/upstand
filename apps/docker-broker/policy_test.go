@@ -9,22 +9,6 @@ import (
 	"testing"
 )
 
-func TestHealthHandlerIsLoopbackHealthOnly(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:2376/health", nil)
-	recorder := httptest.NewRecorder()
-	healthHandler(recorder, request)
-	if recorder.Code != http.StatusOK || recorder.Body.String() != "ok\n" {
-		t.Fatalf("expected a successful health response, got %d %q", recorder.Code, recorder.Body.String())
-	}
-
-	request = httptest.NewRequest(http.MethodGet, "http://127.0.0.1:2376/other", nil)
-	recorder = httptest.NewRecorder()
-	healthHandler(recorder, request)
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("expected non-health paths to be rejected, got %d", recorder.Code)
-	}
-}
-
 func TestAuthorizeDockerRequestAllowsNormalContainerLifecycle(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, "http://broker/v1.43/containers/create", nil)
 	body := []byte(`{"Image":"alpine","HostConfig":{"ReadonlyRootfs":true}}`)
@@ -291,7 +275,6 @@ func TestAuthorizeDockerRequestAllowsReviewedLifecycleOperations(t *testing.T) {
 		{http.MethodPost, "/v1.43/containers/abc/start"},
 		{http.MethodPut, "/v1.43/containers/abc/archive"},
 		{http.MethodGet, "/v1.43/images/alpine/json"},
-		{http.MethodGet, "/v1.43/images/ghcr.io/upstandplatform/upstand-monitoring:v0.3.6@sha256:" + strings.Repeat("a", 64) + "/json"},
 		{http.MethodPost, "/v1.43/images/create"},
 		{http.MethodGet, "/v1.43/services/abc"},
 		{http.MethodDelete, "/v1.43/services/abc"},
@@ -397,14 +380,6 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			method: http.MethodPost,
 			path:   "/upstand/v1/web-server/caddy",
 			body:   `{"operation":"ensure","network_name":"upstand-network","caddyfile_base64":"c2l0ZQ==","environment":["UPSTAND_CADDYFILE_B64=c2l0ZQ=="],"ports":[{"protocol":"tcp","target_port":80,"published_port":80}]}`,
-			allow:  true,
-		},
-		{
-			name:   "typed control-plane IP access",
-			caller: "server",
-			method: http.MethodPost,
-			path:   "/upstand/v1/web-server/control-plane-access",
-			body:   `{"operation":"set_ip_access","enabled":true}`,
 			allow:  true,
 		},
 		{
@@ -856,106 +831,6 @@ func TestProductionServerCannotUseAnyRawDockerMutation(t *testing.T) {
 		if err := authorizeDockerRequestForCaller("server", req, nil); err != nil {
 			t.Fatalf("expected production server read to remain available: %s %s: %v", test.method, test.path, err)
 		}
-	}
-}
-
-func TestProductionServerCanReconcileOnlyTheManagedMonitoringContainer(t *testing.T) {
-	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
-	const image = "ghcr.io/upstandplatform/upstand-monitoring@sha256:" +
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	validBody := `{"Image":"` + image + `","Env":["METRICS_CONFIG={}","DB_PATH=/data/monitoring.db","DOCKER_HOST=https://docker-broker:2375"],"Labels":{"com.upstand.component":"monitoring-agent","com.upstand.platform":"true"},"HostConfig":{"Binds":["/proc:/host/proc:ro","/sys:/host/sys:ro","/etc/os-release:/etc/os-release:ro","upstand-monitoring-data:/data"],"NetworkMode":"upstand-docker-control","CapDrop":["ALL"],"ReadonlyRootfs":true,"Memory":268435456,"PidsLimit":128,"RestartPolicy":{"Name":"always"},"SecurityOpt":["no-new-privileges:true"],"Tmpfs":{"/tmp":"rw,noexec,nosuid,nodev,size=16m"},"LogConfig":{"Type":"json-file","Config":{"max-size":"10m","max-file":"3"}}},"ExposedPorts":{"3001/tcp":{}}}`
-
-	createRequest := httptest.NewRequest(
-		http.MethodPost,
-		"http://broker/v1.43/containers/create?name=upstand-monitoring-agent",
-		strings.NewReader(validBody),
-	)
-	if err := authorizeDockerRequestForCaller("server", createRequest, []byte(validBody)); err != nil {
-		t.Fatalf("expected managed monitoring create to be allowed: %v", err)
-	}
-
-	for _, imagePullURL := range []string{
-		"http://broker/v1.43/images/create?fromImage=" + url.QueryEscape(image),
-		"http://broker/v1.43/images/create?fromImage=" +
-			url.QueryEscape("ghcr.io/upstandplatform/upstand-monitoring:v0.3.4") +
-			"&tag=" + url.QueryEscape("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-	} {
-		request := httptest.NewRequest(http.MethodPost, imagePullURL, nil)
-		if err := authorizeDockerRequestForCaller("server", request, nil); err != nil {
-			t.Fatalf("expected immutable monitoring image pull to be allowed: %v", err)
-		}
-	}
-
-	for _, imagePullURL := range []string{
-		"http://broker/v1.43/images/create?fromImage=ghcr.io/upstandplatform/upstand-monitoring:latest",
-		"http://broker/v1.43/images/create?fromImage=ghcr.io/other/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-	} {
-		request := httptest.NewRequest(http.MethodPost, imagePullURL, nil)
-		if err := authorizeDockerRequestForCaller("server", request, nil); err == nil {
-			t.Fatalf("expected unsafe monitoring image pull to be rejected: %s", imagePullURL)
-		}
-	}
-
-	unsafeImageBody := strings.Replace(
-		validBody,
-		image,
-		"ghcr.io/other/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		1,
-	)
-	unsafeImageRequest := httptest.NewRequest(
-		http.MethodPost,
-		"http://broker/v1.43/containers/create?name=upstand-monitoring-agent",
-		strings.NewReader(unsafeImageBody),
-	)
-	if err := authorizeDockerRequestForCaller("server", unsafeImageRequest, []byte(unsafeImageBody)); err == nil {
-		t.Fatal("expected monitoring create with a different image repository to be rejected")
-	}
-
-	legacyTmpfsBody := strings.Replace(
-		validBody,
-		"rw,noexec,nosuid,nodev,size=16m",
-		"rw,nosuid,nodev,size=16m",
-		1,
-	)
-	legacyTmpfsRequest := httptest.NewRequest(
-		http.MethodPost,
-		"http://broker/v1.43/containers/create?name=upstand-monitoring-agent",
-		strings.NewReader(legacyTmpfsBody),
-	)
-	if err := authorizeDockerRequestForCaller("server", legacyTmpfsRequest, []byte(legacyTmpfsBody)); err == nil {
-		t.Fatal("expected monitoring create with the legacy tmpfs policy to be rejected")
-	}
-
-	for _, test := range []struct {
-		method string
-		path   string
-	}{
-		{http.MethodPost, "/v1.43/containers/upstand-monitoring-agent/start"},
-		{http.MethodDelete, "/v1.43/containers/upstand-monitoring-agent"},
-	} {
-		request := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
-		if err := authorizeDockerRequestForCaller("server", request, nil); err != nil {
-			t.Fatalf("expected managed monitoring mutation to be allowed: %s %s: %v", test.method, test.path, err)
-		}
-	}
-
-	unsafeBody := strings.Replace(validBody, `"upstand-monitoring-data:/data"`, `"/var/run/docker.sock:/var/run/docker.sock:ro"`, 1)
-	unsafeRequest := httptest.NewRequest(
-		http.MethodPost,
-		"http://broker/v1.43/containers/create?name=upstand-monitoring-agent",
-		strings.NewReader(unsafeBody),
-	)
-	if err := authorizeDockerRequestForCaller("server", unsafeRequest, []byte(unsafeBody)); err == nil {
-		t.Fatal("expected monitoring create with a Docker socket mount to be rejected")
-	}
-
-	wrongName := httptest.NewRequest(
-		http.MethodPost,
-		"http://broker/v1.43/containers/create?name=other-container",
-		strings.NewReader(validBody),
-	)
-	if err := authorizeDockerRequestForCaller("server", wrongName, []byte(validBody)); err == nil {
-		t.Fatal("expected server raw create for another container to be rejected")
 	}
 }
 

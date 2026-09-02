@@ -16,19 +16,16 @@ flowchart TD
     Category -->|Sign In / Cookie Issues| AuthTree[1. Login Redirect Loops]
     AuthTree --> CookieFix[Verify Sibling Subdomains & BETTER_AUTH_URL]
 
-    Category -->|Passkey Error| PasskeyTree[2. Verify WebAuthn Origin & Session]
-    PasskeyTree --> PasskeyFix[Check HTTPS, CORS_ORIGIN, and Auth Cookie]
-
-    Category -->|Container Startup Failure| ServiceTree[3. Service Startup Failures]
+    Category -->|Container Startup Failure| ServiceTree[2. Service Startup Failures]
     ServiceTree --> LogCheck[Run: docker service ps upstand_server]
 
-    Category -->|SSL / HTTPS Certificate Error| CertTree[4. Caddy Certificate Failures]
+    Category -->|SSL / HTTPS Certificate Error| CertTree[3. Caddy Certificate Failures]
     CertTree --> PortCheck[Check Ports 80 & 443 with ss -ltnp]
 
-    Category -->|Build Job Pending / Stuck| QueueTree[5. Stuck Build Queues]
+    Category -->|Build Job Pending / Stuck| QueueTree[4. Stuck Build Queues]
     QueueTree --> QueueCheck[Inspect Redis Queue & docker node ls]
 
-    Category -->|Lost Admin 2FA Token| TwoFATree[7. Reset 2FA CLI]
+    Category -->|Lost Admin 2FA Token| TwoFATree[6. Reset 2FA CLI]
     TwoFATree --> ResetCLI[Run CLI: docker exec ... reset-2fa]
 ```
 
@@ -46,37 +43,7 @@ flowchart TD
 
 ---
 
-## 2. Passkey registration or listing failures
-
-**Symptoms**: Settings shows `Unable to load passkeys`, or registering a
-credential ends with `Unable to add passkey`.
-
-Check the browser's request origin and the response status before changing
-server state:
-
-1. Open the dashboard through its configured HTTPS origin, not a different
-   hostname or port. WebAuthn binds credentials to that origin.
-2. Confirm `CORS_ORIGIN` is the dashboard origin and `BETTER_AUTH_URL` is the
-   API origin. The versioned installer preserves these values while updating
-   images.
-3. Confirm the request reaches `/api/auth/passkey/list-user-passkeys` and
-   includes the session cookie. An unauthenticated list request returning `401`
-   is expected; an authenticated request must be made from the configured
-   dashboard origin.
-4. If the route is missing or returns a server error, verify the server image
-   and migration task belong to the same release. Do not expose the endpoint
-   without authentication or manually edit the generated auth schema.
-
-Better Auth 1.7 stores an issuer on every account. During an upgrade from an
-older Upstand release, the migration task adds that column and the server
-normalizes existing credential and Google accounts before serving requests.
-Keep the migration and server images on the same release and wait for the
-migration task to complete; a mixed release can produce the same passkey and
-sign-up errors.
-
----
-
-## 3. Service Startup Failures
+## 2. Service Startup Failures
 
 **Symptom**: The installer reports that services are not ready or are failing their health checks.
 
@@ -95,7 +62,7 @@ sign-up errors.
 
 ---
 
-## 4. Caddy Certificate Issuance Failures
+## 3. Caddy Certificate Issuance Failures
 
 **Symptom**: Host domains route successfully over HTTP but fail to resolve over HTTPS with TLS errors.
 
@@ -106,24 +73,24 @@ sign-up errors.
   ```
 - **Inspect ACME Logs**: View Caddy's certificate logs:
   ```bash
-  docker logs upstand-caddy --tail 100
+  docker service logs upstand_caddy --tail 100
   ```
 
 ---
 
-## 5. Stuck Build Queues
+## 4. Stuck Build Queues
 
 **Symptom**: Deployments are showing as `queued` or `building` indefinitely.
 
 - **Diagnostics**:
   1. Inspect the deployment log panel in the dashboard to find the failing build stage.
   2. Verify if the target node is online: `docker node ls`.
-  3. Inspect the deployment-worker and schedules services: `docker service logs upstand_deployment-worker` and `docker service logs upstand_schedules`.
+  3. Inspect worker service logs: `docker service logs upstand_worker`.
 - **Force Clearing**: If a build worker crashes, you can manually clear the queue using the **Queue Cleanup** action on the Web Server page, but verify no legitimate builds are running first.
 
 ---
 
-## 6. Redis Memory Overcommit Warning
+## 5. Redis Memory Overcommit Warning
 
 **Symptom**: Redis logs `Memory overcommit must be enabled` during startup or
 background persistence.
@@ -144,20 +111,20 @@ when applying the change.
 
 ---
 
-## 7. Database Schema Generation on Windows
+## 6. Database Schema Generation on Windows
 
 **Symptom**: Running database schema updates on a Windows development machine throws path or variable errors.
 
 - **Fix**:
   - Run the following command from the repository root:
     ```bash
-    bun run db:generate
+    bun db:generate
     ```
   - The script automatically provisions local mock environment variables for Better Auth. If overridden, manually supply valid `BETTER_AUTH_URL`, `CORS_ORIGIN`, `BETTER_AUTH_SECRET`, and `DATABASE_URL` values to the command context.
 
 ---
 
-## 8. Resetting Two-Factor Authentication (2FA)
+## 7. Resetting Two-Factor Authentication (2FA)
 
 **Symptom**: An administrator or user has lost access to their TOTP authenticator application or backup codes and cannot complete sign-in.
 

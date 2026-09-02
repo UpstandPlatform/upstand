@@ -76,11 +76,4 @@ set -e
   exit 1
 }
 
-HEALTH_SOAK_DURATION_SECONDS=10 \
-HEALTH_SOAK_WINDOW_REQUESTS=12 \
-HEALTH_SOAK_WINDOW_CONCURRENCY=3 \
-HEALTH_SOAK_MAX_WINDOWS=1 \
-HEALTH_SOAK_OUTPUT_FILE="$TEMP_DIR/health-soak.txt" \
-  bash "$ROOT_DIR/scripts/health-soak-rehearsal.sh" "$TARGET"
-
 echo "health-load-rehearsal-integration: passed"

@@ -47,17 +47,13 @@ approved external telemetry path is unavailable.
 For a durable HA data plane, provide DATABASE_URL and REDIS_URL (or the
 UPSTAND_DATABASE_URL and UPSTAND_REDIS_URL aliases). The URLs are stored as
 Docker secrets and the bundled PostgreSQL and Redis services are disabled.
-The installation-specific recovery readiness gate defaults to enabled. Production
-installs must record the recovery plan with
+Before installing, also record the recovery plan with
 UPSTAND_DR_OFFSITE_CONFIRMED=true, UPSTAND_DR_KEY_ESCROW_CONFIRMED=true,
 UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true, positive
 UPSTAND_DR_RPO_SECONDS and UPSTAND_DR_RTO_SECONDS, and a non-secret
-UPSTAND_DR_EVIDENCE_REFERENCE. Set UPSTAND_DR_READINESS_GATE=false only for a
-disposable or test installation that intentionally does not provide these
-attestations. This disables the installation-specific recovery gate; it does
-not make the installation production-ready. Production acceptance additionally
-requires the signed installation recovery evidence files documented in the
-production runbook when the gate is enabled.
+UPSTAND_DR_EVIDENCE_REFERENCE. These values are an operator attestation and
+traceability gate. Production acceptance additionally requires the signed
+installation recovery evidence files documented in the production runbook.
 
 Options:
   --interactive         prompt for the Swarm advertise address
@@ -105,20 +101,6 @@ validate_disaster_recovery_plan() {
     || fail "UPSTAND_DR_EVIDENCE_REFERENCE must not contain newlines"
   [[ "${#UPSTAND_DR_EVIDENCE_REFERENCE}" -le 256 ]] \
     || fail "UPSTAND_DR_EVIDENCE_REFERENCE must be at most 256 characters"
-}
-
-validate_recovery_readiness() {
-  case "${UPSTAND_DR_READINESS_GATE:-true}" in
-    true)
-      validate_disaster_recovery_plan
-      ;;
-    false)
-      echo "warning: installation-specific disaster-recovery readiness gate is disabled; this installation is not production-ready" >&2
-      ;;
-    *)
-      fail "UPSTAND_DR_READINESS_GATE must be true or false"
-      ;;
-  esac
 }
 
 parse_args() {
@@ -197,6 +179,73 @@ validate_swarm_network() {
     && "$options" != *'"encrypted":false'* \
     && "$options" != *'"encrypted":"false"'* ]] \
     || fail "existing network '$network_name' must be an encrypted, attachable Swarm overlay network"
+}
+
+swarm_network_is_valid() {
+  local driver="$1"
+  local scope="$2"
+  local attachable="$3"
+  local options="$4"
+  [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" \
+    && "$options" == *'"encrypted"'* \
+    && "$options" != *'"encrypted":false'* \
+    && "$options" != *'"encrypted":"false"'* ]]
+}
+
+recreate_invalid_swarm_network() {
+  local network_name="$1"
+  local internal="$2"
+  local endpoint_count recreate_hint=""
+
+  if [[ "$internal" == true ]]; then
+    recreate_hint=" --internal"
+  fi
+
+  endpoint_count="$(docker network inspect --format '{{len .Containers}}' "$network_name" 2>/dev/null || true)"
+  [[ "$endpoint_count" =~ ^[0-9]+$ ]] \
+    || fail "cannot safely repair existing network '$network_name'; inspect it manually and remove it only after confirming that no workloads are attached"
+  (( endpoint_count == 0 )) \
+    || fail "existing network '$network_name' is not an encrypted, attachable Swarm overlay network and has $endpoint_count attached endpoint(s); stop or migrate those workloads, then remove and recreate the network with '--driver overlay --opt encrypted --attachable$recreate_hint'"
+
+  warn "recreating empty network '$network_name' with the required encrypted, attachable Swarm overlay settings"
+  docker network rm "$network_name" >/dev/null \
+    || fail "could not remove invalid empty network '$network_name'; remove it manually after confirming that it is safe to do so"
+  if [[ "$internal" == true ]]; then
+    docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null \
+      || fail "could not recreate Docker control network '$network_name'"
+  else
+    docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$network_name" >/dev/null \
+      || fail "could not recreate Docker network '$network_name'"
+  fi
+}
+
+ensure_swarm_network() {
+  local network_name="$1"
+  local internal="$2"
+  local driver scope attachable existing_internal options
+
+  if ! docker network inspect "$network_name" >/dev/null 2>&1; then
+    if [[ "$internal" == true ]]; then
+      docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null
+    else
+      docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$network_name" >/dev/null
+    fi
+    return 0
+  fi
+
+  driver="$(docker network inspect --format '{{.Driver}}' "$network_name")"
+  scope="$(docker network inspect --format '{{.Scope}}' "$network_name")"
+  attachable="$(docker network inspect --format '{{.Attachable}}' "$network_name")"
+  options="$(docker network inspect --format '{{json .Options}}' "$network_name")"
+  if ! swarm_network_is_valid "$driver" "$scope" "$attachable" "$options"; then
+    recreate_invalid_swarm_network "$network_name" "$internal"
+  fi
+
+  if [[ "$internal" == true ]]; then
+    existing_internal="$(docker network inspect --format '{{.Internal}}' "$network_name")"
+    [[ "$existing_internal" == true ]] \
+      || fail "Docker control network '$network_name' must be internal to prevent ingress from outside the Swarm overlay"
+  fi
 }
 
 validate_control_network() {
@@ -594,28 +643,11 @@ ensure_swarm() {
   node_id="$(docker info --format '{{.Swarm.NodeID}}')"
   docker node update --label-add upstand.control-plane=true "$node_id" >/dev/null
 
-  if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
-    docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$NETWORK_NAME" >/dev/null
-  fi
-
-  local driver scope attachable internal options
-  driver="$(docker network inspect --format '{{.Driver}}' "$NETWORK_NAME")"
-  scope="$(docker network inspect --format '{{.Scope}}' "$NETWORK_NAME")"
-  attachable="$(docker network inspect --format '{{.Attachable}}' "$NETWORK_NAME")"
-  options="$(docker network inspect --format '{{json .Options}}' "$NETWORK_NAME")"
-  validate_swarm_network "$NETWORK_NAME" "$driver" "$scope" "$attachable" "$options"
+  ensure_swarm_network "$NETWORK_NAME" false
 
   [[ "$CONTROL_NETWORK_NAME" != "$NETWORK_NAME" ]] \
     || fail "UPSTAND_DOCKER_CONTROL_NETWORK must be distinct from DOCKER_NETWORK"
-  if ! docker network inspect "$CONTROL_NETWORK_NAME" >/dev/null 2>&1; then
-    docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$CONTROL_NETWORK_NAME" >/dev/null
-  fi
-  driver="$(docker network inspect --format '{{.Driver}}' "$CONTROL_NETWORK_NAME")"
-  scope="$(docker network inspect --format '{{.Scope}}' "$CONTROL_NETWORK_NAME")"
-  attachable="$(docker network inspect --format '{{.Attachable}}' "$CONTROL_NETWORK_NAME")"
-  internal="$(docker network inspect --format '{{.Internal}}' "$CONTROL_NETWORK_NAME")"
-  options="$(docker network inspect --format '{{json .Options}}' "$CONTROL_NETWORK_NAME")"
-  validate_control_network "$CONTROL_NETWORK_NAME" "$driver" "$scope" "$attachable" "$internal" "$options"
+  ensure_swarm_network "$CONTROL_NETWORK_NAME" true
 }
 
 validate_swarm_network_runtime() {
@@ -810,7 +842,6 @@ write_environment() {
   local requested_secret_provider_allowed_hosts="${UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS:-}"
   local requested_git_provider_allowed_hosts="${UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS:-}"
   local requested_backup_command_timeout_ms="${UPSTAND_BACKUP_COMMAND_TIMEOUT_MS:-}"
-  local requested_dr_readiness_gate="${UPSTAND_DR_READINESS_GATE:-}"
   local requested_dr_offsite_confirmed="${UPSTAND_DR_OFFSITE_CONFIRMED:-}"
   local requested_dr_key_escrow_confirmed="${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-}"
   local requested_dr_immutable_retention_confirmed="${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-}"
@@ -836,18 +867,6 @@ write_environment() {
   if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$ENV_FILE"
-  fi
-  if [[ -n "$requested_version" ]]; then
-    if [[ "$requested_version" != "${UPSTAND_VERSION:-}" ]]; then
-      [[ -n "$requested_server_image" ]] || UPSTAND_SERVER_IMAGE=""
-      [[ -n "$requested_schedules_image" ]] || UPSTAND_SCHEDULES_IMAGE=""
-      [[ -n "$requested_deployment_worker_image" ]] || UPSTAND_DEPLOYMENT_WORKER_IMAGE=""
-      [[ -n "$requested_web_image" ]] || UPSTAND_WEB_IMAGE=""
-      [[ -n "$requested_docs_image" ]] || UPSTAND_DOCS_IMAGE=""
-      [[ -n "$requested_monitoring_image" ]] || UPSTAND_MONITORING_IMAGE=""
-      [[ -n "$requested_docker_broker_image" ]] || UPSTAND_DOCKER_BROKER_IMAGE=""
-    fi
-    UPSTAND_VERSION="$requested_version"
   fi
   if [[ -n "$requested_allow_insecure_bootstrap" ]]; then
     UPSTAND_ALLOW_INSECURE_BOOTSTRAP="$requested_allow_insecure_bootstrap"
@@ -879,9 +898,7 @@ write_environment() {
   UPGAL_DAILY_COST_LIMIT_USD="${requested_upgal_daily_cost_limit_usd:-${UPGAL_DAILY_COST_LIMIT_USD:-100}}"
   UPGAL_MAX_COST_PER_MILLION_TOKENS_USD="${requested_upgal_max_cost_per_million_tokens_usd:-${UPGAL_MAX_COST_PER_MILLION_TOKENS_USD:-100}}"
   UPGAL_ALLOWED_MODELS="${requested_upgal_allowed_models:-${UPGAL_ALLOWED_MODELS:-}}"
-  UPSTAND_DR_READINESS_GATE="${requested_dr_readiness_gate:-${UPSTAND_DR_READINESS_GATE:-true}}"
-  [[ "$UPSTAND_DR_READINESS_GATE" == true || "$UPSTAND_DR_READINESS_GATE" == false ]] \
-    || fail "UPSTAND_DR_READINESS_GATE must be true or false"
+  UPSTAND_DR_READINESS_GATE=true
   UPSTAND_DATABASE_POOL_MAX="${requested_database_pool_max:-${UPSTAND_DATABASE_POOL_MAX:-20}}"
   UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS="${requested_database_pool_idle_timeout_ms:-${UPSTAND_DATABASE_POOL_IDLE_TIMEOUT_MS:-30000}}"
   UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS="${requested_database_pool_connection_timeout_ms:-${UPSTAND_DATABASE_POOL_CONNECTION_TIMEOUT_MS:-5000}}"
@@ -907,7 +924,7 @@ write_environment() {
     || fail "UPGAL_ALLOWED_MODELS must be a single comma-separated line"
   [[ "${#UPGAL_ALLOWED_MODELS}" -le 4096 ]] \
     || fail "UPGAL_ALLOWED_MODELS must be at most 4096 characters"
-  validate_recovery_readiness
+  validate_disaster_recovery_plan
   for configured_value in \
     "$AUTH_COOKIE_DOMAIN" \
     "$UPSTAND_INSTANCE_OWNER_USER_ID" \
@@ -1015,10 +1032,6 @@ write_environment() {
   DOCKER_BROKER_SCOPE_SECRET="${DOCKER_BROKER_SCOPE_SECRET:-$(openssl rand -hex 32)}"
   METRICS_TOKEN="${METRICS_TOKEN:-$(openssl rand -hex 32)}"
   ENCRYPTION_KEY_V1="${ENCRYPTION_KEY_V1:-${SSH_KEY_ENCRYPTION_KEY_V1:-$(openssl rand -base64 32 | tr -d '\n')}}"
-  if [[ "$external_data" == false ]]; then
-    DATABASE_URL="postgresql://upstand:${POSTGRES_PASSWORD}@postgres:5432/upstand"
-    REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"
-  fi
   ensure_docker_broker_mtls
   printf '%s' "$POSTGRES_PASSWORD" >"$INSTALL_DIR/secrets/postgres_password"
   printf '%s' "$REDIS_PASSWORD" >"$INSTALL_DIR/secrets/redis_password"

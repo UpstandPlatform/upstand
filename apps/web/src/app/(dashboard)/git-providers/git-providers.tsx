@@ -263,11 +263,7 @@ export default function GitProviders({
       return typeof candidate === "string" ? candidate : undefined;
     };
     if (provider === "github") {
-      return (
-        safeExternalUrl(
-          `https://github.com/settings/installations/${encodeURIComponent(value("githubInstallationId") ?? "")}`,
-        ) ?? "#"
-      );
+      return getGithubAppInstallationUrl(config) ?? "#";
     }
     if (provider === "gitlab") {
       const baseUrl = safeExternalUrl(

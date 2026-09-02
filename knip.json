@@ -8,6 +8,7 @@
     "**/dist/**",
     "**/build/**",
     "**/.source/**",
+    "scripts/electron-extract-zip-compat/**",
     "apps/web/src/components/ai-elements/**",
     "apps/web/src/components/huge-icons.tsx"
   ],
@@ -39,6 +40,7 @@
     "media-chrome",
     "motion",
     "react-jsx-parser",
+    "@simplewebauthn/server",
     "ssh2",
     "tokenlens"
   ],

@@ -190,42 +190,37 @@ registerSystemRoutes(app, {
 });
 
 // Initialize Caddy Web Server on Startup
-retryStartupOperation(
-  async () => {
-    const caddyInitScope = getServiceProvider().createScope();
-    try {
-      await caddyInitScope
-        .resolve(GetWebServerSettingsUseCaseToken)
-        .execute({ reconcile: true });
-    } finally {
-      await caddyInitScope.dispose();
-    }
-  },
-  {
-    retryForever: true,
-  },
-)
+retryStartupOperation(async () => {
+  const caddyInitScope = getServiceProvider().createScope();
+  try {
+    await caddyInitScope
+      .resolve(GetWebServerSettingsUseCaseToken)
+      .execute({ reconcile: true });
+  } finally {
+    await caddyInitScope.dispose();
+  }
+})
   .then(() => {
     caddyReady = true;
     log.info({ message: "Caddy Web Server initialized successfully. ✅" });
   })
-  .catch((err) => {
+  .catch((err) =>
     log.error(
       err instanceof Error ? err.message : String(err),
       "Failed to initialize Caddy Web Server",
-    );
-  });
+    ),
+  );
 
 retryStartupOperation(() => initializeMonitoring(), {
-  retryForever: true,
-  onRetry: ({ attempt, delayMs, error }) =>
+  onRetry: ({ attempt, delayMs, error }) => {
     log.warn({
-      message: "Monitoring initialization is waiting for startup dependencies",
+      message: "Startup dependency unavailable; retrying initialization",
       component: "monitoring",
       attempt,
       delayMs,
-      err: error instanceof Error ? error.message : String(error),
-    }),
+      err: error,
+    });
+  },
 })
   .then(() => {
     monitoringReady = true;
