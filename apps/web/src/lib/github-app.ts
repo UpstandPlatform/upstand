@@ -65,13 +65,19 @@ export function buildGithubAppManifest(input: {
   state: string;
 }): GithubAppManifest {
   const { organizationId, serverUrl, state } = input;
-  const callback = `${serverUrl}/api/providers/github/setup`;
+  const callback = new URL(
+    "/api/providers/github/setup",
+    `${serverUrl.replace(/\/$/, "")}/`,
+  ).toString();
 
   return {
     name: `Upstand Deploy (${organizationId.substring(0, 6)})`,
     url: serverUrl,
     hook_attributes: {
-      url: `${serverUrl}/api/webhooks/github/manifest/${encodeURIComponent(state)}`,
+      url: new URL(
+        `/api/webhooks/github/manifest/${encodeURIComponent(state)}`,
+        `${serverUrl.replace(/\/$/, "")}/`,
+      ).toString(),
       active: true,
     },
     redirect_url: callback,

@@ -272,6 +272,23 @@ export class CreateResourceUseCase {
 
       let credentials = input.credentials ?? null;
       const sourceConfig = parseResourceCredentialInput(input.credentials);
+      if (typeof sourceConfig.registryId === "string") {
+        const registry = await tx.dockerRegistryRepository.findById(
+          sourceConfig.registryId,
+        );
+        const project = await tx.projectRepository.findById(
+          environment.projectId,
+        );
+        if (
+          !registry ||
+          !project ||
+          registry.organizationId !== project.organizationId
+        ) {
+          throw new ValidationError(
+            "Selected Docker registry is not available to this organization",
+          );
+        }
+      }
       const triggerType =
         input.triggerType ??
         (String(sourceConfig.triggerType ?? "push")

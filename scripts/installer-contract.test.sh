@@ -279,6 +279,62 @@ expect_control_network_rejection upstand-docker-control overlay swarm true false
 expect_network_rejection upstand-network overlay swarm true '{"com.docker.network.driver.overlay.vxlanid_list":"4097"}'
 expect_network_rejection upstand-network overlay swarm true '{"encrypted":false}'
 expect_network_rejection upstand-network overlay swarm true '{"encrypted":"false"}'
+
+(
+  docker() {
+    case "$1 $2" in
+      "network inspect")
+        case "$3" in
+          --format)
+            case "$4" in
+              "{{.Driver}}") printf 'bridge\n' ;;
+              "{{.Scope}}") printf 'local\n' ;;
+              "{{.Attachable}}") printf 'false\n' ;;
+              "{{json .Options}}") printf '{}\n' ;;
+              "{{len .Containers}}") printf '0\n' ;;
+              *) return 1 ;;
+            esac
+            ;;
+          *) return 0 ;;
+        esac
+        ;;
+      "network rm") return 0 ;;
+      "network create")
+        [[ "$*" == *"--driver overlay"* && "$*" == *"--opt encrypted"* && "$*" == *"--attachable"* ]] || return 1
+        return 0
+        ;;
+      *) return 1 ;;
+    esac
+  }
+  ensure_swarm_network upstand-network false
+)
+
+(
+  docker() {
+    case "$1 $2" in
+      "network inspect")
+        case "$3" in
+          --format)
+            case "$4" in
+              "{{.Driver}}") printf 'bridge\n' ;;
+              "{{.Scope}}") printf 'local\n' ;;
+              "{{.Attachable}}") printf 'false\n' ;;
+              "{{json .Options}}") printf '{}\n' ;;
+              "{{len .Containers}}") printf '1\n' ;;
+              *) return 1 ;;
+            esac
+            ;;
+          *) return 0 ;;
+        esac
+        ;;
+      *) return 1 ;;
+    esac
+  }
+  if ( ensure_swarm_network upstand-network false ); then
+    echo "invalid attached network unexpectedly passed repair" >&2
+    exit 1
+  fi
+)
 valid_digest="$(printf 'a%.0s' {1..64})"
 
 (

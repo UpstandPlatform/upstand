@@ -181,6 +181,73 @@ validate_swarm_network() {
     || fail "existing network '$network_name' must be an encrypted, attachable Swarm overlay network"
 }
 
+swarm_network_is_valid() {
+  local driver="$1"
+  local scope="$2"
+  local attachable="$3"
+  local options="$4"
+  [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" \
+    && "$options" == *'"encrypted"'* \
+    && "$options" != *'"encrypted":false'* \
+    && "$options" != *'"encrypted":"false"'* ]]
+}
+
+recreate_invalid_swarm_network() {
+  local network_name="$1"
+  local internal="$2"
+  local endpoint_count recreate_hint=""
+
+  if [[ "$internal" == true ]]; then
+    recreate_hint=" --internal"
+  fi
+
+  endpoint_count="$(docker network inspect --format '{{len .Containers}}' "$network_name" 2>/dev/null || true)"
+  [[ "$endpoint_count" =~ ^[0-9]+$ ]] \
+    || fail "cannot safely repair existing network '$network_name'; inspect it manually and remove it only after confirming that no workloads are attached"
+  (( endpoint_count == 0 )) \
+    || fail "existing network '$network_name' is not an encrypted, attachable Swarm overlay network and has $endpoint_count attached endpoint(s); stop or migrate those workloads, then remove and recreate the network with '--driver overlay --opt encrypted --attachable$recreate_hint'"
+
+  warn "recreating empty network '$network_name' with the required encrypted, attachable Swarm overlay settings"
+  docker network rm "$network_name" >/dev/null \
+    || fail "could not remove invalid empty network '$network_name'; remove it manually after confirming that it is safe to do so"
+  if [[ "$internal" == true ]]; then
+    docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null \
+      || fail "could not recreate Docker control network '$network_name'"
+  else
+    docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$network_name" >/dev/null \
+      || fail "could not recreate Docker network '$network_name'"
+  fi
+}
+
+ensure_swarm_network() {
+  local network_name="$1"
+  local internal="$2"
+  local driver scope attachable existing_internal options
+
+  if ! docker network inspect "$network_name" >/dev/null 2>&1; then
+    if [[ "$internal" == true ]]; then
+      docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null
+    else
+      docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$network_name" >/dev/null
+    fi
+    return 0
+  fi
+
+  driver="$(docker network inspect --format '{{.Driver}}' "$network_name")"
+  scope="$(docker network inspect --format '{{.Scope}}' "$network_name")"
+  attachable="$(docker network inspect --format '{{.Attachable}}' "$network_name")"
+  options="$(docker network inspect --format '{{json .Options}}' "$network_name")"
+  if ! swarm_network_is_valid "$driver" "$scope" "$attachable" "$options"; then
+    recreate_invalid_swarm_network "$network_name" "$internal"
+  fi
+
+  if [[ "$internal" == true ]]; then
+    existing_internal="$(docker network inspect --format '{{.Internal}}' "$network_name")"
+    [[ "$existing_internal" == true ]] \
+      || fail "Docker control network '$network_name' must be internal to prevent ingress from outside the Swarm overlay"
+  fi
+}
+
 validate_control_network() {
   local network_name="$1"
   local driver="$2"
@@ -576,28 +643,11 @@ ensure_swarm() {
   node_id="$(docker info --format '{{.Swarm.NodeID}}')"
   docker node update --label-add upstand.control-plane=true "$node_id" >/dev/null
 
-  if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
-    docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$NETWORK_NAME" >/dev/null
-  fi
-
-  local driver scope attachable internal options
-  driver="$(docker network inspect --format '{{.Driver}}' "$NETWORK_NAME")"
-  scope="$(docker network inspect --format '{{.Scope}}' "$NETWORK_NAME")"
-  attachable="$(docker network inspect --format '{{.Attachable}}' "$NETWORK_NAME")"
-  options="$(docker network inspect --format '{{json .Options}}' "$NETWORK_NAME")"
-  validate_swarm_network "$NETWORK_NAME" "$driver" "$scope" "$attachable" "$options"
+  ensure_swarm_network "$NETWORK_NAME" false
 
   [[ "$CONTROL_NETWORK_NAME" != "$NETWORK_NAME" ]] \
     || fail "UPSTAND_DOCKER_CONTROL_NETWORK must be distinct from DOCKER_NETWORK"
-  if ! docker network inspect "$CONTROL_NETWORK_NAME" >/dev/null 2>&1; then
-    docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$CONTROL_NETWORK_NAME" >/dev/null
-  fi
-  driver="$(docker network inspect --format '{{.Driver}}' "$CONTROL_NETWORK_NAME")"
-  scope="$(docker network inspect --format '{{.Scope}}' "$CONTROL_NETWORK_NAME")"
-  attachable="$(docker network inspect --format '{{.Attachable}}' "$CONTROL_NETWORK_NAME")"
-  internal="$(docker network inspect --format '{{.Internal}}' "$CONTROL_NETWORK_NAME")"
-  options="$(docker network inspect --format '{{json .Options}}' "$CONTROL_NETWORK_NAME")"
-  validate_control_network "$CONTROL_NETWORK_NAME" "$driver" "$scope" "$attachable" "$internal" "$options"
+  ensure_swarm_network "$CONTROL_NETWORK_NAME" true
 }
 
 validate_swarm_network_runtime() {

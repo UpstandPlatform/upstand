@@ -223,6 +223,8 @@ export const GetResourceUseCaseToken =
   createToken<UseCases.GetResourceUseCase>("GetResourceUseCase");
 export const UpdateResourceUseCaseToken =
   createToken<UseCases.UpdateResourceUseCase>("UpdateResourceUseCase");
+export const MoveResourceUseCaseToken =
+  createToken<UseCases.MoveResourceUseCase>("MoveResourceUseCase");
 export const RotateResourceWebhookTokenUseCaseToken =
   createToken<UseCases.RotateResourceWebhookTokenUseCase>(
     "RotateResourceWebhookTokenUseCase",

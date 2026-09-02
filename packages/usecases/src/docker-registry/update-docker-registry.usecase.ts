@@ -27,6 +27,7 @@ export class UpdateDockerRegistryUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: UpdateDockerRegistryInput): Promise<DockerRegistry> {
+    validateRegistryUrl(input.registryUrl);
     if (requiresRemoteServerPlacement()) {
       if (
         input.serverId === null ||
@@ -40,6 +41,14 @@ export class UpdateDockerRegistryUseCase {
     const existing = await this.uow.dockerRegistryRepository.findById(input.id);
     if (!existing || existing.organizationId !== input.organizationId) {
       throw new Error("Docker registry not found");
+    }
+    if (input.serverId && !["local", "manager"].includes(input.serverId)) {
+      const server = await this.uow.serverRepository.findById(input.serverId);
+      if (!server || server.organizationId !== input.organizationId) {
+        throw new ValidationError(
+          "Selected Docker registry server is not available to this organization",
+        );
+      }
     }
 
     let passwordPatch: string | null | undefined;
@@ -75,5 +84,26 @@ export class UpdateDockerRegistryUseCase {
       throw new Error("Docker registry not found");
     }
     return updated;
+  }
+}
+
+function validateRegistryUrl(value: string | null | undefined): void {
+  if (!value?.trim()) return;
+  try {
+    const url = new URL(value.trim());
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new ValidationError(
+      "Docker registry URL must be an HTTP or HTTPS URL without embedded credentials",
+    );
   }
 }
