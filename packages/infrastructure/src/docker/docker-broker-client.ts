@@ -129,6 +129,17 @@ export type DockerInspectionBrokerPort = DockerInventoryReaderPort &
 
 export type DockerResourceFileBrokerPort = ContainerFileSystemPort;
 
+export type DockerMonitoringBrokerPort = {
+  ensureMonitoringContainer(input: {
+    image: string;
+    token: string;
+    cpuThreshold: number;
+    memoryThreshold: number;
+    networkName: string;
+    callbackPort: number;
+  }): Promise<void>;
+};
+
 export type DockerResourceCommandBrokerPort = {
   ensureUpstandNetwork?(): Promise<{ id: string; created: boolean }>;
   getSwarmInfo?(): Promise<DockerSwarmInfoPort>;
@@ -897,6 +908,27 @@ export function createDockerCaddyBrokerClient():
         throw new Error("Docker typed broker returned no Caddy change status");
       }
       return { changed: response.changed };
+    },
+  };
+}
+
+export function createDockerMonitoringBrokerClient():
+  | DockerMonitoringBrokerPort
+  | undefined {
+  const configuration = brokerConfiguration();
+  if (!configuration) return undefined;
+
+  return {
+    async ensureMonitoringContainer(input) {
+      await callBroker(configuration, "POST", "/upstand/v1/server/monitoring", {
+        operation: "ensure",
+        image: input.image,
+        token: input.token,
+        cpu_threshold: input.cpuThreshold,
+        memory_threshold: input.memoryThreshold,
+        network_name: input.networkName,
+        callback_port: input.callbackPort,
+      });
     },
   };
 }
