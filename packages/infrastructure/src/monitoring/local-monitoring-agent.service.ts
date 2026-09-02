@@ -110,6 +110,7 @@ async function initializeMonitoringOnce(
   }
 
   const docker = getDockerInstance();
+
   const monitoringImage = await resolveMonitoringImage(docker);
   await ensureImage(docker, monitoringImage);
 

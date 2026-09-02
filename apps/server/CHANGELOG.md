@@ -1,5 +1,11 @@
 # server
 
+## 0.6.0
+
+### Minor Changes
+
+- [#450](https://github.com/UpstandPlatform/upstand/pull/450) [`a2126ca`](https://github.com/UpstandPlatform/upstand/commit/a2126cae4667504ed5eb9a50ad8e181c0d5190c6) Thanks [@mhbdev](https://github.com/mhbdev)! - Recover schedules queue workers automatically after a transient Redis outage so production readiness can converge again without restarting the whole control plane.
+
 ## 0.5.6
 
 ### Patch Changes

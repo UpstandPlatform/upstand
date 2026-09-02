@@ -5,7 +5,7 @@ import {
   BullMqOutboxJobPublisher,
   DockerWorkloadMigrationPort,
 } from "@upstand/infrastructure";
-import { closeRedis, createRedis } from "@upstand/redis";
+import { closeRedis, createRedis, pingRedis, redis } from "@upstand/redis";
 import {
   BackupRunWorker,
   DeploymentWorker,
@@ -43,6 +43,24 @@ const STALE_BACKUP_RECOVERY_INTERVAL_MS = 60_000;
 const AUDIT_LOG_PRUNE_BATCH_SIZE = 1_000;
 
 export type SchedulesRole = "all" | "orchestrator" | "deployment-worker";
+
+export function shouldRecoverWorkerManager(input: {
+  started: boolean;
+  stopping: boolean;
+  shutdownRequested: boolean;
+  recoveryInFlight: boolean;
+  workersReady: boolean;
+  redisReady: boolean;
+}): boolean {
+  return (
+    input.started &&
+    !input.stopping &&
+    !input.shutdownRequested &&
+    !input.recoveryInFlight &&
+    !input.workersReady &&
+    input.redisReady
+  );
+}
 
 export class OutboxRuntime {
   private started = false;
@@ -602,12 +620,23 @@ export class WorkerManager {
   private deploymentRuntime: DeploymentRuntime | null = null;
   private outboxRuntime: OutboxRuntime | null = null;
   private workloadMigrationRuntime: WorkloadMigrationRuntime | null = null;
+  private recoveryTimer: ReturnType<typeof setInterval> | null = null;
+  private recoveryInFlight: Promise<void> | null = null;
+  private started = false;
+  private stopping = false;
+  private shutdownRequested = false;
+
+  private static readonly RECOVERY_INTERVAL_MS = 5_000;
 
   constructor(
     private readonly role: SchedulesRole = env.UPSTAND_SCHEDULES_ROLE,
   ) {}
 
   async start(): Promise<void> {
+    if (this.started) return;
+
+    this.shutdownRequested = false;
+    this.stopping = false;
     log.info({
       message: "Starting standalone queue workers & runtimes...",
       schedulesRole: this.role,
@@ -645,6 +674,8 @@ export class WorkerManager {
       message: "Standalone queue workers & runtimes started successfully 👷‍♂️",
       schedulesRole: this.role,
     });
+    this.started = true;
+    this.startRecoveryMonitor();
   }
 
   isReady(): boolean {
@@ -664,6 +695,87 @@ export class WorkerManager {
   }
 
   async stop(): Promise<void> {
+    this.shutdownRequested = true;
+    this.started = false;
+    this.stopping = true;
+    this.stopRecoveryMonitor();
+
+    await this.stopComponents();
+  }
+
+  private startRecoveryMonitor(): void {
+    if (this.recoveryTimer || this.shutdownRequested) return;
+    this.recoveryTimer = setInterval(
+      () => void this.recoverIfNeeded(),
+      WorkerManager.RECOVERY_INTERVAL_MS,
+    );
+    this.recoveryTimer.unref?.();
+  }
+
+  private stopRecoveryMonitor(): void {
+    if (this.recoveryTimer) clearInterval(this.recoveryTimer);
+    this.recoveryTimer = null;
+  }
+
+  private async recoverIfNeeded(): Promise<void> {
+    if (
+      !this.started ||
+      this.stopping ||
+      this.shutdownRequested ||
+      this.recoveryInFlight ||
+      this.isReady()
+    ) {
+      return;
+    }
+
+    const redisReady = await pingRedis(redis);
+    if (
+      !shouldRecoverWorkerManager({
+        started: this.started,
+        stopping: this.stopping,
+        shutdownRequested: this.shutdownRequested,
+        recoveryInFlight: Boolean(this.recoveryInFlight),
+        workersReady: this.isReady(),
+        redisReady,
+      })
+    ) {
+      return;
+    }
+
+    this.recoveryInFlight = (async () => {
+      log.warn({
+        message:
+          "Schedules workers lost readiness; restarting after Redis recovery",
+        schedulesRole: this.role,
+      });
+      this.started = false;
+      this.stopping = true;
+      this.stopRecoveryMonitor();
+      await this.stopComponents();
+
+      if (this.shutdownRequested) return;
+
+      this.stopping = false;
+      await this.start();
+    })()
+      .catch((error: unknown) => {
+        log.error({
+          message: "Failed to restart schedules workers after Redis recovery",
+          err: error,
+        });
+        if (!this.shutdownRequested) {
+          this.stopping = false;
+          this.startRecoveryMonitor();
+        }
+      })
+      .finally(() => {
+        this.recoveryInFlight = null;
+      });
+
+    await this.recoveryInFlight;
+  }
+
+  private async stopComponents(): Promise<void> {
     log.info({ message: "Stopping standalone queue workers & runtimes..." });
 
     await Promise.allSettled([
