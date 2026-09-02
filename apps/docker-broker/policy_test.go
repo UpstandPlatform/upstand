@@ -1,12 +1,22 @@
 package main
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAuthorizeDockerRequestAllowsNormalContainerLifecycle(t *testing.T) {
@@ -1293,6 +1303,82 @@ func TestLoadBrokerTLSConfigRequiresCompleteProductionIdentity(t *testing.T) {
 	if config != nil {
 		t.Fatal("expected no TLS config when the broker identity is not configured")
 	}
+}
+
+func TestLoadBrokerTLSConfigAllowsHealthProbeWithoutClientCertificate(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "true")
+	caPath, certPath, keyPath := writeTestBrokerTLSIdentity(t)
+	t.Setenv("UPSTAND_DOCKER_BROKER_CA_FILE", caPath)
+	t.Setenv("UPSTAND_DOCKER_BROKER_CERT_FILE", certPath)
+	t.Setenv("UPSTAND_DOCKER_BROKER_KEY_FILE", keyPath)
+
+	config, err := loadBrokerTLSConfig()
+	if err != nil {
+		t.Fatalf("expected a complete broker TLS identity to load: %v", err)
+	}
+	if config.ClientAuth != tls.VerifyClientCertIfGiven {
+		t.Fatalf("expected the TLS health probe to work without a client certificate, got ClientAuth=%v", config.ClientAuth)
+	}
+}
+
+func writeTestBrokerTLSIdentity(t *testing.T) (string, string, string) {
+	t.Helper()
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caDER := newTestBrokerCertificate(t, true, &caKey.PublicKey, caKey)
+	caCertificate, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafCertificate := newTestBrokerCertificate(t, false, &leafKey.PublicKey, caKey, caCertificate)
+	caPath := writeTestBrokerPEM(t, "ca.pem", "CERTIFICATE", caDER)
+	certPath := writeTestBrokerPEM(t, "certificate.pem", "CERTIFICATE", leafCertificate)
+	keyPath := writeTestBrokerPEM(t, "key.pem", "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(leafKey))
+	return caPath, certPath, keyPath
+}
+
+func newTestBrokerCertificate(t *testing.T, isCA bool, publicKey any, signer crypto.Signer, parents ...*x509.Certificate) []byte {
+	t.Helper()
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "upstand-test-broker"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  isCA,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+	}
+	if isCA {
+		template.KeyUsage |= x509.KeyUsageCertSign
+	}
+	parent := template
+	if len(parents) > 0 {
+		parent = parents[0]
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, parent, publicKey, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
+}
+
+func writeTestBrokerPEM(t *testing.T, name, blockType string, data []byte) string {
+	t.Helper()
+	path := t.TempDir() + string(os.PathSeparator) + name
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: data}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestAuthorizeBrokerClientCertificateRejectsUnverifiedConnections(t *testing.T) {
