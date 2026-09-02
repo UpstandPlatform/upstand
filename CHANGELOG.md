@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.5.0 - 2026-09-02
+
+Add production-safe GitHub App registration and installation management, end-to-end organization-aware Docker registry authentication for application and Compose deployments, safe self-hosted Swarm network repair, and atomic cross-project resource movement with explicit credential and infrastructure mappings.
+
+
 ## 0.4.0 - 2026-09-02
 
 Improve the public entry experience when the control plane is loading or unavailable, and remove unused runtime and UI code from the production bundle.
