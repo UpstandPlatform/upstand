@@ -34,7 +34,25 @@ configuration disables the option instead of exposing a button that must fail.
 
 ---
 
-## 3. Single Sign-On (OIDC & SAML)
+## 3. Passkeys
+
+Passkeys are provided by Better Auth's WebAuthn plugin. From **Settings →
+Passkeys**, a signed-in user can register a credential and list or remove the
+credentials belonging to that account. The browser must support WebAuthn, the
+dashboard origin must be HTTPS (or an explicitly permitted local-development
+origin), and the configured relying-party ID/origin must match the dashboard
+host. The API exposes the authenticated passkey operations under the auth
+route; an unauthenticated request is expected to return `401`, not a passkey
+list.
+
+If registration or loading fails, first verify the browser origin, the
+dashboard/API URL configuration, and that the request includes the session
+cookie. Do not work around the failure by exposing passkey data through an
+unauthenticated endpoint.
+
+---
+
+## 4. Single Sign-On (OIDC & SAML)
 
 Configure corporate Single Sign-On (SSO) by navigating to **Settings → Single Sign-On**:
 
@@ -47,7 +65,7 @@ Configure corporate Single Sign-On (SSO) by navigating to **Settings → Single 
 
 ---
 
-## 4. SCIM Provisioning API
+## 5. SCIM Provisioning API
 
 Upstand exposes a SCIM 2.0 compliant user-management endpoint at:
 ```text
@@ -60,7 +78,7 @@ Upstand exposes a SCIM 2.0 compliant user-management endpoint at:
 
 ---
 
-## 5. Organization API Keys
+## 6. Organization API Keys
 
 Integrate external scripts or CI/CD pipelines safely using API Keys (`upk_...`):
 
