@@ -1,5 +1,11 @@
 # web
 
+## 0.5.1
+
+### Patch Changes
+
+- [#425](https://github.com/UpstandPlatform/upstand/pull/425) [`e242145`](https://github.com/UpstandPlatform/upstand/commit/e242145f6883f6ba36537c94c0ff99a55bd175a5) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden the resource-move success redirect against path injection and cross-origin navigation.
+
 ## 0.5.0
 
 ## 0.4.0

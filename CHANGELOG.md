@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.5.1 - 2026-09-02
+
+Harden the resource-move success redirect against path injection and cross-origin navigation.
+
+
 ## 0.5.0 - 2026-09-02
 
 Add production-safe GitHub App registration and installation management, end-to-end organization-aware Docker registry authentication for application and Compose deployments, safe self-hosted Swarm network repair, and atomic cross-project resource movement with explicit credential and infrastructure mappings.
