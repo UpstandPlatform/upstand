@@ -510,7 +510,7 @@ jobs:
       - name: Set up environment paths
         env:
           BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt
-          BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-backup-rehearsal.json
+          BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-acceptance-evidence/backup-restore-rehearsal.json
           ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence
         run: |
           {
@@ -1172,7 +1172,7 @@ jobs:
           name: production-recovery-evidence
           path: |
             ${{ runner.temp }}/upstand-backup-rehearsal.txt
-            ${{ runner.temp }}/upstand-backup-rehearsal.json
+            ${{ runner.temp }}/upstand-acceptance-evidence/backup-restore-rehearsal.json
           if-no-files-found: ignore
           retention-days: 14
 
