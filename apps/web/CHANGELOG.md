@@ -1,5 +1,11 @@
 # web
 
+## 0.4.0
+
+### Minor Changes
+
+- [#419](https://github.com/UpstandPlatform/upstand/pull/419) [`150eebc`](https://github.com/UpstandPlatform/upstand/commit/150eebc0dc4484bb4171aec8a6b566333eeede42) Thanks [@mhbdev](https://github.com/mhbdev)! - Improve the public entry experience when the control plane is loading or unavailable, and remove unused runtime and UI code from the production bundle.
+
 ## 0.3.1
 
 ## 0.3.0

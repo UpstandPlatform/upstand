@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.4.0 - 2026-09-02
+
+Improve the public entry experience when the control plane is loading or unavailable, and remove unused runtime and UI code from the production bundle.
+
+
 ## 0.3.1 - 2026-08-30
 
 Retry Caddy and monitoring initialization during startup so a newly deployed
