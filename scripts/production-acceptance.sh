@@ -283,6 +283,7 @@ control_network_driver="$(docker_cmd network inspect -f '{{.Driver}}' "$CONTROL_
 control_network_scope="$(docker_cmd network inspect -f '{{.Scope}}' "$CONTROL_NETWORK_NAME")"
 control_network_attachable="$(docker_cmd network inspect -f '{{.Attachable}}' "$CONTROL_NETWORK_NAME")"
 control_network_internal="$(docker_cmd network inspect -f '{{.Internal}}' "$CONTROL_NETWORK_NAME")"
+control_network_id="$(docker_cmd network inspect -f '{{.Id}}' "$CONTROL_NETWORK_NAME")"
 control_network_options="$(docker_cmd network inspect -f '{{json .Options}}' "$CONTROL_NETWORK_NAME")"
 [[ "$control_network_driver" == "overlay" && "$control_network_scope" == "swarm" && "$control_network_attachable" == "true" && "$control_network_internal" == "true" ]] \
   || fail "Docker control network '$CONTROL_NETWORK_NAME' is not an attachable Swarm overlay"
@@ -327,7 +328,7 @@ echo "acceptance: current database migration completed, image=$migration_image"
 
 assert_service() {
   local service_name="$1"
-  local desired running image healthcheck container_id health service_networks container_count
+  local desired running image healthcheck container_id health service_networks container_count expected_network_id expected_network_name
   local readonly_rootfs container_readonly runtime_user
 
   desired="$(docker_cmd service inspect --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}0{{end}}' "$service_name")" \
@@ -335,10 +336,20 @@ assert_service() {
   [[ "$desired" =~ ^[0-9]+$ && "$desired" -ge 1 ]] \
     || fail "service '$service_name' has no desired replicas"
 
+  expected_network_id="$network_id"
+  expected_network_name="$NETWORK_NAME"
+  if [[ "$service_name" == "${STACK_NAME}_docker-broker" ]]; then
+    expected_network_id="$control_network_id"
+    expected_network_name="$CONTROL_NETWORK_NAME"
+  fi
   service_networks="$(docker_cmd service inspect --format '{{json .Spec.TaskTemplate.Networks}}' "$service_name")" \
     || fail "service '$service_name' networks could not be inspected"
-  [[ "$service_networks" == *"$network_id"* ]] \
-    || fail "service '$service_name' is not attached to network '$NETWORK_NAME': $service_networks"
+  [[ "$service_networks" == *"\"Target\":\"$expected_network_id\""* ]] \
+    || fail "service '$service_name' is not attached to network '$expected_network_name': $service_networks"
+  if [[ "$service_name" == "${STACK_NAME}_docker-broker" ]]; then
+    [[ "$service_networks" != *"\"Target\":\"$network_id\""* ]] \
+      || fail "service '$service_name' must not be attached to application network '$NETWORK_NAME': $service_networks"
+  fi
 
   running="$(docker_cmd service ps "$service_name" --filter desired-state=running --format '{{.CurrentState}}' | grep -c '^Running ' || true)"
   [[ "$running" -eq "$desired" ]] \
