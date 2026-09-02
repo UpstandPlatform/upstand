@@ -1,5 +1,11 @@
 # server
 
+## 0.5.0
+
+### Minor Changes
+
+- [#421](https://github.com/UpstandPlatform/upstand/pull/421) [`1a01d25`](https://github.com/UpstandPlatform/upstand/commit/1a01d25a4d43860134921fbb52d333b2289a800f) Thanks [@mhbdev](https://github.com/mhbdev)! - Add production-safe GitHub App registration and installation management, end-to-end organization-aware Docker registry authentication for application and Compose deployments, safe self-hosted Swarm network repair, and atomic cross-project resource movement with explicit credential and infrastructure mappings.
+
 ## 0.4.0
 
 ## 0.3.1
