@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { env } from "@upstand/env/server";
 import { log } from "evlog";
+import { createDockerMonitoringBrokerClient } from "../docker/docker-broker-client";
 import { getDockerInstance } from "../docker/docker-client";
 
 const MONITORING_IMAGE_ENV = "UPSTAND_MONITORING_IMAGE";
@@ -80,10 +81,35 @@ export async function initializeMonitoring(
 async function initializeMonitoringOnce(
   resolveSettings: () => Promise<LocalMonitoringSettings>,
 ): Promise<void> {
-  const docker = getDockerInstance();
   const settings = await resolveSettings();
   const { token, cpuThreshold, memoryThreshold } = settings;
 
+  const monitoringBroker = createDockerMonitoringBrokerClient();
+  const configuredImage = env.UPSTAND_MONITORING_IMAGE?.trim();
+  if (monitoringBroker) {
+    if (!configuredImage || !isImmutableImageReference(configuredImage)) {
+      throw new Error(
+        `${MONITORING_IMAGE_ENV} must use an immutable @sha256 image digest in broker mode`,
+      );
+    }
+    await monitoringBroker.ensureMonitoringContainer({
+      image: configuredImage,
+      token,
+      cpuThreshold,
+      memoryThreshold,
+      networkName:
+        process.env.DOCKER_CONTROL_NETWORK?.trim() || "upstand-docker-control",
+      callbackPort: env.PORT,
+    });
+    log.info({
+      message:
+        "Local Monitoring Agent container reconciled through Docker broker",
+      image: configuredImage,
+    });
+    return;
+  }
+
+  const docker = getDockerInstance();
   const monitoringImage = await resolveMonitoringImage(docker);
   await ensureImage(docker, monitoringImage);
 

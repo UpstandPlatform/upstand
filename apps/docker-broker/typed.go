@@ -113,6 +113,7 @@ func isTypedDockerPath(path string) bool {
 		return true
 	default:
 		return path == typedBrokerPrefix+`network` ||
+			path == typedMonitoringPath ||
 			path == typedServerPrefix+`cleanup` ||
 			path == typedServerPrefix+`self-update` ||
 			path == typedServerPrefix+`swarm` ||
@@ -133,6 +134,16 @@ func isTypedDockerPath(path string) bool {
 
 func authorizeTypedDockerRequest(caller string, r *http.Request, body []byte) error {
 	path := normalizeDockerPath(r.URL.Path)
+	if path == typedMonitoringPath {
+		if caller != `server` {
+			return errors.New(`typed monitoring provisioning is reserved for the server caller`)
+		}
+		if r.Method != http.MethodPost {
+			return errors.New(`typed monitoring provisioning requires POST`)
+		}
+		_, err := validateTypedMonitoringRequest(body)
+		return err
+	}
 	if path == typedServerPrefix+`swarm` && caller == `deployment-worker` {
 		if r.Method != http.MethodPost {
 			return errors.New(`typed Swarm operations require POST`)
@@ -575,6 +586,12 @@ func serveTypedDockerRequest(w http.ResponseWriter, r *http.Request, body []byte
 	var response typedDockerResponse
 	var err error
 	switch normalizeDockerPath(r.URL.Path) {
+	case typedMonitoringPath:
+		var input typedMonitoringRequest
+		input, err = validateTypedMonitoringRequest(body)
+		if err == nil {
+			err = engine.ensureMonitoringContainer(r.Context(), input)
+		}
 	case typedBrokerPrefix + `service-update`:
 		err = engine.updateManagedService(r.Context(), body)
 	case typedBrokerPrefix + `service-logs`:

@@ -1,6 +1,9 @@
 export { CaddyService, generateCaddyfileContent } from "./caddy/caddy.service";
 export { DockerService } from "./docker/docker.service";
-export { createDockerCaddyBrokerClient } from "./docker/docker-broker-client";
+export {
+  createDockerCaddyBrokerClient,
+  createDockerMonitoringBrokerClient,
+} from "./docker/docker-broker-client";
 export { DockerCleanupService } from "./docker/docker-cleanup.service";
 export {
   closeRemoteDockerProxies,
