@@ -1,5 +1,11 @@
 # web
 
+## 0.5.2
+
+### Patch Changes
+
+- [#435](https://github.com/UpstandPlatform/upstand/pull/435) [`479e983`](https://github.com/UpstandPlatform/upstand/commit/479e9831b69f0608acd6c92c7a3cff30845c5597) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden the production acceptance workflow and network contract so recovery evidence, Swarm secret names, and the Docker broker control network are validated consistently in release environments.
+
 ## 0.5.1
 
 ### Patch Changes

@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.5.2 - 2026-09-02
+
+Harden the production acceptance workflow and network contract so recovery evidence, Swarm secret names, and the Docker broker control network are validated consistently in release environments.
+
+
 ## 0.5.1 - 2026-09-02
 
 Harden the resource-move success redirect against path injection and cross-origin navigation.
