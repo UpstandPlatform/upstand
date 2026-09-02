@@ -66,6 +66,9 @@
     "tmp": "0.2.7",
     "extract-zip": "file:./scripts/electron-extract-zip-compat"
   },
+  "patchedDependencies": {
+    "samlify@2.13.1": "patches/samlify@2.13.1.patch"
+  },
   "type": "module",
   "scripts": {
     "prepare": "husky",

@@ -1,0 +1,46 @@
+diff --git a/build/src/api.js b/build/src/api.js
+index 5567262e..f7348404 100644
+--- a/build/src/api.js
++++ b/build/src/api.js
+@@ -26,10 +26,7 @@ var XXE_SAFE_OPTIONS = {
+      * Entity references (e.g. &xxe;) and malformed XML in SAML messages
+      * are not expected and may indicate an attack attempt.
+      */
+-    errorHandler: {
+-        error: function (msg) { throw new Error("XML parsing error: ".concat(msg)); },
+-        fatalError: function (msg) { throw new Error("XML fatal error: ".concat(msg)); },
+-    },
++    onError: function (_level, msg) { throw new Error("XML parsing error: ".concat(msg)); },
+ };
+ var context = {
+     validate: undefined,
+@@ -62,13 +59,25 @@ function setSchemaValidator(params) {
+  * baseline so callers can override unrelated settings without
+  * accidentally disabling XXE protection (`saml-core §6.4`,
+  * `saml-sec-consider §6.3.1`). A caller can still opt out by passing
+- * its own `errorHandler`, but it must do so explicitly.
++ * its own `onError`, but it must do so explicitly.
+  *
+  * @param options xmldom parser options
+  */
+ function setDOMParserOptions(options) {
+-    var _a;
+     if (options === void 0) { options = {}; }
+-    context.dom = new xmldom_1.DOMParser(__assign(__assign(__assign({}, XXE_SAFE_OPTIONS), options), { errorHandler: (_a = options.errorHandler) !== null && _a !== void 0 ? _a : XXE_SAFE_OPTIONS.errorHandler }));
++    var parserOptions = __assign(__assign({}, XXE_SAFE_OPTIONS), options);
++    if (options.errorHandler !== undefined && options.onError === undefined) {
++        parserOptions.onError = typeof options.errorHandler === 'function'
++            ? options.errorHandler
++            : function (level, msg, context) {
++                var handler = options.errorHandler;
++                var callback = handler[level] || handler.error;
++                if (callback) {
++                    return callback(msg, context);
++                }
++            };
++    }
++    delete parserOptions.errorHandler;
++    context.dom = new xmldom_1.DOMParser(parserOptions);
+ }
+-//# sourceMappingURL=api.js.map
++//# sourceMappingURL=api.js.map
