@@ -51,4 +51,25 @@ describe("retryStartupOperation", () => {
     expect(attempts).toBe(2);
     expect(onRetry).toEqual([{ attempt: 1, delayMs: 0 }]);
   });
+
+  test("can keep retrying transient dependencies until they recover", async () => {
+    let attempts = 0;
+
+    await expect(
+      retryStartupOperation(
+        async () => {
+          attempts += 1;
+          if (attempts < 14) throw new Error("dependency unavailable");
+          return "ready";
+        },
+        {
+          attempts: Number.POSITIVE_INFINITY,
+          initialDelayMs: 0,
+          sleep: async () => undefined,
+        },
+      ),
+    ).resolves.toBe("ready");
+
+    expect(attempts).toBe(14);
+  });
 });
