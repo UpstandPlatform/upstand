@@ -269,9 +269,16 @@ export function GeneralTab({
     onSuccess: (result) => {
       setMoveDialogOpen(false);
       toast.success("Resource moved successfully");
-      window.location.assign(
-        `/projects/${result.targetProjectId}/${targetEnvironmentId}/${resource.id}`,
-      );
+      const destination = new URL(window.location.origin);
+      destination.pathname = [
+        "projects",
+        result.targetProjectId,
+        targetEnvironmentId,
+        resource.id,
+      ]
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+      window.location.assign(destination.toString());
     },
     onError: (error) => toast.error(error.message),
   });
