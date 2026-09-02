@@ -1,5 +1,11 @@
 # web
 
+## 0.5.4
+
+### Patch Changes
+
+- [#441](https://github.com/UpstandPlatform/upstand/pull/441) [`f0cc5f1`](https://github.com/UpstandPlatform/upstand/commit/f0cc5f13bb4dfb9486976dba0ddee53f5adcf944) Thanks [@mhbdev](https://github.com/mhbdev)! - Configure the production Compose service healthcheck for the Docker broker so Swarm tracks its TLS health endpoint.
+
 ## 0.5.3
 
 ### Patch Changes

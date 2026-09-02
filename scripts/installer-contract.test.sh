@@ -63,6 +63,10 @@ grep -Fq 'UPSTAND_DOCKER_BROKER_SCOPE_SECRET_FILE: /run/secrets/docker_broker_sc
   echo "production Compose must load the Docker broker scope signing secret" >&2
   exit 1
 }
+grep -Fq 'test: ["CMD", "wget", "--no-check-certificate", "--quiet", "--spider", "https://127.0.0.1:2375/health"]' "$ROOT_DIR/docker-compose.prod.yml" || {
+  echo "production Compose must configure the Docker broker healthcheck" >&2
+  exit 1
+}
 grep -Fq '  docker_broker_scope_secret:' "$ROOT_DIR/docker-compose.prod.yml" || {
   echo "production Compose must declare the Docker broker scope signing secret" >&2
   exit 1
