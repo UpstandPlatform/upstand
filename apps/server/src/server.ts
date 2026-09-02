@@ -190,16 +190,30 @@ registerSystemRoutes(app, {
 });
 
 // Initialize Caddy Web Server on Startup
-retryStartupOperation(async () => {
-  const caddyInitScope = getServiceProvider().createScope();
-  try {
-    await caddyInitScope
-      .resolve(GetWebServerSettingsUseCaseToken)
-      .execute({ reconcile: true });
-  } finally {
-    await caddyInitScope.dispose();
-  }
-})
+retryStartupOperation(
+  async () => {
+    const caddyInitScope = getServiceProvider().createScope();
+    try {
+      await caddyInitScope
+        .resolve(GetWebServerSettingsUseCaseToken)
+        .execute({ reconcile: true });
+    } finally {
+      await caddyInitScope.dispose();
+    }
+  },
+  {
+    attempts: Number.POSITIVE_INFINITY,
+    onRetry: ({ attempt, delayMs, error }) => {
+      log.warn({
+        message: "Startup dependency unavailable; retrying initialization",
+        component: "caddy",
+        attempt,
+        delayMs,
+        err: error,
+      });
+    },
+  },
+)
   .then(() => {
     caddyReady = true;
     log.info({ message: "Caddy Web Server initialized successfully. ✅" });
@@ -212,6 +226,7 @@ retryStartupOperation(async () => {
   );
 
 retryStartupOperation(() => initializeMonitoring(), {
+  attempts: Number.POSITIVE_INFINITY,
   onRetry: ({ attempt, delayMs, error }) => {
     log.warn({
       message: "Startup dependency unavailable; retrying initialization",
