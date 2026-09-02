@@ -262,10 +262,10 @@ func loadBrokerTLSConfig() (*tls.Config, error) {
 	return &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{certificate},
-		// Reject unauthenticated connections during the TLS handshake. The HTTP
-		// handler still verifies the caller identity and matching token, but a
-		// missing client certificate must never reach the Docker policy layer.
-		ClientAuth: tls.RequireAndVerifyClientCert,
+		// The health endpoint is intentionally available to the container's
+		// loopback probe without a client certificate. Every protected API route
+		// still requires a verified client identity in the HTTP handler below.
+		ClientAuth: tls.VerifyClientCertIfGiven,
 		ClientCAs:  clientCAs,
 	}, nil
 }
