@@ -413,6 +413,8 @@ export default function ResourceDetail({
 
         <TabsContent value="general" className="min-w-0 space-y-6 outline-none">
           <GeneralTab
+            projectId={projectId}
+            environmentId={environmentId}
             resource={resource}
             secrets={secrets}
             refetchSecrets={refetchSecrets}

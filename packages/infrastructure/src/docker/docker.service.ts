@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { request as httpRequest, type RequestOptions } from "node:http";
 import { request as httpsRequest } from "node:https";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -3330,6 +3331,7 @@ export class DockerService implements DockerSwarmManagementPort {
     onLog: (log: string) => void,
     constraints?: string[],
     envVars?: Record<string, string>,
+    registryAuth?: DockerRegistryAuth,
   ): Promise<void> {
     const configuredCaller = (
       this.commandEnvironment.UPSTAND_DOCKER_BROKER_CALLER ??
@@ -3397,6 +3399,14 @@ export class DockerService implements DockerSwarmManagementPort {
 
       writePrivateDeploymentFile(composePath, composeContent);
 
+      const hasRegistryCredentials = Boolean(
+        registryAuth?.username && registryAuth.password,
+      );
+      if (hasRegistryCredentials && !registryAuth?.serveraddress) {
+        throw new Error(
+          "Selected Docker registry is missing a server address for Compose authentication",
+        );
+      }
       const composeCommand =
         resource.composeType === "compose"
           ? [
@@ -3409,7 +3419,14 @@ export class DockerService implements DockerSwarmManagementPort {
               "--detach",
               "--remove-orphans",
             ]
-          : ["stack", "deploy", "--compose-file", composePath, stackName];
+          : [
+              "stack",
+              "deploy",
+              ...(hasRegistryCredentials ? ["--with-registry-auth"] : []),
+              "--compose-file",
+              composePath,
+              stackName,
+            ];
       onLog(
         resource.composeType === "compose"
           ? `Deploying Docker Compose project '${stackName}'...\n`
@@ -3417,17 +3434,68 @@ export class DockerService implements DockerSwarmManagementPort {
       );
       const composeEnv =
         envVars ?? parseResourceEnvironmentVariables(resource.envVars);
-      await this.runCommandAsync(
-        "docker",
-        composeCommand,
-        onLog,
-        getComposeCliEnvironment(composeEnv),
-        {
-          redactions: Object.values(composeEnv),
-          resourceId: resource.id,
-          inheritEnvironment: false,
-        },
-      );
+      const registryConfigDir = hasRegistryCredentials
+        ? fs.mkdtempSync(path.join(os.tmpdir(), "upstand-docker-config-"))
+        : null;
+      const composeCommandEnvironment = {
+        ...getComposeCliEnvironment(composeEnv),
+        ...(registryConfigDir ? { DOCKER_CONFIG: registryConfigDir } : {}),
+      };
+      try {
+        if (registryConfigDir && registryAuth?.serveraddress) {
+          onLog(
+            `Logging into Docker registry for Compose deployment: ${registryAuth.serveraddress}...\n`,
+          );
+          await this.runCommandAsync(
+            "docker",
+            [
+              "login",
+              "--username",
+              registryAuth.username as string,
+              "--password-stdin",
+              registryAuth.serveraddress,
+            ],
+            onLog,
+            composeCommandEnvironment,
+            {
+              stdin: `${registryAuth.password}\n`,
+              redactions: [registryAuth.password as string],
+              resourceId: resource.id,
+              inheritEnvironment: false,
+            },
+          );
+        }
+        await this.runCommandAsync(
+          "docker",
+          composeCommand,
+          onLog,
+          composeCommandEnvironment,
+          {
+            redactions: [
+              ...Object.values(composeEnv),
+              ...(registryAuth?.password ? [registryAuth.password] : []),
+            ],
+            resourceId: resource.id,
+            inheritEnvironment: false,
+          },
+        );
+      } finally {
+        if (registryConfigDir) {
+          if (registryAuth?.serveraddress) {
+            await this.runCommandAsync(
+              "docker",
+              ["logout", registryAuth.serveraddress],
+              () => {},
+              composeCommandEnvironment,
+              {
+                resourceId: resource.id,
+                inheritEnvironment: false,
+              },
+            ).catch(() => undefined);
+          }
+          fs.rmSync(registryConfigDir, { recursive: true, force: true });
+        }
+      }
 
       // `docker compose up --detach` can return successfully before an image
       // finishes its startup sequence. Verify the resulting containers so a

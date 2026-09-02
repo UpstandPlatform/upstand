@@ -283,12 +283,9 @@ control_network_driver="$(docker_cmd network inspect -f '{{.Driver}}' "$CONTROL_
 control_network_scope="$(docker_cmd network inspect -f '{{.Scope}}' "$CONTROL_NETWORK_NAME")"
 control_network_attachable="$(docker_cmd network inspect -f '{{.Attachable}}' "$CONTROL_NETWORK_NAME")"
 control_network_internal="$(docker_cmd network inspect -f '{{.Internal}}' "$CONTROL_NETWORK_NAME")"
-control_network_id="$(docker_cmd network inspect -f '{{.Id}}' "$CONTROL_NETWORK_NAME")"
 control_network_options="$(docker_cmd network inspect -f '{{json .Options}}' "$CONTROL_NETWORK_NAME")"
 [[ "$control_network_driver" == "overlay" && "$control_network_scope" == "swarm" && "$control_network_attachable" == "true" && "$control_network_internal" == "true" ]] \
   || fail "Docker control network '$CONTROL_NETWORK_NAME' is not an attachable Swarm overlay"
-[[ -n "$control_network_id" && "$control_network_id" != "<no value>" ]] \
-  || fail "Docker control network '$CONTROL_NETWORK_NAME' has no inspectable network ID"
 if [[ "$REQUIRE_ENCRYPTED_NETWORK" == true ]]; then
   [[ "$control_network_options" == *'"encrypted"'* \
     && "$control_network_options" != *'"encrypted":false'* \
@@ -330,8 +327,6 @@ echo "acceptance: current database migration completed, image=$migration_image"
 
 assert_service() {
   local service_name="$1"
-  local expected_network_id="${2:-$network_id}"
-  local expected_network_name="${3:-$NETWORK_NAME}"
   local desired running image healthcheck container_id health service_networks container_count
   local readonly_rootfs container_readonly runtime_user
 
@@ -342,8 +337,8 @@ assert_service() {
 
   service_networks="$(docker_cmd service inspect --format '{{json .Spec.TaskTemplate.Networks}}' "$service_name")" \
     || fail "service '$service_name' networks could not be inspected"
-  [[ "$service_networks" == *"$expected_network_id"* ]] \
-    || fail "service '$service_name' is not attached to network '$expected_network_name': $service_networks"
+  [[ "$service_networks" == *"$network_id"* ]] \
+    || fail "service '$service_name' is not attached to network '$NETWORK_NAME': $service_networks"
 
   running="$(docker_cmd service ps "$service_name" --filter desired-state=running --format '{{.CurrentState}}' | grep -c '^Running ' || true)"
   [[ "$running" -eq "$desired" ]] \
@@ -448,7 +443,7 @@ for service in postgres redis; do
   fi
 done
 
-assert_service "${STACK_NAME}_docker-broker" "$control_network_id" "$CONTROL_NETWORK_NAME"
+assert_service "${STACK_NAME}_docker-broker"
 for service in server schedules deployment-worker web fumadocs; do
   assert_service "${STACK_NAME}_${service}"
 done
@@ -548,16 +543,6 @@ server_metrics_environment="$(docker_cmd service inspect --format '{{range .Spec
 printf '%s\n' "$server_metrics_environment" | grep -Fxq 'UPSTAND_METRICS_TOKEN_FILE=/run/secrets/metrics_token' \
   || fail "service '${STACK_NAME}_server' must protect API metrics with a Swarm secret"
 echo "acceptance: API metrics authentication is configured"
-
-server_container_id="$(docker_cmd ps -q --filter "label=com.docker.swarm.service.name=${STACK_NAME}_server" | head -n 1)" \
-  || fail "server container could not be located for the authentication route probe"
-[[ -n "$server_container_id" ]] \
-  || fail "server container could not be located for the authentication route probe"
-passkey_route_status="$(docker_cmd exec "$server_container_id" sh -c 'curl --silent --show-error --output /dev/null --write-out "%{http_code}" http://127.0.0.1:3000/api/auth/passkey/list-user-passkeys')" \
-  || fail "passkey route probe could not reach the server"
-[[ "$passkey_route_status" == "401" ]] \
-  || fail "passkey list route is not registered or does not require authentication (HTTP ${passkey_route_status:-unknown})"
-echo "acceptance: Better Auth passkey routes are registered"
 
 schedules_environment="$(docker_cmd service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${STACK_NAME}_schedules")" \
   || fail "service '${STACK_NAME}_schedules' environment could not be inspected for backup policy"

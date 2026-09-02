@@ -27,28 +27,8 @@ grep -Fq 'apps/docker-broker/Dockerfile' "$ROOT_DIR/install.sh" || {
   echo "source-build installer must build the Docker broker image" >&2
   exit 1
 }
-grep -Fq 'UPSTAND_VERSION="$requested_version"' "$ROOT_DIR/install.sh" || {
-  echo "installer must preserve an explicitly selected release version when updating an existing installation" >&2
-  exit 1
-}
-grep -Fq 'UPSTAND_MONITORING_IMAGE=""' "$ROOT_DIR/install.sh" || {
-  echo "installer must resolve release images instead of carrying a stale monitoring image into a version change" >&2
-  exit 1
-}
-grep -Fq 'UPSTAND_DOCKER_BROKER_IMAGE=""' "$ROOT_DIR/install.sh" || {
-  echo "installer must resolve the Docker broker image instead of carrying a stale broker image into a version change" >&2
-  exit 1
-}
 grep -Fq 'ClientAuth: tls.RequireAndVerifyClientCert' "$ROOT_DIR/apps/docker-broker/main.go" || {
   echo "Docker broker must require verified client certificates during the TLS handshake" >&2
-  exit 1
-}
-grep -Fq 'healthListenAddress      = "127.0.0.1:2376"' "$ROOT_DIR/apps/docker-broker/main.go" || {
-  echo "Docker broker must expose its health endpoint only on the loopback interface" >&2
-  exit 1
-}
-grep -Fq 'HEALTHCHECK --interval=10s --timeout=3s --retries=6 CMD wget --quiet --spider http://127.0.0.1:2376/health' "$ROOT_DIR/apps/docker-broker/Dockerfile" || {
-  echo "Docker broker healthcheck must use the loopback health endpoint without weakening mTLS" >&2
   exit 1
 }
 grep -Fq 'docker_broker_server_token' "$ROOT_DIR/install.sh" || {
@@ -124,22 +104,10 @@ grep -Fq 'write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION' "$ROOT_DIR/i
   echo "installer must persist the explicit unobserved-production acknowledgement" >&2
   exit 1
 }
-grep -Fq 'validate_recovery_readiness' "$ROOT_DIR/install.sh" || {
-  echo "installer must expose the explicit disaster-recovery readiness gate" >&2
+grep -Fq 'validate_disaster_recovery_plan' "$ROOT_DIR/install.sh" || {
+  echo "installer must enforce an explicit disaster-recovery readiness attestation" >&2
   exit 1
 }
-grep -Fq 'UPSTAND_DR_READINESS_GATE="${requested_dr_readiness_gate:-${UPSTAND_DR_READINESS_GATE:-true}}"' "$ROOT_DIR/install.sh" || {
-  echo "installer must preserve an explicitly selected recovery-readiness gate" >&2
-  exit 1
-}
-for required_text in \
-  'DATABASE_URL="postgresql://upstand:${POSTGRES_PASSWORD}@postgres:5432/upstand"' \
-  'REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"'; do
-  grep -Fq "$required_text" "$ROOT_DIR/install.sh" || {
-    echo "bundled data installs must provision non-empty internal connection URLs" >&2
-    exit 1
-  }
-done
 grep -Fq 'verify-installation-recovery-evidence.sh' "$ROOT_DIR/install.sh" || {
   echo "installer must install and verify the installation recovery evidence verifier" >&2
   exit 1
@@ -292,17 +260,6 @@ expect_replica_rejection true 2 1 2 2 1 1 0
   UPSTAND_DR_EVIDENCE_REFERENCE=change-1234
   validate_disaster_recovery_plan
 )
-(
-  UPSTAND_DR_READINESS_GATE=false
-  validate_recovery_readiness
-)
-if (
-  UPSTAND_DR_READINESS_GATE=invalid
-  validate_recovery_readiness
-); then
-  echo "installer unexpectedly accepted an invalid recovery-readiness gate" >&2
-  exit 1
-fi
 if (
   UPSTAND_DR_OFFSITE_CONFIRMED=true
   UPSTAND_DR_KEY_ESCROW_CONFIRMED=true
@@ -322,6 +279,62 @@ expect_control_network_rejection upstand-docker-control overlay swarm true false
 expect_network_rejection upstand-network overlay swarm true '{"com.docker.network.driver.overlay.vxlanid_list":"4097"}'
 expect_network_rejection upstand-network overlay swarm true '{"encrypted":false}'
 expect_network_rejection upstand-network overlay swarm true '{"encrypted":"false"}'
+
+(
+  docker() {
+    case "$1 $2" in
+      "network inspect")
+        case "$3" in
+          --format)
+            case "$4" in
+              "{{.Driver}}") printf 'bridge\n' ;;
+              "{{.Scope}}") printf 'local\n' ;;
+              "{{.Attachable}}") printf 'false\n' ;;
+              "{{json .Options}}") printf '{}\n' ;;
+              "{{len .Containers}}") printf '0\n' ;;
+              *) return 1 ;;
+            esac
+            ;;
+          *) return 0 ;;
+        esac
+        ;;
+      "network rm") return 0 ;;
+      "network create")
+        [[ "$*" == *"--driver overlay"* && "$*" == *"--opt encrypted"* && "$*" == *"--attachable"* ]] || return 1
+        return 0
+        ;;
+      *) return 1 ;;
+    esac
+  }
+  ensure_swarm_network upstand-network false
+)
+
+(
+  docker() {
+    case "$1 $2" in
+      "network inspect")
+        case "$3" in
+          --format)
+            case "$4" in
+              "{{.Driver}}") printf 'bridge\n' ;;
+              "{{.Scope}}") printf 'local\n' ;;
+              "{{.Attachable}}") printf 'false\n' ;;
+              "{{json .Options}}") printf '{}\n' ;;
+              "{{len .Containers}}") printf '1\n' ;;
+              *) return 1 ;;
+            esac
+            ;;
+          *) return 0 ;;
+        esac
+        ;;
+      *) return 1 ;;
+    esac
+  }
+  if ( ensure_swarm_network upstand-network false ); then
+    echo "invalid attached network unexpectedly passed repair" >&2
+    exit 1
+  fi
+)
 valid_digest="$(printf 'a%.0s' {1..64})"
 
 (

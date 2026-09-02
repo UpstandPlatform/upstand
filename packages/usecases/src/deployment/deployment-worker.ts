@@ -27,7 +27,7 @@ import {
   getPlatformCapabilities,
 } from "../platform/platform.types";
 import type { CaddyResource } from "../ports/caddy";
-import type { DockerApiTarget } from "../ports/docker";
+import type { DockerApiTarget, DockerRegistryAuth } from "../ports/docker";
 import { getDatabaseEnvironment } from "../resource/database-environment";
 import type { DockerDeploymentService as DockerService } from "../resource/docker-client";
 import { createRemoteServices } from "../resource/docker-client";
@@ -122,6 +122,30 @@ function stringField(
 ): string | undefined {
   const value: unknown = record[field];
   return typeof value === "string" ? value : undefined;
+}
+
+async function resolveConfiguredRegistryAuth(
+  uow: IUnitOfWork,
+  resource: Resource,
+  organizationId: string,
+): Promise<DockerRegistryAuth | undefined> {
+  const credentials = parseResourceCredentials(resource.credentials);
+  const registryId = stringField(credentials, "registryId");
+  if (!registryId) return undefined;
+
+  const registry = await uow.dockerRegistryRepository.findById(registryId);
+  if (!registry) throw new Error("Selected Docker registry not found");
+  if (registry.organizationId !== organizationId) {
+    throw new Error("Selected Docker registry belongs to another organization");
+  }
+
+  return {
+    username: registry.username || undefined,
+    password: registry.password ?? undefined,
+    serveraddress: (registry.registryUrl || "")
+      .replace(/^https?:\/\//, "")
+      .replace(/\/+$/, ""),
+  };
 }
 
 function parseFirstDomain(value: string): Record<string, unknown> {
@@ -1095,12 +1119,18 @@ export class DeploymentWorker {
         if (!composeFile) {
           throw new Error("No compose file content found in configuration");
         }
+        const composeRegistryAuth = await resolveConfiguredRegistryAuth(
+          uow,
+          deployedResource,
+          project.organizationId,
+        );
         await dockerService.deployComposeStack(
-          resource,
+          deployedResource,
           composeFile,
           appendLog,
           constraints,
           envVars,
+          composeRegistryAuth,
         );
         const composeSmokeTest = await dockerService.runPostDeploySmokeTest(
           deployedResource,
@@ -1118,41 +1148,11 @@ export class DeploymentWorker {
         );
       } else if (resource.type === "application") {
         if (resource.provider === "docker-registry") {
-          let imageRegistryAuth:
-            | { username?: string; password?: string; serveraddress?: string }
-            | undefined;
-          const imageCredentials = parseResourceCredentials(
-            resource.credentials,
+          const imageRegistryAuth = await resolveConfiguredRegistryAuth(
+            uow,
+            resource,
+            project.organizationId,
           );
-          const registryId = stringField(imageCredentials, "registryId");
-          if (registryId) {
-            const registry =
-              await uow.dockerRegistryRepository.findById(registryId);
-            if (!registry)
-              throw new Error("Selected Docker registry not found");
-            const environment = await uow.environmentRepository.findById(
-              resource.environmentId,
-            );
-            const project = environment
-              ? await uow.projectRepository.findById(environment.projectId)
-              : null;
-            if (
-              !project ||
-              project.organizationId !== registry.organizationId
-            ) {
-              throw new Error(
-                "Selected Docker registry belongs to another organization",
-              );
-            }
-            imageRegistryAuth = {
-              username: registry.username || undefined,
-              password: registry.password ?? undefined,
-              serveraddress: (registry.registryUrl || "").replace(
-                /^https?:\/\//,
-                "",
-              ),
-            };
-          }
           await dockerService.deployAppImage(
             resource,
             envVars,

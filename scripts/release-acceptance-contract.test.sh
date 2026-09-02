@@ -8,7 +8,6 @@ COMPOSE="$ROOT_DIR/docker-compose.prod.yml"
 WEB_DOCKERFILE="$ROOT_DIR/apps/web/Dockerfile"
 FUMADOCS_DOCKERFILE="$ROOT_DIR/apps/fumadocs/Dockerfile"
 SCHEDULES_ENTRYPOINT="$ROOT_DIR/apps/schedules/docker-entrypoint.sh"
-DOCKER_BROKER_DOCKERFILE="$ROOT_DIR/apps/docker-broker/Dockerfile"
 
 require_workflow_text() {
   local text="$1"
@@ -39,17 +38,11 @@ require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1
 require_compose_text "test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:3002/health/ready')"
 require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:3001/')"
 require_compose_text "test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:4000/')"
-require_compose_text "test: [\"CMD\", \"wget\", \"--quiet\", \"--spider\", \"http://127.0.0.1:2376/health\"]"
 require_compose_text "type: tmpfs"
 require_compose_text "target: /tmp"
 require_compose_text "target: /app/.builds"
 require_compose_text "target: /home/upstand/.docker"
 require_compose_text "UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: \${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}"
-acceptance_network_override_count="$(grep -Fc -- 'UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK: ${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}' "$COMPOSE")"
-[[ "$acceptance_network_override_count" -ge 3 ]] || {
-  echo "production Compose must pass the explicit acceptance network override to all Docker clients" >&2
-  exit 1
-}
 require_compose_text "UPGAL_TOOL_APPROVAL_SECRET_FILE: /run/secrets/upgal_tool_approval_secret"
 require_compose_text "- upgal_tool_approval_secret"
 require_compose_text "UPSTAND_DR_READINESS_GATE: \${UPSTAND_DR_READINESS_GATE:-true}"
@@ -63,7 +56,6 @@ require_file_text "$FUMADOCS_DOCKERFILE" "FROM node:24-slim@"
 require_file_text "$FUMADOCS_DOCKERFILE" 'CMD ["node", "apps/fumadocs/server.js"]'
 require_file_text "$SCHEDULES_ENTRYPOINT" '${UPSTAND_SERVER_INTERNAL_URL%/}/health/live'
 require_file_text "$ROOT_DIR/apps/monitoring/Dockerfile" "mkdir -p /data && chown appuser:appgroup /data"
-require_file_text "$DOCKER_BROKER_DOCKERFILE" "2376/health"
 if grep -Fq -- '${UPSTAND_SERVER_INTERNAL_URL%/}/health/ready' "$SCHEDULES_ENTRYPOINT"; then
   echo "schedules entrypoint must not wait for server readiness (circular dependency)" >&2
   exit 1
@@ -90,7 +82,6 @@ require_workflow_text 'UPSTAND_BACKUP_REHEARSAL_IMAGE="$UPSTAND_SERVER_IMAGE"'
 require_workflow_text 'UPSTAND_BACKUP_REHEARSAL_MAX_TOTAL_SECONDS=900'
 require_workflow_text 'UPSTAND_BACKUP_REHEARSAL_MAX_RESTORE_SECONDS=300'
 require_workflow_text 'BACKUP_REHEARSAL_LOG: ${{ runner.temp }}/upstand-backup-rehearsal.txt'
-require_workflow_text 'BACKUP_REHEARSAL_EVIDENCE: ${{ runner.temp }}/upstand-acceptance-evidence/backup-restore-rehearsal.json'
 require_workflow_text 'production-recovery-evidence'
 require_workflow_text 'ACCEPTANCE_EVIDENCE_DIR: ${{ runner.temp }}/upstand-acceptance-evidence'
 require_workflow_text 'production-evidence-collect.sh'
@@ -117,7 +108,6 @@ require_workflow_text "bash scripts/verify-recovery-evidence.sh"
 require_workflow_text "verify-recovery-evidence-contract.test.sh"
 require_workflow_text "ENCRYPTED_NETWORK_NAME: upstand-release-acceptance-encrypted-network"
 require_workflow_text "DOCKER_CONTROL_NETWORK: upstand-release-acceptance-control-network"
-require_workflow_text "STACK_NAME: upstand-release"
 require_workflow_text "OTEL_COLLECTOR_SERVICE: upstand-release-acceptance-otel-collector"
 require_workflow_text "OTEL_COLLECTOR_CONFIG: upstand-release-acceptance-otel-config"
 require_workflow_text "otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7"
@@ -217,10 +207,6 @@ require_workflow_text 'upstand_schedules_collection_success 1'
 require_workflow_text 'schedules-metrics.txt'
 require_workflow_text 'scripts/health-soak-rehearsal.sh:/tmp/health-soak-rehearsal.sh:ro'
 require_workflow_text 'HEALTH_SOAK_DURATION_SECONDS=60'
-if grep -Fq -- '--env HEALTH_SOAK_MAX_P95_MS=0' "$WORKFLOW" || grep -Fq -- '--env HEALTH_SOAK_MAX_P99_MS=0' "$WORKFLOW"; then
-  echo "release acceptance must not configure zero-millisecond soak latency limits" >&2
-  exit 1
-fi
 require_workflow_text 'health-soak.txt'
 require_workflow_text 'printf "%s" "$status" | grep -Fq'
 require_workflow_text 'grep -Fq "\"queues\""'
@@ -229,22 +215,11 @@ require_workflow_text 'grep -Fq "\"backup\""'
 require_workflow_text 'grep -vq "\"outbox\":null"'
 require_workflow_text 'grep -vq "\"backup\":null"'
 require_workflow_text 'schedules_status_recovered=false'
-require_workflow_text 'schedules_status_deadline=$(( $(date +%s) + 300 ))'
-require_workflow_text 'if (( $(date +%s) >= schedules_status_deadline )); then'
 require_workflow_text 'for attempt in {1..180}; do'
-require_workflow_text 'timeout --foreground 15 docker run --rm --network "$DOCKER_NETWORK"'
-require_workflow_text 'timeout --foreground 60 docker service rm "${STACK_NAME}_migrate"'
-require_workflow_text 'timeout --foreground 300 docker stack deploy --with-registry-auth'
-if grep -Fq 'docker service update --replicas 1 "${STACK_NAME}_migrate"' "$WORKFLOW"; then
-  echo "release acceptance must recreate the completed migration service instead of scaling it" >&2
-  exit 1
-fi
+require_workflow_text 'docker service update --replicas 0 "${STACK_NAME}_migrate"'
+require_workflow_text 'docker service update --replicas 1 "${STACK_NAME}_migrate"'
 require_workflow_text 'Migration task did not complete after external Postgres restoration'
-require_workflow_text '--force --update-parallelism 2'
-if grep -Fq -- '--force --update-parallelism 2 --detach=false' "$WORKFLOW"; then
-  echo "release acceptance must not wait on detached=false Swarm rollout monitoring" >&2
-  exit 1
-fi
+require_workflow_text '--force --update-parallelism 2 --detach=false'
 require_workflow_text 'for service in server schedules deployment-worker; do'
 require_workflow_text 'curl --fail --silent --show-error --max-time 2'
 require_workflow_text 'scripts/operational-status-rehearsal.ts'

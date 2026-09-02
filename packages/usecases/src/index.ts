@@ -114,6 +114,7 @@ export * from "./resource/get-resource-stats.usecase";
 export * from "./resource/get-resources.usecase";
 export * from "./resource/inspect-compose.usecase";
 export * from "./resource/libsql-settings";
+export * from "./resource/move-resource.usecase";
 export * from "./resource/randomize-compose.usecase";
 export * from "./resource/rebuild-database.usecase";
 export * from "./resource/reconcile-preview-cleanups.usecase";

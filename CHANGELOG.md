@@ -4,123 +4,25 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
-## 0.3.21 - 2026-09-01
+## 0.5.1 - 2026-09-02
 
-Fix Better Auth 1.7 account issuer schema generation and migrate legacy account
-rows safely so initial sign-up, passkey listing, and passkey registration work
-after upgrading from earlier releases.
+Harden the resource-move success redirect against path injection and cross-origin navigation.
 
 
-## 0.3.20 - 2026-09-01
+## 0.5.0 - 2026-09-02
 
-Fix fresh bundled-data installs so PostgreSQL and Redis connection secrets are generated instead of being left empty.
-
-
-## 0.3.19 - 2026-09-01
-
-Make installation-specific disaster-recovery attestations optional for explicitly marked disposable and test installations while keeping the production readiness gate enabled by default.
+Add production-safe GitHub App registration and installation management, end-to-end organization-aware Docker registry authentication for application and Compose deployments, safe self-hosted Swarm network repair, and atomic cross-project resource movement with explicit credential and infrastructure mappings.
 
 
-## 0.3.18 - 2026-08-31
+## 0.4.0 - 2026-09-02
 
-Reconcile the self-hosting, release, authentication, monitoring, infrastructure,
-and database documentation with the current brokered Docker architecture and
-the supported installer workflow. Make unavailable Docker telemetry quiet and
-explicit instead of retrying an unusable transport indefinitely.
-
-Ensure an explicitly selected release remains authoritative when the installer upgrades an existing installation, preventing stale release metadata and image configuration from being carried into the new deployment.
+Improve the public entry experience when the control plane is loading or unavailable, and remove unused runtime and UI code from the production bundle.
 
 
-## 0.3.17 - 2026-08-31
-
-Fix passkey route availability in production-shaped releases and make self-updates validate the complete control-plane service set before applying immutable images. Failed multi-service updates now roll back instead of leaving a mixed-version installation.
-
-
-## 0.3.16 - 2026-08-31
-
-Treat omitted soak latency budgets as unbounded so production acceptance does not fail on a zero-millisecond SLO.
-
-
-## 0.3.15 - 2026-08-31
-
-Recreate the completed migration service during external-database recovery acceptance so hosted Swarm managers do not hang on a one-shot service scale-up.
-
-
-## 0.3.14 - 2026-08-30
-
-Bound the total duration of the production acceptance schedules recovery loop in addition to each individual Docker probe.
-
-
-## 0.3.13 - 2026-08-30
-
-Bound the production acceptance schedules recovery probe so a stalled Docker Engine or network setup cannot hang the release job indefinitely.
-
-
-## 0.3.12 - 2026-08-30
-
-Avoid waiting on hosted Swarm's detached rollout monitor during external-Postgres recovery acceptance; the existing readiness and status probes still verify that database-backed services converge.
-
-
-## 0.3.11 - 2026-08-30
-
-Allow the constrained Caddy broker to honor the explicit hosted-acceptance override for unencrypted Swarm overlays while keeping production encryption enforcement enabled by default.
-
-
-## 0.3.10 - 2026-08-30
-
-Route production control-plane IP access reconciliation through the typed Docker broker so Caddy startup can complete with the server's restricted Docker identity.
-
-
-## 0.3.9 - 2026-08-30
-
-Recover production readiness after a Redis dependency outage by reconnecting stale health-check clients.
-
-
-## 0.3.8 - 2026-08-30
-
-Keep critical Caddy and monitoring startup initialization retrying until dependencies recover so transient deployment races cannot leave production readiness permanently blocked.
-
-
-Reset stale Redis connections after a failed health ping so readiness can recover after a dependency outage.
-
-## 0.3.7 - 2026-08-30
+## 0.3.1 - 2026-08-30
 
 Retry Caddy and monitoring initialization during startup so a newly deployed
 Swarm can converge when the Docker broker is still starting.
-
-Allow the production Docker broker to inspect immutable images whose registry
-and repository names contain slash-separated path components.
-
-
-## 0.3.6 - 2026-08-30
-
-Retry Caddy and monitoring initialization during startup so a newly deployed
-Swarm can converge when the Docker broker is still starting.
-
-
-## 0.3.5 - 2026-08-30
-
-Allow the production control plane to pull only its immutable monitoring image through the Docker broker before reconciling the managed monitoring sidecar.
-
-
-## 0.3.4 - 2026-08-30
-
-Align the production Docker broker's monitoring-sidecar policy with the hardened temporary filesystem emitted by the control plane.
-
-
-## 0.3.3 - 2026-08-29
-
-Allow the production control plane to reconcile its fixed, least-privilege monitoring sidecar through the Docker broker without reopening general raw Docker mutations.
-
-
-## 0.3.2 - 2026-08-29
-
-Configure the Docker broker health check in production Compose so release acceptance can verify the mTLS-protected broker without probing its authenticated API.
-
-
-## 0.3.1 - 2026-08-29
-
-Keep the production Docker broker healthy under mandatory mTLS and validate its isolated control-network placement during release acceptance.
 
 
 ## 0.3.0 - 2026-08-29

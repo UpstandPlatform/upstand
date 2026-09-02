@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 const (
@@ -64,136 +63,6 @@ type typedCaddyConfigurationRequest struct {
 	Operation       string                  `json:"operation"`
 	CaddyfileBase64 string                  `json:"caddyfile_base64"`
 	Certificates    []typedCaddyCertificate `json:"certificates"`
-}
-
-type typedControlPlaneAccessRequest struct {
-	Operation string `json:"operation"`
-	Enabled   *bool  `json:"enabled"`
-}
-
-var typedControlPlaneAccessMu sync.Mutex
-
-var typedControlPlaneServices = []struct {
-	name       string
-	targetPort int
-}{
-	{name: "upstand_server", targetPort: 3000},
-	{name: "upstand_web", targetPort: 3001},
-	{name: "upstand_fumadocs", targetPort: 4000},
-}
-
-const typedControlPlanePortsLabel = "com.upstand.control-plane.ip-ports"
-
-func validateTypedControlPlaneAccessRequest(body []byte) (typedControlPlaneAccessRequest, error) {
-	var input typedControlPlaneAccessRequest
-	if err := decodeTypedJSON(body, &input); err != nil {
-		return input, err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(body, &fields); err != nil {
-		return input, fmt.Errorf(`invalid control-plane access body: %w`, err)
-	}
-	for field := range fields {
-		switch field {
-		case `operation`, `enabled`:
-		default:
-			return input, fmt.Errorf(`control-plane access operation does not accept field %q`, field)
-		}
-	}
-	if input.Operation != `set_ip_access` || input.Enabled == nil {
-		return input, errors.New(`control-plane access operation is not supported`)
-	}
-	return input, nil
-}
-
-func (engine *dockerEngineClient) setTypedControlPlaneIpAccess(ctx context.Context, enabled bool) error {
-	typedControlPlaneAccessMu.Lock()
-	defer typedControlPlaneAccessMu.Unlock()
-
-	for _, serviceConfig := range typedControlPlaneServices {
-		inspectionBody, status, err := engine.request(
-			ctx,
-			http.MethodGet,
-			`/services/`+url.PathEscape(serviceConfig.name),
-			nil,
-		)
-		if err != nil && status == http.StatusNotFound {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-
-		var inspection struct {
-			ID      string `json:"ID"`
-			Version struct {
-				Index uint64 `json:"Index"`
-			} `json:"Version"`
-			Spec map[string]any `json:"Spec"`
-		}
-		if err := json.Unmarshal(inspectionBody, &inspection); err != nil {
-			return fmt.Errorf(`invalid Docker service inspection: %w`, err)
-		}
-		if inspection.ID == `` || inspection.Version.Index == 0 || inspection.Spec == nil {
-			return errors.New(`Docker service inspection was incomplete`)
-		}
-
-		endpointSpec, ok := inspection.Spec[`EndpointSpec`].(map[string]any)
-		if !ok {
-			endpointSpec = make(map[string]any)
-			inspection.Spec[`EndpointSpec`] = endpointSpec
-		}
-		labels, ok := inspection.Spec[`Labels`].(map[string]any)
-		if !ok {
-			labels = make(map[string]any)
-			inspection.Spec[`Labels`] = labels
-		}
-		currentPorts, _ := endpointSpec[`Ports`].([]any)
-
-		if enabled {
-			if len(currentPorts) > 0 {
-				continue
-			}
-			var savedPorts []any
-			if raw, ok := labels[typedControlPlanePortsLabel].(string); ok {
-				_ = json.Unmarshal([]byte(raw), &savedPorts)
-			}
-			if len(savedPorts) == 0 {
-				savedPorts = []any{map[string]any{
-					"Protocol":      "tcp",
-					"TargetPort":    serviceConfig.targetPort,
-					"PublishedPort": serviceConfig.targetPort,
-					"PublishMode":   "host",
-				}}
-			}
-			endpointSpec[`Ports`] = savedPorts
-		} else {
-			if len(currentPorts) == 0 {
-				continue
-			}
-			savedPorts, err := json.Marshal(currentPorts)
-			if err != nil {
-				return err
-			}
-			labels[typedControlPlanePortsLabel] = string(savedPorts)
-			delete(endpointSpec, `Ports`)
-		}
-
-		updateBody, err := json.Marshal(inspection.Spec)
-		if err != nil {
-			return err
-		}
-		_, _, err = engine.request(
-			ctx,
-			http.MethodPost,
-			`/services/`+url.PathEscape(inspection.ID)+`/update?version=`+strconv.FormatUint(inspection.Version.Index, 10),
-			updateBody,
-		)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func validateTypedCaddyRequest(body []byte) (typedCaddyRequest, error) {
@@ -592,8 +461,8 @@ func (engine *dockerEngineClient) ensureTypedCaddyNetwork(ctx context.Context, n
 	if err := json.Unmarshal(body, &network); err != nil {
 		return ``, fmt.Errorf(`invalid Caddy network inspection: %w`, err)
 	}
-	if network.ID == `` || network.Name != name || network.Driver != `overlay` || network.Scope != `swarm` || !network.Attachable || (!acceptanceAllowsUnencryptedNetwork() && !hasEncryptedNetworkOption(network.Options)) {
-		return ``, errors.New(`Caddy network is not a compatible attachable Swarm overlay`)
+	if network.ID == `` || network.Name != name || network.Driver != `overlay` || network.Scope != `swarm` || !network.Attachable || !hasEncryptedNetworkOption(network.Options) {
+		return ``, errors.New(`Caddy network is not an encrypted attachable Swarm overlay`)
 	}
 	return network.ID, nil
 }

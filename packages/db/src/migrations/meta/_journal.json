@@ -659,13 +659,6 @@
       "when": 1788000543145,
       "tag": "0093_watery_kid_colt",
       "breakpoints": true
-    },
-    {
-      "idx": 94,
-      "version": "7",
-      "when": 1788273342610,
-      "tag": "0094_friendly_moondragon",
-      "breakpoints": true
     }
   ]
 }

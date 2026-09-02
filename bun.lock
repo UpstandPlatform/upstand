@@ -36,7 +36,7 @@
     },
     "apps/fumadocs": {
       "name": "fumadocs",
-      "version": "0.2.28",
+      "version": "0.3.1",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@openrouter/ai-sdk-provider": "^3.0.0",
@@ -81,7 +81,7 @@
     },
     "apps/schedules": {
       "name": "schedules",
-      "version": "0.2.28",
+      "version": "0.3.1",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@upstand/api": "workspace:*",
@@ -105,7 +105,7 @@
     },
     "apps/server": {
       "name": "server",
-      "version": "0.2.28",
+      "version": "0.3.1",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@hono/trpc-server": "^0.4.2",
@@ -138,7 +138,7 @@
     },
     "apps/web": {
       "name": "web",
-      "version": "0.2.28",
+      "version": "0.3.1",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@better-auth-ui/core": "catalog:",
@@ -226,7 +226,6 @@
         "@ai-sdk/openai": "^4.0.23",
         "@circulo-ai/di": "catalog:",
         "@openrouter/ai-sdk-provider": "^3.0.0",
-        "@simplewebauthn/server": "^13.3.1",
         "@tavily/ai-sdk": "^0.5.0",
         "@trpc/server": "catalog:",
         "@upstand/auth": "workspace:*",
@@ -259,7 +258,6 @@
         "@better-auth/api-key": "catalog:",
         "@better-auth/passkey": "1.7.1",
         "@better-auth/sso": "1.7.1",
-        "@simplewebauthn/server": "^13.3.1",
         "@upstand/domain": "workspace:*",
         "better-auth": "catalog:",
       },
@@ -446,13 +444,11 @@
         "@upstand/redis": "workspace:*",
         "bullmq": "catalog:",
         "croner": "^10.0.1",
-        "dockerode": "^5.0.1",
         "evlog": "catalog:",
         "yaml": "^2.9.0",
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@types/dockerode": "^4.0.1",
         "@upstand/config": "workspace:*",
         "typescript": "catalog:",
       },

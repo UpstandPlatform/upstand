@@ -28,7 +28,10 @@ import {
 import type { CaddyService } from "../web-server/caddy.service";
 import { createRemoteServices } from "./docker-client";
 import { validateLibsqlSettings } from "./libsql-settings";
-import { serializeResourceCredentials } from "./resource-credentials";
+import {
+  parseResourceCredentialInput,
+  serializeResourceCredentials,
+} from "./resource-credentials";
 import { serializeResourceEnvironmentVariables } from "./resource-environment";
 import { ResourcePreviewFieldsSchema } from "./resource-preview-fields.schema";
 import { validateResourceCredentialReferences } from "./validate-resource-credential-references";
@@ -312,6 +315,17 @@ export class UpdateResourceUseCase {
         project.organizationId,
         input.credentials,
       );
+      const credentialValues = parseResourceCredentialInput(input.credentials);
+      if (typeof credentialValues.registryId === "string") {
+        const registry = await this.uow.dockerRegistryRepository.findById(
+          credentialValues.registryId,
+        );
+        if (!registry || registry.organizationId !== project.organizationId) {
+          throw new ValidationError(
+            "Selected Docker registry is not available to this organization",
+          );
+        }
+      }
       try {
         patch.credentials = serializeResourceCredentials(input.credentials);
       } catch (error: unknown) {

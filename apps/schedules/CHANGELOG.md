@@ -1,48 +1,10 @@
 # schedules
 
-## 0.3.21
+## 0.5.1
 
-## 0.3.20
+## 0.5.0
 
-## 0.3.19
-
-## 0.3.18
-
-## 0.3.17
-
-### Patch Changes
-
-- [#405](https://github.com/UpstandPlatform/upstand/pull/405) [`743f28d`](https://github.com/UpstandPlatform/upstand/commit/743f28dbf7dab9c5a46823438dc283f6014705ce) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix passkey route availability in production-shaped releases and make self-updates validate the complete control-plane service set before applying immutable images. Failed multi-service updates now roll back instead of leaving a mixed-version installation.
-
-## 0.3.16
-
-## 0.3.15
-
-## 0.3.14
-
-## 0.3.13
-
-## 0.3.12
-
-## 0.3.11
-
-## 0.3.10
-
-## 0.3.9
-
-## 0.3.8
-
-## 0.3.7
-
-## 0.3.6
-
-## 0.3.5
-
-## 0.3.4
-
-## 0.3.3
-
-## 0.3.2
+## 0.4.0
 
 ## 0.3.1
 

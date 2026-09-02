@@ -63,7 +63,6 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_WEB_UPSTREAM` | Web upstream override. |
 | `UPSTAND_FUMADOCS_UPSTREAM` | Fumadocs upstream override. |
 | `UPSTAND_DIRECT_ORIGINS` | Installer-managed explicit bootstrap mode for direct host-IP origins. Production defaults to `false`; enable only during isolated HTTP bootstrap. |
-| `DOCKER_CONTROL_NETWORK` / `UPSTAND_DOCKER_CONTROL_NETWORK` | Installer-managed encrypted internal overlay used by the Docker broker and its mTLS callers. It must be distinct from `DOCKER_NETWORK`. |
 | `UPSTAND_SERVER_PORT` / `UPSTAND_WEB_PORT` / `UPSTAND_DOCS_PORT` | Published host ports for the API, dashboard, and documentation services. |
 | `UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT` | Optional host-key pin for control-plane SSH operations. |
 
@@ -71,10 +70,8 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 
 | Variable | Purpose |
 | --- | --- |
-| `UPSTAND_VERSION` | Installer-selected stable release tag. The installer uses the matching release manifest to resolve every required image and deployment artifact; keep it set to the reviewed tag when upgrading an existing installation. |
-| `UPSTAND_AUTO_UPDATE` | Boolean; enables scheduled release-availability checks and notifications. It does not pull mutable `latest` images or silently apply an unattended deployment. Defaults to `false`. |
-| `UPSTAND_ALLOW_SINGLE_REPLICA` | Installer acknowledgement for a single-node or bundled-data operating model. It does not make PostgreSQL, Redis, or the control plane highly available. |
-| `UPSTAND_ALLOW_UNOBSERVED_PRODUCTION` | Explicitly acknowledges that production telemetry is not configured when `OTLP_ENDPOINT` is absent. Prefer configuring OTLP instead of enabling this exception. |
+| `UPSTAND_VERSION` | Release version shown by the application/update flow. |
+| `UPSTAND_AUTO_UPDATE` | Boolean; enables the optional update runtime. Defaults to `false`. |
 | `UPSTAND_SERVER_IMAGE` | Server image reference. |
 | `UPSTAND_SCHEDULES_IMAGE` | Lean schedules-orchestrator image reference. |
 | `UPSTAND_DEPLOYMENT_WORKER_IMAGE` | Build-capable deployment-worker image reference. |
@@ -99,7 +96,7 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_BACKUP_ALERT_MAX_AGE_MS` | No | Maximum age of the last successful backup before a structured alert; defaults to 2 days, and `0` disables the freshness check. |
 | `UPSTAND_BACKUP_ALERT_REQUIRE_SUCCESS` | No | Emits an alert when no successful backup exists; set `true` when backup coverage is mandatory. |
 | `UPSTAND_BACKUP_ALERT_REQUIRE_RESTORE_VERIFICATION` | No | Emits an alert when the latest successful backup has not been restore-tested; production installs default this to `true`. |
-| `UPSTAND_DR_READINESS_GATE` | Installer-managed | Enables installation-specific disaster-recovery attestation checks. Defaults to `true`; set it to `false` only for a disposable or test installation that intentionally has no recovery-plan attestations. This does not make the installation production-ready. |
+| `UPSTAND_DR_READINESS_GATE` | Installer-managed | Enables installation-specific disaster-recovery attestation checks in production acceptance. Production Compose defaults this to `true`; disposable release environments must explicitly set it to `false`. |
 | `UPSTAND_DR_OFFSITE_CONFIRMED` | Installer-managed | Confirms that the configured backup destination is independent/off-site; required when the recovery gate is enabled. |
 | `UPSTAND_DR_KEY_ESCROW_CONFIRMED` | Installer-managed | Confirms that encryption keys and object-store credentials have a tested recovery escrow separate from backup objects. |
 | `DOCKER_TLS_VERIFY` | Production Compose | Set to `1` for the server and schedules Docker CLI subprocesses; the broker CA and caller certificate are mounted using Docker's standard `ca.pem`, `cert.pem`, and `key.pem` names. |
@@ -114,7 +111,7 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_AUDIT_LOG_RETENTION_DAYS` | No | Number of days to retain audit records before the schedules service prunes them in bounded batches; defaults to `365`. |
 | `UPSTAND_BUNDLED_POSTGRES_REPLICAS` | Installer-managed | Must be `1` for bundled PostgreSQL or `0` when external `DATABASE_URL` is configured. Bundled PostgreSQL is not replicated. |
 | `UPSTAND_BUNDLED_REDIS_REPLICAS` | Installer-managed | Must be `1` for bundled Redis or `0` when external `REDIS_URL` is configured. Bundled Redis is not clustered. |
-| `UPSTAND_DOCKER_GID` | Installer-managed | Numeric group ID of `/var/run/docker.sock` used by the non-root Docker broker. The server, schedules, and deployment-worker call the broker over mTLS and do not mount the host socket. |
+| `UPSTAND_DOCKER_GID` | Installer-managed | Numeric group ID of `/var/run/docker.sock`; lets the non-root control-plane containers access the explicitly acknowledged Docker API boundary. |
 | `UPSTAND_DOCKER_BROKER_MAX_INFLIGHT` | No | Maximum number of concurrent Docker operations admitted by the broker; defaults to `64` and is bounded to `1`–`256`. |
 | `UPSTAND_DOCKER_BROKER_TLS_REQUIRED` | Production-managed | Requires the Docker broker to use TLS and verified client certificates; production Compose sets this to `true`. |
 | `UPSTAND_DOCKER_BROKER_CA_FILE` / `UPSTAND_DOCKER_BROKER_CERT_FILE` / `UPSTAND_DOCKER_BROKER_KEY_FILE` | Installer-managed | Broker-side CA, server certificate, and private-key paths. The installer generates them as Docker secrets. |

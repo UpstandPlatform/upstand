@@ -20,10 +20,10 @@ sequenceDiagram
 
     Admin->>API: Trigger Update Check / Polling Job
     API->>GH: Query Latest Image Digests & Release Tags
-    GH-->>API: Return signed release metadata and image digests
-    API->>DB: Run the release migration barrier
-    DB-->>API: Migration completed and recorded
-    API->>Swarm: Apply the complete immutable service plan
+    GH-->>API: Return Release Manifest (v0.2.6)
+    API->>DB: Execute Drizzle Migration Check (runDatabaseMigrations)
+    DB-->>API: Migrations Applied (Idempotent Schema Check)
+    API->>Swarm: Trigger Rolling Stack Update (docker stack deploy)
     Swarm->>Swarm: Spin up New Container Replicas
     Swarm->>Swarm: Health Check Passes (/health/ready)
     Swarm->>Swarm: Terminate Legacy Containers (Zero Downtime)
@@ -38,7 +38,7 @@ Upstand exposes four runtime channels:
 
 | Channel | Branch | Recommendations |
 | --- | --- | --- |
-| **Stable** | `master` / Tags (`vX.Y.Z`) | Production environments. The release manifest resolves every service image to an immutable digest. |
+| **Stable** | `master` / Tags (`vX.Y.Z`) | Production environments. Uses versioned image tags. |
 | **Canary** | `canary` | Test/staging environments. Rolling updates with the latest commits. |
 | **Source** | Repository checkout/build | Development and explicitly opted-in source builds. Not a verified release artifact. |
 | **Managed** | Upstand-operated cloud | Provider-controlled rollout. Tenants cannot mutate the cloud control-plane services. |
@@ -50,31 +50,31 @@ Upstand exposes four runtime channels:
 
 ## Safe Manual Update Procedure
 
-To update a self-hosted production instance to a newer version manually:
+To update your production instance to a newer version manually:
 
 1. **Back up your database**: Export your current Postgres database and configuration.
-2. **Review the release**: Confirm the tag, changelog, release manifest, image provenance, and deployment-artifact hashes.
-3. **Pin the reviewed tag and rerun the installer**:
+2. **Retrieve release details**: Review the changelog and fetch the new image digests.
+3. **Edit variables**: Modify the following variables in `/etc/upstand/.env`:
    ```bash
-   export UPSTAND_VERSION="vX.Y.Z"
-   curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-     "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
-     | sudo -E bash
+   UPSTAND_SERVER_IMAGE=ghcr.io/upstandplatform/upstand-server@sha256:<new-digest>
+   UPSTAND_SCHEDULES_IMAGE=ghcr.io/upstandplatform/upstand-schedules@sha256:<new-digest>
+   UPSTAND_DEPLOYMENT_WORKER_IMAGE=ghcr.io/upstandplatform/upstand-deployment-worker@sha256:<new-digest>
+   UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<new-digest>
+   UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<new-digest>
+   UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<new-digest>
+   UPSTAND_VERSION=v0.2.6 # Update matching release version
    ```
-   The installer resolves all required images from that release manifest and
-   updates the stack specification as one unit. Do not update only one image
-   or hand-edit a subset of `/etc/upstand/.env`.
-4. **Confirm state**: Check `docker stack services upstand`, the migration task,
-   `/health/ready`, and the public dashboard origin before declaring success.
+4. **Rerun the installer**: Execute `sudo bash ./install.sh`. The installer will perform a zero-downtime rolling update on your Docker Swarm.
+5. **Confirm state**: Check `docker stack services upstand` and `/health/ready` to ensure services have fully restarted.
 
 ---
 
 ## Automatic Updates
 
-Update availability checks are opt-in and run every 30 minutes when enabled:
+Automatic updates are opt-in and check for new tags every 30 minutes:
 
 - **Enabling**: Add `UPSTAND_AUTO_UPDATE=true` to your `/etc/upstand/.env` and re-run the installer.
-- **Behavior**: The schedules service checks the GitHub release API and publishes a deduplicated notification when a matching release is available. Applying a release still goes through the authenticated update action or the installer; this is not an unattended `latest` tag pull.
+- **Behavior**: The server monitors GitHub releases on your active channel, applies tags matching your channel, and roll out the stack rolling updates.
 - **Exclusion**: Source builds are never updated automatically to prevent overriding local changes.
 
 ---
@@ -99,8 +99,7 @@ recreates the monitoring agent, and preserves the server's Docker workloads.
 This explicit action avoids taking remote application traffic down as a side
 effect of a platform update.
 
-Both interfaces read from cached state that queries the GitHub releases API. A
-manual refresh forces a fresh request to GitHub, bypassing the cache.
+Both interfaces read from a cached state that queries the GitHub releases API. Clicking either forces a fresh HTTP request to GitHub, bypassing the 30-minute cache.
 
 ---
 

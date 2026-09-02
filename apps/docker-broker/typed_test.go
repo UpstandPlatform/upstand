@@ -38,9 +38,7 @@ func TestApplySelfUpdateMutatesOnlyManagedServices(t *testing.T) {
 
 	services := `[
   {"ID":"server-id","Version":{"Index":7},"Spec":{"Name":"upstand_server","TaskTemplate":{"ForceUpdate":2,"ContainerSpec":{"Image":"ghcr.io/upstandplatform/upstand-server:old","Env":["KEEP=value","UPSTAND_VERSION=old"]}},"UpdateConfig":{"Parallelism":1}}},
-  {"ID":"schedules-id","Version":{"Index":10},"Spec":{"Name":"upstand_schedules","TaskTemplate":{"ForceUpdate":1,"ContainerSpec":{"Image":"ghcr.io/upstandplatform/upstand-schedules:old","Env":[]}}}},
   {"ID":"web-id","Version":{"Index":8},"Spec":{"Name":"upstand-web","TaskTemplate":{"ForceUpdate":4,"ContainerSpec":{"Image":"ghcr.io/upstandplatform/upstand-web@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","Env":[]}}}},
-  {"ID":"fumadocs-id","Version":{"Index":11},"Spec":{"Name":"upstand_fumadocs","TaskTemplate":{"ForceUpdate":3,"ContainerSpec":{"Image":"ghcr.io/upstandplatform/upstand-fumadocs:old","Env":[]}}}},
   {"ID":"attacker-id","Version":{"Index":9},"Spec":{"Name":"attacker_service","TaskTemplate":{"ForceUpdate":99,"ContainerSpec":{"Image":"attacker:latest"}}}}
 ]`
 
@@ -72,8 +70,8 @@ func TestApplySelfUpdateMutatesOnlyManagedServices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected typed self-update to succeed: %v", err)
 	}
-	if count != 4 {
-		t.Fatalf("expected four managed services to update, got %d", count)
+	if count != 2 {
+		t.Fatalf("expected two managed services to update, got %d", count)
 	}
 	if _, ok := updated["attacker_service"]; ok {
 		t.Fatal("typed self-update must not mutate an unmanaged service")
@@ -151,77 +149,12 @@ func TestResourceRollbackRejectsAnotherResourceImage(t *testing.T) {
 func TestApplySelfUpdateRejectsSourceInstallation(t *testing.T) {
 	engine := &dockerEngineClient{httpClient: &http.Client{
 		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-			return dockerResponse(http.StatusOK, `[
-{"ID":"server-id","Version":{"Index":1},"Spec":{"Name":"upstand_server","TaskTemplate":{"ContainerSpec":{"Image":"upstand-server:source-local"}}}},
-{"ID":"schedules-id","Version":{"Index":2},"Spec":{"Name":"upstand_schedules","TaskTemplate":{"ContainerSpec":{"Image":"upstand-schedules:old"}}}},
-{"ID":"web-id","Version":{"Index":3},"Spec":{"Name":"upstand_web","TaskTemplate":{"ContainerSpec":{"Image":"upstand-web:old"}}}},
-{"ID":"fumadocs-id","Version":{"Index":4},"Spec":{"Name":"upstand_fumadocs","TaskTemplate":{"ContainerSpec":{"Image":"upstand-fumadocs:old"}}}}
-]`), nil
+			return dockerResponse(http.StatusOK, `[{"ID":"server-id","Version":{"Index":1},"Spec":{"Name":"upstand_server","TaskTemplate":{"ContainerSpec":{"Image":"upstand-server:source-local"}}}}]`), nil
 		}),
 	}}
 	_, err := engine.applySelfUpdate(context.Background(), []byte(`{"version":"canary","repository":"upstandplatform/upstand","images":{"server":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","schedules":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","web":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","fumadocs":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","monitoring":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}`))
 	if err == nil || !strings.Contains(err.Error(), "source installations") {
 		t.Fatalf("expected source installation to be rejected, got %v", err)
-	}
-}
-
-func TestApplySelfUpdateRejectsIncompleteInstallationBeforeMutation(t *testing.T) {
-	updateCalls := 0
-	engine := &dockerEngineClient{httpClient: &http.Client{
-		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-			if request.Method == http.MethodPost {
-				updateCalls++
-			}
-			return dockerResponse(http.StatusOK, `[{"ID":"server-id","Version":{"Index":1},"Spec":{"Name":"upstand_server","TaskTemplate":{"ContainerSpec":{"Image":"upstand-server:old"}}}}]`), nil
-		}),
-	}}
-
-	_, err := engine.applySelfUpdate(context.Background(), []byte(`{"version":"v0.3.17","repository":"upstandplatform/upstand","images":{"server":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","schedules":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","web":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","fumadocs":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","monitoring":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}`))
-	if err == nil || !strings.Contains(err.Error(), "missing") {
-		t.Fatalf("expected incomplete installation to be rejected, got %v", err)
-	}
-	if updateCalls != 0 {
-		t.Fatalf("expected no mutation before preflight completed, got %d update calls", updateCalls)
-	}
-}
-
-func TestApplySelfUpdateRollsBackWhenAServiceUpdateFails(t *testing.T) {
-	services := `[
-{"ID":"server-id","Version":{"Index":1},"Spec":{"Name":"upstand_server","TaskTemplate":{"ContainerSpec":{"Image":"upstand-server:old","Env":[]}}}},
-{"ID":"schedules-id","Version":{"Index":2},"Spec":{"Name":"upstand_schedules","TaskTemplate":{"ContainerSpec":{"Image":"upstand-schedules:old","Env":[]}}}},
-{"ID":"web-id","Version":{"Index":3},"Spec":{"Name":"upstand_web","TaskTemplate":{"ContainerSpec":{"Image":"upstand-web:old","Env":[]}}}},
-{"ID":"fumadocs-id","Version":{"Index":4},"Spec":{"Name":"upstand_fumadocs","TaskTemplate":{"ContainerSpec":{"Image":"upstand-fumadocs:old","Env":[]}}}}
-]`
-	updateCalls := 0
-	rollbackCalls := 0
-	engine := &dockerEngineClient{httpClient: &http.Client{
-		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-			switch {
-			case request.Method == http.MethodGet && request.URL.Path == "/services":
-				return dockerResponse(http.StatusOK, services), nil
-			case request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/services/"):
-				return dockerResponse(http.StatusOK, `{"Version":{"Index":20}}`), nil
-			case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/update"):
-				updateCalls++
-				if updateCalls == 2 {
-					return dockerResponse(http.StatusInternalServerError, `{"message":"update failed"}`), nil
-				}
-				if updateCalls > 2 {
-					rollbackCalls++
-				}
-				return dockerResponse(http.StatusOK, `{}`), nil
-			default:
-				return dockerResponse(http.StatusNotFound, `{}`), nil
-			}
-		}),
-	}}
-
-	_, err := engine.applySelfUpdate(context.Background(), []byte(`{"version":"v0.3.17","repository":"upstandplatform/upstand","images":{"server":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","schedules":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","web":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","fumadocs":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","monitoring":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}`))
-	if err == nil || !strings.Contains(err.Error(), "rolled back") {
-		t.Fatalf("expected failed update to roll back, got %v", err)
-	}
-	if rollbackCalls != 2 {
-		t.Fatalf("expected failed update and prior update to be rolled back, got %d rollback calls", rollbackCalls)
 	}
 }
 
@@ -818,34 +751,6 @@ func TestTypedCaddyProvisioningUsesOnlyManagedShape(t *testing.T) {
 	}
 }
 
-func TestTypedCaddyNetworkHonorsAcceptanceEncryptionOverride(t *testing.T) {
-	for _, test := range []struct {
-		name        string
-		allow       string
-		wantSuccess bool
-	}{
-		{name: "production requires encryption", allow: "false", wantSuccess: false},
-		{name: "acceptance may use hosted unencrypted overlay", allow: "true", wantSuccess: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK", test.allow)
-			engine := &dockerEngineClient{httpClient: &http.Client{
-				Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-					if request.Method == http.MethodGet && request.URL.Path == "/networks/upstand-network" {
-						return dockerResponse(http.StatusOK, `{"Id":"network-id","Name":"upstand-network","Driver":"overlay","Scope":"swarm","Attachable":true,"Options":{}}`), nil
-					}
-					return dockerResponse(http.StatusNotFound, `{}`), nil
-				}),
-			}}
-
-			_, err := engine.ensureTypedCaddyNetwork(context.Background(), "upstand-network")
-			if (err == nil) != test.wantSuccess {
-				t.Fatalf("expected success=%t, got error=%v", test.wantSuccess, err)
-			}
-		})
-	}
-}
-
 func TestTypedCaddyProvisioningRejectsUnownedContainer(t *testing.T) {
 	const digest = "af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17"
 	engine := &dockerEngineClient{httpClient: &http.Client{
@@ -872,68 +777,6 @@ func TestTypedCaddyProvisioningRejectsUnownedContainer(t *testing.T) {
 	}
 	if err := engine.ensureCaddyContainer(context.Background(), input); err == nil {
 		t.Fatal("expected an unowned Caddy container to be rejected")
-	}
-}
-
-func TestTypedControlPlaneAccessUpdatesOnlyManagedServices(t *testing.T) {
-	updated := make(map[string]map[string]any)
-	engine := &dockerEngineClient{httpClient: &http.Client{
-		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-			switch {
-			case request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/services/"):
-				name := strings.TrimPrefix(request.URL.Path, "/services/")
-				return dockerResponse(http.StatusOK, `{"ID":"`+name+`-id","Version":{"Index":7},"Spec":{"Name":"`+name+`","Labels":{},"TaskTemplate":{},"EndpointSpec":{"Ports":[]}}}`), nil
-			case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/update"):
-				body, err := io.ReadAll(request.Body)
-				if err != nil {
-					return nil, err
-				}
-				var spec map[string]any
-				if err := json.Unmarshal(body, &spec); err != nil {
-					return nil, err
-				}
-				serviceName, _ := spec["Name"].(string)
-				updated[serviceName] = spec
-				return dockerResponse(http.StatusOK, `{}`), nil
-			default:
-				return dockerResponse(http.StatusNotFound, `{}`), nil
-			}
-		}),
-	}}
-
-	body := []byte(`{"operation":"set_ip_access","enabled":true}`)
-	input, err := validateTypedControlPlaneAccessRequest(body)
-	if err != nil {
-		t.Fatalf("expected valid typed control-plane access input: %v", err)
-	}
-	if err := engine.setTypedControlPlaneIpAccess(context.Background(), *input.Enabled); err != nil {
-		t.Fatalf("expected typed control-plane access update to succeed: %v", err)
-	}
-	if len(updated) != 3 {
-		t.Fatalf("expected all managed control-plane services to be updated, got %d", len(updated))
-	}
-	expectedPorts := map[string]float64{
-		"upstand_server":   3000,
-		"upstand_web":      3001,
-		"upstand_fumadocs": 4000,
-	}
-	for name, spec := range updated {
-		endpoint, ok := spec["EndpointSpec"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected endpoint spec for %s, got %#v", name, spec["EndpointSpec"])
-		}
-		ports, ok := endpoint["Ports"].([]any)
-		if !ok || len(ports) != 1 {
-			t.Fatalf("expected one published port for %s, got %#v", name, endpoint["Ports"])
-		}
-		port, ok := ports[0].(map[string]any)
-		if !ok || port["TargetPort"] != expectedPorts[name] || port["PublishedPort"] != expectedPorts[name] {
-			t.Fatalf("expected the managed port mapping for %s, got %#v", name, ports[0])
-		}
-	}
-
-	if _, err := validateTypedControlPlaneAccessRequest([]byte(`{"operation":"set_ip_access","enabled":true,"service_name":"attacker"}`)); err == nil {
-		t.Fatal("expected control-plane access to reject unknown fields")
 	}
 }
 
