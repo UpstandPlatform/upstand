@@ -8,7 +8,6 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 Allow the production acceptance harness to explicitly opt into its hosted Swarm's unencrypted control overlay while keeping encrypted networks mandatory by default.
 
-
 ## 0.5.5 - 2026-09-02
 
 Provision the local monitoring agent through the production Docker broker's typed, ownership-checked capability.
