@@ -1,5 +1,11 @@
 # server
 
+## 0.9.0
+
+### Minor Changes
+
+- [#459](https://github.com/UpstandPlatform/upstand/pull/459) [`a23198f`](https://github.com/UpstandPlatform/upstand/commit/a23198fca149e2bfaea7f151798c077789a549eb) Thanks [@mhbdev](https://github.com/mhbdev)! - Allow the disposable production acceptance environment to use its explicit unencrypted Swarm capability override for broker-managed Caddy networks while keeping encrypted overlays mandatory by default.
+
 ## 0.8.0
 
 ### Minor Changes
