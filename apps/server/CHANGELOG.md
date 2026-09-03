@@ -1,5 +1,13 @@
 # server
 
+## 0.10.0
+
+### Minor Changes
+
+- [#462](https://github.com/UpstandPlatform/upstand/pull/462) [`313319c`](https://github.com/UpstandPlatform/upstand/commit/313319cc9f1616aac814d5fe25aaf56369b0e346) Thanks [@mhbdev](https://github.com/mhbdev)! - Bound the full production acceptance rehearsal's Swarm operations and health
+  load probes so failed recovery phases terminate with actionable diagnostics
+  instead of exhausting the GitHub Actions job timeout.
+
 ## 0.9.0
 
 ### Minor Changes
