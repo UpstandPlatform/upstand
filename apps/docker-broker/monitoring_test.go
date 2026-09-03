@@ -60,13 +60,13 @@ func TestValidateTypedMonitoringRequestRejectsUnsafeValues(t *testing.T) {
 }
 
 func TestMonitoringNetworkEncryptionRequiresExplicitAcceptanceOptIn(t *testing.T) {
-	if monitoringNetworkEncryptionAllowed(map[string]string{}, false) {
+	if networkEncryptionAllowed(map[string]string{}, false) {
 		t.Fatal("expected an unencrypted network to be rejected by default")
 	}
-	if !monitoringNetworkEncryptionAllowed(map[string]string{}, true) {
+	if !networkEncryptionAllowed(map[string]string{}, true) {
 		t.Fatal("expected the explicit acceptance opt-in to allow the hosted network")
 	}
-	if !monitoringNetworkEncryptionAllowed(map[string]string{"encrypted": "true"}, false) {
+	if !networkEncryptionAllowed(map[string]string{"encrypted": "true"}, false) {
 		t.Fatal("expected an encrypted network to be accepted")
 	}
 }

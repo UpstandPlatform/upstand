@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -180,27 +179,10 @@ func (engine *dockerEngineClient) ensureTypedMonitoringNetwork(ctx context.Conte
 	if err := json.Unmarshal(body, &network); err != nil {
 		return fmt.Errorf(`invalid monitoring control network inspection: %w`, err)
 	}
-	if network.Name != name || network.Driver != `overlay` || network.Scope != `swarm` || !network.Attachable || !network.Internal || !monitoringNetworkEncryptionAllowed(network.Options, allowUnencryptedMonitoringNetwork()) {
+	if network.Name != name || network.Driver != `overlay` || network.Scope != `swarm` || !network.Attachable || !network.Internal || !networkEncryptionAllowed(network.Options, allowUnencryptedNetworkForAcceptance()) {
 		return errors.New(`monitoring control network is not an encrypted, internal, attachable Swarm overlay`)
 	}
 	return nil
-}
-
-func allowUnencryptedMonitoringNetwork() bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv(`UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK`)), `true`)
-}
-
-func monitoringNetworkEncryptionAllowed(options map[string]string, allowUnencrypted bool) bool {
-	return allowUnencrypted || encryptedNetworkOption(options)
-}
-
-func encryptedNetworkOption(options map[string]string) bool {
-	for key, value := range options {
-		if strings.EqualFold(key, `encrypted`) && !strings.EqualFold(strings.TrimSpace(value), `false`) {
-			return true
-		}
-	}
-	return false
 }
 
 func (engine *dockerEngineClient) ensureTypedMonitoringVolume(ctx context.Context) error {
