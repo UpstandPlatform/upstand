@@ -1107,6 +1107,8 @@ jobs:
 
           schedules_status_recovered=false
           for attempt in {1..180}; do
+            # The command is evaluated inside the disposable probe container.
+            # shellcheck disable=SC2016
             if timeout --foreground 15 docker run --rm --network "$DOCKER_NETWORK" \
               --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
               --user 10001:10001 \
@@ -1124,6 +1126,8 @@ jobs:
             exit 1
           }
 
+          # The command is evaluated inside the disposable probe container.
+          # shellcheck disable=SC2016
           run_acceptance_command "collect schedules metrics" \
             docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
