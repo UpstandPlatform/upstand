@@ -204,6 +204,10 @@ grep -Fq 'verify_release_deployment_artifacts' "$ROOT_DIR/install.sh" || {
   echo "installer must centralize release deployment-artifact verification" >&2
   exit 1
 }
+grep -Fq '  attempts=300' "$ROOT_DIR/apps/server/docker-entrypoint.sh" || {
+  echo "server entrypoint must allow a bounded cold-start window for bundled dependencies" >&2
+  exit 1
+}
 
 unlimited_restart_policies="$(grep -c '^        max_attempts: 0$' "$ROOT_DIR/docker-compose.prod.yml")"
 [[ "$unlimited_restart_policies" == 8 ]] || {
