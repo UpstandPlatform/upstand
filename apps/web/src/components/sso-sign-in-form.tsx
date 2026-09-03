@@ -6,6 +6,7 @@ import { Label } from "@upstand/ui/components/label";
 import { useState } from "react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
+import { getSafeAuthRedirect } from "@/lib/auth-redirect";
 
 export function SsoSignInForm({
   disabled = false,
@@ -22,7 +23,7 @@ export function SsoSignInForm({
     try {
       await authClient.signIn.sso({
         email: email.trim() || undefined,
-        callbackURL: `${window.location.origin}${successPath}`,
+        callbackURL: `${window.location.origin}${getSafeAuthRedirect(successPath)}`,
         errorCallbackURL: `${window.location.origin}/login?error=sso`,
       });
     } catch (error) {

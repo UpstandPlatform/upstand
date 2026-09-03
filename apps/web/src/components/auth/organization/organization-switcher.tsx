@@ -12,8 +12,11 @@ import {
 } from "@upstand/ui/components/dropdown-menu";
 import { useSidebar } from "@upstand/ui/components/sidebar";
 import { cn } from "@upstand/ui/lib/utils";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
+import { persistActiveOrganizationId } from "@/lib/organization-bootstrap";
 import { UserAvatar } from "../user/user-avatar";
 import { UserView } from "../user/user-view";
 import { OrganizationLogo } from "./organization-logo";
@@ -33,12 +36,19 @@ export function OrganizationSwitcher({
   sideOffset,
 }: OrganizationSwitcherProps) {
   const { data: session, isPending: sessionPending } = authClient.useSession();
-  const { data: activeOrg, isPending: activeOrgPending } =
-    authClient.useActiveOrganization();
+  const {
+    data: activeOrg,
+    isPending: activeOrgPending,
+    refetch: refetchActiveOrg,
+  } = authClient.useActiveOrganization();
   const { data: organizations, isPending: organizationsPending } =
     authClient.useListOrganizations();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [selectionPendingId, setSelectionPendingId] = useState<string | null>(
+    null,
+  );
+  const router = useRouter();
 
   const isPending =
     sessionPending || (!!session && (organizationsPending || activeOrgPending));
@@ -47,8 +57,30 @@ export function OrganizationSwitcher({
     organizations?.filter((org) => org.id !== activeOrg?.id) ?? [];
 
   const handleSetActive = async (orgId: string) => {
+    if (selectionPendingId) return;
     setDropdownOpen(false);
-    await authClient.organization.setActive({ organizationId: orgId });
+    setSelectionPendingId(orgId);
+    try {
+      const result = await authClient.organization.setActive({
+        organizationId: orgId,
+      });
+      if (result.error) {
+        throw new Error(
+          result.error.message || "Unable to select organization",
+        );
+      }
+      persistActiveOrganizationId(session?.user.id, orgId);
+      await refetchActiveOrg();
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to select organization",
+      );
+    } finally {
+      setSelectionPendingId(null);
+    }
   };
 
   const { state } = useSidebar();
@@ -130,6 +162,7 @@ export function OrganizationSwitcher({
           <DropdownMenuItem
             key={org.id}
             onClick={() => handleSetActive(org.id)}
+            disabled={selectionPendingId !== null}
           >
             <OrganizationView hideRole hideSlug organization={org} />
           </DropdownMenuItem>

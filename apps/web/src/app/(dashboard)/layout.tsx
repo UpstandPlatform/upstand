@@ -74,7 +74,11 @@ import {
   useSystemConfig,
 } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
-import { selectInitialOrganization } from "@/lib/organization-bootstrap";
+import {
+  persistActiveOrganizationId,
+  readPersistedActiveOrganizationId,
+  selectInitialOrganization,
+} from "@/lib/organization-bootstrap";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/utils/trpc";
 
@@ -537,12 +541,19 @@ export function DashboardLayout({
       !activeOrg &&
       !organizationSelectionInFlight.current
     ) {
-      const targetOrg = selectInitialOrganization(organizations);
+      const targetOrg = selectInitialOrganization(
+        organizations,
+        readPersistedActiveOrganizationId(session.user.id),
+      );
       if (!targetOrg) return;
       organizationSelectionInFlight.current = true;
       void authClient.organization
         .setActive({ organizationId: targetOrg.id })
-        .then(() => refetchActiveOrg())
+        .then((result) => {
+          if (result.error) return;
+          persistActiveOrganizationId(session.user.id, targetOrg.id);
+          return refetchActiveOrg();
+        })
         .catch(() => undefined)
         .finally(() => {
           organizationSelectionInFlight.current = false;
