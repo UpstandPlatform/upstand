@@ -5,6 +5,7 @@ import {
   twoFactorClient,
 } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
+import { getTwoFactorRedirectPath } from "@/lib/auth-redirect";
 import { getServerApiUrl } from "@/lib/server-url";
 
 const authClientBaseOptions = {
@@ -29,7 +30,9 @@ export const authClient = createAuthClient({
     passkeyClient(),
     twoFactorClient({
       onTwoFactorRedirect() {
-        window.location.href = "/2fa-verify";
+        window.location.href = getTwoFactorRedirectPath(
+          new URLSearchParams(window.location.search),
+        );
       },
     }),
     ssoClient(),

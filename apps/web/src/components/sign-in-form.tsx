@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import z from "zod";
 import { SYSTEM_CONFIG_QUERY_KEY } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
+import { getSafeAuthRedirect } from "@/lib/auth-redirect";
 import { getUserFacingError } from "@/lib/error-message";
 import { bootstrapInitialOrganization } from "@/lib/organization-bootstrap";
 import { AuthFormField } from "./auth/auth-form-field";
@@ -54,7 +55,7 @@ export default function SignInForm({
             // Imperatively select the active organization before navigating so
             // the dashboard layout sees it immediately without a reload.
             await bootstrapInitialOrganization();
-            router.push(successPath as Route);
+            router.replace(getSafeAuthRedirect(successPath) as Route);
             toast.success("Sign in successful");
           },
           onError: (error) => {

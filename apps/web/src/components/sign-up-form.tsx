@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import z from "zod";
 
 import { authClient } from "@/lib/auth-client";
+import { getSafeAuthRedirect } from "@/lib/auth-redirect";
 import { getUserFacingError } from "@/lib/error-message";
 import { bootstrapInitialOrganization } from "@/lib/organization-bootstrap";
 import { AuthFormField } from "./auth/auth-form-field";
@@ -39,7 +40,7 @@ export default function SignUpForm({
             // protected dashboard after the first-account bootstrap flow.
             await refetchSession();
             await bootstrapInitialOrganization();
-            router.push(successPath as Route);
+            router.replace(getSafeAuthRedirect(successPath) as Route);
             toast.success("Sign up successful");
           },
           onError: (error) => {

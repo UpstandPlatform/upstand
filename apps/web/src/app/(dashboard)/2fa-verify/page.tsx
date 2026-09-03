@@ -20,15 +20,14 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PageBackdrop } from "@/components/marketing/page-backdrop";
 import { authClient } from "@/lib/auth-client";
+import { getSafeAuthRedirect } from "@/lib/auth-redirect";
 import { trpc } from "@/utils/trpc";
 
 export default function TwoFactorVerifyPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedReturnTo = searchParams.get("return_to");
-  const returnTo = requestedReturnTo?.startsWith("/login?cli=upstand")
-    ? requestedReturnTo
-    : "/dashboard";
+  const returnTo = getSafeAuthRedirect(requestedReturnTo);
   const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
@@ -65,7 +64,7 @@ export default function TwoFactorVerifyPage() {
           queryKey: trpc.auth.isSession2faVerified.queryKey(),
         });
         toast.success("Authentication successful!");
-        router.push(returnTo as "/dashboard");
+        router.replace(returnTo as "/dashboard");
       }
     } catch {
       toast.error("Failed to verify code. Please try again.");

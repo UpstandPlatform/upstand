@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SYSTEM_CONFIG_QUERY_KEY } from "@/hooks/use-system-config";
 import { authClient } from "@/lib/auth-client";
+import { getSafeAuthRedirect } from "@/lib/auth-redirect";
 import { getUserFacingError } from "@/lib/error-message";
 import { bootstrapInitialOrganization } from "@/lib/organization-bootstrap";
 import { isPasskeySupported } from "@/lib/passkey";
@@ -54,7 +55,7 @@ export function PasskeySignInButton({
         queryKey: SYSTEM_CONFIG_QUERY_KEY,
       });
       await bootstrapInitialOrganization();
-      router.push(successPath as Route);
+      router.replace(getSafeAuthRedirect(successPath) as Route);
       toast.success("Sign in successful");
     } catch (error) {
       toast.error(getUserFacingError(error, "Unable to sign in with passkey"));
