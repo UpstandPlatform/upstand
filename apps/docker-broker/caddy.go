@@ -461,19 +461,10 @@ func (engine *dockerEngineClient) ensureTypedCaddyNetwork(ctx context.Context, n
 	if err := json.Unmarshal(body, &network); err != nil {
 		return ``, fmt.Errorf(`invalid Caddy network inspection: %w`, err)
 	}
-	if network.ID == `` || network.Name != name || network.Driver != `overlay` || network.Scope != `swarm` || !network.Attachable || !hasEncryptedNetworkOption(network.Options) {
+	if network.ID == `` || network.Name != name || network.Driver != `overlay` || network.Scope != `swarm` || !network.Attachable || !networkEncryptionAllowed(network.Options, allowUnencryptedNetworkForAcceptance()) {
 		return ``, errors.New(`Caddy network is not an encrypted attachable Swarm overlay`)
 	}
 	return network.ID, nil
-}
-
-func hasEncryptedNetworkOption(options map[string]string) bool {
-	for key := range options {
-		if strings.EqualFold(key, `encrypted`) {
-			return true
-		}
-	}
-	return false
 }
 
 func (engine *dockerEngineClient) ensureTypedCaddyVolume(ctx context.Context, name string) error {

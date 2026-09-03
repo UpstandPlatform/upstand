@@ -181,3 +181,12 @@
     min-height: calc(100svh - var(--titlebar-h));
   }
 }
+
+/* Sonner's rich error palette is too light for WCAG AA at body-sized text. */
+.cn-toast[data-type="error"] {
+  --error-text: #991b1b !important;
+}
+
+.dark .cn-toast[data-type="error"] {
+  --error-text: #fecaca !important;
+}
