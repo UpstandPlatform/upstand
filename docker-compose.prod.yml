@@ -278,6 +278,11 @@ services:
 
   server:
     image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
+    ports:
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: ingress
     init: true
     stop_grace_period: 5m
     read_only: true
@@ -732,6 +737,11 @@ services:
 
   web:
     image: ${UPSTAND_WEB_IMAGE:?UPSTAND_WEB_IMAGE is required}
+    ports:
+      - target: 3001
+        published: 3001
+        protocol: tcp
+        mode: ingress
     stop_grace_period: 1m
     read_only: true
     security_opt:
@@ -803,6 +813,11 @@ services:
 
   fumadocs:
     image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
+    ports:
+      - target: 4000
+        published: 4000
+        protocol: tcp
+        mode: ingress
     stop_grace_period: 1m
     read_only: true
     security_opt:
