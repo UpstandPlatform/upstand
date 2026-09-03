@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.9.0 - 2026-09-03
+
+Allow the disposable production acceptance environment to use its explicit unencrypted Swarm capability override for broker-managed Caddy networks while keeping encrypted overlays mandatory by default.
+
+
 ## 0.8.0 - 2026-09-02
 
 Keep Caddy and monitoring initialization retrying until transient dependency outages recover, so the control plane cannot remain permanently unready after startup.
