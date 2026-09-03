@@ -1,5 +1,11 @@
 # web
 
+## 0.11.0
+
+### Minor Changes
+
+- [#465](https://github.com/UpstandPlatform/upstand/pull/465) [`f69d255`](https://github.com/UpstandPlatform/upstand/commit/f69d255705fec91a80940870098cca7d52a1f048) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden frontend authentication redirects, preserve the requested workspace route through MFA and SSO, and persist active organization selection per user.
+
 ## 0.10.0
 
 ## 0.9.0
