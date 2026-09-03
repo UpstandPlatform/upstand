@@ -711,6 +711,36 @@ jobs:
           # overlays. This explicit application-level override is passed only
           # to this disposable stack; normal production defaults remain strict.
           export UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true
+          acceptance_command_timeout_seconds=180
+          acceptance_phase() {
+            echo "acceptance phase: $1"
+          }
+          acceptance_service_diagnostics() {
+            local service service_name
+            for service in "$@"; do
+              service_name="${STACK_NAME}_${service}"
+              if docker service inspect "$service_name" >/dev/null 2>&1; then
+                docker service inspect "$service_name" \
+                  --format 'service={{.Spec.Name}} update={{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}none{{end}} message={{if .UpdateStatus}}{{.UpdateStatus.Message}}{{else}}none{{end}}' \
+                  || true
+                docker service ps "$service_name" --no-trunc || true
+              else
+                echo "acceptance diagnostics: service $service_name is absent"
+              fi
+            done
+          }
+          run_acceptance_command() {
+            local label="$1"
+            shift
+            acceptance_phase "$label"
+            if timeout --foreground "$acceptance_command_timeout_seconds" "$@"; then
+              return 0
+            fi
+            local status=$?
+            echo "acceptance phase failed: $label (exit=$status)" >&2
+            acceptance_service_diagnostics migrate server schedules deployment-worker
+            return "$status"
+          }
           case "$ACCEPTANCE_PROFILE" in
             smoke|full) ;;
             *)
@@ -1040,25 +1070,27 @@ jobs:
           # The disposable external Postgres fixture has no persistent volume.
           # Restoring its task therefore restores an empty database, so rerun
           # the real migration service before asserting database-backed status.
-          docker service update --replicas 0 "${STACK_NAME}_migrate" >/dev/null
-          docker service update --replicas 1 "${STACK_NAME}_migrate" >/dev/null
+          run_acceptance_command "reset migration service" \
+            docker service update --replicas 0 "${STACK_NAME}_migrate"
+          run_acceptance_command "rerun migration service" \
+            docker service update --replicas 1 "${STACK_NAME}_migrate"
           migration_completed=false
           for attempt in {1..60}; do
-            migration_state="$(docker service ps "${STACK_NAME}_migrate" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
+            migration_state="$(timeout --foreground 15 docker service ps "${STACK_NAME}_migrate" --no-trunc --format '{{.CurrentState}}' | head -n 1 || true)"
             if [[ "$migration_state" == Complete\ * ]]; then
               migration_completed=true
               break
             fi
             if [[ "$migration_state" == Failed\ * || "$migration_state" == Rejected\ * ]]; then
               echo "Migration task failed after external Postgres restoration: $migration_state" >&2
-              docker service ps "${STACK_NAME}_migrate" --no-trunc >&2 || true
+              acceptance_service_diagnostics migrate
               exit 1
             fi
             sleep 2
           done
           [[ "$migration_completed" == true ]] || {
             echo "Migration task did not complete after external Postgres restoration" >&2
-            docker service ps "${STACK_NAME}_migrate" --no-trunc >&2 || true
+            acceptance_service_diagnostics migrate
             exit 1
           }
 
@@ -1067,14 +1099,15 @@ jobs:
           # Postgres task. Roll the database-backed services so they establish
           # fresh pools before the recovery assertions run.
           for service in server schedules deployment-worker; do
-            timeout --foreground 300 docker service update \
-              --force --update-parallelism 2 --detach=false \
-              "${STACK_NAME}_${service}" >/dev/null
+            run_acceptance_command "restart $service after migration" \
+              docker service update \
+                --force --update-parallelism 2 --detach=false \
+                "${STACK_NAME}_${service}"
           done
 
           schedules_status_recovered=false
           for attempt in {1..180}; do
-            if docker run --rm --network "$DOCKER_NETWORK" \
+            if timeout --foreground 15 docker run --rm --network "$DOCKER_NETWORK" \
               --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
               --user 10001:10001 \
               --entrypoint /bin/sh \
@@ -1091,7 +1124,8 @@ jobs:
             exit 1
           }
 
-          docker run --rm --network "$DOCKER_NETWORK" \
+          run_acceptance_command "collect schedules metrics" \
+            docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
             --tmpfs /home/upstand:rw,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700 \
             --user 10001:10001 \
@@ -1101,7 +1135,8 @@ jobs:
             sh "${STACK_NAME}_schedules" \
             | tee "$ACCEPTANCE_EVIDENCE_DIR/schedules-metrics.txt"
 
-          docker run --rm --network "$DOCKER_NETWORK" \
+          run_acceptance_command "run operational status rehearsal" \
+            docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev \
             --tmpfs /home/upstand:rw,nosuid,nodev,size=16m,uid=10001,gid=0,mode=0700 \
             --user 10001:10001 \
@@ -1119,7 +1154,8 @@ jobs:
             "http://${STACK_NAME}_server:3000" \
             "http://${STACK_NAME}_schedules:3002"
 
-          docker run --rm --network "$DOCKER_NETWORK" \
+          run_acceptance_command "run baseline health load rehearsal" \
+            docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
             --user 10001:10001 \
             --entrypoint /bin/sh \
@@ -1137,20 +1173,23 @@ jobs:
           # target SLOs before selecting production replica and pool budgets.
           for profile in "100 10" "1000 25" "10000 50"; do
             read -r requests concurrency <<< "$profile"
-            docker run --rm --network "$DOCKER_NETWORK" \
+            run_acceptance_command "run health load profile $requests requests" \
+              docker run --rm --network "$DOCKER_NETWORK" \
               --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
               --user 10001:10001 \
               --entrypoint /bin/sh \
               --volume "${GITHUB_WORKSPACE}/scripts/health-load-rehearsal.sh:/tmp/health-load-rehearsal.sh:ro" \
               --env HEALTH_LOAD_REQUESTS="$requests" \
               --env HEALTH_LOAD_CONCURRENCY="$concurrency" \
+              --env HEALTH_LOAD_REQUEST_TIMEOUT_SECONDS=2 \
               --env HEALTH_LOAD_MAX_FAILURES=0 \
               "$HEALTH_LOAD_IMAGE" \
               /tmp/health-load-rehearsal.sh "http://${STACK_NAME}_server:3000" \
               2>&1 | tee "$ACCEPTANCE_EVIDENCE_DIR/health-load-${requests}.txt"
           done
 
-          docker run --rm --network "$DOCKER_NETWORK" \
+          run_acceptance_command "run health soak rehearsal" \
+            docker run --rm --network "$DOCKER_NETWORK" \
             --cap-drop ALL --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec \
             --user 10001:10001 \
             --entrypoint /bin/sh \
