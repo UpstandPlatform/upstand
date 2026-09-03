@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.11.0 - 2026-09-03
+
+Harden frontend authentication redirects, preserve the requested workspace route through MFA and SSO, and persist active organization selection per user.
+
+
 ## 0.10.0 - 2026-09-03
 
 Bound the full production acceptance rehearsal's Swarm operations and health

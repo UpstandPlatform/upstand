@@ -20,10 +20,8 @@ import SignInForm from "@/components/sign-in-form";
 import SignUpForm from "@/components/sign-up-form";
 import { SsoSignInForm } from "@/components/sso-sign-in-form";
 import { authClient } from "@/lib/auth-client";
-import {
-  cliAuthorizationPath,
-  cliUserCodeFromSearchParams,
-} from "@/lib/cli-authorization";
+import { getLoginSuccessPath } from "@/lib/auth-redirect";
+import { cliUserCodeFromSearchParams } from "@/lib/cli-authorization";
 import { getServerApiUrl } from "@/lib/server-url";
 
 const GoogleIcon = () => (
@@ -51,7 +49,7 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const cliUserCode = cliUserCodeFromSearchParams(searchParams);
-  const cliPath = cliUserCode ? cliAuthorizationPath(cliUserCode) : "/login";
+  const successPath = getLoginSuccessPath(searchParams);
   const [loading, setLoading] = useState(false);
   const [needsOwnerSetup, setNeedsOwnerSetup] = useState<boolean | null>(null);
   const [setupError, setSetupError] = useState(false);
@@ -68,6 +66,11 @@ function LoginPageContent() {
     error: sessionError,
     refetch,
   } = authClient.useSession();
+
+  useEffect(() => {
+    if (sessionPending || !session || cliUserCode) return;
+    router.replace(successPath as "/dashboard");
+  }, [cliUserCode, router, session, sessionPending, successPath]);
 
   useEffect(() => {
     if (!sessionPending) {
@@ -137,25 +140,12 @@ function LoginPageContent() {
     try {
       await authClient.signIn.social({
         provider: "google",
-        callbackURL: `${window.location.origin}${cliPath}`,
+        callbackURL: `${window.location.origin}${successPath}`,
       });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to sign in with Google",
       );
-      setLoading(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    setLoading(true);
-    try {
-      await authClient.signOut();
-      toast.success("Signed out successfully");
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sign out");
-    } finally {
       setLoading(false);
     }
   };
@@ -224,43 +214,11 @@ function LoginPageContent() {
           ) : session && cliUserCode ? (
             <CliAuthorizePanel userCode={cliUserCode} />
           ) : session ? (
-            <div className="space-y-6">
-              <div className="space-y-2 text-center">
-                <h1 className="font-extrabold text-3xl tracking-tight">
-                  Already signed in
-                </h1>
-                <p className="text-muted-foreground text-sm">
-                  You are currently logged in as{" "}
-                  <span className="font-semibold text-foreground">
-                    {session.user.name || session.user.email}
-                  </span>
-                </p>
-              </div>
-
-              <div className="space-y-3 pt-2">
-                {/* render prop replaces manually-styled <Link> */}
-                <Button
-                  size="lg"
-                  className="w-full font-semibold"
-                  nativeButton={false}
-                  render={<Link href="/dashboard" />}
-                >
-                  Go to Dashboard
-                  <HugeiconsIcon
-                    icon={ArrowRight01Icon}
-                    className="ml-2 size-4"
-                  />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={handleSignOut}
-                  disabled={loading}
-                  className="w-full font-semibold hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
-                >
-                  {loading ? <Spinner className="mr-2" /> : "Sign Out"}
-                </Button>
-              </div>
+            <div className="flex flex-col items-center justify-center space-y-4 py-12">
+              <Spinner />
+              <p className="text-muted-foreground text-sm">
+                Redirecting to your workspace…
+              </p>
             </div>
           ) : setupError ? (
             <div className="space-y-5 py-6 text-center" aria-live="polite">
@@ -317,7 +275,7 @@ function LoginPageContent() {
               <div className="space-y-5">
                 {isSignUp ? (
                   <SignUpForm
-                    successPath={cliUserCode ? cliPath : "/dashboard"}
+                    successPath={successPath}
                     onSwitchToSignIn={
                       isCloud && !needsOwnerSetup
                         ? () => setAuthMode("signin")
@@ -326,18 +284,14 @@ function LoginPageContent() {
                   />
                 ) : (
                   <SignInForm
-                    successPath={cliUserCode ? cliPath : "/dashboard"}
+                    successPath={successPath}
                     onSwitchToSignUp={
                       isCloud ? () => setAuthMode("signup") : undefined
                     }
                   />
                 )}
 
-                {!isSignUp && (
-                  <PasskeySignInButton
-                    successPath={cliUserCode ? cliPath : "/dashboard"}
-                  />
-                )}
+                {!isSignUp && <PasskeySignInButton successPath={successPath} />}
 
                 {googleEnabled && (
                   <Button
@@ -356,7 +310,7 @@ function LoginPageContent() {
                     )}
                   </Button>
                 )}
-                {!isSignUp && <SsoSignInForm successPath={cliPath} />}
+                {!isSignUp && <SsoSignInForm successPath={successPath} />}
               </div>
             </>
           )}
