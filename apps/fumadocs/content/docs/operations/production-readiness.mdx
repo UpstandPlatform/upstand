@@ -14,7 +14,12 @@ Before deploying a release:
    monitoring images. CI builds every production image on pull requests.
 2. Provide independent secrets for PostgreSQL, Redis, Better Auth, and
    encryption. Never reuse development values or commit `.env` files.
-3. Set `BETTER_AUTH_URL`, `CORS_ORIGIN`, `UPSTAND_MIGRATION_ID`, and the
+3. Confirm the installer host preflight passes with at least 2 vCPUs, 4 GiB RAM,
+   and 30 GiB free Docker storage. The installer stops before deployment when a
+   measured resource is below that production minimum; the explicit
+   `UPSTAND_ALLOW_UNDERSIZED_HOST=true` override is limited to non-production
+   test or recovery attempts and is not a readiness approval.
+4. Set `BETTER_AUTH_URL`, `CORS_ORIGIN`, `UPSTAND_MIGRATION_ID`, and the
    internal schedules URL for the target installation. Set
    `UPSTAND_OUTBOUND_ALLOWED_HOSTS` only for explicitly approved private
    notification, object-storage, or forward-auth hosts. Use the corresponding
