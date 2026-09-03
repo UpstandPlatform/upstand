@@ -5,10 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/url"
-	"os"
 	"os/exec"
-	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,10 +37,6 @@ func (cm *ContainerMonitor) Start() error {
 	if err := LoadConfig(); err != nil {
 		return fmt.Errorf("error loading config: %v", err)
 	}
-	if !dockerTransportAvailable(os.Getenv("DOCKER_HOST"), fileExists) {
-		log.Printf("Container metrics collection disabled: no usable Docker transport is configured")
-		return nil
-	}
 
 	metricsConfig := config.GetMetricsConfig()
 	refreshRate := metricsConfig.Containers.RefreshRate
@@ -71,50 +64,6 @@ func (cm *ContainerMonitor) Start() error {
 	}()
 
 	return nil
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// dockerTransportAvailable prevents an agent from retrying docker stats forever
-// when it was intentionally deployed without a socket or broker credentials.
-// Remote agents normally use the Unix socket; brokered local agents must have
-// the complete client certificate set before an HTTPS endpoint is considered
-// usable.
-func dockerTransportAvailable(host string, exists func(string) bool) bool {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return exists("/var/run/docker.sock")
-	}
-
-	parsed, err := url.Parse(host)
-	if err != nil {
-		return false
-	}
-	switch parsed.Scheme {
-	case "unix":
-		path := parsed.Path
-		if path == "" {
-			path = "/var/run/docker.sock"
-		}
-		return exists(path)
-	case "npipe":
-		return true
-	case "tcp":
-		return true
-	case "https":
-		certPath := strings.TrimSpace(os.Getenv("DOCKER_CERT_PATH"))
-		if certPath == "" {
-			return false
-		}
-		return exists(path.Join(certPath, "ca.pem")) &&
-			exists(path.Join(certPath, "cert.pem")) &&
-			exists(path.Join(certPath, "key.pem"))
-	default:
-		return false
-	}
 }
 
 func (cm *ContainerMonitor) Stop() {

@@ -3,11 +3,7 @@ title: Remote Servers & Docker Swarm Clusters
 description: Learn how to manage external Docker hosts over SSH and cluster them with Docker Swarm.
 ---
 
-Upstand distinguishes between two deployment topologies: **Remote Servers**
-(isolated Docker daemons managed over verified SSH) and **Swarm Nodes** (nodes
-joined to the control-plane Swarm). The local control plane uses its typed,
-mTLS-authenticated Docker broker; remote-server provisioning uses SSH to reach
-the target daemon. These are separate trust boundaries.
+Upstand distinguishes between two deployment topologies: **Remote Servers** (isolated Docker daemons managed over SSH) and **Swarm Nodes** (nodes joined to the central control-plane cluster).
 
 ---
 
@@ -18,11 +14,9 @@ flowchart TD
     subgraph ControlPlane["Upstand Control Plane Cluster"]
         Manager1["Swarm Leader (Manager 1)"]
         Manager2["Swarm Manager 2"]
-        Broker["Constrained Docker Broker"]
         Raft[("Raft Consensus State")]
         Manager1 <-->|2377 / Raft| Manager2
         Manager1 <--> Raft
-        Manager1 -->|mTLS Docker API| Broker
     end
 
     subgraph SwarmWorkers["Managed Swarm Workers"]
@@ -35,8 +29,8 @@ flowchart TD
     subgraph RemoteHosts["Isolated Remote Docker Servers"]
         Remote1["Remote Host 1 (Production US)"]
         Remote2["Remote Host 2 (Staging EU)"]
-        Manager1 -->|Verified SSH channel| Remote1
-        Manager1 -->|Verified SSH channel| Remote2
+        Manager1 -->|Ephemeral SSH / ssh://| Remote1
+        Manager1 -->|Ephemeral SSH / ssh://| Remote2
     end
 ```
 
@@ -50,7 +44,7 @@ graph LR
         CaddyProxy["Caddy Application Proxy Container"]
     end
 
-    subgraph OverlayNet["upstand-network (Encrypted VXLAN)"]
+    subgraph OverlayNet["upstand-overlay Network (Encrypted VXLAN)"]
         AppSvc1["Application Service Replica 1"]
         AppSvc2["Application Service Replica 2"]
         DbSvc["Database Service (Postgres/Redis)"]
@@ -100,10 +94,9 @@ Follow these steps to connect and provision a new remote Docker host:
     Upstand runs an automated provisioning playbook:
     - Verifies SSH connectivity.
     - Installs the latest stable Docker Engine if missing.
-    - Initializes a single-node Swarm manager when the target is being used as a Swarm host.
-    - Creates the attachable encrypted `upstand-network` overlay when the target is a managed Swarm host.
-    - Installs the monitoring agent using the target host's Docker access.
-    - Configures routing only when the target's server role requires Caddy.
+    - Initializes a single-node Swarm manager.
+    - Creates the attachable `upstand-network` overlay network.
+    - Spawns Caddy to handle routing on the remote server.
   </Step>
 </Steps>
 

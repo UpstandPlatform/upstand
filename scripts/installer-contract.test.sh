@@ -75,6 +75,10 @@ grep -Fq 'ensure_docker_broker_mtls' "$ROOT_DIR/install.sh" || {
   echo "installer must generate and persist the Docker broker mTLS identity" >&2
   exit 1
 }
+grep -Fq 'timeout 120 docker service create' "$ROOT_DIR/install.sh" || {
+  echo "installer must bound the encrypted-network probe Docker client" >&2
+  exit 1
+}
 for required_text in \
   'validate_docker_broker_mtls_files' \
   'openssl verify -purpose sslserver' \
@@ -132,6 +136,26 @@ grep -Fq 'verify_release_deployment_artifacts \' "$ROOT_DIR/install.sh" || {
   echo "installer must verify the downloaded Compose file against the release manifest" >&2
   exit 1
 }
+for required_text in \
+  'DATABASE_URL="postgresql://upstand:${POSTGRES_PASSWORD}@postgres:5432/upstand"' \
+  'REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"'; do
+  grep -Fq "$required_text" "$ROOT_DIR/install.sh" || {
+    echo "bundled installs must provision non-empty in-network data URLs: $required_text" >&2
+    exit 1
+  }
+done
+for required_text in 'published: 3000' 'published: 3001' 'published: 4000'; do
+  grep -Fq "$required_text" "$ROOT_DIR/docker-compose.prod.yml" || {
+    echo "production Compose must publish the direct control-plane port: $required_text" >&2
+    exit 1
+  }
+done
+for required_text in 'endpoint_mode: vip'; do
+  [[ "$(grep -Fc "$required_text" "$ROOT_DIR/docker-compose.prod.yml")" == 3 ]] || {
+    echo "public control-plane services must use Swarm VIP routing with ingress ports" >&2
+    exit 1
+  }
+done
 grep -Fq 'verify_release_artifact_hash "$stack_file" dockerComposeProdSha256' "$ROOT_DIR/install.sh" || {
   echo "installer must verify the downloaded acceptance script against the release manifest" >&2
   exit 1
@@ -178,6 +202,10 @@ grep -Fq 'release_manifest_has_artifact_hashes' "$ROOT_DIR/install.sh" || {
 }
 grep -Fq 'verify_release_deployment_artifacts' "$ROOT_DIR/install.sh" || {
   echo "installer must centralize release deployment-artifact verification" >&2
+  exit 1
+}
+grep -Fq '  attempts=300' "$ROOT_DIR/apps/server/docker-entrypoint.sh" || {
+  echo "server entrypoint must allow a bounded cold-start window for bundled dependencies" >&2
   exit 1
 }
 

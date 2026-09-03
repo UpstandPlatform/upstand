@@ -46,6 +46,16 @@ describe("authentication origin configuration", () => {
     expect(auth.options.plugins?.map((plugin) => plugin.id)).toContain(
       "passkey",
     );
+
+    expect(auth.options.account?.additionalFields?.issuer).toMatchObject({
+      type: "string",
+      required: true,
+      defaultValue: "local:credential",
+    });
+    expect(auth.options.account?.indexes).toContainEqual({
+      fields: ["issuer", "accountId"],
+      unique: true,
+    });
   });
 
   test("classifies only non-public direct addresses as private bootstrap targets", () => {

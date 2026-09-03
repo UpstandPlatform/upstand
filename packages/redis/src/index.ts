@@ -183,14 +183,6 @@ export async function pingRedis(
     ]);
     return result === "PONG";
   } catch (error) {
-    // A connection can remain in ioredis's `ready` state after a network
-    // failure if the socket becomes a zombie and never emits `close`. Reset
-    // it so the next health check can use a fresh connection after the
-    // dependency recovers. Passing true preserves ioredis's automatic retry
-    // behavior instead of marking the client as manually closed.
-    if (instance.status === "ready") {
-      instance.disconnect(true);
-    }
     const errMsg = error instanceof Error ? error.message : String(error);
     log.error("redis-health", `Redis ping failed: ${errMsg}`);
     return false;

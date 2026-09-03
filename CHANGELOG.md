@@ -4,6 +4,18 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.12.0 - 2026-09-03
+
+Fix bundled production installs failing when Swarm rejects empty PostgreSQL and Redis URL secrets.
+
+Fix Better Auth 1.7 account issuer schema generation and migrate legacy account
+rows safely so initial sign-up, passkey listing, and passkey registration work
+after upgrading from earlier releases.
+
+Allow the server and migration containers a bounded cold-start window while
+bundled PostgreSQL and Redis services become reachable in a Swarm deployment.
+
+
 ## 0.11.0 - 2026-09-03
 
 Harden frontend authentication redirects, preserve the requested workspace route through MFA and SSO, and persist active organization selection per user.
