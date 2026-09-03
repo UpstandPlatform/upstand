@@ -41,9 +41,8 @@ flowchart TD
         Host1["Manager Node (Caddy + Swarm)"]
         Host2["Worker Node (Container Workloads)"]
         Host3["Remote Server (SSH Isolated Host)"]
-        DeployWorker -->|mTLS typed Docker API| Broker
-        Broker["Constrained Docker Broker\n(host socket only)"] --> Host1
-        Broker -->|Swarm API| Host2
+        DeployWorker -->|Docker Socket| Host1
+        DeployWorker -->|Docker Overlay| Host2
         DeployWorker -->|SSH Connection| Host3
     end
 ```
@@ -60,11 +59,7 @@ Use **Infrastructure → Remote Servers** to add a host with a name, SSH address
 - **Build**: Docker build capacity and monitoring.
 - **Database**: Swarm database capacity and monitoring.
 
-The wizard saves connection details, runs setup, and reports status. Remote
-server provisioning uses verified SSH and installs the monitoring agent with
-the target host's Docker access. Removing a server registration does not
-delete workloads already present on the host; it removes the server from
-Upstand's organization inventory.
+The wizard saves connection details, runs setup, and reports status. Removing a server registration does not delete workloads already present on the host; it removes the server from Upstand's organization inventory.
 
 ## Swarm operations
 
@@ -85,13 +80,7 @@ Daily Docker cleanup is configurable from the Web Server page. Cleanup affects u
 
 ## Monitoring agent
 
-Monitoring is installed according to server role. The dashboard can read
-current Docker/server state and bounded historical CPU, memory, disk, network,
-load, and application/container metrics when the selected target exposes that
-capability. Local control-plane Docker access is brokered; remote monitoring
-access is tunneled over the verified SSH connection. A monitoring failure
-should be investigated separately from a workload failure: the absence of a
-metric does not prove the workload is down.
+Monitoring is installed according to server role. The dashboard can read current Docker/server state and bounded historical CPU, memory, disk, network, load, and application/container metrics when available. A monitoring failure should be investigated separately from a workload failure: the absence of a metric does not prove the workload is down.
 
 ## Control-plane maintenance
 

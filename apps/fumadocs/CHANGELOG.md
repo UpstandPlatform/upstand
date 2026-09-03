@@ -1,5 +1,13 @@
 # fumadocs
 
+## 0.12.0
+
+### Patch Changes
+
+- [#470](https://github.com/UpstandPlatform/upstand/pull/470) [`58a98f1`](https://github.com/UpstandPlatform/upstand/commit/58a98f18acb361c27afbeedf54804f8c03481190) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix Better Auth 1.7 account issuer schema generation and migrate legacy account
+  rows safely so initial sign-up, passkey listing, and passkey registration work
+  after upgrading from earlier releases.
+
 ## 0.11.0
 
 ## 0.10.0

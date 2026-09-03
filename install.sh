@@ -291,7 +291,7 @@ require_digest_image() {
 }
 
 ensure_host_dependencies() {
-  local required_commands=(awk curl df git grep ip openssl)
+  local required_commands=(awk curl df git grep ip openssl timeout)
   local missing=false
   local command_name
 
@@ -653,9 +653,14 @@ ensure_swarm() {
 validate_swarm_network_runtime() {
   local probe_name="upstand-network-probe-${RANDOM}-${RANDOM}"
   local probe_image="${UPSTAND_SERVER_IMAGE:-}"
+  local create_status=0
   [[ -n "$probe_image" ]] || fail "cannot validate the encrypted network before resolving the server image"
 
-  docker service create \
+  # Some Docker/Swarm CLI versions keep the client process open after a
+  # successful one-shot task completes. Bound the client and accept that
+  # result only after re-checking the task state, so the installer cannot hang
+  # indefinitely or mistake a failed probe for a usable network.
+  timeout 120 docker service create \
     --name "$probe_name" \
     --network "$NETWORK_NAME" \
     --network "$CONTROL_NETWORK_NAME" \
@@ -665,7 +670,17 @@ validate_swarm_network_runtime() {
     --restart-condition none \
     --with-registry-auth \
     "$probe_image" >/dev/null \
-    || fail "Docker could not create the encrypted-network runtime probe"
+    || create_status=$?
+
+  if ((create_status != 0)); then
+    local create_state
+    create_state="$(docker service ps "$probe_name" --no-trunc --format '{{.CurrentState}}' 2>/dev/null | head -n1 || true)"
+    if [[ "$create_state" != Complete* ]]; then
+      docker service ps "$probe_name" --no-trunc >&2 || true
+      docker service rm "$probe_name" >/dev/null 2>&1 || true
+      fail "Docker could not create the encrypted-network runtime probe: ${create_state:-client timed out}"
+    fi
+  fi
 
   local state
   for _ in {1..120}; do
@@ -1032,6 +1047,13 @@ write_environment() {
   DOCKER_BROKER_SCOPE_SECRET="${DOCKER_BROKER_SCOPE_SECRET:-$(openssl rand -hex 32)}"
   METRICS_TOKEN="${METRICS_TOKEN:-$(openssl rand -hex 32)}"
   ENCRYPTION_KEY_V1="${ENCRYPTION_KEY_V1:-${SSH_KEY_ENCRYPTION_KEY_V1:-$(openssl rand -base64 32 | tr -d '\n')}}"
+  if [[ -z "$DATABASE_URL" ]]; then
+    # Swarm rejects zero-byte secrets. Bundled services still consume the URL
+    # files through the same entrypoints as external data services, so write
+    # the in-network defaults instead of leaving those files empty.
+    DATABASE_URL="postgresql://upstand:${POSTGRES_PASSWORD}@postgres:5432/upstand"
+    REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"
+  fi
   ensure_docker_broker_mtls
   printf '%s' "$POSTGRES_PASSWORD" >"$INSTALL_DIR/secrets/postgres_password"
   printf '%s' "$REDIS_PASSWORD" >"$INSTALL_DIR/secrets/redis_password"

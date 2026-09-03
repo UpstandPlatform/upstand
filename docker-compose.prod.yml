@@ -278,6 +278,11 @@ services:
 
   server:
     image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
+    ports:
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: ingress
     init: true
     stop_grace_period: 5m
     read_only: true
@@ -409,7 +414,7 @@ services:
       start_period: 30s
     deploy:
       replicas: ${UPSTAND_SERVER_REPLICAS:-1}
-      endpoint_mode: dnsrr
+      endpoint_mode: vip
       placement:
         constraints:
           - node.labels.upstand.control-plane == true
@@ -732,6 +737,11 @@ services:
 
   web:
     image: ${UPSTAND_WEB_IMAGE:?UPSTAND_WEB_IMAGE is required}
+    ports:
+      - target: 3001
+        published: 3001
+        protocol: tcp
+        mode: ingress
     stop_grace_period: 1m
     read_only: true
     security_opt:
@@ -764,7 +774,7 @@ services:
       start_period: 30s
     deploy:
       replicas: ${UPSTAND_WEB_REPLICAS:-1}
-      endpoint_mode: dnsrr
+      endpoint_mode: vip
       placement:
         constraints:
           - node.labels.upstand.control-plane == true
@@ -803,6 +813,11 @@ services:
 
   fumadocs:
     image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
+    ports:
+      - target: 4000
+        published: 4000
+        protocol: tcp
+        mode: ingress
     stop_grace_period: 1m
     read_only: true
     security_opt:
@@ -836,7 +851,7 @@ services:
       start_period: 30s
     deploy:
       replicas: ${UPSTAND_FUMADOCS_REPLICAS:-1}
-      endpoint_mode: dnsrr
+      endpoint_mode: vip
       placement:
         constraints:
           - node.labels.upstand.control-plane == true
