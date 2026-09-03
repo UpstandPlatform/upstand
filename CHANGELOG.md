@@ -4,6 +4,13 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.10.0 - 2026-09-03
+
+Bound the full production acceptance rehearsal's Swarm operations and health
+load probes so failed recovery phases terminate with actionable diagnostics
+instead of exhausting the GitHub Actions job timeout.
+
+
 ## 0.9.0 - 2026-09-03
 
 Allow the disposable production acceptance environment to use its explicit unencrypted Swarm capability override for broker-managed Caddy networks while keeping encrypted overlays mandatory by default.
