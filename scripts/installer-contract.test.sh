@@ -112,6 +112,10 @@ grep -Fq 'write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION' "$ROOT_DIR/i
   echo "installer must persist the explicit unobserved-production acknowledgement" >&2
   exit 1
 }
+grep -Fq 'UPSTAND_ALLOW_UNDERSIZED_HOST' "$ROOT_DIR/install.sh" || {
+  echo "installer must require an explicit override for undersized hosts" >&2
+  exit 1
+}
 grep -Fq 'validate_disaster_recovery_plan' "$ROOT_DIR/install.sh" || {
   echo "installer must enforce an explicit disaster-recovery readiness attestation" >&2
   exit 1
@@ -282,6 +286,25 @@ run_replica_validation true 2 1 2 2 1 0 0
 expect_replica_rejection false 1 1 1 1 1 1 2
 expect_replica_rejection false 0 1 1 1 1 1 1
 expect_replica_rejection true 2 1 2 2 1 1 0
+
+if (
+  UPSTAND_ALLOW_UNDERSIZED_HOST=false
+  validate_host_resource_thresholds 1 1 1
+); then
+  echo "undersized host unexpectedly passed without an explicit override" >&2
+  exit 1
+fi
+(
+  UPSTAND_ALLOW_UNDERSIZED_HOST=true
+  validate_host_resource_thresholds 1 1 1
+)
+if (
+  UPSTAND_ALLOW_UNDERSIZED_HOST=invalid
+  validate_host_resource_thresholds 2 "$RECOMMENDED_MEMORY_BYTES" "$RECOMMENDED_DISK_BYTES"
+); then
+  echo "invalid undersized-host override unexpectedly passed" >&2
+  exit 1
+fi
 
 (
   UPSTAND_DR_OFFSITE_CONFIRMED=true
