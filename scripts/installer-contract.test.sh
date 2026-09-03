@@ -75,6 +75,10 @@ grep -Fq 'ensure_docker_broker_mtls' "$ROOT_DIR/install.sh" || {
   echo "installer must generate and persist the Docker broker mTLS identity" >&2
   exit 1
 }
+grep -Fq 'timeout 120 docker service create' "$ROOT_DIR/install.sh" || {
+  echo "installer must bound the encrypted-network probe Docker client" >&2
+  exit 1
+}
 for required_text in \
   'validate_docker_broker_mtls_files' \
   'openssl verify -purpose sslserver' \
