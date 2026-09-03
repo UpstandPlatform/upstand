@@ -35,7 +35,11 @@ fi
 wait_for_tcp() {
   host="$1"
   port="$2"
-  attempts=60
+  # Swarm may schedule the migration task before the bundled database gets
+  # enough CPU or memory to begin accepting connections. Keep the dependency
+  # gate aligned with the installer’s ten-minute convergence window so a
+  # transient cold start does not strand an otherwise recoverable deployment.
+  attempts=300
   attempt=1
 
   while ! python3 - "$host" "$port" <<'PY'

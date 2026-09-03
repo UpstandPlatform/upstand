@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   MigrationPreconditionError,
   migrateDatabase,
+  normalizeLegacyAccountIssuers,
   pool,
   validateMigrationPreconditions,
 } from "@upstand/db";
@@ -25,6 +26,12 @@ export async function runDatabaseMigrations(options?: {
   delayMs?: number;
   migrationsFolder?: string;
 }): Promise<void> {
+  // Local desktop uses PGlite, which runs its own migrator while the database
+  // is created. There is no PostgreSQL pool or Redis dependency to preflight
+  // in this mode; running the server migration path here only creates noisy
+  // connection failures and can prevent the packaged runtime from starting.
+  if (env.UPSTAND_PLATFORM === "desktop" && !env.IS_CLOUD) return;
+
   const attempts = options?.attempts ?? 30;
   const delayMs = options?.delayMs ?? 2_000;
 
@@ -50,6 +57,7 @@ export async function runDatabaseMigrations(options?: {
     try {
       await validateMigrationPreconditions(pool);
       await migrateDatabase(migrationsFolder);
+      await normalizeLegacyAccountIssuers(pool);
       log.info({
         message: "Database migrations completed",
         migrationsFolder,
