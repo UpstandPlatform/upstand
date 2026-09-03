@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.0 - 2026-09-03
+
+Fail fast when an installation host is below the documented production capacity instead of starting a known-unschedulable Swarm deployment. An explicit undersized-host override remains available only for non-production testing or recovery attempts.
+
+
 ## 0.12.0 - 2026-09-03
 
 Fix bundled production installs failing when Swarm rejects empty PostgreSQL and Redis URL secrets.

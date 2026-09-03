@@ -1,5 +1,11 @@
 # server
 
+## 0.13.0
+
+### Minor Changes
+
+- [#474](https://github.com/UpstandPlatform/upstand/pull/474) [`8c6f6a5`](https://github.com/UpstandPlatform/upstand/commit/8c6f6a56d61225d0aaa658f77130d077210d7708) Thanks [@mhbdev](https://github.com/mhbdev)! - Fail fast when an installation host is below the documented production capacity instead of starting a known-unschedulable Swarm deployment. An explicit undersized-host override remains available only for non-production testing or recovery attempts.
+
 ## 0.12.0
 
 ### Minor Changes
