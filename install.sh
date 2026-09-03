@@ -44,6 +44,10 @@ for the control-plane Docker API and require an explicit acknowledgement for sin
 UPSTAND_ALLOW_SINGLE_REPLICA=true. Configure
 OTLP_ENDPOINT, or set UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true only when an
 approved external telemetry path is unavailable.
+The installer also requires the recommended host capacity (2 vCPUs, 4 GiB RAM,
+and 30 GiB free Docker storage). Set UPSTAND_ALLOW_UNDERSIZED_HOST=true only
+for a non-production test or recovery attempt; this does not make the host
+production-ready and may leave Swarm services unschedulable.
 For a durable HA data plane, provide DATABASE_URL and REDIS_URL (or the
 UPSTAND_DATABASE_URL and UPSTAND_REDIS_URL aliases). The URLs are stored as
 Docker secrets and the bundled PostgreSQL and Redis services are disabled.
@@ -350,7 +354,53 @@ check_host_resources() {
     warn "Docker data path ${docker_root_dir} has less than the recommended 30 GiB free"
   fi
 
+  local disk_available_bytes=""
+  if [[ "$disk_available_kib" =~ ^[0-9]+$ ]]; then
+    disk_available_bytes=$((disk_available_kib * 1024))
+  fi
+  validate_host_resource_thresholds "$cpu_cores" "$memory_bytes" "$disk_available_bytes"
+
   echo "Host resource check complete (recommendation: ${RECOMMENDED_CPU_CORES} vCPUs, 4 GiB RAM, 30 GiB free Docker disk)." >&2
+}
+
+validate_host_resource_thresholds() {
+  local cpu_cores="$1"
+  local memory_bytes="$2"
+  local disk_available_bytes="$3"
+  local undersized="${UPSTAND_ALLOW_UNDERSIZED_HOST:-false}"
+  local deficits=()
+
+  [[ "$undersized" == true || "$undersized" == false ]] \
+    || fail "UPSTAND_ALLOW_UNDERSIZED_HOST must be true or false"
+
+  if [[ "$cpu_cores" =~ ^[0-9]+$ ]] && ((cpu_cores < RECOMMENDED_CPU_CORES)); then
+    deficits+=("${cpu_cores} vCPU(s), need ${RECOMMENDED_CPU_CORES}")
+  fi
+  if [[ "$memory_bytes" =~ ^[0-9]+$ ]] && ((memory_bytes < RECOMMENDED_MEMORY_BYTES)); then
+    deficits+=("less than 4 GiB RAM")
+  fi
+  if [[ "$disk_available_bytes" =~ ^[0-9]+$ ]] && ((disk_available_bytes < RECOMMENDED_DISK_BYTES)); then
+    deficits+=("less than 30 GiB free Docker storage")
+  fi
+
+  if ((${#deficits[@]} == 0)); then
+    return 0
+  fi
+
+  local deficit_summary=""
+  local deficit
+  for deficit in "${deficits[@]}"; do
+    if [[ -n "$deficit_summary" ]]; then
+      deficit_summary+="; "
+    fi
+    deficit_summary+="$deficit"
+  done
+  if [[ "$undersized" == true ]]; then
+    warn "undersized host explicitly allowed for a non-production test/recovery attempt: ${deficit_summary}"
+    return 0
+  fi
+
+  fail "host capacity is below the Upstand production minimum: ${deficit_summary}; upgrade the host or set UPSTAND_ALLOW_UNDERSIZED_HOST=true only for a non-production test/recovery attempt"
 }
 
 ensure_git() {
