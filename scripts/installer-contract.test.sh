@@ -132,6 +132,14 @@ grep -Fq 'verify_release_deployment_artifacts \' "$ROOT_DIR/install.sh" || {
   echo "installer must verify the downloaded Compose file against the release manifest" >&2
   exit 1
 }
+for required_text in \
+  'DATABASE_URL="postgresql://upstand:${POSTGRES_PASSWORD}@postgres:5432/upstand"' \
+  'REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"'; do
+  grep -Fq "$required_text" "$ROOT_DIR/install.sh" || {
+    echo "bundled installs must provision non-empty in-network data URLs: $required_text" >&2
+    exit 1
+  }
+done
 grep -Fq 'verify_release_artifact_hash "$stack_file" dockerComposeProdSha256' "$ROOT_DIR/install.sh" || {
   echo "installer must verify the downloaded acceptance script against the release manifest" >&2
   exit 1

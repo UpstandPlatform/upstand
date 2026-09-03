@@ -230,11 +230,9 @@ openssl rand -hex 32 | sudo tee /etc/upstand/secrets/postgres_password >/dev/nul
 openssl rand -hex 32 | sudo tee /etc/upstand/secrets/redis_password >/dev/null
 openssl rand -hex 32 | sudo tee /etc/upstand/secrets/better_auth_secret >/dev/null
 openssl rand -base64 32 | tr -d '\n' | sudo tee /etc/upstand/secrets/encryption_key >/dev/null
-# The production stack always mounts these optional URL secrets. Leave them
-# empty for bundled PostgreSQL/Redis; the installer writes real values when
-# external HA data services are configured.
-: | sudo tee /etc/upstand/secrets/database_url >/dev/null
-: | sudo tee /etc/upstand/secrets/redis_url >/dev/null
+# The installer always writes these URL secrets. For bundled PostgreSQL/Redis
+# it writes the in-network service URLs; for external HA data services it
+# writes the configured URLs. Do not create zero-byte Docker secret files.
 sudo chmod 600 /etc/upstand/secrets/*
 ```
 
