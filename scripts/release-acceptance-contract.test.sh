@@ -146,6 +146,12 @@ require_workflow_text 'Unsupported release acceptance profile: $ACCEPTANCE_PROFI
 require_workflow_text "ATTESTATION_SOURCE_REF: \${{ inputs.attestation_source_ref || github.ref }}"
 require_workflow_text 'if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then'
 require_workflow_text 'source_ref="refs/tags/${source_ref}"'
+require_workflow_text 'elif [[ "$source_ref" != refs/* ]]; then'
+require_workflow_text 'source_ref="refs/heads/${source_ref}"'
+if grep -Eq '^(<<<<<<<|=======|>>>>>>>)' "$WORKFLOW"; then
+  echo "release acceptance workflow contains unresolved merge-conflict markers" >&2
+  exit 1
+fi
 require_file_text "$RECOVERY_WORKFLOW" "build_images: false"
 require_workflow_text "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=' > \"\$UPSTAND_SECRETS_DIR/encryption_key\""
 require_workflow_text "docker_broker_server_token"
