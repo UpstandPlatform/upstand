@@ -113,7 +113,7 @@ The Upstand installer supports two compilation strategies:
     Keep `UPSTAND_VERSION` pinned to the exact release tag that was reviewed;
     do not install production systems from the mutable `master` branch.
 
-    If the recommended CPU, memory, or Docker disk capacity is unavailable, the installer prints a warning and continues. The minimum recommendation is 2 vCPUs, 4 GB RAM, and 30 GB free Docker storage.
+    The installer requires at least 2 vCPUs, 4 GB RAM, and 30 GB free Docker storage before starting the stack. For a non-production test or recovery attempt on a smaller host, explicitly set `UPSTAND_ALLOW_UNDERSIZED_HOST=true`; this override only acknowledges the risk and may leave Swarm services unschedulable.
   </Step>
 
   <Step>
