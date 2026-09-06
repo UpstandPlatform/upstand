@@ -508,6 +508,13 @@ export function registerApplicationFeatures(services: ServiceCollection) {
         c.resolve(dependencies.DockerArchiveTransferToken),
       ),
   );
+  services.addSingleton(
+    dependencies.CollectLocalContainerMetricsUseCaseToken,
+    (c) =>
+      new dependencies.CollectLocalContainerMetricsUseCase(
+        c.resolve(dependencies.DockerInventoryReaderToken),
+      ),
+  );
   services.addTransient(
     dependencies.PruneDockerResourcesUseCaseToken,
     (c) =>

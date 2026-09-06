@@ -41,6 +41,9 @@ func TestTypedMonitoringContainerConfigIsBoundedAndHardened(t *testing.T) {
 	if !strings.Contains(config.Env[0], `"token":"monitoring-token"`) || !strings.Contains(config.Env[0], "http://server:3000/api/monitoring/alerts") {
 		t.Fatalf("monitoring metrics configuration is incomplete: %#v", config.Env)
 	}
+	if !strings.Contains(config.Env[0], `"source":"control-plane"`) || len(config.Env) != 2 {
+		t.Fatal("monitoring must use signed control-plane snapshots without Docker credentials")
+	}
 }
 
 func TestValidateTypedMonitoringRequestRejectsUnsafeValues(t *testing.T) {

@@ -16,10 +16,13 @@ import (
 )
 
 type ContainerMonitor struct {
-	db        *database.DB
-	isRunning bool
-	mu        sync.Mutex
-	stopChan  chan struct{}
+	db               *database.DB
+	isRunning        bool
+	mu               sync.Mutex
+	stopChan         chan struct{}
+	lastCollected    time.Time
+	collectionFailed bool
+	staleAfter       time.Duration
 }
 
 func NewContainerMonitor(db *database.DB) (*ContainerMonitor, error) {
@@ -44,6 +47,10 @@ func (cm *ContainerMonitor) Start() error {
 		refreshRate = 60 // default refresh rate
 	}
 	duration := time.Duration(refreshRate) * time.Second
+	cm.staleAfter = 3 * duration
+	if cm.staleAfter < 30*time.Second {
+		cm.staleAfter = 30 * time.Second
+	}
 
 	// An empty include list intentionally means all containers, subject to the
 	// exclude list. This keeps the default installation useful without requiring
@@ -86,29 +93,62 @@ func (cm *ContainerMonitor) collectMetrics() {
 		cm.mu.Unlock()
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	err := cm.collect(ctx)
+	cm.mu.Lock()
+	cm.collectionFailed = err != nil
+	if err == nil {
+		cm.lastCollected = time.Now()
+	}
+	cm.mu.Unlock()
+	if err != nil {
+		log.Printf("Container metrics collection failed: %v", err)
+	}
+}
+
+func (cm *ContainerMonitor) Healthy() bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return !cm.collectionFailed && !cm.lastCollected.IsZero() && time.Since(cm.lastCollected) <= cm.staleAfter
+}
+
+func (cm *ContainerMonitor) collect(ctx context.Context) error {
+	cfg := config.GetMetricsConfig()
+	if cfg.Containers.Source == "control-plane" {
+		metrics, err := fetchControlPlaneMetrics(ctx, cfg.Server.UrlCallback, cfg.Server.Token)
+		if err != nil {
+			return err
+		}
+		for _, metric := range metrics {
+			if ShouldMonitorContainer(metric.Name) {
+				if err := cm.db.SaveContainerMetric(&metric); err != nil {
+					return fmt.Errorf("persist container metrics: %w", err)
+				}
+			}
+		}
+		return nil
+	}
+	if cfg.Containers.Source != "" && cfg.Containers.Source != "docker" {
+		return fmt.Errorf("unsupported container metrics source")
+	}
 	cmd := exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format",
 		`{"BlockIO":"{{.BlockIO}}","CPUPerc":"{{.CPUPerc}}","ID":"{{.ID}}","MemPerc":"{{.MemPerc}}","MemUsage":"{{.MemUsage}}","Name":"{{.Name}}","NetIO":"{{.NetIO}}"}`)
 
 	output, err := cmd.CombinedOutput()
 
-	// log.Printf("Output: %s", string(output))
 	if err != nil {
 		if ctx.Err() != nil {
-			log.Printf("Docker stats collection timed out after 15s")
-			return
+			return fmt.Errorf("Docker stats collection timed out")
 		}
-		log.Printf("Error getting docker stats: %v", err)
-		return
+		return fmt.Errorf("Docker stats command failed: %w", err)
 	}
 
 	lines := string(output)
 	if lines == "" {
-		return
+		return nil
 	}
 
-	seenServices := make(map[string]bool)
 	for _, line := range strings.Split(lines, "\n") {
 		if line == "" {
 			continue
@@ -116,33 +156,19 @@ func (cm *ContainerMonitor) collectMetrics() {
 
 		var container Container
 		if err := json.Unmarshal([]byte(line), &container); err != nil {
-			log.Printf("Error parsing container data: %v", err)
-			continue
+			return fmt.Errorf("invalid Docker stats response")
 		}
 
 		if !ShouldMonitorContainer(container.Name) {
 			continue
 		}
 
-		serviceName := GetServiceName(container.Name)
-
-		if seenServices[serviceName] {
-			continue
-		}
-
-		seenServices[serviceName] = true
-
-		// log.Printf("Container: %+v", container)
-
-		// Process metrics
 		metric := processContainerMetrics(container)
-
-		// log.Printf("Saving metrics for %s: %+v", serviceName, metric)
-
 		if err := cm.db.SaveContainerMetric(metric); err != nil {
-			log.Printf("Error saving metrics for %s: %v", serviceName, err)
+			return fmt.Errorf("persist container metrics: %w", err)
 		}
 	}
+	return nil
 }
 
 func processContainerMetrics(container Container) *database.ContainerMetric {
