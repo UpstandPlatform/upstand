@@ -140,6 +140,7 @@ export * from "./schedule/sync-upstand-config.usecase";
 export * from "./scim/scim.usecase";
 export * from "./search/global-search.usecase";
 export * from "./secrets/secret-version.usecases";
+export * from "./server/collect-local-container-metrics.usecase";
 export * from "./server/container-ownership";
 export * from "./server/create-server.usecase";
 export * from "./server/delete-server.usecase";

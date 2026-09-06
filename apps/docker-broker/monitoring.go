@@ -261,7 +261,7 @@ func typedMonitoringContainerConfig(input typedMonitoringRequest) ([]byte, error
 			`retentionDays`: 7, `cronJob`: `0 0 * * *`,
 			`thresholds`: map[string]int{`cpu`: input.CPUThreshold, `memory`: input.MemoryThreshold},
 		},
-		`containers`: map[string]any{`refreshRate`: 25, `services`: map[string]any{`include`: []string{}, `exclude`: []string{}}},
+		`containers`: map[string]any{`refreshRate`: 25, `source`: `control-plane`, `services`: map[string]any{`include`: []string{}, `exclude`: []string{}}},
 	})
 	if err != nil {
 		return nil, err
@@ -269,7 +269,7 @@ func typedMonitoringContainerConfig(input typedMonitoringRequest) ([]byte, error
 	return json.Marshal(map[string]any{
 		`Labels`: map[string]string{`com.upstand.component`: `monitoring-agent`, `com.upstand.platform`: `true`},
 		`Image`:  input.Image,
-		`Env`:    []string{`METRICS_CONFIG=` + string(metricsConfig), `DB_PATH=/data/monitoring.db`, `DOCKER_HOST=https://docker-broker:2375`},
+		`Env`:    []string{`METRICS_CONFIG=` + string(metricsConfig), `DB_PATH=/data/monitoring.db`},
 		`HostConfig`: typedMonitoringHostConfig{
 			RestartPolicy: typedRestartPolicy{Name: `always`}, NetworkMode: input.NetworkName,
 			Binds:     []string{`/proc:/host/proc:ro`, `/sys:/host/sys:ro`, `/etc/os-release:/etc/os-release:ro`, typedMonitoringVolumeName + `:/data`},

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { env } from "@upstand/env/server";
+import { readResponseJsonLimited } from "@upstand/platform/network/response-body";
 import { log } from "evlog";
 import { createDockerMonitoringBrokerClient } from "../docker/docker-broker-client";
 import { getDockerInstance } from "../docker/docker-client";
@@ -56,6 +57,27 @@ type MonitoringContainerSpec = {
 };
 
 let monitoringInitializationPromise: Promise<void> | undefined;
+
+/** Probe current collection health, not only successful startup reconciliation. */
+export async function probeLocalMonitoringHealth(): Promise<boolean> {
+  const endpoint = fs.existsSync("/.dockerenv")
+    ? "http://upstand-monitoring-agent:3001/health"
+    : "http://127.0.0.1:3005/health";
+  try {
+    const response = await fetch(endpoint, {
+      signal: AbortSignal.timeout(1_000),
+      redirect: "error",
+    });
+    if (!response.ok) return false;
+    const health = await readResponseJsonLimited<{ status?: string }>(
+      response,
+      4 * 1024,
+    );
+    return health.status === "ok";
+  } catch {
+    return false;
+  }
+}
 
 export interface LocalMonitoringSettings {
   token: string;
@@ -160,6 +182,7 @@ async function initializeMonitoringOnce(
       },
     },
     containers: {
+      source: "control-plane",
       refreshRate: 25,
       services: {
         include: [],
@@ -177,9 +200,6 @@ async function initializeMonitoringOnce(
     Env: [
       `METRICS_CONFIG=${JSON.stringify(metricsConfig)}`,
       "DB_PATH=/data/monitoring.db",
-      ...(process.env.DOCKER_HOST
-        ? [`DOCKER_HOST=${process.env.DOCKER_HOST}`]
-        : []),
     ],
     Image: monitoringImage,
     HostConfig: {
@@ -193,9 +213,8 @@ async function initializeMonitoringOnce(
             },
           }),
       Binds: [
-        // Host telemetry is read-only. Docker API access is provided through
-        // the internal broker network; the monitoring container never gets a
-        // host Docker socket.
+        // Container telemetry uses the signed, read-only control-plane snapshot.
+        // The agent receives neither a host socket nor broker credentials.
         "/proc:/host/proc:ro",
         "/sys:/host/sys:ro",
         "/etc/os-release:/etc/os-release:ro",

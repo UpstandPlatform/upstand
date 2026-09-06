@@ -52,8 +52,15 @@ func main() {
 		IdleTimeout:  30 * time.Second,
 	})
 
+	containerMonitor, err := containers.NewContainerMonitor(db)
+	if err != nil {
+		log.Fatalf("Failed to create container monitor: %v", err)
+	}
 	app.Get("/health", func(c *fiber.Ctx) error {
 		status, lastCollectedAt, _ := monitoring.Health()
+		if status == "ok" && !containerMonitor.Healthy() {
+			status = "degraded"
+		}
 		statusCode := fiber.StatusOK
 		if status != "ok" {
 			statusCode = fiber.StatusServiceUnavailable
@@ -124,10 +131,6 @@ func main() {
 		return c.JSON(metrics)
 	})
 
-	containerMonitor, err := containers.NewContainerMonitor(db)
-	if err != nil {
-		log.Fatalf("Failed to create container monitor: %v", err)
-	}
 	if err := containerMonitor.Start(); err != nil {
 		log.Fatalf("Failed to start container monitor: %v", err)
 	}
