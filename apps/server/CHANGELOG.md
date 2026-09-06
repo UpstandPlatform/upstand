@@ -1,5 +1,15 @@
 # server
 
+## 0.13.1
+
+### Patch Changes
+
+- [#478](https://github.com/UpstandPlatform/upstand/pull/478) [`f6aa90a`](https://github.com/UpstandPlatform/upstand/commit/f6aa90a6970f91e34b7ad957246c404965634810) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix installer reruns and upgrades to retain bundled PostgreSQL and Redis, preserve the monitoring token, and resolve images for the requested release instead of reusing the previous release's saved pins. Explicit image overrides remain supported, and mixed bundled/external data endpoints are rejected before deployment.
+
+- [#480](https://github.com/UpstandPlatform/upstand/pull/480) [`7fc3b9e`](https://github.com/UpstandPlatform/upstand/commit/7fc3b9e5e9db51b7c4059abdc01ee5e8d1be3c29) Thanks [@mhbdev](https://github.com/mhbdev)! - Restore local container telemetry through an authenticated, read-only control-plane snapshot without exposing Docker credentials to the agent. Fail readiness on failed or stale collection, retain every container replica, and keep telemetry collection bounded.
+
+- [#481](https://github.com/UpstandPlatform/upstand/pull/481) [`1fa6674`](https://github.com/UpstandPlatform/upstand/commit/1fa66747e3a8cf0f1730883b44c1e947532b007e) Thanks [@mhbdev](https://github.com/mhbdev)! - Reconnect Redis sockets that remain incorrectly ready after a failed or timed-out health probe, allowing readiness to recover without restarting the application.
+
 ## 0.13.0
 
 ### Minor Changes
