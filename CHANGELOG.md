@@ -4,6 +4,15 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.1 - 2026-09-06
+
+Restore local container telemetry through an authenticated, read-only control-plane snapshot without exposing Docker credentials to the agent. Fail readiness on failed or stale collection, retain every container replica, and keep telemetry collection bounded.
+
+Fix installer reruns and upgrades to retain bundled PostgreSQL and Redis, preserve the monitoring token, and resolve images for the requested release instead of reusing the previous release's saved pins. Explicit image overrides remain supported, and mixed bundled/external data endpoints are rejected before deployment.
+
+Reconnect Redis sockets that remain incorrectly ready after a failed or timed-out health probe, allowing readiness to recover without restarting the application.
+
+
 ## 0.13.0 - 2026-09-03
 
 Fail fast when an installation host is below the documented production capacity instead of starting a known-unschedulable Swarm deployment. An explicit undersized-host override remains available only for non-production testing or recovery attempts.
