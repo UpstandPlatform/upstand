@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Sourcing the installer loads its validation functions without running main.
-# This contract test intentionally never invokes Docker, Swarm, or writes files.
+# This contract test never invokes a real Docker daemon or Swarm. Upgrade
+# coverage writes only disposable fixture configuration and secrets.
 # shellcheck disable=SC1091
 source "$ROOT_DIR/install.sh"
 
@@ -393,6 +394,9 @@ expect_network_rejection upstand-network overlay swarm true '{"encrypted":"false
 valid_digest="$(printf 'a%.0s' {1..64})"
 
 (
+  # Run the mocked Docker boundary in this shell instead of allowing timeout
+  # to launch the real Docker executable outside the function scope.
+  timeout() { shift; "$@"; }
   docker() {
     if [[ "$1 $2" == "service create" ]]; then
       [[ "$*" == *"--network upstand-network"* && "$*" == *"--network upstand-docker-control"* && "$*" == *"--cap-drop ALL"* && "$*" == *"--user 10001:10001"* ]] || {
@@ -537,5 +541,7 @@ UPSTAND_BUNDLED_POSTGRES_REPLICAS=0
 UPSTAND_BUNDLED_REDIS_REPLICAS=0
 mapfile -t external_services < <(required_stack_services)
 assert_services $'docker-broker\nserver\nschedules\ndeployment-worker\nweb\nfumadocs' "${external_services[@]}"
+
+bash "$ROOT_DIR/scripts/installer-upgrade-contract.test.sh"
 
 echo "installer-contract: passed"
