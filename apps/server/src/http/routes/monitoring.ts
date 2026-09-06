@@ -9,6 +9,7 @@ import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { createHttpRateLimitMiddleware } from "../rate-limit";
 import type { AppEnv } from "../types";
+import { registerMonitoringSnapshotRoute } from "./monitoring-snapshot";
 
 export const monitoringAlertSchema = z.object({
   json: z.object({
@@ -25,6 +26,7 @@ export const monitoringAlertSchema = z.object({
 });
 
 export function registerMonitoringRoutes(app: Hono<AppEnv>): void {
+  registerMonitoringSnapshotRoute(app);
   app.use(
     "/api/monitoring/alerts",
     createHttpRateLimitMiddleware({

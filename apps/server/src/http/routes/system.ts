@@ -23,7 +23,7 @@ export type SystemRouteDependencies = {
   isShuttingDown(): boolean;
   isCaddyReady(): boolean;
   isSchedulesReady(): Promise<boolean>;
-  isMonitoringReady?: () => boolean;
+  isMonitoringReady?: () => boolean | Promise<boolean>;
   monitoringRequired?: boolean;
   metricsToken?: string;
 };
@@ -103,7 +103,7 @@ export function registerSystemRoutes(
       platformMode === "desktop" ? true : await dependencies.isSchedulesReady();
     const databaseHealth = c.get("scope").resolve(DatabaseHealthToken);
     const databaseReady = await probeDatabase(databaseHealth);
-    const monitoringReady = dependencies.isMonitoringReady?.() ?? true;
+    const monitoringReady = (await dependencies.isMonitoringReady?.()) ?? true;
     const monitoringCheck = isRequiredMonitoringReady(
       dependencies.monitoringRequired ?? false,
       monitoringReady,
