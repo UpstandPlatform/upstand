@@ -16,6 +16,46 @@ test("pingRedis fails fast when Redis does not answer", async () => {
   expect(result).toBe(false);
 });
 
+test("pingRedis resets a stalled ready socket and allows a later probe to recover", async () => {
+  let stalled = true;
+  const reconnects: boolean[] = [];
+  const client = {
+    status: "ready",
+    ping: () =>
+      stalled ? new Promise<string>(() => undefined) : Promise.resolve("PONG"),
+    disconnect(reconnect: boolean) {
+      reconnects.push(reconnect);
+    },
+  };
+  expect(await pingRedis(client as never, 10)).toBe(false);
+  expect(reconnects).toEqual([true]);
+  stalled = false;
+  expect(await pingRedis(client as never, 10)).toBe(true);
+  expect(reconnects).toEqual([true]);
+});
+
+test("pingRedis resets rejected ready connections but does not disrupt an active reconnect", async () => {
+  let status = "ready";
+  let reconnects = 0;
+  const client = {
+    get status() {
+      return status;
+    },
+    async ping() {
+      throw new Error("connection interrupted");
+    },
+    disconnect(reconnect: boolean) {
+      expect(reconnect).toBe(true);
+      reconnects++;
+    },
+  };
+  expect(await pingRedis(client as never, 10)).toBe(false);
+  expect(reconnects).toBe(1);
+  status = "reconnecting";
+  expect(await pingRedis(client as never, 10)).toBe(false);
+  expect(reconnects).toBe(1);
+});
+
 test("getRedisWithTimeout fails fast when Redis GET does not answer", async () => {
   await expect(
     getRedisWithTimeout(

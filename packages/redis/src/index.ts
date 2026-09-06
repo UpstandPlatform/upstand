@@ -183,6 +183,12 @@ export async function pingRedis(
     ]);
     return result === "PONG";
   } catch (error) {
+    // A stalled socket can remain "ready" without emitting close. Reset only
+    // that connection, preserving automatic retry instead of manually closing
+    // the shared client or interrupting a reconnect already in progress.
+    if (instance.status === "ready") {
+      instance.disconnect(true);
+    }
     const errMsg = error instanceof Error ? error.message : String(error);
     log.error("redis-health", `Redis ping failed: ${errMsg}`);
     return false;
