@@ -38,7 +38,10 @@ import { registerTerminalRoutes } from "./http/routes/terminal";
 import { registerApiTransports } from "./http/routes/transports";
 import { registerWebhookRoutes } from "./http/routes/webhooks";
 import type { AppEnv } from "./http/types";
-import { initializeMonitoring } from "./monitoring-agent";
+import {
+  initializeMonitoring,
+  probeLocalMonitoringHealth,
+} from "./monitoring-agent";
 import { runDatabaseMigrations } from "./startup";
 import { retryStartupOperation } from "./startup-retry";
 import { terminalBroker } from "./terminal-broker";
@@ -182,7 +185,9 @@ registerSystemRoutes(app, {
       clearTimeout(timeout);
     }
   },
-  isMonitoringReady: () => monitoringReady,
+  isMonitoringReady: async () =>
+    monitoringReady &&
+    (env.NODE_ENV !== "production" || (await probeLocalMonitoringHealth())),
   monitoringRequired: env.NODE_ENV === "production",
   metricsToken: env.UPSTAND_METRICS_TOKEN_FILE
     ? fs.readFileSync(env.UPSTAND_METRICS_TOKEN_FILE, "utf8").trim()

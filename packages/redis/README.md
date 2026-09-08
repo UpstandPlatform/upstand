@@ -5,6 +5,7 @@ The `@upstand/redis` package manages Redis client connections, pub/sub event emi
 ## Features
 
 - **Centralized Client**: Exports singleton `redis` client instance and connection factory `createRedisClient`.
+- **Health Recovery**: Bounded health probes reset a failed socket only while it still reports `ready`, preserving automatic reconnects and leaving an existing reconnect attempt alone.
 - **BullMQ Integration**: Manages BullMQ job queues for deployment workers (`deployments-queue-<nodeId>`), backup workers, cron workers, and notification workers.
 - **Distributed Locking**: Provides Redis-backed resource lock primitives to serialize concurrent deployment builds per workload.
 

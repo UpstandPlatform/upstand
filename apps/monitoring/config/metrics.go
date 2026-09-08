@@ -24,7 +24,8 @@ type Config struct {
 		} `json:"thresholds"`
 	} `json:"server"`
 	Containers struct {
-		RefreshRate int `json:"refreshRate"`
+		Source      string `json:"source"`
+		RefreshRate int    `json:"refreshRate"`
 		Services    struct {
 			Include []string `json:"include"`
 			Exclude []string `json:"exclude"`

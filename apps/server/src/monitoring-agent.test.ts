@@ -1,10 +1,30 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   isImmutableImageReference,
+  probeLocalMonitoringHealth,
   waitForMonitoringHealth,
 } from "./monitoring-agent";
 
 describe("monitoring image references", () => {
+  test("probes current collection health and fails closed on unavailable or malformed responses", async () => {
+    const request = spyOn(globalThis, "fetch");
+    try {
+      request.mockResolvedValueOnce(Response.json({ status: "ok" }));
+      expect(await probeLocalMonitoringHealth()).toBe(true);
+      request.mockResolvedValueOnce(
+        Response.json({ status: "degraded" }, { status: 503 }),
+      );
+      expect(await probeLocalMonitoringHealth()).toBe(false);
+      request.mockResolvedValueOnce(Response.json({ status: "starting" }));
+      expect(await probeLocalMonitoringHealth()).toBe(false);
+      request.mockResolvedValueOnce(new Response("invalid JSON"));
+      expect(await probeLocalMonitoringHealth()).toBe(false);
+      request.mockRejectedValueOnce(new Error("network unavailable"));
+      expect(await probeLocalMonitoringHealth()).toBe(false);
+    } finally {
+      request.mockRestore();
+    }
+  });
   test("accepts a complete immutable digest reference", () => {
     expect(
       isImmutableImageReference(

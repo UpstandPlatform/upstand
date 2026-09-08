@@ -5,6 +5,7 @@ import { getServiceProvider } from "./di";
 
 export {
   isImmutableImageReference,
+  probeLocalMonitoringHealth,
   waitForMonitoringHealth,
 } from "@upstand/infrastructure/monitoring/local-monitoring-agent.service";
 

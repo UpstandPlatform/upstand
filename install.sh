@@ -933,6 +933,13 @@ write_environment() {
     # shellcheck disable=SC1090
     source "$ENV_FILE"
   fi
+  if [[ -n "$requested_version" && "$requested_version" != "${UPSTAND_VERSION:-}" ]]; then
+    # Saved image pins describe the previous rollout. Resolve the new release
+    # manifest unless the operator explicitly supplied an image for this run.
+    unset UPSTAND_SERVER_IMAGE UPSTAND_SCHEDULES_IMAGE UPSTAND_DEPLOYMENT_WORKER_IMAGE
+    unset UPSTAND_WEB_IMAGE UPSTAND_DOCS_IMAGE UPSTAND_MONITORING_IMAGE UPSTAND_DOCKER_BROKER_IMAGE
+  fi
+  UPSTAND_VERSION="${requested_version:-${UPSTAND_VERSION:-}}"
   if [[ -n "$requested_allow_insecure_bootstrap" ]]; then
     UPSTAND_ALLOW_INSECURE_BOOTSTRAP="$requested_allow_insecure_bootstrap"
   fi
@@ -1040,6 +1047,7 @@ write_environment() {
   [[ -r "$INSTALL_DIR/secrets/redis_password" ]] && REDIS_PASSWORD="$(cat "$INSTALL_DIR/secrets/redis_password")"
   [[ -r "$INSTALL_DIR/secrets/better_auth_secret" ]] && BETTER_AUTH_SECRET="$(cat "$INSTALL_DIR/secrets/better_auth_secret")"
   [[ -r "$INSTALL_DIR/secrets/upgal_tool_approval_secret" ]] && UPGAL_TOOL_APPROVAL_SECRET="$(cat "$INSTALL_DIR/secrets/upgal_tool_approval_secret")"
+  [[ -r "$INSTALL_DIR/secrets/metrics_token" ]] && METRICS_TOKEN="$(cat "$INSTALL_DIR/secrets/metrics_token")"
   [[ -r "$INSTALL_DIR/secrets/encryption_key" ]] && ENCRYPTION_KEY_V1="$(cat "$INSTALL_DIR/secrets/encryption_key")"
   [[ -z "${ENCRYPTION_KEY_V1:-}" && -r "$INSTALL_DIR/secrets/ssh_key_encryption_key" ]] && ENCRYPTION_KEY_V1="$(cat "$INSTALL_DIR/secrets/ssh_key_encryption_key")"
   [[ -r "$INSTALL_DIR/secrets/database_url" ]] && DATABASE_URL="$(cat "$INSTALL_DIR/secrets/database_url")"
@@ -1050,6 +1058,7 @@ write_environment() {
   [[ -r "$INSTALL_DIR/secrets/docker_broker_scope_secret" ]] && DOCKER_BROKER_SCOPE_SECRET="$(cat "$INSTALL_DIR/secrets/docker_broker_scope_secret")"
   DATABASE_URL="${requested_database_url:-${DATABASE_URL:-}}"
   REDIS_URL="${requested_redis_url:-${REDIS_URL:-}}"
+  local external_data=false
   if [[ -n "$DATABASE_URL" || -n "$REDIS_URL" ]]; then
     [[ -n "$DATABASE_URL" && -n "$REDIS_URL" ]] \
       || fail "DATABASE_URL and REDIS_URL must be configured together for external HA data services"
@@ -1061,11 +1070,24 @@ write_environment() {
       || fail "DATABASE_URL must be a single-line URL"
     [[ "$REDIS_URL" != *$'\r'* && "$REDIS_URL" != *$'\n'* ]] \
       || fail "REDIS_URL must be a single-line URL"
+    # Bundled services also persist connection URLs as Docker secrets. Loading
+    # those generated URLs on a rerun must not disable the services they use.
+    local bundled_database_url="postgresql://upstand:${POSTGRES_PASSWORD:-}@postgres:5432/upstand"
+    local bundled_redis_url="redis://:${REDIS_PASSWORD:-}@redis:6379"
+    if [[ "$DATABASE_URL" != "$bundled_database_url" || "$REDIS_URL" != "$bundled_redis_url" ]]; then
+      [[ "$DATABASE_URL" != "$bundled_database_url" && "$REDIS_URL" != "$bundled_redis_url" ]] \
+        || fail "configure both external data services together; a bundled and external URL cannot be mixed"
+      external_data=true
+    fi
+  fi
+  if [[ "$external_data" == true ]]; then
     UPSTAND_BUNDLED_POSTGRES_REPLICAS=0
     UPSTAND_BUNDLED_REDIS_REPLICAS=0
   else
-    UPSTAND_BUNDLED_POSTGRES_REPLICAS="${requested_bundled_postgres_replicas:-${UPSTAND_BUNDLED_POSTGRES_REPLICAS:-1}}"
-    UPSTAND_BUNDLED_REDIS_REPLICAS="${requested_bundled_redis_replicas:-${UPSTAND_BUNDLED_REDIS_REPLICAS:-1}}"
+    # Reestablish bundled services even if an older rerun incorrectly saved
+    # zero replicas after reading their generated connection secrets.
+    UPSTAND_BUNDLED_POSTGRES_REPLICAS="${requested_bundled_postgres_replicas:-1}"
+    UPSTAND_BUNDLED_REDIS_REPLICAS="${requested_bundled_redis_replicas:-1}"
   fi
   UPSTAND_SERVER_REPLICAS="${requested_server_replicas:-${UPSTAND_SERVER_REPLICAS:-1}}"
   UPSTAND_SCHEDULES_REPLICAS="${requested_schedules_replicas:-${UPSTAND_SCHEDULES_REPLICAS:-1}}"
@@ -1076,8 +1098,6 @@ write_environment() {
   [[ "$UPSTAND_AUDIT_LOG_RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]] \
     && ((UPSTAND_AUDIT_LOG_RETENTION_DAYS <= 3650)) \
     || fail "UPSTAND_AUDIT_LOG_RETENTION_DAYS must be an integer from 1 to 3650"
-  local external_data=false
-  [[ -n "$DATABASE_URL" ]] && external_data=true
   validate_replica_configuration \
     "$external_data" \
     "$UPSTAND_SERVER_REPLICAS" \

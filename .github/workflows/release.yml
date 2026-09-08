@@ -544,6 +544,8 @@ jobs:
           source_ref="${ATTESTATION_SOURCE_REF}"
           if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             source_ref="refs/tags/${source_ref}"
+          elif [[ "$source_ref" != refs/* ]]; then
+            source_ref="refs/heads/${source_ref}"
           fi
           for name in server schedules deployment-worker web fumadocs monitoring docker-broker; do
             image="ghcr.io/${repo}-${name}:${release_version}"
@@ -586,6 +588,8 @@ jobs:
           source_ref="${ATTESTATION_SOURCE_REF}"
           if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             source_ref="refs/tags/${source_ref}"
+          elif [[ "$source_ref" != refs/* ]]; then
+            source_ref="refs/heads/${source_ref}"
           fi
           for name in server schedules deployment-worker web fumadocs monitoring docker-broker; do
             image="ghcr.io/${repo}-${name}:${release_version}"
