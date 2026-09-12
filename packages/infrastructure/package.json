@@ -33,7 +33,7 @@
     "bullmq": "catalog:",
     "dockerode": "^5.0.1",
     "evlog": "catalog:",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^9.1.0",
     "ssh2": "^1.17.0",
     "tar-fs": "2.1.5",
     "yaml": "^2.9.0",
