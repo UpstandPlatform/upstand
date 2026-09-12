@@ -64,7 +64,7 @@
     "media-chrome": "*",
     "motion": "*",
     "nanoid": "^6.0.0",
-    "next": "^16.2.12",
+    "next": "^16.3.5",
     "next-themes": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
