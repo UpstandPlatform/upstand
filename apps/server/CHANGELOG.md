@@ -1,5 +1,11 @@
 # server
 
+## 0.13.2
+
+### Patch Changes
+
+- [#488](https://github.com/UpstandPlatform/upstand/pull/488) [`28392eb`](https://github.com/UpstandPlatform/upstand/commit/28392eb31ed08a57fde204de383582280b3665aa) Thanks [@mhbdev](https://github.com/mhbdev)! - Patch the production dependency vulnerabilities in Next.js, sharp, nodemailer, and js-yaml.
+
 ## 0.13.1
 
 ### Patch Changes

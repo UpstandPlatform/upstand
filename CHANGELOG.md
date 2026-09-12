@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.2 - 2026-09-12
+
+Patch the production dependency vulnerabilities in Next.js, sharp, nodemailer, and js-yaml.
+
+
 ## 0.13.1 - 2026-09-06
 
 Restore local container telemetry through an authenticated, read-only control-plane snapshot without exposing Docker credentials to the agent. Fail readiness on failed or stale collection, retain every container replica, and keep telemetry collection bounded.
