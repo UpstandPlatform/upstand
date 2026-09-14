@@ -1,8 +1,3 @@
-import {
-  isDirectIpHttpRequest,
-  isPrivateDirectIpHost,
-  isPrivateDirectIpHttpRequest,
-} from "@upstand/auth";
 import { env } from "@upstand/env/server";
 import { resolveCorrelationId } from "@upstand/platform";
 import type { Hono } from "hono";
