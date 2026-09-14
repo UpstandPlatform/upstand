@@ -16,6 +16,16 @@ type JsonRecord = Record<string, unknown>;
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
+function collapsePathSlashes(value: string): string {
+  let normalized = "";
+  let previousWasSlash = false;
+  for (const character of value) {
+    if (character === "/" && previousWasSlash) continue;
+    normalized += character;
+    previousWasSlash = character === "/";
+  }
+  return normalized;
+}
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -343,7 +353,7 @@ async function readInfisical(
         ? path
         : `${basePath.replace(/\/+$/, "")}/${path}`
       : basePath;
-    const normalizedPath = secretPath.replace(/\/{2,}/g, "/");
+    const normalizedPath = collapsePathSlashes(secretPath);
     byPath.set(normalizedPath, [
       ...(byPath.get(normalizedPath) ?? []),
       reference,
