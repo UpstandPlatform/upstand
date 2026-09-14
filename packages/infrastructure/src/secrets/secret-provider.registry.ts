@@ -16,16 +16,6 @@ type JsonRecord = Record<string, unknown>;
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
-function collapsePathSlashes(value: string): string {
-  let normalized = "";
-  let previousWasSlash = false;
-  for (const character of value) {
-    if (character === "/" && previousWasSlash) continue;
-    normalized += character;
-    previousWasSlash = character === "/";
-  }
-  return normalized;
-}
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -69,11 +59,7 @@ function allowlistedHosts(): string[] {
 }
 async function safeProviderUrl(rawUrl: string): Promise<string> {
   const url = await assertConfiguredHttpUrl(rawUrl, allowlistedHosts());
-  let normalized = url.toString();
-  while (normalized.endsWith("/")) {
-    normalized = normalized.slice(0, -1);
-  }
-  return normalized;
+  return url.toString().replace(/\/+$/, "");
 }
 function providerRequestInit(
   headers: Record<string, string>,
@@ -353,7 +339,7 @@ async function readInfisical(
         ? path
         : `${basePath.replace(/\/+$/, "")}/${path}`
       : basePath;
-    const normalizedPath = collapsePathSlashes(secretPath);
+    const normalizedPath = secretPath.replace(/\/{2,}/g, "/");
     byPath.set(normalizedPath, [
       ...(byPath.get(normalizedPath) ?? []),
       reference,

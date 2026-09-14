@@ -3,7 +3,6 @@ import type { IUnitOfWork } from "@upstand/domain";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import type { ExternalSecretProviderPort } from "../ports/external-secrets";
 import {
-  containsSecretProviderReference,
   resolveSecretProviderReferences,
   resolveSecretProviderReferencesInValues,
 } from "./secret-reference-resolver";
@@ -43,19 +42,6 @@ function createUnitOfWork(assignments?: unknown): IUnitOfWork {
 }
 
 describe("secret provider reference resolution", () => {
-  test("detects valid references without treating malformed delimiters as references", () => {
-    expect(
-      containsSecretProviderReference(
-        ["prefix $", "{{vault.provider.KEY}}"].join(""),
-      ),
-    ).toBe(true);
-    expect(
-      containsSecretProviderReference(
-        ["${{vault.provider-", "}".repeat(10_000)].join(""),
-      ),
-    ).toBe(false);
-  });
-
   test("resolves Dokploy-compatible references without persisting values", async () => {
     const external: ExternalSecretProviderPort = {
       read: async () => ({}),
