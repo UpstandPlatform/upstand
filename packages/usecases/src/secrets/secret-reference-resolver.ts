@@ -7,14 +7,61 @@ import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import type { ExternalSecretProviderPort } from "../ports/external-secrets";
 
 /** Dokploy-compatible external secret reference syntax. */
-export const SECRET_PROVIDER_REFERENCE_PATTERN =
-  /\$\{\{vault\.([A-Za-z0-9_-]+)\.([^}]+)\}\}/g;
-const SECRET_PROVIDER_REFERENCE_DETECTOR = new RegExp(
-  SECRET_PROVIDER_REFERENCE_PATTERN.source,
-);
+const SECRET_PROVIDER_REFERENCE_PREFIX = "${{vault.";
+const SECRET_PROVIDER_NAME_CHARACTERS = /^[A-Za-z0-9_-]$/;
+
+type SecretProviderReferenceMatch = {
+  end: number;
+  providerName: string;
+  reference: string;
+  start: number;
+};
+
+function isProviderName(value: string): boolean {
+  if (!value) return false;
+  for (const character of value) {
+    if (!SECRET_PROVIDER_NAME_CHARACTERS.test(character)) return false;
+  }
+  return true;
+}
+
+function findSecretProviderReferences(
+  value: string,
+): SecretProviderReferenceMatch[] {
+  const matches: SecretProviderReferenceMatch[] = [];
+  let searchFrom = 0;
+  while (searchFrom < value.length) {
+    const start = value.indexOf(SECRET_PROVIDER_REFERENCE_PREFIX, searchFrom);
+    if (start === -1) break;
+    const providerStart = start + SECRET_PROVIDER_REFERENCE_PREFIX.length;
+    const providerSeparator = value.indexOf(".", providerStart);
+    if (providerSeparator === -1) break;
+    const providerName = value.slice(providerStart, providerSeparator);
+    const referenceStart = providerSeparator + 1;
+    const endMarker = value.indexOf("}}", referenceStart);
+    if (endMarker === -1) break;
+    const reference = value.slice(referenceStart, endMarker);
+    if (
+      isProviderName(providerName) &&
+      reference.length > 0 &&
+      !reference.includes("}")
+    ) {
+      matches.push({
+        end: endMarker + 2,
+        providerName,
+        reference,
+        start,
+      });
+      searchFrom = endMarker + 2;
+      continue;
+    }
+    searchFrom = start + SECRET_PROVIDER_REFERENCE_PREFIX.length;
+  }
+  return matches;
+}
 
 export function containsSecretProviderReference(value: string): boolean {
-  return SECRET_PROVIDER_REFERENCE_DETECTOR.test(value);
+  return findSecretProviderReferences(value).length > 0;
 }
 
 export type SecretProviderResolutionScope = {
@@ -78,10 +125,10 @@ async function resolveValues(
   scope: SecretProviderResolutionScope,
 ): Promise<string[]> {
   const matches = values.flatMap((value, valueIndex) =>
-    [...value.matchAll(SECRET_PROVIDER_REFERENCE_PATTERN)].map((match) => ({
+    findSecretProviderReferences(value).map((match) => ({
       valueIndex,
-      providerName: match[1] as string,
-      reference: (match[2] as string).trim(),
+      providerName: match.providerName,
+      reference: match.reference.trim(),
     })),
   );
   if (matches.length === 0) return values;
@@ -142,21 +189,25 @@ async function resolveValues(
     }),
   );
 
-  return values.map((value) =>
-    value.replace(
-      SECRET_PROVIDER_REFERENCE_PATTERN,
-      (_match, providerName: string, rawReference: string) => {
-        const reference = rawReference.trim();
-        const fetched = resolved.get(referenceKey(providerName, reference));
-        if (fetched === undefined) {
-          throw new Error(
-            `Secret "${reference}" was not resolved from provider "${providerName}"`,
-          );
-        }
-        return fetched;
-      },
-    ),
-  );
+  return values.map((value) => {
+    const references = findSecretProviderReferences(value);
+    if (references.length === 0) return value;
+    let resolvedValue = "";
+    let cursor = 0;
+    for (const match of references) {
+      const reference = match.reference.trim();
+      const fetched = resolved.get(referenceKey(match.providerName, reference));
+      if (fetched === undefined) {
+        throw new Error(
+          `Secret "${reference}" was not resolved from provider "${match.providerName}"`,
+        );
+      }
+      resolvedValue += value.slice(cursor, match.start);
+      resolvedValue += fetched;
+      cursor = match.end;
+    }
+    return resolvedValue + value.slice(cursor);
+  });
 }
 
 export function resolveSecretProviderReferences(

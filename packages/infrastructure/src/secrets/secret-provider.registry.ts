@@ -59,7 +59,11 @@ function allowlistedHosts(): string[] {
 }
 async function safeProviderUrl(rawUrl: string): Promise<string> {
   const url = await assertConfiguredHttpUrl(rawUrl, allowlistedHosts());
-  return url.toString().replace(/\/+$/, "");
+  let normalized = url.toString();
+  while (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
 }
 function providerRequestInit(
   headers: Record<string, string>,
