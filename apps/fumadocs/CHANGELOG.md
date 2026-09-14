@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.13.4
+
+### Patch Changes
+
+- [#495](https://github.com/UpstandPlatform/upstand/pull/495) [`7f368eb`](https://github.com/UpstandPlatform/upstand/commit/7f368ebba39a07287a5e042b04294d9ef4d566a3) Thanks [@mhbdev](https://github.com/mhbdev)! - Use the maintained Quay registry for the pinned MinIO backup-rehearsal image so production release acceptance and operator backup rehearsals continue to work after Docker Hub retired the image path.
+
 ## 0.13.3
 
 ### Patch Changes

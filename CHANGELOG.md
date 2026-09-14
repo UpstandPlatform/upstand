@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.4 - 2026-09-14
+
+Use the maintained Quay registry for the pinned MinIO backup-rehearsal image so production release acceptance and operator backup rehearsals continue to work after Docker Hub retired the image path.
+
+
 ## 0.13.3 - 2026-09-14
 
 Keep the control plane reachable through direct IP ports as a permanent
