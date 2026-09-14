@@ -1,5 +1,14 @@
 # schedules
 
+## 0.13.3
+
+### Patch Changes
+
+- [#492](https://github.com/UpstandPlatform/upstand/pull/492) [`5fb5366`](https://github.com/UpstandPlatform/upstand/commit/5fb53663cfdc253489e636bde550e2045b9ba0a3) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep the control plane reachable through direct IP ports as a permanent
+  break-glass path, and add Dokploy-compatible deployment-time external secret
+  provider references. Harden the installer and document supported VM, Incus,
+  nested Docker, interactive, upgrade, and recovery flows.
+
 ## 0.13.2
 
 No changes in this release.

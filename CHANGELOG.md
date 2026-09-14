@@ -4,6 +4,14 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.3 - 2026-09-14
+
+Keep the control plane reachable through direct IP ports as a permanent
+break-glass path, and add Dokploy-compatible deployment-time external secret
+provider references. Harden the installer and document supported VM, Incus,
+nested Docker, interactive, upgrade, and recovery flows.
+
+
 ## 0.13.2 - 2026-09-12
 
 Patch the production dependency vulnerabilities in Next.js, sharp, nodemailer, and js-yaml.
