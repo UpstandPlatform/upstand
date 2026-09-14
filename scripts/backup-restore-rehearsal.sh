@@ -35,6 +35,19 @@ fail() {
   exit 1
 }
 
+pull_image_with_retry() {
+  local image="$1"
+  local attempt
+  for attempt in 1 2 3 4; do
+    if docker pull "$image" >/dev/null; then
+      return 0
+    fi
+    [[ "$attempt" -lt 4 ]] || break
+    sleep "$((attempt * 5))"
+  done
+  fail "unable to pull immutable rehearsal image after 4 attempts: $image"
+}
+
 validate_budget() {
   local name="$1"
   local value="$2"
@@ -112,6 +125,8 @@ for name in "${names[@]}"; do
 done
 existing_network="$(docker network ls -q --filter "name=^${network}$")"
 [[ -z "$existing_network" ]] || fail "refusing to use an existing network named '$network'"
+
+pull_image_with_retry "$minio_image"
 
 SECONDS=0
 docker network create "$network" >/dev/null

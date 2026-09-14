@@ -42,6 +42,20 @@ function Invoke-Docker {
   }
 }
 
+function Pull-ImageWithRetry {
+  param([Parameter(Mandatory)][string]$Image)
+  for ($attempt = 1; $attempt -le 4; $attempt++) {
+    & docker pull $Image
+    if ($LASTEXITCODE -eq 0) {
+      return
+    }
+    if ($attempt -lt 4) {
+      Start-Sleep -Seconds ($attempt * 5)
+    }
+  }
+  throw "Unable to pull immutable rehearsal image after 4 attempts: $Image"
+}
+
 function Assert-Budget {
   param(
     [Parameter(Mandatory)][string]$Name,
@@ -111,6 +125,7 @@ $rcloneEnvironment = @(
 
 try {
   $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  Pull-ImageWithRetry $minioImage
   Invoke-Docker @("run", "-d", "--rm", "--name", $minioName,
     "-p", "127.0.0.1:19000:9000",
     "-e", "MINIO_ROOT_USER=$accessKey",
