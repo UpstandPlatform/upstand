@@ -81,6 +81,11 @@ export interface CaddyServicePort {
   getLogs(tail?: number): Promise<string>;
   getAccessLogs(tail?: number): Promise<string>;
   cleanupAccessLogs(): Promise<void>;
-  setControlPlaneIpAccess(enabled: boolean): Promise<void>;
+  /**
+   * Ensures the control-plane recovery ports are published. The optional
+   * argument is retained for compatibility with older callers; implementations
+   * must not use it to remove the permanent recovery path.
+   */
+  setControlPlaneIpAccess(enabled?: boolean): Promise<void>;
   restartCaddy(): Promise<{ success: boolean; error?: string }>;
 }

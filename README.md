@@ -190,6 +190,11 @@ For major database image upgrades, read the [database upgrade runbook](apps/fuma
 
 Upstand can be installed as a **Self-Hosted** instance or run as a multi-tenant **Cloud Service** (SaaS) depending on the configuration flags.
 
+Use the [canonical installation guide](apps/fumadocs/content/docs/getting-started/installation.mdx)
+for the supported VM, VPS, Incus, and Docker-in-Docker matrix, interactive
+mode, secure upgrades, rollback, firewall guidance, and external secret
+providers.
+
 ### 1. Self-Hosted Mode (Default)
 
 In self-hosted mode, you can deploy applications, databases, and Docker Compose configurations directly onto the local Docker Swarm manager node running the Upstand dashboard.
@@ -204,7 +209,7 @@ from GHCR. It resolves the release manifest to immutable digests before
 deploying:
 
 ```bash
-export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+export UPSTAND_VERSION="vX.Y.Z" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
@@ -215,7 +220,7 @@ use an internal Go mirror, override it explicitly before running the installer:
 
 ```bash
 export GOPROXY='https://go-proxy.example.com|direct'
-export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+export UPSTAND_VERSION="vX.Y.Z" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
@@ -225,8 +230,9 @@ errors when pipe fallback is used. The comma form falls back only for 404 and
 
 Without URL variables, the dashboard, API, and docs start on the detected host
 IP at ports `3001`, `3000`, and `4000`. Configure the domain and HTTPS from the
-Web Server page first, then disable **Direct IP:port access** there when the
-domain is ready.
+Web Server page first. Direct IP:port access remains enabled as a break-glass
+path when DNS, Caddy, or certificates fail; restrict it with a firewall,
+private network, or VPN instead of disabling it.
 
 ```bash
 export BETTER_AUTH_URL=https://api.example.com
@@ -247,7 +253,7 @@ export UPSTAND_REGISTRY=ghcr.io
 export UPSTAND_REGISTRY_USERNAME=<registry-user>
 export UPSTAND_REGISTRY_PASSWORD=<registry-token>
 
-export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+export UPSTAND_VERSION="vX.Y.Z" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
@@ -270,11 +276,19 @@ export UPSTAND_WEB_IMAGE=ghcr.io/upstandplatform/upstand-web@sha256:<digest>
 export UPSTAND_MONITORING_IMAGE=ghcr.io/upstandplatform/upstand-monitoring@sha256:<digest>
 export UPSTAND_DOCS_IMAGE=ghcr.io/upstandplatform/upstand-fumadocs@sha256:<digest>
 
-export UPSTAND_VERSION="v0.1.8" # replace with the audited release tag
+export UPSTAND_VERSION="vX.Y.Z" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash -s -- --cloud
 ```
 
-The `--cloud` flag sets the server cloud mode. The web console reads that mode from the API at runtime, so the same immutable web image is used for cloud and self-hosted installations. The installer validates all configured API, dashboard, and documentation origins from the deployment host before reporting success.
+The `--cloud` flag sets the server cloud mode. The web console reads that mode from the API at runtime, so the same immutable web image is used for cloud and self-hosted installations. Cloud mode requires remote workload servers; self-hosted mode can deploy to the local Swarm manager. The installer validates all configured API, dashboard, and documentation origins from the deployment host before reporting success.
+
+For a guided bootstrap from the GitHub raw content URL:
+
+```bash
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh \
+  | sudo bash -s -- --interactive
+```
 
 For detailed guides, refer to the local documentation site (`apps/fumadocs`) or navigate to `/docs/getting-started` once deployed.
 

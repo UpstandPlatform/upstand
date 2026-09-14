@@ -40,7 +40,7 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `BETTER_AUTH_SECRET` | Production | Better Auth signing/session secret; the server schema requires at least 32 characters. |
 | `BETTER_AUTH_URL` | Production | Canonical auth API URL. |
 | `CORS_ORIGIN` | Production | Allowed dashboard origin. |
-| `UPSTAND_ALLOW_INSECURE_BOOTSTRAP` | No | Explicit isolated-host exception for direct-IP HTTP during first-account bootstrap; direct HTTP is rejected after the first self-hosted account exists. Keep `false` for normal production operation. |
+| `UPSTAND_ALLOW_INSECURE_BOOTSTRAP` | No | Allows an installation with no configured HTTPS origins to complete its initial direct-IP bootstrap. It does not disable the permanent direct IP:port break-glass path. |
 | `ENCRYPTION_KEY_V1` | Production | Master 256-bit encryption key for stored database secrets and provider credentials. |
 | `REDIS_URL` | No | Redis connection URL; defaults to `redis://localhost:6379`. |
 | `UPSTAND_DATABASE_URL` | No | Installer alias for an external PostgreSQL connection URL; stored as a Docker secret. |
@@ -62,7 +62,7 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_SERVER_UPSTREAM` | Server upstream override. |
 | `UPSTAND_WEB_UPSTREAM` | Web upstream override. |
 | `UPSTAND_FUMADOCS_UPSTREAM` | Fumadocs upstream override. |
-| `UPSTAND_DIRECT_ORIGINS` | Installer-managed explicit bootstrap mode for direct host-IP origins. Production defaults to `false`; enable only during isolated HTTP bootstrap. |
+| `UPSTAND_DIRECT_ORIGINS` | Legacy compatibility variable; direct same-IP HTTP origins are now always trusted for control-plane recovery. Keep firewall/VPN policy restrictive. |
 | `UPSTAND_SERVER_PORT` / `UPSTAND_WEB_PORT` / `UPSTAND_DOCS_PORT` | Published host ports for the API, dashboard, and documentation services. |
 | `UPSTAND_CONTROL_PLANE_SSH_HOST_KEY_FINGERPRINT` | Optional host-key pin for control-plane SSH operations. |
 
@@ -117,6 +117,23 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_DOCKER_BROKER_CA_FILE` / `UPSTAND_DOCKER_BROKER_CERT_FILE` / `UPSTAND_DOCKER_BROKER_KEY_FILE` | Installer-managed | Broker-side CA, server certificate, and private-key paths. The installer generates them as Docker secrets. |
 | `UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE` / `UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE` | Installer-managed | Caller-specific mTLS client certificate and key paths used by the server, schedules orchestrator, or deployment-worker. |
 
+## Installer and nested-runtime variables
+
+| Variable | Purpose |
+| --- | --- |
+| `UPSTAND_BUILD_FROM_SOURCE` | Explicitly selects a source build instead of the immutable release manifest. |
+| `UPSTAND_REF` | Git branch or tag used for a source build. |
+| `UPSTAND_ALLOW_DOCKER_INSTALL` | Explicitly allows the installer to invoke the upstream Docker installation script when Docker is absent. |
+| `UPSTAND_ALLOW_SINGLE_REPLICA` | Required acknowledgement for the bundled single-replica control plane and data services. |
+| `UPSTAND_ALLOW_UNDERSIZED_HOST` | Recovery/test-only override for hosts below the recommended 2 vCPU, 4 GiB RAM, or 30 GiB storage. |
+| `SWARM_ADVERTISE_ADDR` | Explicit IPv4/IPv6 address used by `docker swarm init`; otherwise the installer discovers a routable address. |
+| `UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS` | Optional comma-separated provider host allowlist for private Vault, Infisical, and other provider endpoints. URL and DNS safety checks still apply. |
+| `UPSTAND_DOCKER_CONTROL_NETWORK` | Internal encrypted control-network name used by the Docker broker. |
+
+Interactive mode can collect these settings from `/dev/tty`, including when
+the installer is streamed through `curl | sudo bash`. Non-interactive CI or
+automation must provide the required values explicitly.
+
 ## Git and AI integrations
 
 | Variable | Purpose |
@@ -146,10 +163,12 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 
 Cloud mode is configured with the server-side `IS_CLOUD` variable. The web console reads the authoritative value from the API at runtime, so cloud and self-hosted installations use the same web image.
 
-When the installer has no URL variables, it leaves the control-plane services
-available on the host IP and their published ports. Configure the domain and
-HTTPS certificate in **Web Server** first, then disable **Direct IP:port
-access** to remove those host-port publications.
+The installer always keeps the control-plane services available on the host IP
+and their published ports. Configure the domain and HTTPS certificate in **Web
+Server** for normal use, but do not expect that route to remove direct access:
+the API and dashboard IP:port path is the permanent break-glass route for DNS,
+Caddy, and certificate failures. Restrict the direct ports with the host
+firewall, a private network, or a VPN rather than disabling them in the UI.
 
 ## Documentation app
 

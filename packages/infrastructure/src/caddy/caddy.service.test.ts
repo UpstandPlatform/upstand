@@ -67,6 +67,46 @@ test("uses the typed broker for local Caddy configuration sync", async () => {
   expect(configurationInput?.certificates).toEqual([]);
 });
 
+test("keeps every control-plane recovery port published", async () => {
+  type Port = {
+    Protocol?: string;
+    TargetPort?: number;
+    PublishedPort?: number;
+    PublishMode?: string;
+  };
+  type ServiceUpdate = { EndpointSpec?: { Ports?: Port[] } };
+  const updates: ServiceUpdate[] = [];
+  const docker = {
+    info: async () => ({
+      Swarm: { LocalNodeState: "active", ControlAvailable: true },
+    }),
+    getService: () => ({
+      inspect: async () => ({
+        Version: { Index: 1 },
+        Spec: {
+          Name: "upstand-control-plane",
+          Labels: {},
+          Mode: { Replicated: { Replicas: 1 } },
+          TaskTemplate: {},
+          EndpointSpec: { Ports: [] },
+        },
+      }),
+      update: async (update: ServiceUpdate) => {
+        updates.push(update);
+      },
+    }),
+  };
+
+  await new CaddyService(docker as never, [
+    "localhost",
+  ]).setControlPlaneIpAccess(false);
+
+  expect(updates).toHaveLength(3);
+  expect(
+    updates.map((update) => update.EndpointSpec?.Ports?.[0]?.PublishedPort),
+  ).toEqual([3000, 3001, 4000]);
+});
+
 describe("Caddy domain configuration", () => {
   test("normalizes validated mappings and creates an Automatic HTTPS site", () => {
     const mappings = parseDomainMappings(

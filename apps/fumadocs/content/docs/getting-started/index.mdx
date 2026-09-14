@@ -31,26 +31,24 @@ flowchart TD
 
 ## Production Quickstart
 
-Use the [production self-hosting guide](/docs/getting-started/self-hosting) and
-the audited installer for production deployments. The installer creates the
-encrypted, attachable Swarm network, pins every Upstand image to an immutable
-digest, provisions file-backed secrets, and runs the migration and runtime
-acceptance checks.
+Start with the [installation guide](/docs/getting-started/installation). It
+covers self-hosted and cloud modes, release channels, native and nested Linux
+hosts, interactive installation, secure upgrades, firewall checks, and
+Dokploy-compatible external secret references.
 
-Pin the exact release tag that has been reviewed before downloading the
-installer:
+For production, pin an audited release tag before downloading the installer:
 
 ```bash
-export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
+export UPSTAND_VERSION="vX.Y.Z"
 curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
   | sudo -E bash
 ```
 
-Do not use a mutable `latest` image, a mutable branch URL, plaintext database
-credentials, or a direct Docker Compose deployment for production. The
-installer also requires explicit acknowledgement before granting the control
-plane access to the host Docker socket.
+Do not use mutable image tags, plaintext database credentials, or a direct
+Docker Compose deployment for production. The installer requires explicit
+acknowledgements for the single-replica operating model, observability, and
+disaster-recovery plan before it grants the control plane access to Docker.
 
 For a local development or evaluation environment, use the repository's
 development setup instructions instead of adapting a production deployment.

@@ -162,6 +162,14 @@ export class GetWebServerSettingsUseCase {
       }
     }
 
+    // The legacy toggle is retained in the database for compatibility, but
+    // direct control-plane ports are now a permanent break-glass path.
+    if (!settings.ipAccessEnabled) {
+      settings = (await this.uow.webServerSettingsRepository.updateGlobal({
+        ipAccessEnabled: true,
+      })) ?? { ...settings, ipAccessEnabled: true };
+    }
+
     const resilientSnippets = ensureControlPlaneRetries(settings.caddySnippets);
     if (resilientSnippets !== settings.caddySnippets) {
       settings =
@@ -213,9 +221,7 @@ export class GetWebServerSettingsUseCase {
     }
 
     if (options.reconcile) {
-      await this.caddyService.setControlPlaneIpAccess(
-        settings.ipAccessEnabled ?? true,
-      );
+      await this.caddyService.setControlPlaneIpAccess(true);
       await this.caddyService.initializeCaddy(settings);
       const [resources, certificates] = await Promise.all([
         this.uow.resourceRepository.findForCaddy?.() ??

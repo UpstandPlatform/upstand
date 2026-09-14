@@ -150,9 +150,10 @@ function isPrivateIpv4Host(hostname: string): boolean {
 }
 
 /**
- * In production, plaintext direct-IP bootstrap is restricted to addresses
- * that identify a local/private interface. Public-IP bootstrap would make an
- * intentionally insecure session-cookie recovery mode remotely reachable.
+ * Classify private/local addresses for callers that need to make a narrower
+ * network-policy decision. Direct control-plane recovery itself intentionally
+ * remains available on any numeric IP so an operator can recover when DNS or
+ * the reverse proxy is unavailable.
  */
 export function isPrivateDirectIpHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -193,19 +194,7 @@ export function isPrivateDirectIpHttpRequest(request: Request): boolean {
 }
 
 function isDirectHttpRequest(request: Request): boolean {
-  if (
-    process.env.NODE_ENV === "production" &&
-    ((process.env.UPSTAND_DIRECT_ORIGINS !== "true" &&
-      process.env.UPSTAND_DIRECT_ORIGINS !== "1") ||
-      (process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP !== "true" &&
-        process.env.UPSTAND_ALLOW_INSECURE_BOOTSTRAP !== "1"))
-  ) {
-    return false;
-  }
-  if (!isDirectIpHttpRequest(request)) return false;
-  return process.env.NODE_ENV === "production"
-    ? isPrivateDirectIpHttpRequest(request)
-    : true;
+  return isDirectIpHttpRequest(request);
 }
 
 function getSetCookieHeaders(headers: Headers): string[] {
@@ -342,10 +331,9 @@ export function createAuth(options: {
     options;
   const sharedCookieDomain = resolveSharedCookieDomain(configuration);
   const passkeyConfiguration = resolvePasskeyConfiguration(configuration);
-  // The self-hosted installer can intentionally run the first boot on direct
-  // HTTP origins when DNS/TLS are not configured yet. Secure cookies are
-  // correct for HTTPS production deployments, but browsers reject them over
-  // that documented HTTP bootstrap path.
+  // Direct IP recovery intentionally runs over HTTP when DNS/TLS or the
+  // reverse proxy is unavailable. Secure cookies remain correct for HTTPS
+  // domain access, but browsers reject them on the direct numeric-IP origin.
   const secureCookies =
     configuration.nodeEnv === "production" &&
     [configuration.betterAuthUrl, configuration.corsOrigin].every((origin) =>
@@ -364,13 +352,11 @@ export function createAuth(options: {
             const parsed = new URL(origin);
             const requestUrl = new URL(request.url);
             if (
-              configuration.directOrigins === true &&
+              parsed.protocol === "http:" &&
+              requestUrl.protocol === "http:" &&
               isDirectHost(parsed.hostname) &&
               isDirectHost(requestUrl.hostname) &&
-              parsed.hostname === requestUrl.hostname &&
-              (configuration.nodeEnv !== "production" ||
-                (isPrivateDirectIpHost(parsed.hostname) &&
-                  isPrivateDirectIpHost(requestUrl.hostname)))
+              parsed.hostname === requestUrl.hostname
             ) {
               origins.push(parsed.origin);
             }

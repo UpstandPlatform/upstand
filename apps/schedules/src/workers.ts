@@ -28,6 +28,7 @@ import {
   DockerInventoryReaderToken,
   DockerWorkloadMigrationPortToken,
   ExecuteBackupRunUseCaseToken,
+  ExternalSecretProviderToken,
   PublishNotificationUseCaseToken,
   UnitOfWorkToken,
 } from "@upstand/usecases/tokens";
@@ -355,6 +356,9 @@ export class DeploymentRuntime {
               dockerService: scope.resolve(DockerDeploymentToken),
               caddyService: scope.resolve(CaddyServiceToken),
               publisher: scope.resolve(PublishNotificationUseCaseToken),
+              externalSecretProvider: scope.resolve(
+                ExternalSecretProviderToken,
+              ),
               dispose: () => scope.dispose(),
             };
           },

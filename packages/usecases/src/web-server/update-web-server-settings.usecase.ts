@@ -124,8 +124,10 @@ export class UpdateWebServerSettingsUseCase {
     if (input.caddyPorts !== undefined) patch.caddyPorts = input.caddyPorts;
     if (input.accessLogsEnabled !== undefined)
       patch.accessLogsEnabled = input.accessLogsEnabled;
-    if (input.ipAccessEnabled !== undefined)
-      patch.ipAccessEnabled = input.ipAccessEnabled;
+    // Direct control-plane access is the documented break-glass path when DNS
+    // or Caddy is unavailable. Keep the legacy field for schema compatibility,
+    // but never allow an update to remove the published control-plane ports.
+    patch.ipAccessEnabled = true;
     if (input.accessLogCleanupCron !== undefined)
       patch.accessLogCleanupCron = input.accessLogCleanupCron;
 
@@ -145,29 +147,7 @@ export class UpdateWebServerSettingsUseCase {
       },
     );
 
-    const candidate = { ...settings, ...patch };
-    const ipAccessChanged =
-      input.ipAccessEnabled !== undefined &&
-      input.ipAccessEnabled !== settings.ipAccessEnabled;
-    if (input.ipAccessEnabled === false) {
-      const domain = candidate.serverDomain?.trim() ?? "";
-      const hasValidDomain =
-        domain.length > 0 &&
-        domain.length <= 253 &&
-        /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
-          domain,
-        );
-      const hasCertificate =
-        candidate.httpsEnabled &&
-        candidate.certificateProvider !== "none" &&
-        (candidate.certificateProvider !== "custom" ||
-          Boolean(candidate.certificateId));
-      if (!hasValidDomain || !hasCertificate) {
-        throw new Error(
-          "Configure a valid HTTPS domain and certificate before disabling direct IP access.",
-        );
-      }
-    }
+    const candidate = { ...settings, ...patch, ipAccessEnabled: true };
     const needsRecreate =
       input.httpPort !== undefined ||
       input.httpsPort !== undefined ||
@@ -181,11 +161,7 @@ export class UpdateWebServerSettingsUseCase {
       (await this.uow.certificateRepository.findAll?.()) ?? [];
 
     try {
-      if (ipAccessChanged) {
-        await this.caddyService.setControlPlaneIpAccess(
-          candidate.ipAccessEnabled ?? true,
-        );
-      }
+      await this.caddyService.setControlPlaneIpAccess(true);
       await this.caddyService.initializeCaddy(candidate, needsRecreate);
       await this.caddyService.syncResourceConfigs(
         resources,
@@ -196,15 +172,11 @@ export class UpdateWebServerSettingsUseCase {
         tx.webServerSettingsRepository.updateGlobal(patch),
       );
     } catch (error) {
-      if (ipAccessChanged) {
-        try {
-          await this.caddyService.setControlPlaneIpAccess(
-            settings.ipAccessEnabled ?? true,
-          );
-        } catch {
-          // Preserve the original error; the Swarm service state can be
-          // reconciled by retrying the setting update.
-        }
+      try {
+        await this.caddyService.setControlPlaneIpAccess(true);
+      } catch {
+        // Preserve the original error; the Swarm service state can be
+        // reconciled by retrying the setting update.
       }
       try {
         await this.caddyService.initializeCaddy(settings, needsRecreate);
