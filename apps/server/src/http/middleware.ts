@@ -1,3 +1,8 @@
+import {
+  isDirectIpHttpRequest,
+  isPrivateDirectIpHost,
+  isPrivateDirectIpHttpRequest,
+} from "@upstand/auth";
 import { env } from "@upstand/env/server";
 import { resolveCorrelationId } from "@upstand/platform";
 import type { Hono } from "hono";
@@ -93,6 +98,10 @@ export function registerHttpMiddleware(
     }
   });
 
+  // Direct-IP HTTP is a deliberately narrow recovery path for a fresh
+  // self-hosted instance. Once the first account exists, keeping it enabled
+  // would allow session cookies to be downgraded and transported without TLS.
+  // Fail closed if the database-backed setup check cannot be completed.
   app.use("*", async (c, next) => {
     if (!PUBLIC_SYSTEM_PATHS.has(c.req.path)) {
       const authenticated = await dependencies.identifyUser(
