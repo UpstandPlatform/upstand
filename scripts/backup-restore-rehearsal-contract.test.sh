@@ -13,6 +13,8 @@ require_script_text() {
 }
 
 require_script_text 'quay.io/minio/minio@sha256:'
+require_script_text 'pull_image_with_retry'
+require_script_text 'after 4 attempts'
 require_script_text 'postgres:18-alpine@sha256:'
 require_script_text 'alpine:3.20@sha256:'
 require_script_text 'command "$DOCKER_BIN" "$@"'

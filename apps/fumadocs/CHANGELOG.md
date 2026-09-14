@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.13.5
+
+### Patch Changes
+
+- [#500](https://github.com/UpstandPlatform/upstand/pull/500) [`e3f5696`](https://github.com/UpstandPlatform/upstand/commit/e3f56966e1f9e8f80ff9c596e2b17c9c347b89ff) Thanks [@mhbdev](https://github.com/mhbdev)! - Retry immutable backup-rehearsal image pulls so transient container-registry gateway errors do not interrupt release acceptance or operator recovery rehearsals.
+
 ## 0.13.4
 
 ### Patch Changes
