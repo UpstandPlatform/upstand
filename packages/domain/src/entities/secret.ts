@@ -16,10 +16,26 @@ export type SecretVersion = z.infer<typeof SecretVersionSchema>;
 
 export const SecretProviderTypeSchema = z.enum([
   "vault",
+  "hashicorp",
+  "infisical",
+  "aws",
+  "aws-parameter-store",
+  "doppler",
+  "azure",
+  "scaleway",
+  "phase",
   "aws-secrets-manager",
   "onepassword",
 ]);
 export type SecretProviderType = z.infer<typeof SecretProviderTypeSchema>;
+
+export const SecretProviderAssignmentSchema = z.object({
+  projectId: z.string().min(1),
+  environmentIds: z.array(z.string().min(1)).default([]),
+});
+export type SecretProviderAssignment = z.infer<
+  typeof SecretProviderAssignmentSchema
+>;
 
 export const SecretProviderSchema = z.object({
   id: z.string(),

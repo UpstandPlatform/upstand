@@ -1,0 +1,276 @@
+---
+title: Installation and upgrades
+description: Install, configure, upgrade, and troubleshoot Upstand on VMs, VPSs, Incus, and nested Docker hosts.
+---
+
+This is the canonical installation guide. It covers the self-hosted and cloud
+control-plane modes, release channels, secure upgrades, nested runtimes, and
+deployment-time references to external secret providers.
+
+## Choose a deployment mode
+
+| Mode | What it means | Workload placement |
+| --- | --- | --- |
+| **Self-hosted** | A single-tenant control plane with an owner account | The local Swarm manager can run workloads; remote servers can be added too |
+| **Cloud** | A multi-tenant control plane operated by the platform operator | Workloads must run on registered remote servers; local target deployment is disabled |
+| **Managed** | An Upstand-operated service | There is no customer-side control-plane installer; the operator performs platform upgrades |
+
+`--cloud` configures Cloud mode on infrastructure that you operate. It does
+not provision an Upstand-hosted SaaS account.
+
+## Supported host shapes
+
+The installer runs on a Linux host with a rootful Docker Engine and Docker
+Swarm manager access. The host may be:
+
+| Host | Support and requirements |
+| --- | --- |
+| Linux VM or VPS | Recommended. Use Ubuntu 22.04/24.04 or Debian 12 with at least 2 vCPUs, 4 GiB RAM, and 30 GiB free Docker storage. |
+| Incus VM | Supported when the guest has a normal rootful Docker Engine and the VM networking exposes the required ports. |
+| Incus system container | Supported only when nesting is enabled, the container has a rootful Docker daemon, and the host supplies the kernel modules and privileges required by Docker Swarm encrypted overlay networking. Test the exact Incus profile before production use. |
+| Docker-in-Docker | Supported only for a rootful inner daemon with a persistent `/var/lib/docker`, the inner Unix socket available at `/var/run/docker.sock`, and the privileges required by Swarm encrypted overlays. Do not use rootless Docker for the inner daemon. |
+
+The installer detects nested Docker, Incus/LXC-style containers, rootless
+Docker, the Docker socket, active listeners, and the host firewall. Unsupported
+conditions stop the installation with an actionable error; a warning about a
+nested runtime is not a replacement for the encrypted-overlay runtime probe.
+
+For Incus, enable nesting on the instance and make sure the host kernel has
+the modules required by the guest Docker daemon. See the [Incus instance
+options](https://linuxcontainers.org/incus/docs/main/reference/instance_options/),
+[Incus FAQ](https://linuxcontainers.org/incus/docs/main/faq/), and
+[Incus security model](https://linuxcontainers.org/incus/docs/main/explanation/security/).
+Privileged containers reduce isolation and should not be the default choice.
+
+## Prerequisites and network policy
+
+Install from a terminal as root or with `sudo`. The bootstrap needs `bash`,
+`curl`, `openssl`, `awk`, `sed`, `tar`, `ss`, and a package manager capable of
+installing Docker. The installer can request permission to run Docker's
+official convenience installer with `UPSTAND_ALLOW_DOCKER_INSTALL=true`, but a
+distribution package or your approved host image is preferred for production.
+
+Open these ports only where they are needed:
+
+- TCP `80` and `443` for the public Caddy proxy, when using public HTTPS.
+- TCP `3000`, `3001`, and `4000` for direct API, dashboard, and documentation
+  access. These control-plane ports remain published as a break-glass path;
+  restrict them with the host firewall, a private network, or a VPN and put
+  Caddy or an external proxy in front of normal production traffic.
+- On a multi-node Swarm, TCP `2377`, TCP/UDP `7946`, and UDP `4789` between
+  trusted cluster nodes. Encrypted overlay networking also requires the host
+  firewall to allow the traffic needed by the Docker kernel networking stack.
+
+Do not expose the Docker API, PostgreSQL, Redis, or the Docker broker to the
+internet. Upstand creates an encrypted attachable application network and a
+separate internal control network. It does not install or take over an
+existing Caddy instance; it detects public listeners and leaves an existing
+proxy under your control.
+
+## Quick install
+
+### Recommended: pin an audited release
+
+Replace `vX.Y.Z` with the exact stable release tag you reviewed:
+
+```bash
+export UPSTAND_VERSION=vX.Y.Z
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
+  | sudo -E bash
+```
+
+The installer downloads the Compose stack and acceptance helpers from that
+same tag, verifies the release manifest hashes, resolves published images to
+immutable digests, creates file-backed secrets under `/etc/upstand/secrets/`,
+and waits for the stack to become ready.
+
+### Guided one-line bootstrap
+
+For a developer-friendly install, let the installer discover Docker, Caddy,
+firewall listeners, the Swarm address, and the runtime shape interactively:
+
+```bash
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/UpstandPlatform/upstand/master/install.sh \
+  | sudo bash -s -- --interactive
+```
+
+This convenience command uses the script on the repository's stable branch;
+review and pin a release tag for production. Interactive prompts read from
+`/dev/tty`, so the guided flow works through a pipe. Use `--self-hosted` or
+`--cloud` to select the mode without being prompted.
+
+### Cloud mode on your own host
+
+```bash
+export UPSTAND_VERSION=vX.Y.Z
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
+  | sudo -E bash -s -- --cloud
+```
+
+Cloud mode uses the same immutable control-plane images but blocks local
+workload targets. Add remote Docker servers over SSH after the control plane
+is ready.
+
+## Production acknowledgements
+
+The secure installer deliberately does not silently accept an undersized or
+unobserved production setup. Non-interactive installs must provide the
+following values (interactive installs ask for them):
+
+```bash
+export UPSTAND_ALLOW_SINGLE_REPLICA=true
+export UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true
+export UPSTAND_DR_OFFSITE_CONFIRMED=true
+export UPSTAND_DR_KEY_ESCROW_CONFIRMED=true
+export UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true
+export UPSTAND_DR_RPO_SECONDS=3600
+export UPSTAND_DR_RTO_SECONDS=7200
+export UPSTAND_DR_EVIDENCE_REFERENCE=change-or-runbook-id
+```
+
+For real high availability, configure both `DATABASE_URL` and `REDIS_URL`
+using an independently operated PostgreSQL/Redis service and follow the
+[database upgrade runbook](/docs/operations/database-upgrades). The bundled
+PostgreSQL and Redis services are single-replica convenience services, not an
+HA data plane. `UPSTAND_ALLOW_UNDERSIZED_HOST=true` is only a test/recovery
+override and does not make an undersized host production-ready.
+
+To use telemetry instead of the explicit observability acknowledgement, set
+`OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` to an HTTP(S) collector.
+
+## Interactive and non-interactive operation
+
+The script supports:
+
+```text
+install.sh --interactive [--cloud|--self-hosted]
+install.sh --upgrade [--cloud|--self-hosted]
+```
+
+Interactive mode prompts for missing origins, channel, Docker installation,
+single-replica/observability acknowledgements, recovery objectives, and the
+Swarm advertise address. It is safe to rerun: existing non-secret settings
+are reused and upgrades create a protected archive first.
+
+For automation, export all required values and run without `--interactive`.
+Never pipe a command that contains credentials into a shell. Use environment
+variables or the installer-managed secret files, and protect CI logs from
+printing them.
+
+## Channels and source builds
+
+- **Stable**: an exact `vX.Y.Z` tag and immutable release manifest. Use this
+  for production.
+- **Canary**: an explicit source build from the `canary` ref. Use only for
+  testing.
+- **Source**: set `UPSTAND_BUILD_FROM_SOURCE=true` and choose `UPSTAND_REF`.
+  Source builds are not verified release artifacts and are not automatic
+  update targets.
+- **Managed**: operator-controlled and not installed with this script.
+
+For source builds:
+
+```bash
+export UPSTAND_BUILD_FROM_SOURCE=true
+export UPSTAND_REF=canary
+curl --fail --silent --show-error --location \
+  https://raw.githubusercontent.com/UpstandPlatform/upstand/canary/install.sh \
+  | sudo -E bash -s -- --self-hosted
+```
+
+## Secure upgrades and rollback
+
+Run the same installer with the new audited tag. The installer loads persisted
+settings, creates a timestamped archive under `/etc/upstand/backups/`, fetches
+the matching release artifacts, verifies them, and reconciles the stack:
+
+```bash
+export UPSTAND_VERSION=vX.Y.Z
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
+  | sudo -E bash -s -- --upgrade
+```
+
+Do not delete `/etc/upstand/secrets/` or the PostgreSQL/Redis volumes during an
+upgrade. The encryption key is required to decrypt stored credentials. To
+rollback, rerun the previous audited release installer with its known-good
+tag and image pins after verifying database compatibility; image rollback does
+not undo database migrations.
+
+## External secret providers
+
+Upstand supports deployment-time references compatible with Dokploy. Configure
+a provider in **Settings → Secret Providers**, then use this syntax in
+environment variables, build environment variables, build secrets, or Compose
+values:
+
+```dotenv
+DATABASE_URL=${{vault.production-doppler.DATABASE_URL}}
+STRIPE_KEY=${{vault.production-vault.apps/production:STRIPE_KEY}}
+```
+
+The first segment after `vault.` is the Upstand provider name, not the vendor
+type. The reference is resolved only for the deployment scope, never written
+back to the database, and never included in ordinary configuration listings.
+Missing providers, missing references, invalid assignments, and provider
+errors fail the deployment with an actionable message.
+
+Supported provider types and reference formats are:
+
+| Provider | Configuration highlights | Reference |
+| --- | --- | --- |
+| HashiCorp Vault / OpenBao | `url`, `token`, optional `namespace`, `mount` | `<path>:<field>`; for example `apps/production:STRIPE_KEY` |
+| Infisical | `siteUrl`, `clientId`, `clientSecret`, `projectId`, `environmentSlug` | `<SECRET_NAME>` |
+| AWS Secrets Manager | `region`, `accessKeyId`, `secretAccessKey`, optional `endpoint` | `<secret-name>` or `<secret-name>:<field>` |
+| AWS Parameter Store | AWS credentials and optional `parameterPath` | parameter name/path |
+| Doppler | `token`, `project`, `config` | `<SECRET_NAME>` |
+| Azure Key Vault | `vaultUri`, `tenantId`, `clientId`, `clientSecret` | `<secret-name>` |
+| Scaleway Secret Manager | `projectId`, `secretKey`, optional `region` | `[folder/]<secret-name>[:field]` |
+| Phase | `apiUrl`, `token`, `appId`, `env` | `<SECRET_NAME>` |
+| 1Password Connect and legacy Upstand adapters | Existing Upstand configuration | See the provider form and current adapter fields |
+
+Provider credentials are encrypted at rest. Assignments can restrict a
+provider to selected projects and environments; an explicitly empty assignment
+list disables it for deployment resolution. Keep provider names stable because
+they are part of application configuration.
+
+## After installation
+
+```bash
+docker stack services upstand
+curl --fail --silent http://127.0.0.1:3000/health/ready
+```
+
+Open the dashboard on port `3001` and documentation on port `4000` directly
+when DNS, Caddy, or certificates are unavailable. Otherwise configure your
+Caddy/external proxy and use the HTTPS origins set in `BETTER_AUTH_URL`,
+`CORS_ORIGIN`, and `NEXT_PUBLIC_SERVER_URL`.
+
+Useful operational commands and evidence helpers are installed in
+`/etc/upstand/`, including `production-acceptance.sh` and the recovery-evidence
+verifier. Keep their output with the release and backup records, but inspect
+logs before sharing them because application values and provider errors can be
+sensitive.
+
+## Troubleshooting
+
+- **Rootless or nested runtime rejected**: use a rootful Linux Docker Engine;
+  for Incus, enable nesting and provide the required host kernel modules.
+- **Encrypted overlay probe fails**: check Swarm state, VXLAN/ESP firewall
+  policy, kernel modules, and DinD/Incus privileges. Do not disable encryption
+  to bypass the probe.
+- **Port conflict**: stop or reconfigure the service reported by `ss`; the
+  installer checks exact ports `3000`, `3001`, and `4000`.
+- **Existing Caddy detected**: keep ownership with the existing proxy and route
+  to the Upstand ports, or perform a planned migration. The installer does not
+  overwrite Caddy configuration.
+- **Secret reference fails**: verify the provider name, exact reference format,
+  assignment, provider connectivity, and the deployment log. The resolved
+  value is intentionally not printed.
+
+For a feature-by-feature overview, continue with [concepts](/docs/getting-started/concepts),
+[secrets and scaling](/docs/features/secrets-and-scaling), and the
+[troubleshooting guide](/docs/reference/troubleshooting).

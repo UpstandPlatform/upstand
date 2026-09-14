@@ -3,7 +3,10 @@ title: Production Self-Hosting
 description: Learn how to provision a secure production environment using the Upstand installer.
 ---
 
-This guide outlines the production installation process, environment variable options, system prerequisites, and the security model for Upstand.
+This page keeps the operational details for a self-hosted control plane. Start
+with the [canonical installation guide](/docs/getting-started/installation)
+for the supported host matrix, interactive bootstrap, nested Docker/Incus
+requirements, cloud mode, upgrade flow, and external secret providers.
 
 ---
 
@@ -52,16 +55,16 @@ graph TD
 
 ## Server Prerequisites
 
-Prepare a fresh Linux Virtual Machine matching these requirements:
+Prepare a Linux VM, VPS, or supported nested Linux runtime matching these requirements:
 
-1. **Host OS**: Ubuntu 24.04 LTS, Ubuntu 22.04 LTS, or Debian 12 (Bookworm) is recommended.
+1. **Host OS**: Ubuntu 24.04 LTS, Ubuntu 22.04 LTS, or Debian 12 (Bookworm) is recommended. Other distributions must provide the installer dependencies and a supported rootful Docker Engine.
 2. **Hardware**: At least 2 vCPUs, 4 GB of RAM, and 30 GB of SSD storage.
 3. **DNS Configuration (optional for first boot)**: Configure A records pointing to your server's public IP when you are ready to use the managed HTTPS domain:
    - `app.example.com` (for the dashboard UI)
    - `api.example.com` (for the Hono/tRPC API server)
    - `docs.example.com` (for the documentation app)
 4. **Firewall Rules**:
-   - Open public TCP **80** and **443** for Caddy. The API, dashboard, scheduler, and documentation services remain private to the Swarm network.
+   - Open public TCP **80** and **443** for the Caddy or external reverse proxy you operate. Direct control-plane ports `3000`, `3001`, and `4000` remain published as the permanent recovery path; restrict them to trusted operators with a firewall, private network, or VPN.
    - For multi-node Swarms, restrict TCP **2377** (cluster management), TCP/UDP **7946** (node communication), and UDP **4789** (overlay network ingress) to your internal cluster network.
 
 ---
@@ -106,7 +109,7 @@ The Upstand installer supports two compilation strategies:
     Execute the bootstrap command to download and run the installer:
     
     ```bash
-    export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
+    export UPSTAND_VERSION="vX.Y.Z" # replace with the audited release tag
     curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
     ```
 
@@ -131,7 +134,20 @@ The Upstand installer supports two compilation strategies:
   </Step>
 </Steps>
 
-Production installs expose only Caddy on `:80/:443`; the API, dashboard, scheduler, and database services remain on the private Swarm network. Configure `BETTER_AUTH_URL`, `CORS_ORIGIN`, and `NEXT_PUBLIC_SERVER_URL` as HTTPS origins before installation. An insecure direct-IP bootstrap requires the explicit `UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true` opt-in and is limited to the first self-hosted account; after that account exists, direct-IP HTTP requests are rejected and the instance must be accessed through HTTPS.
+The stack publishes the API, dashboard, and documentation ports permanently
+for break-glass recovery. In production, restrict those ports at the host
+firewall and route normal public traffic through a Caddy or external HTTPS proxy. Configure
+`BETTER_AUTH_URL`, `CORS_ORIGIN`, and `NEXT_PUBLIC_SERVER_URL` as HTTPS origins
+before installation. If you intentionally install without HTTPS origins,
+the explicit `UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true` opt-in is required to
+complete the initial installation. That setting does not disable the
+permanent direct-IP recovery path after bootstrap.
+
+Non-interactive installs must also set `UPSTAND_ALLOW_SINGLE_REPLICA=true`,
+either an OTLP endpoint or `UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true`, and the
+three recovery confirmations plus positive `UPSTAND_DR_RPO_SECONDS`,
+`UPSTAND_DR_RTO_SECONDS`, and `UPSTAND_DR_EVIDENCE_REFERENCE`. The interactive
+installer prompts for these values.
 
 ---
 
@@ -181,13 +197,13 @@ ip -4 route get 1.1.1.1
 If you have multiple network interfaces, run behind a firewall/NAT, or want to specify a manual IP, set the `SWARM_ADVERTISE_ADDR` environment variable before running the installer:
 ```bash
 export SWARM_ADVERTISE_ADDR=192.168.1.50
-export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
+export UPSTAND_VERSION="vX.Y.Z" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash
 ```
 
 Alternatively, run the installer with the `--interactive` flag to be prompted for the IP address interactively:
 ```bash
-export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
+export UPSTAND_VERSION="vX.Y.Z" # replace with the audited release tag
 curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" | sudo -E bash -s -- --interactive
 ```
 
@@ -263,7 +279,7 @@ EOF
 ### 5. Deploy the Stack
 Fetch the `docker-compose.prod.yml` and deploy it as a Docker Stack:
 ```bash
-export UPSTAND_VERSION="v0.2.6" # replace with the audited release tag
+export UPSTAND_VERSION="vX.Y.Z" # replace with the audited release tag
 sudo curl -fsSL "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/docker-compose.prod.yml" -o /etc/upstand/docker-compose.yml
 sudo chmod 600 /etc/upstand/docker-compose.yml
 

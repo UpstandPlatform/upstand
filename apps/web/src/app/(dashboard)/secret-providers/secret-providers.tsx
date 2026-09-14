@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from "@upstand/ui/components/select";
 import { Spinner } from "@upstand/ui/components/spinner";
+import { Textarea } from "@upstand/ui/components/textarea";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ConfirmActionDialog } from "@/components/dashboard/confirm-action-dialog";
@@ -58,9 +59,49 @@ export const SECRET_PROVIDER_TYPES = [
     description: "HashiCorp Vault KV secret engine integration",
   },
   {
+    key: "hashicorp",
+    name: "HashiCorp Vault / OpenBao",
+    description: "Dokploy-compatible KV v2 references",
+  },
+  {
+    key: "infisical",
+    name: "Infisical",
+    description: "Infisical universal-auth integration",
+  },
+  {
     key: "aws-secrets-manager",
     name: "AWS Secrets Manager",
     description: "Amazon Web Services Secrets Manager integration",
+  },
+  {
+    key: "aws",
+    name: "AWS Secrets Manager (compatible)",
+    description: "Dokploy-compatible Secrets Manager references",
+  },
+  {
+    key: "aws-parameter-store",
+    name: "AWS Parameter Store",
+    description: "AWS Systems Manager Parameter Store integration",
+  },
+  {
+    key: "doppler",
+    name: "Doppler",
+    description: "Doppler project/config integration",
+  },
+  {
+    key: "azure",
+    name: "Azure Key Vault",
+    description: "Azure service-principal integration",
+  },
+  {
+    key: "scaleway",
+    name: "Scaleway Secret Manager",
+    description: "Scaleway Secret Manager integration",
+  },
+  {
+    key: "phase",
+    name: "Phase",
+    description: "Phase service-account integration",
   },
   {
     key: "onepassword",
@@ -69,15 +110,24 @@ export const SECRET_PROVIDER_TYPES = [
   },
 ] as const;
 
-type SecretProviderType = "vault" | "aws-secrets-manager" | "onepassword";
+type SecretProviderType = (typeof SECRET_PROVIDER_TYPES)[number]["key"];
 type SecretProvider =
   inferRouterOutputs<AppRouter>["secret"]["providers"][number];
 
 function isSecretProviderType(value: string): value is SecretProviderType {
+  return SECRET_PROVIDER_TYPES.some((provider) => provider.key === value);
+}
+
+function isJsonSecretProviderType(
+  value: SecretProviderType,
+): value is Exclude<
+  SecretProviderType,
+  "vault" | "aws-secrets-manager" | "onepassword"
+> {
   return (
-    value === "vault" ||
-    value === "aws-secrets-manager" ||
-    value === "onepassword"
+    value !== "vault" &&
+    value !== "aws-secrets-manager" &&
+    value !== "onepassword"
   );
 }
 
@@ -110,6 +160,8 @@ export default function SecretProviders(_props: {
   const [onePasswordToken, setOnePasswordToken] = useState("");
   const [onePasswordVaultId, setOnePasswordVaultId] = useState("");
   const [onePasswordItemId, setOnePasswordItemId] = useState("");
+  const [advancedConfigurationJson, setAdvancedConfigurationJson] =
+    useState("{}");
 
   // Delete State
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -179,7 +231,7 @@ export default function SecretProviders(_props: {
     },
   });
 
-  const buildProviderConfiguration = (): Record<string, string> => {
+  const buildProviderConfiguration = (): Record<string, string> | null => {
     const config: Record<string, string> = {};
     if (providerType === "vault") {
       if (vaultAddress.trim()) config.address = vaultAddress.trim();
@@ -197,12 +249,39 @@ export default function SecretProviders(_props: {
         config.connectToken = onePasswordToken.trim();
       if (onePasswordVaultId.trim()) config.vaultId = onePasswordVaultId.trim();
       if (onePasswordItemId.trim()) config.itemId = onePasswordItemId.trim();
+    } else {
+      try {
+        const parsed: unknown = JSON.parse(advancedConfigurationJson);
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          Array.isArray(parsed) ||
+          Object.values(parsed).some((value) => typeof value !== "string")
+        ) {
+          throw new Error(
+            "configuration must be a JSON object containing string values",
+          );
+        }
+        Object.assign(config, parsed);
+        if (config.providerType && config.providerType !== providerType) {
+          throw new Error(`providerType must "${providerType}"`);
+        }
+        config.providerType = providerType;
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? `Invalid provider configuration: ${error.message}`
+            : "Invalid provider configuration JSON",
+        );
+        return null;
+      }
     }
     return config;
   };
 
   const handleTestConnection = () => {
     const config = buildProviderConfiguration();
+    if (!config) return;
 
     testMutation.mutate({
       organizationId: orgId,
@@ -226,6 +305,7 @@ export default function SecretProviders(_props: {
     setOnePasswordToken("");
     setOnePasswordVaultId("");
     setOnePasswordItemId("");
+    setAdvancedConfigurationJson("{}");
   };
 
   const handleOpenCreate = () => {
@@ -248,6 +328,7 @@ export default function SecretProviders(_props: {
     setOnePasswordToken("");
     setOnePasswordVaultId("");
     setOnePasswordItemId("");
+    setAdvancedConfigurationJson("{}");
     setDialogOpen(true);
   };
 
@@ -266,6 +347,7 @@ export default function SecretProviders(_props: {
     }
 
     const config = buildProviderConfiguration();
+    if (!config) return;
 
     // Verify connection before saving
     if (Object.keys(config).length > 0 || !editId) {
@@ -313,7 +395,7 @@ export default function SecretProviders(_props: {
     <DashboardPage>
       <DashboardPageHeader
         title="Secret Providers"
-        description="Integrate external secret managers (Vault, AWS Secrets Manager, 1Password) to sync, version, and rotate credentials across your environments and workloads."
+        description="Integrate external secret managers for syncs and Dokploy-compatible deployment-time secret references."
         actions={
           <Button onClick={handleOpenCreate} size="sm">
             <HugeiconsIcon icon={PlusSignIcon} className="mr-1.5 size-4" />
@@ -594,6 +676,40 @@ export default function SecretProviders(_props: {
                       value={onePasswordItemId}
                       onChange={(e) => setOnePasswordItemId(e.target.value)}
                     />
+                  </div>
+                </div>
+              )}
+
+              {isJsonSecretProviderType(providerType) && (
+                <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="provider-configuration">
+                      Provider configuration (JSON)
+                    </Label>
+                    <Textarea
+                      id="provider-configuration"
+                      className="min-h-40 font-mono text-xs"
+                      value={advancedConfigurationJson}
+                      onChange={(e) =>
+                        setAdvancedConfigurationJson(e.target.value)
+                      }
+                      spellCheck={false}
+                      placeholder={JSON.stringify(
+                        {
+                          providerType,
+                          url: "https://provider.example.com",
+                          token: "provider-token",
+                        },
+                        null,
+                        2,
+                      )}
+                    />
+                    <p className="text-muted-foreground text-xs">
+                      Use string values only. See the installation guide for the
+                      exact fields and reference syntax. Credentials are
+                      encrypted at rest and fetched only when a deployment or
+                      explicit sync needs them.
+                    </p>
                   </div>
                 </div>
               )}

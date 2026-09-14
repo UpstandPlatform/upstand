@@ -109,7 +109,6 @@ export default function WebServerDashboard(_props: {
   // Database Web Server settings
   const [serverDomain, setServerDomain] = useState("");
   const [httpsEnabled, setHttpsEnabled] = useState(true);
-  const [ipAccessEnabled, setIpAccessEnabled] = useState(true);
   const [certificateProvider, setCertificateProvider] =
     useState<CertificateProvider>("letsencrypt");
   const [certificateId, setCertificateId] = useState<string | null>(null);
@@ -233,7 +232,6 @@ export default function WebServerDashboard(_props: {
     if (info?.settings && !editingSettings) {
       setServerDomain(info.settings.serverDomain || "");
       setHttpsEnabled(info.settings.httpsEnabled ?? true);
-      setIpAccessEnabled(info.settings.ipAccessEnabled ?? true);
       setCertificateProvider(
         (info.settings.certificateProvider as CertificateProvider) ||
           "letsencrypt",
@@ -536,36 +534,22 @@ export default function WebServerDashboard(_props: {
     onError: (error) => toast.error(error.message),
   });
 
-  const canDisableIpAccess =
-    serverDomain.trim().length > 0 &&
-    serverDomain.trim().length <= 253 &&
-    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
-      serverDomain.trim(),
-    ) &&
-    httpsEnabled &&
-    certificateProvider !== "none" &&
-    (certificateProvider !== "custom" || Boolean(certificateId));
-
   const handleSaveServerDomain = (e: React.SyntheticEvent) => {
     e.preventDefault();
     setEditingSettings(true);
-    const savedIpAccessEnabled = canDisableIpAccess ? ipAccessEnabled : true;
-    setIpAccessEnabled(savedIpAccessEnabled);
     updateSettingsMutation.mutate({
       serverDomain: serverDomain.trim() || null,
       letsEncryptEmail: email.trim() || null,
       httpsEnabled,
       certificateProvider,
       certificateId: certificateProvider === "custom" ? certificateId : null,
-      ipAccessEnabled: savedIpAccessEnabled,
+      ipAccessEnabled: true,
     });
   };
 
   const handleSaveSettings = (e: React.SyntheticEvent) => {
     e.preventDefault();
     setEditingSettings(true);
-    const savedIpAccessEnabled = canDisableIpAccess ? ipAccessEnabled : true;
-    setIpAccessEnabled(savedIpAccessEnabled);
     updateSettingsMutation.mutate({
       serverDomain: serverDomain.trim() || null,
       letsEncryptEmail: email.trim() || null,
@@ -578,7 +562,7 @@ export default function WebServerDashboard(_props: {
       globalCaddyfile: globalCaddyfile.trim() || null,
       caddySnippets,
       caddyMiddlewares,
-      ipAccessEnabled: savedIpAccessEnabled,
+      ipAccessEnabled: true,
     });
   };
 
@@ -746,9 +730,6 @@ export default function WebServerDashboard(_props: {
               certificateId={certificateId}
               setCertificateId={setCertificateId}
               certificatesList={certificatesData}
-              ipAccessEnabled={ipAccessEnabled}
-              setIpAccessEnabled={setIpAccessEnabled}
-              canDisableIpAccess={canDisableIpAccess}
               onSave={handleSaveServerDomain}
               isSaving={updateSettingsMutation.isPending}
             />

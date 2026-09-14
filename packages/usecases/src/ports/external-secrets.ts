@@ -8,6 +8,15 @@ export interface ExternalSecretProviderPort {
     provider: SecretProviderType,
     configuration: SecretProviderConfiguration,
   ): Promise<Record<string, string>>;
+  readReferences?(
+    provider: SecretProviderType,
+    configuration: SecretProviderConfiguration,
+    references: string[],
+  ): Promise<Record<string, string>>;
+  listSecretNames?(
+    provider: SecretProviderType,
+    configuration: SecretProviderConfiguration,
+  ): Promise<string[]>;
   testConnection?(
     provider: SecretProviderType,
     configuration: SecretProviderConfiguration,

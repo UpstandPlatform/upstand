@@ -1,0 +1,84 @@
+---
+title: Frequently asked questions
+description: Answers for installation, access recovery, runtimes, deployments, and external secrets.
+---
+
+## How do I install Upstand?
+
+Pin an audited release and run its raw GitHub installer:
+
+```bash
+export UPSTAND_VERSION=vX.Y.Z
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
+  | sudo -E bash
+```
+
+For prompts and runtime discovery, append `--interactive`. The complete
+[installation guide](/docs/getting-started/installation) explains every
+required acknowledgement and supported host shape.
+
+## What if my domain or Caddy stops working?
+
+Use the server IP and the published control-plane ports:
+
+- Dashboard: `http://SERVER_IP:3001`
+- API: `http://SERVER_IP:3000`
+- Documentation: `http://SERVER_IP:4000`
+
+This is a permanent break-glass route. Configure HTTPS and Caddy for normal
+traffic, but restrict direct ports with a firewall, private network, or VPN.
+The dashboard/API direct-IP path is not disabled by the Web Server page.
+
+## Can I use an Incus container or Docker-in-Docker?
+
+Yes, with constraints. Use a rootful Linux Docker daemon, persistent Docker
+storage, the Docker socket at `/var/run/docker.sock`, and the privileges needed
+for Swarm encrypted overlay networking. Incus system containers need nesting
+enabled and host kernel-module support. Rootless Docker is rejected because it
+cannot provide the required overlay behavior.
+
+## Does Cloud mode install Upstand Cloud for me?
+
+No. `--cloud` configures a multi-tenant control plane on infrastructure you
+operate. It prevents local workload placement and expects remote Docker servers.
+Managed Upstand hosting is operator-controlled and has no customer-side
+control-plane installer.
+
+## How do external secret references work?
+
+Create a provider under **Settings → Secret Providers**, then use the provider
+display name in a value:
+
+```dotenv
+DATABASE_URL=${{vault.production-doppler.DATABASE_URL}}
+STRIPE_KEY=${{vault.production-vault.apps/production:STRIPE_KEY}}
+```
+
+The resolver supports HashiCorp Vault/OpenBao, Infisical, AWS Secrets Manager,
+AWS Parameter Store, Doppler, Azure Key Vault, Scaleway Secret Manager, Phase,
+and existing 1Password/legacy adapters. Values are fetched at deployment time
+and are not persisted by the resolver. Explicit Sync is separate and creates a
+versioned local snapshot.
+
+## How do I upgrade safely?
+
+Run the new release's installer with `--upgrade`. It backs up the existing
+installer state under `/etc/upstand/backups/`, verifies release artifacts,
+preserves secrets and data volumes, and waits for readiness. Keep
+`/etc/upstand/secrets/` and the database volumes; the encryption key is needed
+to decrypt stored credentials. A rollback to an older image does not reverse
+database migrations.
+
+## Which ports must be open?
+
+Use TCP `80/443` for the normal HTTPS proxy. Restrict direct `3000/3001/4000`
+to trusted networks. For multi-node Swarm, allow TCP `2377`, TCP/UDP `7946`,
+and UDP `4789` between cluster nodes only.
+
+## Where should I look when a deployment fails?
+
+Start with `docker stack services upstand`, the API `/health/ready` endpoint,
+and the service logs. For a provider reference failure, check the exact
+provider name, reference format, assignment, and provider connectivity; the
+resolved secret is intentionally not logged.

@@ -7,6 +7,10 @@ import type {
   SecretVersionPayload,
 } from "@upstand/domain";
 import {
+  SecretProviderAssignmentSchema,
+  SecretProviderTypeSchema,
+} from "@upstand/domain";
+import {
   decryptSecret,
   encryptSecret,
 } from "@upstand/platform/crypto/secret-box";
@@ -30,20 +34,22 @@ export const RestoreSecretVersionInputSchema = z.object({
 export const CreateSecretProviderInputSchema = z.object({
   organizationId: z.string().min(1),
   name: z.string().trim().min(1).max(120),
-  provider: z.enum(["vault", "aws-secrets-manager", "onepassword"]),
-  configuration: z.record(z.string(), z.string()).default({}),
+  provider: SecretProviderTypeSchema,
+  configuration: z.record(z.string(), z.string().max(16_384)).default({}),
+  assignments: z.array(SecretProviderAssignmentSchema).optional(),
 });
 export const UpdateSecretProviderInputSchema = z.object({
   id: z.string().min(1),
   organizationId: z.string().min(1).optional(),
   name: z.string().trim().min(1).max(120).optional(),
-  configuration: z.record(z.string(), z.string()).optional(),
+  configuration: z.record(z.string(), z.string().max(16_384)).optional(),
+  assignments: z.array(SecretProviderAssignmentSchema).optional(),
   enabled: z.boolean().optional(),
 });
 export const TestSecretProviderConnectionInputSchema = z.object({
   organizationId: z.string().min(1),
-  provider: z.enum(["vault", "aws-secrets-manager", "onepassword"]),
-  configuration: z.record(z.string(), z.string()).default({}),
+  provider: SecretProviderTypeSchema,
+  configuration: z.record(z.string(), z.string().max(16_384)).default({}),
 });
 export const SyncSecretProviderInputSchema = z.object({
   providerId: z.string().min(1),
@@ -256,13 +262,24 @@ export class RestoreSecretVersionUseCase {
 export class CreateSecretProviderUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
   async execute(input: z.infer<typeof CreateSecretProviderInputSchema>) {
+    const storedConfiguration: Record<string, unknown> = {
+      ...input.configuration,
+      providerType: input.provider,
+    };
+    // Keep assignments inside the already encrypted configuration for
+    // backwards-compatible storage. Omitted assignments preserve Upstand's
+    // legacy "available to the organization" behavior; an explicit empty
+    // array follows Dokploy's "assigned nowhere" behavior.
+    if (input.assignments !== undefined) {
+      storedConfiguration.__upstandAssignments = input.assignments;
+    }
     return this.uow.secretProviderRepository.create({
       id: randomUUID(),
       organizationId: input.organizationId,
       name: input.name,
       provider: input.provider,
       encryptedConfiguration: JSON.stringify(
-        encryptSecret(JSON.stringify(input.configuration)),
+        encryptSecret(JSON.stringify(storedConfiguration)),
       ),
     });
   }
@@ -295,10 +312,26 @@ export class UpdateSecretProviderUseCase {
     if (!current) throw new Error("Secret provider not found");
     if (input.organizationId !== current.organizationId)
       throw new Error("Secret provider belongs to another organization");
-    const configuration =
-      input.configuration === undefined
-        ? undefined
-        : JSON.stringify(encryptSecret(JSON.stringify(input.configuration)));
+    let configuration: string | undefined;
+    if (input.configuration !== undefined || input.assignments !== undefined) {
+      const stored = await this.uow.secretProviderRepository.findConfiguration(
+        input.id,
+        current.organizationId,
+      );
+      if (!stored) throw new Error("Secret provider configuration not found");
+      const existing = decryptConfiguration(stored.encryptedConfiguration);
+      const nextConfiguration = {
+        ...existing,
+        ...(input.configuration ?? {}),
+        ...(input.assignments === undefined
+          ? {}
+          : { __upstandAssignments: input.assignments }),
+        providerType: current.provider,
+      };
+      configuration = JSON.stringify(
+        encryptSecret(JSON.stringify(nextConfiguration)),
+      );
+    }
     return this.uow.secretProviderRepository.updateById(input.id, {
       name: input.name,
       encryptedConfiguration: configuration,

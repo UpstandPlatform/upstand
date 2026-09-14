@@ -46,9 +46,6 @@ interface ServerDomainCardProps {
   certificateId?: string | null;
   setCertificateId?: (id: string | null) => void;
   certificatesList?: CertificateOption[];
-  ipAccessEnabled: boolean;
-  setIpAccessEnabled: (enabled: boolean) => void;
-  canDisableIpAccess: boolean;
   onSave: (e: React.SyntheticEvent) => void;
   isSaving: boolean;
 }
@@ -65,9 +62,6 @@ export function ServerDomainCard({
   certificateId,
   setCertificateId,
   certificatesList = [],
-  ipAccessEnabled,
-  setIpAccessEnabled,
-  canDisableIpAccess,
   onSave,
   isSaving,
 }: ServerDomainCardProps) {
@@ -209,7 +203,7 @@ export function ServerDomainCard({
             </div>
           )}
 
-          <div className="flex flex-col gap-4 border-border/40 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 border-border/40 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
               <Label
                 htmlFor="ip-access-toggle"
@@ -218,23 +212,14 @@ export function ServerDomainCard({
                 Direct IP:port access
               </Label>
               <p className="max-w-xl text-[11px] text-muted-foreground">
-                Enabled by default so the dashboard, API, and documentation work
-                before DNS is configured. Disable it only after a valid HTTPS
-                domain and certificate are ready.
+                Always enabled as a break-glass path so the dashboard and API
+                remain reachable when DNS or the reverse proxy is unavailable.
+                Restrict these ports with your firewall or private network.
               </p>
-              {!canDisableIpAccess && !ipAccessEnabled && (
-                <p className="text-[11px] text-destructive">
-                  Saving these settings will restore direct access until HTTPS
-                  domain configuration is complete.
-                </p>
-              )}
             </div>
-            <Switch
-              id="ip-access-toggle"
-              checked={ipAccessEnabled}
-              disabled={!canDisableIpAccess}
-              onCheckedChange={setIpAccessEnabled}
-            />
+            <span className="font-medium text-muted-foreground text-xs">
+              Always enabled
+            </span>
           </div>
 
           {/* Row 5: Save Action Footer */}

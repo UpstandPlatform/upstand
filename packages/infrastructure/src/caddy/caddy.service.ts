@@ -750,7 +750,7 @@ export class CaddyService {
     await ensureUpstandOverlayNetwork(this.docker);
   }
 
-  async setControlPlaneIpAccess(enabled: boolean): Promise<void> {
+  async setControlPlaneIpAccess(_enabled = true): Promise<void> {
     await this.serializeConfiguration(async () => {
       await this.initializeSwarm();
 
@@ -779,42 +779,46 @@ export class CaddyService {
         };
         const labels = { ...(serviceSpec.Labels ?? {}) };
         const currentPorts = endpointSpec.Ports ?? [];
-
-        if (enabled) {
-          if (currentPorts.length > 0) continue;
-
-          let savedPorts: PublishedPort[] | undefined;
-          try {
-            const parsed = JSON.parse(labels[CONTROL_PLANE_PORTS_LABEL] ?? "");
-            if (Array.isArray(parsed)) {
-              savedPorts = parsed.filter(
-                (port): port is PublishedPort =>
-                  Boolean(port) &&
-                  typeof port === "object" &&
-                  typeof port.TargetPort === "number" &&
-                  typeof port.PublishedPort === "number",
-              );
-            }
-          } catch {
-            savedPorts = undefined;
+        let savedPorts: PublishedPort[] | undefined;
+        try {
+          const parsed = JSON.parse(labels[CONTROL_PLANE_PORTS_LABEL] ?? "");
+          if (Array.isArray(parsed)) {
+            savedPorts = parsed.filter(
+              (port): port is PublishedPort =>
+                Boolean(port) &&
+                typeof port === "object" &&
+                typeof port.TargetPort === "number" &&
+                typeof port.PublishedPort === "number",
+            );
           }
-
-          endpointSpec.Ports =
-            savedPorts && savedPorts.length > 0
-              ? savedPorts
-              : [
-                  {
-                    Protocol: "tcp",
-                    TargetPort: serviceConfig.targetPort,
-                    PublishedPort: serviceConfig.targetPort,
-                    PublishMode: "host",
-                  },
-                ];
-        } else {
-          if (currentPorts.length === 0) continue;
-          labels[CONTROL_PLANE_PORTS_LABEL] = JSON.stringify(currentPorts);
-          delete endpointSpec.Ports;
+        } catch {
+          savedPorts = undefined;
         }
+
+        // Keep the boolean parameter for callers compiled against the old
+        // toggle, but never remove these ports. They are the permanent
+        // control-plane recovery path when DNS or Caddy is unavailable.
+        const portsToKeep =
+          currentPorts.length > 0 ? currentPorts : (savedPorts ?? []);
+        const hasRequiredPort = portsToKeep.some(
+          (port) =>
+            port.Protocol?.toLowerCase() === "tcp" &&
+            port.TargetPort === serviceConfig.targetPort &&
+            port.PublishedPort === serviceConfig.targetPort,
+        );
+        if (currentPorts.length > 0 && hasRequiredPort) continue;
+
+        endpointSpec.Ports = hasRequiredPort
+          ? portsToKeep
+          : [
+              ...portsToKeep,
+              {
+                Protocol: "tcp",
+                TargetPort: serviceConfig.targetPort,
+                PublishedPort: serviceConfig.targetPort,
+                PublishMode: "host",
+              },
+            ];
 
         await service.update({
           version: inspect.Version?.Index,

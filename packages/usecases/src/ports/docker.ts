@@ -159,6 +159,7 @@ export interface DockerServicePort {
     gitEnvironment?: Record<string, string>,
     sshHostKeyFingerprint?: string,
     onBuildResolved?: (artifact: ResolvedBuildArtifact) => Promise<void>,
+    resolvedBuildSecrets?: Record<string, string>,
   ): Promise<void>;
   readComposeFileFromGit(
     resource: Resource,

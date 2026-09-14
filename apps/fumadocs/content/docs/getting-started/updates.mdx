@@ -20,7 +20,7 @@ sequenceDiagram
 
     Admin->>API: Trigger Update Check / Polling Job
     API->>GH: Query Latest Image Digests & Release Tags
-    GH-->>API: Return Release Manifest (v0.2.6)
+    GH-->>API: Return Release Manifest (vX.Y.Z)
     API->>DB: Execute Drizzle Migration Check (runDatabaseMigrations)
     DB-->>API: Migrations Applied (Idempotent Schema Check)
     API->>Swarm: Trigger Rolling Stack Update (docker stack deploy)
@@ -38,8 +38,8 @@ Upstand exposes four runtime channels:
 
 | Channel | Branch | Recommendations |
 | --- | --- | --- |
-| **Stable** | `master` / Tags (`vX.Y.Z`) | Production environments. Uses versioned image tags. |
-| **Canary** | `canary` | Test/staging environments. Rolling updates with the latest commits. |
+| **Stable** | Audited Tags (`vX.Y.Z`) | Production environments. Uses a release manifest and immutable image digests. |
+| **Canary** | `canary` ref | Test/staging environments. Uses an explicit source build and is not a verified release artifact. |
 | **Source** | Repository checkout/build | Development and explicitly opted-in source builds. Not a verified release artifact. |
 | **Managed** | Upstand-operated cloud | Provider-controlled rollout. Tenants cannot mutate the cloud control-plane services. |
 
@@ -59,9 +59,9 @@ To update your production instance to a newer version manually:
    export UPSTAND_VERSION="vX.Y.Z" # replace with the audited stable release tag
    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
      "https://raw.githubusercontent.com/UpstandPlatform/upstand/${UPSTAND_VERSION}/install.sh" \
-     | sudo -E bash
+      | sudo -E bash -s -- --upgrade
    ```
-4. **Wait for rollout**: The installer resolves the selected release manifest, updates the saved application image pins, and waits for migrations and service readiness. Availability during rollout depends on capacity, replica counts, and migration compatibility.
+4. **Wait for rollout**: The installer creates a protected pre-upgrade archive under `/etc/upstand/backups/`, resolves the selected release manifest, updates the saved application image pins, and waits for migrations and service readiness. Availability during rollout depends on capacity, replica counts, and migration compatibility.
 5. **Confirm state**: Check `docker stack services upstand` and `/health/ready` to ensure services have fully restarted.
 
 Upgrades preserve credentials, origins, and bundled PostgreSQL/Redis services.

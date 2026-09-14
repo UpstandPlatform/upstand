@@ -28,6 +28,8 @@ import {
 } from "../platform/platform.types";
 import type { CaddyResource } from "../ports/caddy";
 import type { DockerApiTarget, DockerRegistryAuth } from "../ports/docker";
+import type { ExternalSecretProviderPort } from "../ports/external-secrets";
+import { getApplicationBuildSecrets } from "../resource/application-build-secrets";
 import { getDatabaseEnvironment } from "../resource/database-environment";
 import type { DockerDeploymentService as DockerService } from "../resource/docker-client";
 import { createRemoteServices } from "../resource/docker-client";
@@ -42,6 +44,11 @@ import {
 } from "../resource/resource-environment";
 import { validateResourceCredentialReferences } from "../resource/validate-resource-credential-references";
 import { SyncUpstandConfigUseCase } from "../schedule/sync-upstand-config.usecase";
+import {
+  containsSecretProviderReference,
+  resolveSecretProviderReferences,
+  resolveSecretProviderReferencesInValues,
+} from "../secrets/secret-reference-resolver";
 import { requestMonitoringAgent } from "../server/monitoring-agent.client";
 import {
   assertBuildServerSupportsResource,
@@ -62,6 +69,7 @@ export interface DeploymentWorkerScope {
   dockerService: DockerService;
   caddyService: CaddyService;
   publisher: NotificationPublisher;
+  externalSecretProvider?: ExternalSecretProviderPort;
   dispose: () => Promise<void>;
 }
 
@@ -1007,28 +1015,58 @@ export class DeploymentWorker {
         ? ["node.role==manager"]
         : undefined;
 
-      // Resolve resource env vars: substitute any ${{project.VAR_NAME}} placeholders
-      // with the current environment's project-level variables.
+      // Resolve project, environment, and resource variables at deploy time.
+      // External provider references are intentionally resolved only in this
+      // transient deployment path; fetched values are never written back to
+      // Upstand's encrypted environment records.
       const deployEnvironment = await uow.environmentRepository.findById(
         resource.environmentId,
       );
-      const envVars = resolveResourceEnvironmentVariables(
-        resource.envVars,
-        deployEnvironment
-          ? JSON.stringify(
-              await resolveEnvironmentVariables(uow, deployEnvironment.id),
-            )
-          : undefined,
+      const projectEnvironmentVars = deployEnvironment
+        ? await resolveEnvironmentVariables(uow, deployEnvironment.id)
+        : {};
+      const secretScope = {
+        organizationId: project.organizationId,
+        projectId: project.id,
+        environmentId: deployEnvironment?.id,
+      };
+      const external = scope.externalSecretProvider;
+      const resolveExternalValues = async (values: Record<string, string>) => {
+        if (!external) {
+          if (Object.values(values).some(containsSecretProviderReference)) {
+            throw new Error(
+              "External secret references cannot be resolved in this deployment worker",
+            );
+          }
+          return values;
+        }
+        return resolveSecretProviderReferencesInValues(
+          values,
+          uow,
+          external,
+          secretScope,
+        );
+      };
+      const resolvedProjectEnvironmentVars = await resolveExternalValues(
+        projectEnvironmentVars,
       );
-      const buildEnvVars = resolveResourceBuildEnvironmentVariables(
-        resource.buildEnvVars,
-        resource.envVars,
-        deployEnvironment
-          ? JSON.stringify(
-              await resolveEnvironmentVariables(uow, deployEnvironment.id),
-            )
-          : undefined,
+      const envVars = await resolveExternalValues(
+        resolveResourceEnvironmentVariables(
+          resource.envVars,
+          JSON.stringify(resolvedProjectEnvironmentVars),
+        ),
       );
+      const buildEnvVars = await resolveExternalValues(
+        resolveResourceBuildEnvironmentVariables(
+          resource.buildEnvVars,
+          resource.envVars,
+          JSON.stringify(resolvedProjectEnvironmentVars),
+        ),
+      );
+      const resolvedBuildSecrets =
+        resource.type === "application"
+          ? await resolveExternalValues(getApplicationBuildSecrets(resource))
+          : undefined;
       const advancedConfig = parseResourceAdvancedConfig(
         deployedResource.advancedConfig,
       );
@@ -1118,6 +1156,19 @@ export class DeploymentWorker {
         }
         if (!composeFile) {
           throw new Error("No compose file content found in configuration");
+        }
+        if (external) {
+          composeFile =
+            (await resolveSecretProviderReferences(
+              composeFile,
+              uow,
+              external,
+              secretScope,
+            )) ?? composeFile;
+        } else if (containsSecretProviderReference(composeFile)) {
+          throw new Error(
+            "External secret references cannot be resolved in this deployment worker",
+          );
         }
         const composeRegistryAuth = await resolveConfiguredRegistryAuth(
           uow,
@@ -1410,6 +1461,7 @@ export class DeploymentWorker {
                 `[Plan] Locked ${target.kind}/${plan.runtime} deployment to ${plan.artifact.digest}.\n`,
               );
             },
+            resolvedBuildSecrets,
           );
           appendLog(
             "Build compiled successfully and Swarm Service registered.\n",

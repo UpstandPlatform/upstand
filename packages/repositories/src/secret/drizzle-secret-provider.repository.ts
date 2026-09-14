@@ -55,6 +55,33 @@ export class DrizzleSecretProviderRepository
         }
       : null;
   }
+  async findConfiguration(
+    id: string,
+    organizationId: string,
+  ): Promise<{
+    provider: SecretProviderType;
+    encryptedConfiguration: string;
+  } | null> {
+    const [row] = await this.executor
+      .select({
+        provider: secretProvider.provider,
+        encryptedConfiguration: secretProvider.encryptedConfiguration,
+      })
+      .from(secretProvider)
+      .where(
+        and(
+          eq(secretProvider.id, id),
+          eq(secretProvider.organizationId, organizationId),
+        ),
+      )
+      .limit(1);
+    return row
+      ? {
+          provider: row.provider as SecretProviderType,
+          encryptedConfiguration: row.encryptedConfiguration,
+        }
+      : null;
+  }
   async findByOrganizationId(
     organizationId: string,
   ): Promise<SecretProvider[]> {
@@ -69,6 +96,33 @@ export class DrizzleSecretProviderRepository
       );
     }
     return rows.map((row) => this.public(row));
+  }
+
+  async findEnabledConfigurationsByOrganizationId(organizationId: string) {
+    const rows = await this.executor
+      .select({
+        id: secretProvider.id,
+        name: secretProvider.name,
+        provider: secretProvider.provider,
+        encryptedConfiguration: secretProvider.encryptedConfiguration,
+      })
+      .from(secretProvider)
+      .where(
+        and(
+          eq(secretProvider.organizationId, organizationId),
+          eq(secretProvider.enabled, "true"),
+        ),
+      )
+      .limit(MAX_REPOSITORY_READS + 1);
+    if (rows.length > MAX_REPOSITORY_READS) {
+      throw new Error(
+        "Secret provider discovery exceeded the maximum supported row count",
+      );
+    }
+    return rows.map((row) => ({
+      ...row,
+      provider: row.provider as SecretProviderType,
+    }));
   }
   async create(data: {
     id: string;

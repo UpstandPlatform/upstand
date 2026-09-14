@@ -1,49 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import { evlog } from "evlog/hono";
 import { Hono } from "hono";
-import {
-  MAX_HTTP_REQUEST_BYTES,
-  registerHttpMiddleware,
-  shouldRejectDirectHttpAfterBootstrap,
-} from "./middleware";
+import { MAX_HTTP_REQUEST_BYTES, registerHttpMiddleware } from "./middleware";
 
 describe("HTTP middleware request limits", () => {
-  test("bounds direct-IP HTTP to the initial self-hosted bootstrap window", () => {
-    const request = new Request("http://192.168.1.10/api/auth/sign-in/email");
-    const production = {
-      request,
-      nodeEnv: "production",
-      isCloud: false,
-      directOrigins: true,
-      allowInsecureBootstrap: true,
-    };
+  test("keeps same-host direct IP origins available after bootstrap", async () => {
+    const app = new Hono();
+    app.use(evlog({ drain: () => undefined }));
+    registerHttpMiddleware(app as never, {
+      getServiceProvider: () =>
+        ({
+          createScope: () => ({ dispose: async () => undefined }),
+        }) as never,
+      identifyUser: async () => false,
+    });
+    app.post("/api/auth/sign-in/email", (c) => c.text("ok"));
 
-    expect(
-      shouldRejectDirectHttpAfterBootstrap({
-        ...production,
-        initialAccountPending: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldRejectDirectHttpAfterBootstrap({
-        ...production,
-        initialAccountPending: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldRejectDirectHttpAfterBootstrap({
-        ...production,
-        request: new Request("https://dashboard.example.com/api/auth"),
-        initialAccountPending: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldRejectDirectHttpAfterBootstrap({
-        ...production,
-        isCloud: true,
-        initialAccountPending: false,
-      }),
-    ).toBe(false);
+    const response = await app.request(
+      "http://85.155.230.19/api/auth/sign-in/email",
+      {
+        method: "POST",
+        headers: { Origin: "http://85.155.230.19:3001" },
+      },
+    );
+
+    expect(response.status).toBe(200);
   });
 
   test("does not run authentication identification for public system probes", async () => {

@@ -8,6 +8,7 @@ umask 077
 readonly INSTALL_DIR="/etc/upstand"
 readonly ENV_FILE="$INSTALL_DIR/.env"
 readonly SOURCE_DIR="$INSTALL_DIR/source"
+readonly BACKUP_DIR="$INSTALL_DIR/backups"
 readonly NETWORK_NAME="${DOCKER_NETWORK:-upstand-network}"
 readonly CONTROL_NETWORK_NAME="${UPSTAND_DOCKER_CONTROL_NETWORK:-upstand-docker-control}"
 readonly RECOMMENDED_CPU_CORES=2
@@ -20,19 +21,24 @@ readonly STABLE_IMAGE_REPOSITORY="${UPSTAND_IMAGE_REPOSITORY:-ghcr.io/upstandpla
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE:-$0}")" && pwd)"
 STACK_FILE="$INSTALL_DIR/docker-compose.prod.yml"
 INTERACTIVE=false
+UPGRADE_ONLY=false
 IS_CLOUD="${IS_CLOUD:-false}"
 MODE_OVERRIDE=""
 REGISTRY_LOGIN_PERFORMED=false
 RELEASE_MANIFEST_CONTENT=""
 RELEASE_MANIFEST_VERSION=""
+LAST_BACKUP_PATH=""
+DOWNLOADED_RELEASE_FILE=""
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--interactive] [--cloud|--self-hosted]
+Usage: install.sh [--interactive] [--upgrade] [--cloud|--self-hosted]
 
 The installer is non-interactive by default. Set deployment variables in the
-environment before running it. Use --interactive to prompt for the Swarm
-advertise address when installing from a terminal.
+environment before running it. Use --interactive for guided mode; prompts read
+from /dev/tty so guided installs also work through curl | sudo bash. Use
+--upgrade to require an existing installation and create a protected backup
+before reconciling it to the selected release.
 
 For private application images, set UPSTAND_REGISTRY, UPSTAND_REGISTRY_USERNAME,
 and UPSTAND_REGISTRY_PASSWORD. The password is read from the environment only,
@@ -61,10 +67,15 @@ installation recovery evidence files documented in the production runbook.
 
 Options:
   --interactive         prompt for the Swarm advertise address
+  --upgrade             require an existing installation and back it up first
   --cloud               install in multi-tenant Cloud mode (open sign-ups enabled)
   --self-hosted         install in single-tenant Self-Hosted mode (default, single owner account)
   --help                show this help
 EOF
+}
+
+log() {
+  echo "info: $*" >&2
 }
 
 validate_production_operating_model() {
@@ -111,6 +122,7 @@ parse_args() {
   while (($# > 0)); do
     case "$1" in
       --interactive) INTERACTIVE=true ;;
+      --upgrade) UPGRADE_ONLY=true ;;
       --cloud) IS_CLOUD=true; MODE_OVERRIDE=true ;;
       --self-hosted) IS_CLOUD=false; MODE_OVERRIDE=false ;;
       --help|-h) usage; exit 0 ;;
@@ -118,6 +130,137 @@ parse_args() {
     esac
     shift
   done
+}
+
+read_interactive_value() {
+  local variable_name="$1"
+  local prompt="$2"
+  local default_value="${3:-}"
+  local value=""
+
+  [[ "$INTERACTIVE" == true ]] || fail "interactive input was requested while guided mode is disabled"
+  [[ -r /dev/tty && -t /dev/tty ]] \
+    || fail "interactive mode requires a controlling terminal; run without --interactive or execute the downloaded script from a terminal"
+
+  if [[ -n "$default_value" ]]; then
+    IFS= read -r -e -p "$prompt [$default_value]: " value < /dev/tty
+    value="${value:-$default_value}"
+  else
+    IFS= read -r -e -p "$prompt: " value < /dev/tty
+  fi
+  printf -v "$variable_name" '%s' "$value"
+}
+
+confirm_interactive() {
+  local prompt="$1"
+  local default_answer="${2:-no}"
+  local answer=""
+  local suffix="[y/N]"
+  [[ "$default_answer" == yes ]] && suffix="[Y/n]"
+
+  read_interactive_value answer "$prompt $suffix"
+  answer="${answer,,}"
+  if [[ -z "$answer" ]]; then
+    [[ "$default_answer" == yes ]]
+    return
+  fi
+  [[ "$answer" == y || "$answer" == yes ]]
+}
+
+prompt_interactive_settings() {
+  [[ "$INTERACTIVE" == true ]] || return 0
+
+  if [[ -z "$MODE_OVERRIDE" ]]; then
+    local mode=""
+    read_interactive_value mode "Installation mode" "self-hosted"
+    case "${mode,,}" in
+      self-hosted|self_hosted|selfhosted) IS_CLOUD=false; MODE_OVERRIDE=false ;;
+      cloud) IS_CLOUD=true; MODE_OVERRIDE=true ;;
+      *) fail "installation mode must be self-hosted or cloud" ;;
+    esac
+  fi
+
+  if [[ -f "$ENV_FILE" ]]; then
+    confirm_interactive "An existing Upstand installation was found. Continue with a backup and upgrade/reconcile?" yes \
+      || fail "installation cancelled"
+  fi
+
+  if [[ -z "${UPSTAND_BUILD_FROM_SOURCE:-}" && -z "${UPSTAND_VERSION:-}" ]]; then
+    local channel=""
+    read_interactive_value channel "Release channel" "stable"
+    case "${channel,,}" in
+      stable|release) ;;
+      canary)
+        UPSTAND_BUILD_FROM_SOURCE=true
+        UPSTAND_REF=canary
+        UPSTAND_VERSION=canary
+        ;;
+      source)
+        UPSTAND_BUILD_FROM_SOURCE=true
+        read_interactive_value UPSTAND_REF "Source branch or tag" "canary"
+        UPSTAND_VERSION="$UPSTAND_REF"
+        ;;
+      *) fail "release channel must be stable, canary, or source" ;;
+    esac
+  fi
+
+  if ! command -v docker >/dev/null 2>&1 && [[ "${UPSTAND_ALLOW_DOCKER_INSTALL:-false}" != true ]]; then
+    confirm_interactive "Docker is not installed. Allow the official Docker installer to install it?" no \
+      || fail "Docker is required; install Docker Engine first or rerun with UPSTAND_ALLOW_DOCKER_INSTALL=true"
+    UPSTAND_ALLOW_DOCKER_INSTALL=true
+  fi
+
+  local api_origin="${BETTER_AUTH_URL:-}"
+  local dashboard_origin="${CORS_ORIGIN:-}"
+  local server_origin="${NEXT_PUBLIC_SERVER_URL:-}"
+  if [[ -z "$api_origin$dashboard_origin$server_origin" ]]; then
+    read_interactive_value api_origin "Public API origin (for example https://api.example.com)"
+    if [[ -n "$api_origin" ]]; then
+      read_interactive_value dashboard_origin "Dashboard origin" "https://app.example.com"
+      read_interactive_value server_origin "Browser API origin" "$api_origin"
+      BETTER_AUTH_URL="$api_origin"
+      CORS_ORIGIN="$dashboard_origin"
+      NEXT_PUBLIC_SERVER_URL="$server_origin"
+    else
+      confirm_interactive "Use temporary direct HTTP access on the detected host IP?" no \
+        || fail "provide all three HTTPS origins or explicitly approve direct HTTP bootstrap"
+      UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true
+    fi
+  fi
+
+  if [[ -z "${UPSTAND_ALLOW_SINGLE_REPLICA:-}" ]]; then
+    confirm_interactive "A default single-node control plane and bundled data services will be used. Acknowledge this deployment model?" no \
+      || fail "set up external HA data services and replicas, or acknowledge the single-replica deployment model"
+    UPSTAND_ALLOW_SINGLE_REPLICA=true
+  fi
+
+  if [[ -z "${OTLP_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}" && "${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}" != true ]]; then
+    if confirm_interactive "No OTLP endpoint is configured. Continue with the explicit unobserved-production acknowledgement?" no; then
+      UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true
+    else
+      read_interactive_value OTLP_ENDPOINT "OTLP HTTP endpoint"
+      [[ -n "$OTLP_ENDPOINT" ]] || fail "provide OTLP_ENDPOINT or explicitly acknowledge missing telemetry"
+    fi
+  fi
+
+  if [[ "${UPSTAND_DR_OFFSITE_CONFIRMED:-false}" != true ]]; then
+    confirm_interactive "Have you recorded an off-site backup and recovery plan for this installation?" no \
+      || fail "the installation recovery plan must be recorded before deployment"
+    UPSTAND_DR_OFFSITE_CONFIRMED=true
+  fi
+  if [[ "${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-false}" != true ]]; then
+    confirm_interactive "Have you escrowed the encryption key separately from the backup data?" no \
+      || fail "encryption-key escrow must be confirmed before deployment"
+    UPSTAND_DR_KEY_ESCROW_CONFIRMED=true
+  fi
+  if [[ "${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-false}" != true ]]; then
+    confirm_interactive "Does the backup destination enforce immutable retention?" no \
+      || fail "immutable backup retention must be confirmed before deployment"
+    UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true
+  fi
+  [[ -n "${UPSTAND_DR_RPO_SECONDS:-}" ]] || read_interactive_value UPSTAND_DR_RPO_SECONDS "Recovery point objective in seconds" "3600"
+  [[ -n "${UPSTAND_DR_RTO_SECONDS:-}" ]] || read_interactive_value UPSTAND_DR_RTO_SECONDS "Recovery time objective in seconds" "7200"
+  [[ -n "${UPSTAND_DR_EVIDENCE_REFERENCE:-}" ]] || read_interactive_value UPSTAND_DR_EVIDENCE_REFERENCE "Recovery plan ticket or evidence reference"
 }
 
 fail() {
@@ -295,7 +438,7 @@ require_digest_image() {
 }
 
 ensure_host_dependencies() {
-  local required_commands=(awk curl df git grep ip openssl timeout)
+  local required_commands=(awk curl df git grep ip openssl ss tar timeout)
   local missing=false
   local command_name
 
@@ -315,6 +458,8 @@ ensure_host_dependencies() {
       dnf install -y ca-certificates coreutils curl gawk git grep iproute openssl
     elif command -v yum >/dev/null 2>&1; then
       yum install -y ca-certificates coreutils curl gawk git grep iproute openssl
+    elif command -v apk >/dev/null 2>&1; then
+      apk add --no-cache ca-certificates coreutils curl gawk git grep iproute2 openssl tar
     else
       fail "missing required host utilities and no supported package manager was found"
     fi
@@ -410,6 +555,103 @@ ensure_git() {
   command -v apt-get >/dev/null 2>&1 || fail "git is required to build from GitHub source; install git or provide immutable image digests"
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y git
+}
+
+load_persisted_setting_if_unset() {
+  local key="$1"
+  [[ -f "$ENV_FILE" ]] || return 0
+  [[ -n "${!key+x}" ]] && return 0
+  [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "invalid persisted setting name"
+
+  local assignment
+  assignment="$(grep -E "^${key}=" "$ENV_FILE" | head -n 1 || true)"
+  [[ -n "$assignment" ]] || return 0
+  # The file is root-owned and is generated with write_env_assignment (%q).
+  # Decode only the selected non-secret runtime setting, never the whole file.
+  eval "$assignment"
+}
+
+load_persisted_runtime_settings() {
+  load_persisted_setting_if_unset UPSTAND_BUILD_FROM_SOURCE
+  load_persisted_setting_if_unset UPSTAND_REF
+  load_persisted_setting_if_unset UPSTAND_REPOSITORY
+  load_persisted_setting_if_unset UPSTAND_ALLOW_SINGLE_REPLICA
+  load_persisted_setting_if_unset UPSTAND_ALLOW_UNOBSERVED_PRODUCTION
+  load_persisted_setting_if_unset UPSTAND_ALLOW_UNDERSIZED_HOST
+}
+
+detect_nested_runtime() {
+  if [[ -f /.dockerenv ]]; then
+    printf 'docker'
+    return 0
+  fi
+  if [[ -r /run/systemd/container ]]; then
+    cat /run/systemd/container
+    return 0
+  fi
+  if [[ -r /proc/1/environ ]] \
+    && tr '\0' '\n' < /proc/1/environ 2>/dev/null | grep -Eiq '^container=(lxc|incus|docker)$'; then
+    tr '\0' '\n' < /proc/1/environ 2>/dev/null | sed -n 's/^container=//p' | head -n 1
+    return 0
+  fi
+  if grep -Eiq 'lxc|incus|docker' /proc/1/cgroup /proc/self/mountinfo 2>/dev/null; then
+    printf 'nested'
+    return 0
+  fi
+  printf 'native'
+}
+
+validate_docker_engine_runtime() {
+  local os_type security_options nested_runtime
+  os_type="$(docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  [[ "$os_type" == linux ]] \
+    || fail "Upstand requires a Linux Docker Engine; the active Docker server reports ${os_type:-unknown}"
+
+  security_options="$(docker info --format '{{json .SecurityOptions}}' 2>/dev/null || true)"
+  [[ "$security_options" != *rootless* ]] \
+    || fail "rootless Docker is not supported: Docker documents that rootless mode cannot use overlay networks; use a rootful Linux Engine"
+
+  nested_runtime="$(detect_nested_runtime)"
+  case "$nested_runtime" in
+    docker)
+      warn "nested Docker detected. The inner daemon must be rootful, have a persistent data root, and run with the privileges required for Swarm encrypted overlay networking"
+      ;;
+    lxc|incus|nested)
+      warn "Incus/LXC-style nesting detected. The container must enable nesting, provide required host kernel modules, and run a rootful Docker daemon; the encrypted-overlay runtime probe is mandatory"
+      ;;
+  esac
+}
+
+write_secret_file() {
+  local name="$1"
+  local value="$2"
+  local temporary_file
+  temporary_file="$(mktemp "$INSTALL_DIR/secrets/.${name}.XXXXXX")"
+  if ! printf '%s' "$value" >"$temporary_file"; then
+    rm -f -- "$temporary_file"
+    fail "could not write secret '$name'"
+  fi
+  chmod 0600 "$temporary_file"
+  mv -f -- "$temporary_file" "$INSTALL_DIR/secrets/$name"
+}
+
+backup_existing_installation() {
+  [[ -f "$ENV_FILE" ]] || return 0
+
+  install -d -m 0700 "$BACKUP_DIR"
+  local timestamp backup_path
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_path="$BACKUP_DIR/pre-upgrade-${timestamp}-$$.tar"
+  local entries=()
+  for entry in .env docker-compose.yml secrets; do
+    [[ -e "$INSTALL_DIR/$entry" ]] && entries+=("$entry")
+  done
+  ((${#entries[@]} > 0)) || return 0
+  tar -C "$INSTALL_DIR" -cf "$backup_path" "${entries[@]}" \
+    || fail "could not create the protected pre-upgrade backup"
+  chmod 0600 "$backup_path"
+  LAST_BACKUP_PATH="$backup_path"
+  log "protected pre-upgrade backup created at $backup_path"
 }
 
 build_source_images() {
@@ -580,6 +822,21 @@ verify_release_deployment_artifacts() {
   fi
 }
 
+download_release_file() {
+  local url="$1"
+  local destination="$2"
+  local mode="$3"
+  local temporary_file="${destination}.download.$$.$RANDOM"
+
+  rm -f -- "$temporary_file"
+  curl --fail --show-error --silent --location \
+    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "$url" --output "$temporary_file" \
+    || { rm -f -- "$temporary_file"; fail "could not download release artifact: $url"; }
+  chmod "$mode" "$temporary_file"
+  DOWNLOADED_RELEASE_FILE="$temporary_file"
+}
+
 ensure_stack_file() {
   install -d -m 0700 "$INSTALL_DIR"
   local repository="${UPSTAND_REPOSITORY:-https://github.com/upstandplatform/upstand.git}"
@@ -597,40 +854,41 @@ ensure_stack_file() {
   UPSTAND_VERSION="${UPSTAND_VERSION:-$ref}"
   local raw_repository="${repository%.git}"
   raw_repository="${raw_repository#https://github.com/}"
-  curl --fail --show-error --silent --location \
-    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+  local stack_file_tmp acceptance_file_tmp evidence_file_tmp recovery_file_tmp cluster_file_tmp
+  download_release_file \
     "https://raw.githubusercontent.com/${raw_repository}/${ref}/docker-compose.prod.yml" \
-    --output "$STACK_FILE"
-  chmod 0600 "$STACK_FILE"
-  curl --fail --show-error --silent --location \
-    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "$STACK_FILE" 0600
+  stack_file_tmp="$DOWNLOADED_RELEASE_FILE"
+  download_release_file \
     "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/production-acceptance.sh" \
-    --output "$INSTALL_DIR/production-acceptance.sh"
-  chmod 0755 "$INSTALL_DIR/production-acceptance.sh"
-  curl --fail --show-error --silent --location \
-    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "$INSTALL_DIR/production-acceptance.sh" 0755
+  acceptance_file_tmp="$DOWNLOADED_RELEASE_FILE"
+  download_release_file \
     "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/production-evidence-collect.sh" \
-    --output "$INSTALL_DIR/production-evidence-collect.sh"
-  chmod 0755 "$INSTALL_DIR/production-evidence-collect.sh"
-  curl --fail --show-error --silent --location \
-    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "$INSTALL_DIR/production-evidence-collect.sh" 0755
+  evidence_file_tmp="$DOWNLOADED_RELEASE_FILE"
+  download_release_file \
     "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/verify-installation-recovery-evidence.sh" \
-    --output "$INSTALL_DIR/verify-installation-recovery-evidence.sh"
-  chmod 0755 "$INSTALL_DIR/verify-installation-recovery-evidence.sh"
-  curl --fail --show-error --silent --location \
-    --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    "$INSTALL_DIR/verify-installation-recovery-evidence.sh" 0755
+  recovery_file_tmp="$DOWNLOADED_RELEASE_FILE"
+  download_release_file \
     "https://raw.githubusercontent.com/${raw_repository}/${ref}/scripts/production-acceptance-cluster.sh" \
-    --output "$INSTALL_DIR/production-acceptance-cluster.sh"
-  chmod 0755 "$INSTALL_DIR/production-acceptance-cluster.sh"
+    "$INSTALL_DIR/production-acceptance-cluster.sh" 0755
+  cluster_file_tmp="$DOWNLOADED_RELEASE_FILE"
   if [[ "${UPSTAND_BUILD_FROM_SOURCE:-false}" != true ]]; then
     load_release_manifest
     verify_release_deployment_artifacts \
-      "$STACK_FILE" \
-      "$INSTALL_DIR/production-acceptance.sh" \
-      "$INSTALL_DIR/production-evidence-collect.sh" \
-      "$INSTALL_DIR/verify-installation-recovery-evidence.sh" \
-      "$INSTALL_DIR/production-acceptance-cluster.sh"
+      "$stack_file_tmp" \
+      "$acceptance_file_tmp" \
+      "$evidence_file_tmp" \
+      "$recovery_file_tmp" \
+      "$cluster_file_tmp"
   fi
+  mv -f -- "$stack_file_tmp" "$STACK_FILE"
+  mv -f -- "$acceptance_file_tmp" "$INSTALL_DIR/production-acceptance.sh"
+  mv -f -- "$evidence_file_tmp" "$INSTALL_DIR/production-evidence-collect.sh"
+  mv -f -- "$recovery_file_tmp" "$INSTALL_DIR/verify-installation-recovery-evidence.sh"
+  mv -f -- "$cluster_file_tmp" "$INSTALL_DIR/production-acceptance-cluster.sh"
 }
 
 detect_advertise_address() {
@@ -642,7 +900,7 @@ detect_advertise_address() {
       detected="$(ip -4 -o addr show scope global 2>/dev/null | awk '{split($4, address, "/"); print address[1]; exit}' || true)"
     fi
     if [[ "$INTERACTIVE" == true ]]; then
-      read -r -p "Swarm Advertise IP Address [${detected}]: " input_address
+      read -r -p "Swarm Advertise IP Address [${detected}]: " input_address < /dev/tty
       address="${input_address:-$detected}"
     else
       address="$detected"
@@ -655,6 +913,11 @@ detect_advertise_address() {
 
 ensure_docker() {
   if command -v docker >/dev/null 2>&1; then
+    docker info >/dev/null 2>&1 \
+      || fail "Docker CLI is installed but its daemon is unavailable; start the rootful daemon (or the inner DinD daemon) and retry"
+    [[ -S /var/run/docker.sock ]] \
+      || fail "Upstand requires /var/run/docker.sock because the production Docker broker mounts that socket; configure the local Docker daemon or use a supported nested runtime"
+    docker version >/dev/null
     return
   fi
 
@@ -663,17 +926,87 @@ ensure_docker() {
   fi
 
   require_command curl
-  log "Docker not found; installing Docker Engine because UPSTAND_ALLOW_DOCKER_INSTALL=true..."
+  log "Docker not found; installing Docker Engine because UPSTAND_ALLOW_DOCKER_INSTALL=true"
   curl --fail --show-error --silent --location \
     --connect-timeout 10 --max-time 120 --retry 3 --retry-all-errors \
     https://get.docker.com | sh
 
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl enable --now docker
-  elif ! docker info >/dev/null 2>&1; then
-    fail "Docker is installed but its daemon is not running and systemctl is unavailable"
+    systemctl enable --now docker >/dev/null 2>&1 || true
   fi
+  docker info >/dev/null 2>&1 \
+    || fail "Docker was installed but its daemon is not running; start Docker manually in this VM/container and retry"
+  [[ -S /var/run/docker.sock ]] \
+    || fail "Docker was installed without /var/run/docker.sock; Upstand's production broker requires the local Unix socket"
   docker version >/dev/null
+}
+
+port_is_listening() {
+  local port="$1"
+  ss -H -ltn 2>/dev/null | awk -v port=":$port" '
+    { address = $4; sub(/^.*:/, ":", address); if (address == port) found=1 }
+    END { exit found ? 0 : 1 }
+  '
+}
+
+check_published_ports() {
+  local port service
+  for port in 3000 3001 4000; do
+    case "$port" in
+      3000) service=upstand_server ;;
+      3001) service=upstand_web ;;
+      4000) service=upstand_fumadocs ;;
+    esac
+    docker service inspect "$service" >/dev/null 2>&1 && continue
+    if port_is_listening "$port"; then
+      ss -H -ltnp 2>/dev/null | awk -v port=":$port" '$4 ~ port { print "  " $0 }' >&2 || true
+      fail "required published port $port is already in use; stop the conflicting service or change the deployment topology before installing Upstand"
+    fi
+  done
+}
+
+check_firewall() {
+  local warning=false port
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -Fq 'Status: active'; then
+    for port in 3000 3001 4000; do
+      if ! ufw status 2>/dev/null | grep -Eq "(^|[[:space:]])${port}/tcp[[:space:]]+ALLOW([[:space:]]|$)"; then
+        warning=true
+        warn "UFW is active and does not show an allow rule for TCP $port; restrict or publish this port according to your reverse-proxy plan"
+      fi
+    done
+  elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state 2>/dev/null | grep -Fq running; then
+    for port in 3000 3001 4000; do
+      if ! firewall-cmd --query-port="${port}/tcp" >/dev/null 2>&1; then
+        warning=true
+        warn "firewalld is active and TCP $port is not open; allow it only if direct access is intentional"
+      fi
+    done
+  elif command -v nft >/dev/null 2>&1 && nft list ruleset 2>/dev/null | grep -Eq 'hook[[:space:]]+input|hook[[:space:]]+forward'; then
+    warning=true
+    warn "an nftables ruleset is active; verify that your firewall permits the intended Upstand ports and Swarm traffic"
+  fi
+
+  if [[ "$warning" == true && "$INTERACTIVE" == true ]]; then
+    confirm_interactive "Firewall rules may block this installation. Continue without changing the firewall?" no \
+      || fail "installation cancelled until firewall rules are reviewed"
+  fi
+}
+
+discover_host_services() {
+  local nested_runtime reverse_proxy="" service
+  nested_runtime="$(detect_nested_runtime)"
+  log "execution environment: $nested_runtime"
+  for service in caddy nginx traefik; do
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$service" 2>/dev/null; then
+      reverse_proxy+=" $service"
+    fi
+  done
+  if port_is_listening 80 || port_is_listening 443; then
+    log "a host reverse-proxy or web service is listening on port 80/443; Upstand will not replace it"
+  else
+    log "no host listener detected on port 80/443; configure HTTPS termination separately or use the explicit direct-IP bootstrap"
+  fi
+  [[ -z "$reverse_proxy" ]] || log "detected active reverse-proxy service(s):$reverse_proxy"
 }
 
 ensure_swarm() {
@@ -890,6 +1223,11 @@ write_environment() {
   local requested_docker_broker_image="${UPSTAND_DOCKER_BROKER_IMAGE:-}"
   local requested_auto_update="${UPSTAND_AUTO_UPDATE:-}"
   local requested_allow_unobserved_production="${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-}"
+  local requested_allow_single_replica="${UPSTAND_ALLOW_SINGLE_REPLICA:-}"
+  local requested_allow_undersized_host="${UPSTAND_ALLOW_UNDERSIZED_HOST:-}"
+  local requested_build_from_source="${UPSTAND_BUILD_FROM_SOURCE:-}"
+  local requested_ref="${UPSTAND_REF:-}"
+  local requested_repository="${UPSTAND_REPOSITORY:-}"
   local requested_audit_log_retention_days="${UPSTAND_AUDIT_LOG_RETENTION_DAYS:-}"
   local requested_otlp_endpoint="${OTLP_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}"
   local requested_allow_insecure_bootstrap="${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-}"
@@ -949,6 +1287,17 @@ write_environment() {
   UPSTAND_ALLOW_UNOBSERVED_PRODUCTION="${requested_allow_unobserved_production:-${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}}"
   [[ "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION" == true || "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION" == false ]] \
     || fail "UPSTAND_ALLOW_UNOBSERVED_PRODUCTION must be true or false"
+  UPSTAND_ALLOW_SINGLE_REPLICA="${requested_allow_single_replica:-${UPSTAND_ALLOW_SINGLE_REPLICA:-false}}"
+  [[ "$UPSTAND_ALLOW_SINGLE_REPLICA" == true || "$UPSTAND_ALLOW_SINGLE_REPLICA" == false ]] \
+    || fail "UPSTAND_ALLOW_SINGLE_REPLICA must be true or false"
+  UPSTAND_ALLOW_UNDERSIZED_HOST="${requested_allow_undersized_host:-${UPSTAND_ALLOW_UNDERSIZED_HOST:-false}}"
+  [[ "$UPSTAND_ALLOW_UNDERSIZED_HOST" == true || "$UPSTAND_ALLOW_UNDERSIZED_HOST" == false ]] \
+    || fail "UPSTAND_ALLOW_UNDERSIZED_HOST must be true or false"
+  UPSTAND_BUILD_FROM_SOURCE="${requested_build_from_source:-${UPSTAND_BUILD_FROM_SOURCE:-false}}"
+  [[ "$UPSTAND_BUILD_FROM_SOURCE" == true || "$UPSTAND_BUILD_FROM_SOURCE" == false ]] \
+    || fail "UPSTAND_BUILD_FROM_SOURCE must be true or false"
+  UPSTAND_REF="${requested_ref:-${UPSTAND_REF:-}}"
+  UPSTAND_REPOSITORY="${requested_repository:-${UPSTAND_REPOSITORY:-https://github.com/upstandplatform/upstand.git}}"
   AUTH_COOKIE_DOMAIN="${requested_auth_cookie_domain:-${AUTH_COOKIE_DOMAIN:-}}"
   TRUSTED_PROXY_HEADERS="${requested_trusted_proxy_headers:-${TRUSTED_PROXY_HEADERS:-false}}"
   [[ "$TRUSTED_PROXY_HEADERS" == true || "$TRUSTED_PROXY_HEADERS" == false ]] \
@@ -1125,19 +1474,19 @@ write_environment() {
     REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"
   fi
   ensure_docker_broker_mtls
-  printf '%s' "$POSTGRES_PASSWORD" >"$INSTALL_DIR/secrets/postgres_password"
-  printf '%s' "$REDIS_PASSWORD" >"$INSTALL_DIR/secrets/redis_password"
-  printf '%s' "$BETTER_AUTH_SECRET" >"$INSTALL_DIR/secrets/better_auth_secret"
-  printf '%s' "$UPGAL_TOOL_APPROVAL_SECRET" >"$INSTALL_DIR/secrets/upgal_tool_approval_secret"
-  printf '%s' "$DOCKER_BROKER_SERVER_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_server_token"
-  printf '%s' "$DOCKER_BROKER_SCHEDULES_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_schedules_token"
-  printf '%s' "$DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN" >"$INSTALL_DIR/secrets/docker_broker_deployment_worker_token"
-  printf '%s' "$DOCKER_BROKER_SCOPE_SECRET" >"$INSTALL_DIR/secrets/docker_broker_scope_secret"
-  printf '%s' "$METRICS_TOKEN" >"$INSTALL_DIR/secrets/metrics_token"
-  printf '%s' "$ENCRYPTION_KEY_V1" >"$INSTALL_DIR/secrets/encryption_key"
-  printf '%s' "$DATABASE_URL" >"$INSTALL_DIR/secrets/database_url"
-  printf '%s' "$REDIS_URL" >"$INSTALL_DIR/secrets/redis_url"
-  cp -f "$INSTALL_DIR/secrets/encryption_key" "$INSTALL_DIR/secrets/ssh_key_encryption_key" 2>/dev/null || true
+  write_secret_file postgres_password "$POSTGRES_PASSWORD"
+  write_secret_file redis_password "$REDIS_PASSWORD"
+  write_secret_file better_auth_secret "$BETTER_AUTH_SECRET"
+  write_secret_file upgal_tool_approval_secret "$UPGAL_TOOL_APPROVAL_SECRET"
+  write_secret_file docker_broker_server_token "$DOCKER_BROKER_SERVER_TOKEN"
+  write_secret_file docker_broker_schedules_token "$DOCKER_BROKER_SCHEDULES_TOKEN"
+  write_secret_file docker_broker_deployment_worker_token "$DOCKER_BROKER_DEPLOYMENT_WORKER_TOKEN"
+  write_secret_file docker_broker_scope_secret "$DOCKER_BROKER_SCOPE_SECRET"
+  write_secret_file metrics_token "$METRICS_TOKEN"
+  write_secret_file encryption_key "$ENCRYPTION_KEY_V1"
+  write_secret_file database_url "$DATABASE_URL"
+  write_secret_file redis_url "$REDIS_URL"
+  write_secret_file ssh_key_encryption_key "$ENCRYPTION_KEY_V1"
   chmod 0600 "$INSTALL_DIR/secrets"/*
   DOCKER_NETWORK="$NETWORK_NAME"
   DOCKER_CONTROL_NETWORK="$CONTROL_NETWORK_NAME"
@@ -1238,7 +1587,9 @@ write_environment() {
     require_digest_image REDIS_IMAGE
   fi
 
-  {
+  local temporary_env_file
+  temporary_env_file="$(mktemp "$INSTALL_DIR/.env.XXXXXX")"
+  if ! {
     write_env_assignment DOCKER_NETWORK "$DOCKER_NETWORK"
     write_env_assignment DOCKER_CONTROL_NETWORK "$DOCKER_CONTROL_NETWORK"
     write_env_assignment BETTER_AUTH_URL "$BETTER_AUTH_URL"
@@ -1264,6 +1615,11 @@ write_environment() {
     write_env_assignment UPSTAND_AUTO_UPDATE "$UPSTAND_AUTO_UPDATE"
     write_env_assignment UPSTAND_ALLOW_INSECURE_BOOTSTRAP "$UPSTAND_ALLOW_INSECURE_BOOTSTRAP"
     write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION"
+    write_env_assignment UPSTAND_ALLOW_SINGLE_REPLICA "$UPSTAND_ALLOW_SINGLE_REPLICA"
+    write_env_assignment UPSTAND_ALLOW_UNDERSIZED_HOST "$UPSTAND_ALLOW_UNDERSIZED_HOST"
+    write_env_assignment UPSTAND_BUILD_FROM_SOURCE "$UPSTAND_BUILD_FROM_SOURCE"
+    write_env_assignment UPSTAND_REF "$UPSTAND_REF"
+    write_env_assignment UPSTAND_REPOSITORY "$UPSTAND_REPOSITORY"
     write_env_assignment UPSTAND_OUTBOUND_ALLOWED_HOSTS "$UPSTAND_OUTBOUND_ALLOWED_HOSTS"
     write_env_assignment UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS "$UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS"
     write_env_assignment UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS "$UPSTAND_GIT_PROVIDER_ALLOWED_HOSTS"
@@ -1297,8 +1653,12 @@ write_environment() {
     write_env_assignment UPSTAND_DIRECT_ORIGINS "$direct_origins"
     write_env_assignment POSTGRES_IMAGE "$POSTGRES_IMAGE"
     write_env_assignment REDIS_IMAGE "$REDIS_IMAGE"
-  } >"$ENV_FILE"
-  chmod 0600 "$ENV_FILE"
+  } >"$temporary_env_file"; then
+    rm -f -- "$temporary_env_file"
+    fail "could not write the Upstand environment file"
+  fi
+  chmod 0600 "$temporary_env_file"
+  mv -f -- "$temporary_env_file" "$ENV_FILE"
 }
 
 deploy_stack() {
@@ -1424,13 +1784,23 @@ validate_external_origins() {
 main() {
   parse_args "$@"
   require_root
+  if [[ "$UPGRADE_ONLY" == true && ! -f "$ENV_FILE" ]]; then
+    fail "--upgrade requires an existing installation at $INSTALL_DIR"
+  fi
+  load_persisted_runtime_settings
   ensure_host_dependencies
+  prompt_interactive_settings
   ensure_docker
+  validate_docker_engine_runtime
   check_host_resources
   local advertise_address
   advertise_address="$(detect_advertise_address)"
+  discover_host_services
+  backup_existing_installation
   ensure_stack_file
   ensure_swarm "$advertise_address"
+  check_published_ports
+  check_firewall
   write_environment "$advertise_address"
   validate_production_operating_model
   trap cleanup_registry_auth EXIT
@@ -1446,6 +1816,7 @@ main() {
   echo "Dashboard: $CORS_ORIGIN"
   echo "API: $BETTER_AUTH_URL"
   echo "Generated secrets are stored in $INSTALL_DIR/secrets/; back up that directory securely."
+  [[ -n "$LAST_BACKUP_PATH" ]] && echo "Previous installation state is backed up at $LAST_BACKUP_PATH."
   echo "Run $INSTALL_DIR/production-acceptance.sh (add --require-ha for HA validation)."
   echo "For multi-node runtime evidence, run $INSTALL_DIR/production-acceptance.sh --node-local on every task-bearing node."
   echo "For manager-driven multi-node evidence, run $INSTALL_DIR/production-acceptance-cluster.sh --output /var/tmp/upstand-acceptance --ssh-user USER."

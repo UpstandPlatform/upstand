@@ -1807,6 +1807,7 @@ export class DockerService implements DockerSwarmManagementPort {
     gitEnvironment?: Record<string, string>,
     sshHostKeyFingerprint?: string,
     onBuildResolved?: (artifact: ResolvedBuildArtifact) => Promise<void>,
+    resolvedBuildSecrets?: Record<string, string>,
   ): Promise<void> {
     let currentResource = resource;
     const serviceName = this.sanitizeName(
@@ -1958,7 +1959,7 @@ export class DockerService implements DockerSwarmManagementPort {
       );
       const resolvedBuildEnvironment = buildEnvVars ?? envVars;
       const applicationBuildSecrets =
-        getApplicationBuildSecrets(currentResource);
+        resolvedBuildSecrets ?? getApplicationBuildSecrets(currentResource);
       const typedBuildEligible =
         buildConfig.type === "dockerfile" &&
         Object.keys(this.commandEnvironment).length === 0 &&

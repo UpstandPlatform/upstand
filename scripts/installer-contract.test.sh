@@ -117,6 +117,14 @@ grep -Fq 'UPSTAND_ALLOW_UNDERSIZED_HOST' "$ROOT_DIR/install.sh" || {
   echo "installer must require an explicit override for undersized hosts" >&2
   exit 1
 }
+grep -Fq -- '--interactive' "$ROOT_DIR/install.sh" || {
+  echo "installer must expose a guided interactive mode" >&2
+  exit 1
+}
+grep -Fq 'address == port' "$ROOT_DIR/install.sh" || {
+  echo "installer must match exact published ports during conflict checks" >&2
+  exit 1
+}
 grep -Fq 'validate_disaster_recovery_plan' "$ROOT_DIR/install.sh" || {
   echo "installer must enforce an explicit disaster-recovery readiness attestation" >&2
   exit 1
@@ -486,6 +494,23 @@ eval "$serialized_assignment"
   echo "environment assignment serialization did not round-trip safely" >&2
   exit 1
 }
+
+(
+  ss() {
+    printf 'LISTEN 0 128 0.0.0.0:30000 0.0.0.0:*\n'
+  }
+  if port_is_listening 3000; then
+    echo "port conflict check matched a longer port unexpectedly" >&2
+    exit 1
+  fi
+)
+
+(
+  ss() {
+    printf 'LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*\n'
+  }
+  port_is_listening 3000
+)
 
 (
   artifact_file="$(mktemp)"
