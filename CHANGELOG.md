@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.6 - 2026-09-15
+
+Harden control-plane authorization, runtime safeguards, and operational monitoring across the release packages.
+
+
 ## 0.13.5 - 2026-09-14
 
 Retry immutable backup-rehearsal image pulls so transient container-registry gateway errors do not interrupt release acceptance or operator recovery rehearsals.
