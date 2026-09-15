@@ -21,37 +21,43 @@ export class GetResourceContainersUseCase {
   async execute(
     input: GetResourceContainersInput,
   ): Promise<DockerResourceContainer[]> {
-    return this.uow.transaction(async (tx) => {
+    // Keep the database transaction short. Docker calls can block for minutes
+    // and must not hold a pooled Postgres connection while waiting on a remote
+    // daemon.
+    const resource = await this.uow.transaction(async (tx) => {
       const resource = await tx.resourceRepository.findById(input.id);
       if (!resource) {
         throw new ValidationError("Resource not found");
       }
+      return resource;
+    });
 
-      const { dockerService, cleanup } = await resolveDockerServiceForServer(
-        resource.serverId,
-        tx,
-        this.dockerService,
-      );
+    const { dockerService, cleanup } = await resolveDockerServiceForServer(
+      resource.serverId,
+      this.uow,
+      this.dockerService,
+    );
+
+    try {
+      const containers = await dockerService.getContainers(resource);
 
       try {
-        const containers = await dockerService.getContainers(resource);
-
-        try {
+        await this.uow.transaction(async (tx) => {
           await tx.resourceRuntimeRepository.upsert(input.id, {
             version: 1,
             containers,
             observedAt: new Date(),
             source: "docker-live",
           });
-        } catch {
-          // Runtime state is an observability cache. A cache write must never
-          // turn a successful live Docker read into a failed request.
-        }
-
-        return containers;
-      } finally {
-        cleanup();
+        });
+      } catch {
+        // Runtime state is an observability cache. A cache write must never
+        // turn a successful live Docker read into a failed request.
       }
-    });
+
+      return containers;
+    } finally {
+      cleanup();
+    }
   }
 }

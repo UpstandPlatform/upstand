@@ -69,6 +69,12 @@ export function registerAuthRoutes(app: Hono<AppEnv>): void {
         409,
       );
     }
+    if (!(await stepUp.isStepUpAuthenticationSatisfied(session))) {
+      return c.json(
+        { error: "Recent 2FA verification is required to set a password" },
+        403,
+      );
+    }
     try {
       const request = normalizeDirectIpAuthRequest(c.req.raw);
       await auth.api.setPassword({

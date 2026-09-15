@@ -21,13 +21,13 @@ test.describe("public web production surface", () => {
     page.on("console", (message) => {
       if (message.type() === "error") consoleErrors.push(message.text());
     });
-    await page.route("**/api/setup/status", (route) =>
+    await page.route(/\/api\/setup\/status$/, (route) =>
       route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({ needsOwnerSetup: false, isCloud: false }),
       }),
     );
-    await page.route("**/api/auth/get-session", (route) =>
+    await page.route(/\/api\/auth\/get-session$/, (route) =>
       route.fulfill({
         contentType: "application/json",
         body: "null",
@@ -74,14 +74,14 @@ test.describe("public web production surface", () => {
   test("does not leave the landing page blank when the control plane is unavailable", async ({
     page,
   }) => {
-    await page.route("**/api/setup/status", (route) =>
+    await page.route(/\/api\/setup\/status$/, (route) =>
       route.fulfill({
         status: 503,
         contentType: "application/json",
         body: JSON.stringify({ error: "Control plane unavailable" }),
       }),
     );
-    await page.route("**/api/auth/get-session", (route) =>
+    await page.route(/\/api\/auth\/get-session$/, (route) =>
       route.fulfill({
         contentType: "application/json",
         body: "null",

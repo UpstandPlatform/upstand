@@ -25,6 +25,7 @@ import {
   ChevronDownIcon,
   CopyIcon,
 } from "@/components/huge-icons";
+import { copyText } from "@/lib/browser";
 
 // Regex patterns for parsing stack traces
 const STACK_FRAME_WITH_PARENS_REGEX = /^at\s+(.+?)\s+\((.+):(\d+):(\d+)\)$/;
@@ -331,7 +332,7 @@ export const StackTraceCopyButton = memo(
       }
 
       try {
-        await navigator.clipboard.writeText(raw);
+        await copyText(raw);
         setIsCopied(true);
         onCopy?.();
         timeoutRef.current = window.setTimeout(

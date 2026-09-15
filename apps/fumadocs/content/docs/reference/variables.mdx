@@ -114,6 +114,7 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_DOCKER_GID` | Installer-managed | Numeric group ID of `/var/run/docker.sock`; lets the non-root control-plane containers access the explicitly acknowledged Docker API boundary. |
 | `UPSTAND_DOCKER_BROKER_MAX_INFLIGHT` | No | Maximum number of concurrent Docker operations admitted by the broker; defaults to `64` and is bounded to `1`–`256`. |
 | `UPSTAND_DOCKER_BROKER_TLS_REQUIRED` | Production-managed | Requires the Docker broker to use TLS and verified client certificates; production Compose sets this to `true`. |
+| `UPSTAND_DOCKER_BROKER_DEV_INSECURE` | Development-only | Explicitly opts the standalone broker into its legacy insecure mode. Never set this in production. When unset, strict identity and caller-scoped authorization are enabled by default. |
 | `UPSTAND_DOCKER_BROKER_CA_FILE` / `UPSTAND_DOCKER_BROKER_CERT_FILE` / `UPSTAND_DOCKER_BROKER_KEY_FILE` | Installer-managed | Broker-side CA, server certificate, and private-key paths. The installer generates them as Docker secrets. |
 | `UPSTAND_DOCKER_BROKER_CLIENT_CERT_FILE` / `UPSTAND_DOCKER_BROKER_CLIENT_KEY_FILE` | Installer-managed | Caller-specific mTLS client certificate and key paths used by the server, schedules orchestrator, or deployment-worker. |
 
@@ -144,6 +145,8 @@ automation must provide the required values explicitly.
 | `UPSTAND_GITHUB_TOKEN` | Optional Upstand GitHub token. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional Google auth credentials. |
 | `UPGAL_TOOL_APPROVAL_SECRET` | Required in non-test server environments; a dedicated 32-character minimum server-only HMAC key used to bind UpGal approval requests to their exact tool name and arguments. |
+| `UPSTAND_AUTH_EMAIL_CHANNEL_ID` | Required in cloud mode | Organization notification-channel ID used for Better Auth email verification. Cloud sign-up fails closed when it is absent or invalid. |
+| `UPSTAND_METRICS_TOKEN_FILE` | Optional production secret-file path | Bearer token file for the internal metrics endpoint. If the file is missing or empty, production metrics remain disabled and the server logs a non-secret diagnostic. |
 | `UPGAL_WEB_SEARCH_API_KEY` | Optional key for UpGal public-web search. |
 | `UPGAL_DAILY_TOKEN_LIMIT` | Maximum worst-case provider tokens reserved per organization per UTC day; defaults to `1,000,000`. Reservations are atomic in Redis and fail closed when exhausted. |
 | `UPGAL_DAILY_COST_LIMIT_USD` | Maximum conservative provider-cost reservation per organization per UTC day; defaults to `100`. Stored as integer cents in Redis and fails closed when exhausted. |

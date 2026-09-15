@@ -2,6 +2,18 @@
 # digest by the installer, including the default Postgres and Redis images.
 # Set DATABASE_URL and REDIS_URL through the installer to use external HA data
 # services; the bundled stateful services then scale to zero.
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+x-broker-logging: &broker-logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
@@ -67,11 +79,7 @@ services:
         limits:
           cpus: "2.0"
           memory: 2G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+    logging: *default-logging
 
   redis:
     image: ${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
@@ -140,11 +148,7 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+    logging: *default-logging
 
   migrate:
     image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
@@ -248,6 +252,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 6
+    stop_grace_period: 30s
     networks:
       docker-control:
         aliases:
@@ -270,11 +275,7 @@ services:
         limits:
           cpus: "1.0"
           memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "5"
+    logging: *broker-logging
 
   server:
     image: ${UPSTAND_SERVER_IMAGE:?UPSTAND_SERVER_IMAGE is required}
@@ -350,6 +351,7 @@ services:
       UPSTAND_MIGRATION_ID: ${UPSTAND_MIGRATION_ID:?UPSTAND_MIGRATION_ID is required}
       EVLOG_FS_DIR: /tmp/.evlog/logs
       IS_CLOUD: ${IS_CLOUD:-false}
+      UPSTAND_AUTH_EMAIL_CHANNEL_ID: ${UPSTAND_AUTH_EMAIL_CHANNEL_ID:-}
       DOCKER_HOST: https://docker-broker:2375
       DOCKER_TLS_VERIFY: "1"
       DOCKER_CERT_PATH: /run/secrets
@@ -444,11 +446,7 @@ services:
         limits:
           cpus: "2.0"
           memory: 2G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+    logging: *default-logging
 
   schedules:
     image: ${UPSTAND_SCHEDULES_IMAGE:?UPSTAND_SCHEDULES_IMAGE is required}
@@ -592,11 +590,7 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+    logging: *default-logging
 
   deployment-worker:
     image: ${UPSTAND_DEPLOYMENT_WORKER_IMAGE:?UPSTAND_DEPLOYMENT_WORKER_IMAGE is required}
@@ -728,11 +722,7 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+    logging: *default-logging
 
 
   web:
@@ -805,11 +795,7 @@ services:
           cpus: "1.0"
           memory: 1G
           pids: 512
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+    logging: *default-logging
 
   fumadocs:
     image: ${UPSTAND_DOCS_IMAGE:?UPSTAND_DOCS_IMAGE is required}
@@ -882,11 +868,7 @@ services:
           cpus: "0.5"
           memory: 1G
           pids: 256
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+    logging: *default-logging
 
 volumes:
   postgres_data_v18:

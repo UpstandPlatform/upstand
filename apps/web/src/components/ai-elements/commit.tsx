@@ -18,6 +18,7 @@ import {
   MinusIcon,
   PlusIcon,
 } from "@/components/huge-icons";
+import { copyText } from "@/lib/browser";
 
 export type CommitProps = ComponentProps<typeof Collapsible>;
 
@@ -235,7 +236,7 @@ export const CommitCopyButton = ({
 
     try {
       if (!isCopied) {
-        await navigator.clipboard.writeText(hash);
+        await copyText(hash);
         setIsCopied(true);
         onCopy?.();
         timeoutRef.current = window.setTimeout(

@@ -35,6 +35,7 @@ import { PageSkeleton } from "@/components/dashboard/page-skeleton";
 import { type Activity, Database } from "@/components/huge-icons";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
 import { useSystemConfig } from "@/hooks/use-system-config";
+import { formatBytes, formatUptime } from "@/lib/format";
 import { trpc } from "@/utils/trpc";
 
 type RangeKey = "1h" | "6h" | "24h" | "7d";
@@ -106,24 +107,6 @@ const numberValue = (value: string | number | null | undefined) => {
   const parsed =
     typeof value === "number" ? value : Number.parseFloat(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const formatBytes = (bytes: number): string => {
-  if (bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const exponent = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(bytes / 1024 ** exponent)} ${units[exponent]}`;
-};
-
-const formatUptime = (seconds: number) => {
-  if (!seconds) return "Unknown";
-  const days = Math.floor(seconds / 86_400);
-  const hours = Math.floor((seconds % 86_400) / 3_600);
-  const minutes = Math.floor((seconds % 3_600) / 60);
-  return days > 0 ? `${days}d ${hours}h` : `${hours}h ${minutes}m`;
 };
 
 function MonitoringChart({

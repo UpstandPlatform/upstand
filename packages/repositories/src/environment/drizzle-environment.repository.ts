@@ -9,6 +9,7 @@ import type {
 import { eq, inArray, sql } from "drizzle-orm";
 import { DrizzleSecretVersionRepository } from "../secret/drizzle-secret-version.repository";
 import { BaseRepository } from "../shared/base.repository";
+import { assertReadLimit } from "../shared/collection";
 import type { Executor } from "../shared/types";
 
 const MAX_ENVIRONMENT_READS = 10_000;
@@ -94,7 +95,11 @@ export class DrizzleEnvironmentRepository
       .from(environment)
       .where(eq(environment.projectId, projectId))
       .limit(MAX_ENVIRONMENT_READS + 1);
-    assertEnvironmentReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_ENVIRONMENT_READS,
+      "Environment discovery exceeded the maximum supported environment count",
+    );
     return this.hydrateWithSecrets(rows);
   }
 
@@ -124,7 +129,11 @@ export class DrizzleEnvironmentRepository
       )
       .where(eq(environment.projectId, projectId))
       .limit(MAX_ENVIRONMENT_READS + 1);
-    assertEnvironmentReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_ENVIRONMENT_READS,
+      "Environment discovery exceeded the maximum supported environment count",
+    );
     return rows;
   }
 
@@ -134,7 +143,11 @@ export class DrizzleEnvironmentRepository
       .from(environment)
       .where(eq(environment.projectId, projectId))
       .limit(MAX_ENVIRONMENT_READS + 1);
-    assertEnvironmentReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_ENVIRONMENT_READS,
+      "Environment discovery exceeded the maximum supported environment count",
+    );
     return rows.map((row) => row.id);
   }
 
@@ -157,7 +170,11 @@ export class DrizzleEnvironmentRepository
       .select()
       .from(environment)
       .limit(MAX_ENVIRONMENT_READS + 1);
-    assertEnvironmentReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_ENVIRONMENT_READS,
+      "Environment discovery exceeded the maximum supported environment count",
+    );
     return this.hydrateWithSecrets(rows);
   }
 
@@ -219,13 +236,5 @@ export class DrizzleEnvironmentRepository
     }
 
     return this.findById(id);
-  }
-}
-
-function assertEnvironmentReadLimit(rowCount: number): void {
-  if (rowCount > MAX_ENVIRONMENT_READS) {
-    throw new Error(
-      "Environment discovery exceeded the maximum supported environment count",
-    );
   }
 }

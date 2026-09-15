@@ -19,7 +19,7 @@
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@upstand/env": "workspace:*",
     "@upstand/redis": "workspace:*",
-    "ai": "^7.0.14",
+    "ai": "7.0.48",
     "class-variance-authority": "^0.7.1",
     "cnfast": "^0.1.0",
     "evlog": "catalog:",

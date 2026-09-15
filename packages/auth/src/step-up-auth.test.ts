@@ -36,7 +36,7 @@ describe("step-up verification", () => {
     ).toBe(false);
   });
 
-  test("keeps non-2FA accounts compatible", () => {
-    expect(isStepUpVerificationValid(false, null, session)).toBe(true);
+  test("does not treat non-2FA accounts as step-up verified", () => {
+    expect(isStepUpVerificationValid(false, null, session)).toBe(false);
   });
 });

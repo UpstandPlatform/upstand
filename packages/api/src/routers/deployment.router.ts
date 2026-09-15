@@ -255,7 +255,7 @@ export const deploymentRouter = router({
         );
 
         const queue = new Queue(getDeploymentQueueName(serverId), {
-          connection: redis.options,
+          connection: redis,
         });
         const job = await queue.getJob(deploymentId);
 
@@ -301,7 +301,7 @@ export const deploymentRouter = router({
       );
       const queue = new Queue(
         getDeploymentQueueName(deployment.serverId || "local"),
-        { connection: redis.options },
+        { connection: redis },
       );
       try {
         const job = await queue.getJob(input.deploymentId);

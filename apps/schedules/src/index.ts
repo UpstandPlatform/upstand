@@ -129,7 +129,7 @@ const operationalMonitor = createOperationalMonitor(
   },
 );
 
-async function shutdown(signal: string): Promise<void> {
+async function shutdown(signal: string, exitCode = 0): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   operationalMonitor.stop();
@@ -167,11 +167,19 @@ async function shutdown(signal: string): Promise<void> {
     signal,
   });
   await drain.flush();
-  process.exit(result === "timeout" ? 1 : 0);
+  process.exit(result === "timeout" ? 1 : exitCode);
 }
 
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("unhandledRejection", (reason) => {
+  log.error({ message: "Unhandled promise rejection; shutting down", reason });
+  void shutdown("unhandledRejection", 1);
+});
+process.once("uncaughtException", (error) => {
+  log.error({ message: "Uncaught exception; shutting down", err: error });
+  void shutdown("uncaughtException", 1);
+});
 
 const port = env.SCHEDULES_PORT || env.PORT;
 

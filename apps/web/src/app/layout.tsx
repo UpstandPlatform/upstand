@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
+import { connection } from "next/server";
 
 import "../index.css";
 import { TooltipProvider } from "@upstand/ui/components/tooltip";
@@ -23,11 +25,14 @@ export const metadata: Metadata = {
 
 import { DesktopChrome } from "@/components/workspace/desktop-chrome";
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  await connection();
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html
       lang="en"
@@ -35,7 +40,7 @@ export default function RootLayout({
       className={cn("font-sans", "no-scrollbar")}
     >
       <body className="antialiased">
-        <Providers>
+        <Providers nonce={nonce}>
           <DesktopChrome />
           <TooltipProvider>{children}</TooltipProvider>
         </Providers>

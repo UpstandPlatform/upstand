@@ -173,7 +173,7 @@ describe("authentication origin configuration", () => {
     }
   });
 
-  test("normalizes cookies for public direct IP recovery too", () => {
+  test("does not downgrade cookies for public direct IP access", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     try {
@@ -188,7 +188,7 @@ describe("authentication origin configuration", () => {
         new Request("http://85.155.230.19:3000/api/auth/sign-in/email"),
         response(),
       );
-      expect(publicResponse.headers.get("set-cookie")).not.toMatch(
+      expect(publicResponse.headers.get("set-cookie")).toMatch(
         /(?:^|;)\s*secure(?:;|$)/i,
       );
     } finally {
@@ -212,7 +212,7 @@ describe("authentication origin configuration", () => {
     expect(normalized).toBe(response);
   });
 
-  test("aliases direct-IP cookies for secure Better Auth configurations", () => {
+  test("does not alias cookies for public direct-IP access", () => {
     const request = normalizeDirectIpAuthRequest(
       new Request("http://85.155.230.19:3000/api/trpc", {
         headers: {
@@ -224,7 +224,7 @@ describe("authentication origin configuration", () => {
     expect(request.headers.get("cookie")).toContain(
       "better-auth.session_token=signed-token",
     );
-    expect(request.headers.get("cookie")).toContain(
+    expect(request.headers.get("cookie")).not.toContain(
       "__Secure-better-auth.session_token=signed-token",
     );
   });

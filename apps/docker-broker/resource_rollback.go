@@ -67,8 +67,7 @@ func (engine *dockerEngineClient) resourceRollbackOperation(ctx context.Context,
 	if err := json.Unmarshal(inspectionBody, &inspection); err != nil {
 		return fmt.Errorf(`invalid Docker image inspection: %w`, err)
 	}
-	if inspection.Config.Labels[`com.upstand.resource-id`] != input.ResourceID &&
-		imageRepository != `upstand-app-`+input.ResourceID {
+	if inspection.Config.Labels[`com.upstand.resource-id`] != input.ResourceID {
 		return errors.New(`image is not owned by the requested Upstand resource`)
 	}
 

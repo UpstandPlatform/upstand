@@ -27,6 +27,18 @@ func TestAuthorizeDockerRequestAllowsNormalContainerLifecycle(t *testing.T) {
 	}
 }
 
+func TestConstantTimeTokenMatch(t *testing.T) {
+	if !constantTimeTokenMatch("token-value", "token-value") {
+		t.Fatal("expected equal tokens to match")
+	}
+	if constantTimeTokenMatch("token-value", "token-valuE") {
+		t.Fatal("expected different tokens not to match")
+	}
+	if constantTimeTokenMatch("short", "a much longer token") {
+		t.Fatal("expected different length tokens not to match")
+	}
+}
+
 func TestValidateRawDockerBuildContentLength(t *testing.T) {
 	if err := validateRawDockerBuildContentLength(http.MethodPost, "/build", maxResourceBuildContext); err != nil {
 		t.Fatalf("expected a build at the limit to be allowed: %v", err)
@@ -299,6 +311,7 @@ func TestAuthorizeDockerRequestAllowsReviewedLifecycleOperations(t *testing.T) {
 }
 
 func TestAuthorizeDockerRequestAppliesCallerSpecificCapabilities(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_DEV_INSECURE", "true")
 	for _, test := range []struct {
 		caller string
 		method string
@@ -1125,6 +1138,7 @@ func TestProductionDeploymentWorkerContainerMutationsRequireResourceScope(t *tes
 		{method: http.MethodPost, path: "/v1.43/containers/container-1/start"},
 		{method: http.MethodPost, path: "/v1.43/containers/container-1/exec"},
 		{method: http.MethodPut, path: "/v1.43/containers/container-1/archive"},
+		{method: http.MethodGet, path: "/v1.43/containers/container-1/archive"},
 		{method: http.MethodDelete, path: "/v1.43/containers/container-1"},
 	} {
 		withoutScope := httptest.NewRequest(test.method, "http://broker"+test.path, nil)
@@ -1289,6 +1303,21 @@ func TestValidateBrokerConfigurationRequiresExplicitProductionIdentity(t *testin
 	}
 	if err := validateBrokerConfiguration(map[string]string{"*": "legacy-token"}, nil, false); err != nil {
 		t.Fatalf("expected explicit development mode to retain compatibility: %v", err)
+	}
+}
+
+func TestBrokerRequiresStrictIdentityUnlessDevelopmentOptIn(t *testing.T) {
+	t.Setenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED", "")
+	t.Setenv("UPSTAND_DOCKER_BROKER_DEV_INSECURE", "")
+	_ = os.Unsetenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED")
+	_ = os.Unsetenv("UPSTAND_DOCKER_BROKER_DEV_INSECURE")
+	if !brokerRequiresProductionIdentity() {
+		t.Fatal("expected strict broker identity to be the safe default")
+	}
+
+	t.Setenv("UPSTAND_DOCKER_BROKER_DEV_INSECURE", "true")
+	if brokerRequiresProductionIdentity() {
+		t.Fatal("expected legacy broker mode only with explicit development opt-in")
 	}
 }
 

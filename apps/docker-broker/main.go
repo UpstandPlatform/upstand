@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
@@ -16,10 +17,12 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -44,7 +47,7 @@ func main() {
 	}
 	brokerCredentials := loadBrokerCredentials()
 	allowedCallers := loadAllowedCallers()
-	tlsRequired := strings.EqualFold(strings.TrimSpace(os.Getenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED")), "true")
+	tlsRequired := brokerRequiresProductionIdentity()
 	if err := validateBrokerConfiguration(brokerCredentials, allowedCallers, tlsRequired); err != nil {
 		log.Fatal(err)
 	}
@@ -211,13 +214,33 @@ func main() {
 		IdleTimeout:       5 * time.Minute,
 		MaxHeaderBytes:    32 << 10,
 	}
-	log.Printf("Upstand Docker broker listening on %s", listenAddress)
-	var serveErr error
 	if brokerTLS != nil {
 		server.TLSConfig = brokerTLS
-		serveErr = server.ListenAndServeTLS("", "")
-	} else {
-		serveErr = server.ListenAndServe()
+	}
+	log.Printf("Upstand Docker broker listening on %s (strict identity enforcement: %t)", listenAddress, tlsRequired)
+	serveErrCh := make(chan error, 1)
+	go func() {
+		if brokerTLS != nil {
+			serveErrCh <- server.ListenAndServeTLS("", "")
+			return
+		}
+		serveErrCh <- server.ListenAndServe()
+	}()
+
+	shutdownSignals := make(chan os.Signal, 1)
+	signal.Notify(shutdownSignals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(shutdownSignals)
+	var serveErr error
+	select {
+	case serveErr = <-serveErrCh:
+	case sig := <-shutdownSignals:
+		log.Printf("Upstand Docker broker received %s; draining in-flight requests", sig)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Upstand Docker broker graceful shutdown failed: %v", err)
+		}
+		cancel()
+		serveErr = <-serveErrCh
 	}
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatal(serveErr)
@@ -308,7 +331,7 @@ func authorizeBrokerToken(provided, expected string) error {
 	if expected == "" {
 		return nil
 	}
-	if len(provided) != len(expected) || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+	if !constantTimeTokenMatch(provided, expected) {
 		return errors.New("invalid Docker broker token")
 	}
 	return nil
@@ -317,7 +340,7 @@ func authorizeBrokerToken(provided, expected string) error {
 func authorizeBrokerCredentials(provided string, credentials map[string]string) (string, error) {
 	matchedCaller := ""
 	for caller, expected := range credentials {
-		if len(provided) == len(expected) && subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1 {
+		if constantTimeTokenMatch(provided, expected) {
 			matchedCaller = caller
 		}
 	}
@@ -325,6 +348,12 @@ func authorizeBrokerCredentials(provided string, credentials map[string]string) 
 		return "", errors.New("invalid Docker broker credential")
 	}
 	return matchedCaller, nil
+}
+
+func constantTimeTokenMatch(provided, expected string) bool {
+	providedDigest := sha256.Sum256([]byte(provided))
+	expectedDigest := sha256.Sum256([]byte(expected))
+	return subtle.ConstantTimeCompare(providedDigest[:], expectedDigest[:]) == 1
 }
 
 func loadAllowedCallers() map[string]struct{} {
@@ -548,7 +577,7 @@ func requireDeploymentWorkerResourceScope(caller string, r *http.Request, method
 		(method == http.MethodDelete && resourceItemPath(path, "services"))
 	containerMutation := (method == http.MethodDelete && containerPath(path, "")) ||
 		(method == http.MethodPost && isContainerMutationPath(path)) ||
-		(method == http.MethodPut && containerActionPath(path, "archive"))
+		((method == http.MethodGet || method == http.MethodPut) && containerActionPath(path, "archive"))
 	resourceMutation := method == http.MethodPost && (path == "/build" ||
 		path == "/containers/create" ||
 		path == "/images/create" ||
@@ -881,10 +910,19 @@ func isServerRawMutation(method, path string) bool {
 }
 
 func brokerRequiresProductionIdentity() bool {
-	return strings.EqualFold(
-		strings.TrimSpace(os.Getenv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED")),
+	if strings.EqualFold(
+		strings.TrimSpace(os.Getenv("UPSTAND_DOCKER_BROKER_DEV_INSECURE")),
 		"true",
-	)
+	) {
+		return false
+	}
+	configured, exists := os.LookupEnv("UPSTAND_DOCKER_BROKER_TLS_REQUIRED")
+	if !exists {
+		// The broker owns the host Docker socket. Strict identity must be the
+		// safe default; development must explicitly opt into shared-token mode.
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(configured), "true")
 }
 
 func rejectUnapprovedDockerDrivers(path string, body []byte) error {

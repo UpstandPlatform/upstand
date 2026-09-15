@@ -18,6 +18,7 @@ export const scimRouter = router({
   list: twoFactorVerifiedProcedure
     .input(baseInput)
     .query(async ({ ctx, input }) => {
+      requireCapability("enterpriseScimSso", "SCIM provisioning");
       await checkPermission(
         ctx.session.user.id,
         input.organizationId,
