@@ -52,14 +52,12 @@ jobs:
       - name: Create or update release PR
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51
         with:
-          version: bun run changeset:version
-          commit: "chore: prepare release"
-          title: "chore: prepare release"
-          # The Changesets action prefixes this input with `changeset-release/`.
-          # Using the merged branch ensures both the canary lane and stable
-          # master lane receive a release PR from their consumed changesets.
-          branch: ${{ github.ref_name }}
-          commitMode: github-api
+          version-script: bun run changeset:version
+          commit-message: "chore: prepare release"
+          pr-title: "chore: prepare release"
+          # The release PR targets the branch whose changesets were consumed.
+          # The action derives its `changeset-release/` head branch itself.
+          pr-base-branch: ${{ github.ref_name }}
           # Prefer a narrowly scoped RELEASE_TOKEN when the organization
           # disables pull-request creation for GITHUB_TOKEN. If the
           # organization enables that setting, GITHUB_TOKEN remains sufficient.
