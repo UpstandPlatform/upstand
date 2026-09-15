@@ -61,6 +61,7 @@ services:
     environment:
       NODE_ENV: development
       IS_CLOUD: ${IS_CLOUD:-false}
+      UPSTAND_AUTH_EMAIL_CHANNEL_ID: ${UPSTAND_AUTH_EMAIL_CHANNEL_ID:-}
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-upstand-local-password}@postgres:5432/upstand
@@ -125,6 +126,7 @@ services:
     environment:
       NODE_ENV: development
       IS_CLOUD: ${IS_CLOUD:-false}
+      UPSTAND_AUTH_EMAIL_CHANNEL_ID: ${UPSTAND_AUTH_EMAIL_CHANNEL_ID:-}
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-upstand-local-password}@postgres:5432/upstand

@@ -14,6 +14,7 @@ import {
   type UpGalUIMessage,
   validateAndRecoverUpGalMessages,
 } from "@upstand/api/ai/upgal";
+import { assertUpGalApprovalContinuations } from "@upstand/api/ai/upgal-approval";
 import { classifyUpGalError } from "@upstand/api/ai/upgal-errors";
 import { UpGalPageContextSchema } from "@upstand/api/ai/upgal-page-context";
 import {
@@ -132,14 +133,34 @@ export function registerAiRoutes(app: Hono<AppEnv>): void {
     await checkPermission(session.user.id, body.organizationId, "ai:view");
 
     const conversationId = body.conversationId || randomUUID();
+    const aiRepository = c.get("scope").resolve(AIRepositoryToken);
     const ownedConversation = await getConversationForUser(
       conversationId,
       body.organizationId,
       session.user.id,
-      c.get("scope").resolve(AIRepositoryToken),
+      aiRepository,
     );
     if (body.conversationId && !ownedConversation)
       return c.json({ error: "Conversation not found" }, 404);
+    try {
+      assertUpGalApprovalContinuations({
+        incomingMessages: body.messages,
+        persistedMessages: body.conversationId
+          ? await aiRepository.listMessages(conversationId)
+          : [],
+        conversationId,
+        organizationId: body.organizationId,
+        userId: session.user.id,
+        secret: env.UPGAL_TOOL_APPROVAL_SECRET ?? "",
+      });
+    } catch (error) {
+      requestLog.warn("Rejected UpGal approval continuation", {
+        organizationId: body.organizationId,
+        conversationId,
+        err: error,
+      });
+      return c.json({ error: "Invalid or expired UpGal approval" }, 400);
+    }
     const context = {
       actorKind: "session" as const,
       organizationId: body.organizationId,

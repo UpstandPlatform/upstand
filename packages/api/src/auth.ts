@@ -250,6 +250,37 @@ const callbacks: AuthCallbacks = {
     });
   },
 
+  async sendVerificationEmail({ user, url }) {
+    const channelId = env.UPSTAND_AUTH_EMAIL_CHANNEL_ID;
+    if (!channelId) {
+      throw new Error("Cloud email verification channel is not configured");
+    }
+    const channel = await db
+      .select()
+      .from(notificationChannel)
+      .where(eq(notificationChannel.id, channelId))
+      .limit(1)
+      .then((rows) => rows[0]);
+    if (!channel)
+      throw new Error("Cloud email verification channel was not found");
+    if (channel.provider !== "email" && channel.provider !== "resend") {
+      throw new Error(
+        "Cloud email verification channel must be Email or Resend",
+      );
+    }
+    const configuration = decryptNotificationConfiguration(
+      NotificationChannelSchema.parse(channel),
+    );
+    const recipientConfiguration =
+      configuration.type === "email" || configuration.type === "resend"
+        ? { ...configuration, toAddresses: [user.email] }
+        : configuration;
+    await notificationTransport.send(recipientConfiguration, {
+      title: "Verify your Upstand email address",
+      message: `Hello ${user.name},\n\nVerify your Upstand account: ${url}`,
+    });
+  },
+
   async applyInvitationPermissions({ permissions, memberId }) {
     if (!permissions) return;
     await db

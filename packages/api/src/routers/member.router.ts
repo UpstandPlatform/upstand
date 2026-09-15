@@ -1,5 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { type DatabaseExecutor, db } from "@upstand/db";
+import {
+  type DatabaseExecutor,
+  type DatabaseTransactionClient,
+  db,
+} from "@upstand/db";
 import { member, organization, user } from "@upstand/db/schema/auth";
 import { customRole } from "@upstand/db/schema/custom-role";
 import { notificationChannel } from "@upstand/db/schema/notification";
@@ -9,7 +13,7 @@ import {
   MemberPermissionsSchema,
   parseCapabilities,
 } from "@upstand/domain";
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "../auth";
 import {
@@ -122,6 +126,27 @@ function validatePermissions(role: string, permissions: PermissionAction[]) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: `Permissions exceed the selected ${role} role`,
+    });
+  }
+}
+
+async function assertOwnerRetained(
+  executor: DatabaseExecutor | DatabaseTransactionClient,
+  organizationId: string,
+  currentRole: string,
+  nextRole: string,
+) {
+  if (currentRole !== "owner" || nextRole === "owner") return;
+  const [ownerRow] = await executor
+    .select({ ownerCount: count() })
+    .from(member)
+    .where(
+      and(eq(member.organizationId, organizationId), eq(member.role, "owner")),
+    );
+  if (Number(ownerRow?.ownerCount ?? 0) <= 1) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "A workspace must retain at least one owner",
     });
   }
 }
@@ -369,13 +394,21 @@ export const memberRouter = router({
         input.customRoleId,
         actor.role,
       );
-      await db
-        .update(member)
-        .set({
-          role: assignment.role,
-          permissions: JSON.stringify(assignment.permissions),
-        })
-        .where(eq(member.id, input.memberId));
+      await db.transaction(async (tx) => {
+        await assertOwnerRetained(
+          tx,
+          input.organizationId,
+          target.role,
+          assignment.role,
+        );
+        await tx
+          .update(member)
+          .set({
+            role: assignment.role,
+            permissions: JSON.stringify(assignment.permissions),
+          })
+          .where(eq(member.id, input.memberId));
+      });
       return { success: true };
     }),
 
@@ -401,7 +434,15 @@ export const memberRouter = router({
       if (!target)
         throw new TRPCError({ code: "NOT_FOUND", message: "Member not found" });
       assertManager(actor.role, target.role);
-      await db.delete(member).where(eq(member.id, input.memberId));
+      await db.transaction(async (tx) => {
+        await assertOwnerRetained(
+          tx,
+          input.organizationId,
+          target.role,
+          "removed",
+        );
+        await tx.delete(member).where(eq(member.id, input.memberId));
+      });
       return { success: true };
     }),
 });

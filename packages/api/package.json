@@ -39,7 +39,7 @@
     "@upstand/redis": "workspace:*",
     "@upstand/repositories": "workspace:*",
     "@upstand/usecases": "workspace:*",
-    "ai": "^7.0.22",
+    "ai": "7.0.48",
     "better-auth": "catalog:",
     "bullmq": "^5.81.2",
     "drizzle-orm": "catalog:",

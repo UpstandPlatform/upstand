@@ -31,7 +31,7 @@ import (
 var healthState = struct {
 	sync.RWMutex
 	lastCollectedAt string
-	lastCollected    time.Time
+	lastCollected   time.Time
 	collectionError string
 	staleAfter      time.Duration
 }{
@@ -275,6 +275,7 @@ func CheckThresholds(metrics database.ServerMetric) error {
 	runtimeConfig := config.GetRuntimeConfig()
 	cpuThreshold := float64(runtimeConfig.CPUThreshold)
 	memThreshold := float64(runtimeConfig.MemoryThreshold)
+	diskThreshold := float64(runtimeConfig.DiskThreshold)
 	callbackURL := runtimeConfig.URLCallback
 	metricsToken := runtimeConfig.Token
 
@@ -284,7 +285,7 @@ func CheckThresholds(metrics database.ServerMetric) error {
 	// log.Printf("Callback URL: %s", callbackURL)
 	// log.Printf("Metrics token: %s", metricsToken)
 
-	if cpuThreshold == 0 && memThreshold == 0 {
+	if cpuThreshold == 0 && memThreshold == 0 && diskThreshold == 0 {
 		return nil
 	}
 
@@ -319,6 +320,23 @@ func CheckThresholds(metrics database.ServerMetric) error {
 		alert.Signature = signAlert(alert, metricsToken)
 		if err := sendAlert(callbackURL, alert); err != nil {
 			return fmt.Errorf("failed to send memory alert: %v", err)
+		}
+	}
+
+	if diskThreshold > 0 && float64(metrics.DiskUsed) > diskThreshold {
+		alert := AlertPayload{
+			ServerID:   runtimeConfig.ServerID,
+			ServerType: runtimeConfig.ServerType,
+			Type:       "Disk",
+			Value:      float64(metrics.DiskUsed),
+			Threshold:  diskThreshold,
+			Message:    fmt.Sprintf("Disk usage (%.2f%%) exceeded threshold (%.2f%%)", float64(metrics.DiskUsed), diskThreshold),
+			Timestamp:  metrics.Timestamp.Format(time.RFC3339Nano),
+			Nonce:      newAlertNonce(),
+		}
+		alert.Signature = signAlert(alert, metricsToken)
+		if err := sendAlert(callbackURL, alert); err != nil {
+			return fmt.Errorf("failed to send disk alert: %v", err)
 		}
 	}
 

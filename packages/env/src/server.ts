@@ -50,13 +50,33 @@ const validatedEnv = createEnv({
       .min(100)
       .max(120_000)
       .default(5_000),
-    BETTER_AUTH_SECRET: isTest ? z.string().optional() : z.string().min(32),
+    BETTER_AUTH_SECRET: isTest
+      ? z.string().optional()
+      : z
+          .string()
+          .min(32)
+          .refine(
+            (value) =>
+              process.env.NODE_ENV !== "production" ||
+              value !==
+                "upstand-local-development-secret-that-is-at-least-32-characters",
+            "BETTER_AUTH_SECRET must not use the shipped example secret in production",
+          ),
     // Used by the AI SDK to HMAC-sign approval requests. Keep this separate
     // from the authentication secret so approval replay protection has its
     // own rotation boundary.
     UPGAL_TOOL_APPROVAL_SECRET: isTest
       ? z.string().optional()
-      : z.string().min(32),
+      : z
+          .string()
+          .min(32)
+          .refine(
+            (value) =>
+              process.env.NODE_ENV !== "production" ||
+              value !==
+                "upgal-local-approval-secret-that-is-at-least-32-characters",
+            "UPGAL_TOOL_APPROVAL_SECRET must not use the shipped example secret in production",
+          ),
     BETTER_AUTH_URL: isTest ? z.string().optional() : z.url(),
     CORS_ORIGIN: isTest ? z.string().optional() : z.url(),
     TRUSTED_PROXY_CIDRS: z.string().default(""),
@@ -129,6 +149,7 @@ const validatedEnv = createEnv({
       .enum(["server", "schedules", "deployment-worker"])
       .optional(),
     UPSTAND_METRICS_TOKEN_FILE: z.string().min(1).optional(),
+    UPSTAND_AUTH_EMAIL_CHANNEL_ID: z.string().min(1).optional(),
     OTLP_ENDPOINT: z.url().optional(),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
     UPSTAND_MONITORING_IMAGE: z.string().min(1).optional(),

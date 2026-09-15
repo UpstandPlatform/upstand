@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { isStepUpVerificationValid } from "./step-up-auth";
 
 describe("step-up authentication", () => {
-  test("does not require verification when two-factor authentication is disabled", () => {
-    expect(isStepUpVerificationValid(false, null)).toBe(true);
+  test("does not treat disabled two-factor authentication as verified", () => {
+    expect(isStepUpVerificationValid(false, null)).toBe(false);
   });
 
   test("requires the exact verified marker when two-factor authentication is enabled", () => {

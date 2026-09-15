@@ -567,8 +567,10 @@ load_persisted_setting_if_unset() {
   assignment="$(grep -E "^${key}=" "$ENV_FILE" | head -n 1 || true)"
   [[ -n "$assignment" ]] || return 0
   # The file is root-owned and is generated with write_env_assignment (%q).
-  # Decode only the selected non-secret runtime setting, never the whole file.
-  eval "$assignment"
+  # Decode only the selected non-secret runtime setting with printf; never
+  # execute persisted content as shell code during installation.
+  local encoded_value="${assignment#*=}"
+  printf -v "$key" '%b' "$encoded_value"
 }
 
 load_persisted_runtime_settings() {

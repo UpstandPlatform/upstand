@@ -72,6 +72,7 @@ import {
   validateArchiveDestination,
   validateArchiveFile,
 } from "@/lib/archive-upload";
+import { formatBytes } from "@/lib/format";
 import { getServerApiUrl } from "@/lib/server-url";
 import { trpc } from "@/utils/trpc";
 
@@ -308,15 +309,6 @@ function getInventoryItems<T>(
   guard: (item: unknown) => item is T,
 ): T[] {
   return Array.isArray(value) ? value.filter(guard) : [];
-}
-
-function formatBytes(bytes: number, decimals = 2) {
-  if (bytes === 0) return "0 Bytes";
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
 }
 
 type PendingRemoval =

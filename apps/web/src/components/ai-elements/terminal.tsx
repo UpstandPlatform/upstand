@@ -19,6 +19,7 @@ import {
   TerminalIcon,
   Trash2Icon,
 } from "@/components/huge-icons";
+import { copyText } from "@/lib/browser";
 
 interface TerminalContextType {
   output: string;
@@ -121,13 +122,8 @@ export const TerminalCopyButton = ({
   const { output } = useContext(TerminalContext);
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not available"));
-      return;
-    }
-
     try {
-      await navigator.clipboard.writeText(output);
+      await copyText(output);
       setIsCopied(true);
       onCopy?.();
       timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout);

@@ -23,6 +23,18 @@ export interface QueueJobResult {
   serverName: string;
 }
 
+const queueCache = new Map<string, Queue>();
+const queueStates = ["active", "waiting", "delayed", "failed"] as const;
+
+function queueForServer(serverId: string): Queue {
+  const queueName = getDeploymentQueueName(serverId);
+  const cached = queueCache.get(queueName);
+  if (cached) return cached;
+  const queue = new Queue(queueName, { connection: redis });
+  queueCache.set(queueName, queue);
+  return queue;
+}
+
 export class GetQueueUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
@@ -82,56 +94,55 @@ export class GetQueueUseCase {
         server?.hostname ||
         (serverId === "local" ? "Upstand Server" : `Server ${serverId}`);
       const queueName = getDeploymentQueueName(serverId);
-      const queue = new Queue(queueName, { connection: redis });
+      const queue = queueForServer(serverId);
 
       try {
-        const jobs = await queue.getJobs(
-          ["active", "waiting", "delayed", "failed"],
-          0,
-          249,
-          false,
-        );
-        for (const job of jobs) {
-          const resourceId = job.data?.resourceId || "";
-          if (resourceIds && !resourceIds.includes(resourceId)) continue;
-          const resource = resourceMap.get(resourceId);
-          const state = await job.getState();
-
-          // Get deployment details from DB if possible to show rich title
-          const deploymentId = job.data?.deploymentId;
-          if (deploymentId) {
-            representedDeploymentIds.add(deploymentId);
-            deploymentIdsToLabel.add(deploymentId);
-          }
-          const label = "Manual deployment";
-
-          allJobs.push({
-            id: job.id || "",
-            deploymentId: deploymentId || job.id || "",
-            label,
-            type: resource?.type || "application",
+        const jobsByState = await Promise.all(
+          queueStates.map(async (state) => ({
             state,
-            addedAt: new Date(job.timestamp).toISOString(),
-            processedAt: job.processedOn
-              ? new Date(job.processedOn).toISOString()
-              : null,
-            finishedAt: job.finishedOn
-              ? new Date(job.finishedOn).toISOString()
-              : null,
-            error: job.failedReason || null,
-            resourceId,
-            resourceName: resource?.name || "Unknown Service",
-            serverId,
-            serverName,
-          });
+            jobs: await queue.getJobs([state], 0, 249, false),
+          })),
+        );
+        for (const { state, jobs } of jobsByState) {
+          for (const job of jobs) {
+            const resourceId = job.data?.resourceId || "";
+            if (resourceIds && !resourceIds.includes(resourceId)) continue;
+            const resource = resourceMap.get(resourceId);
+
+            // Get deployment details from DB if possible to show rich title
+            const deploymentId = job.data?.deploymentId;
+            if (deploymentId) {
+              representedDeploymentIds.add(deploymentId);
+              deploymentIdsToLabel.add(deploymentId);
+            }
+            const label = "Manual deployment";
+
+            allJobs.push({
+              id: job.id || "",
+              deploymentId: deploymentId || job.id || "",
+              label,
+              type: resource?.type || "application",
+              state,
+              addedAt: new Date(job.timestamp).toISOString(),
+              processedAt: job.processedOn
+                ? new Date(job.processedOn).toISOString()
+                : null,
+              finishedAt: job.finishedOn
+                ? new Date(job.finishedOn).toISOString()
+                : null,
+              error: job.failedReason || null,
+              resourceId,
+              resourceName: resource?.name || "Unknown Service",
+              serverId,
+              serverName,
+            });
+          }
         }
       } catch (err: unknown) {
         log.error({
           message: `Failed to read jobs from queue ${queueName}`,
           err,
         });
-      } finally {
-        await queue.close();
       }
     }
 

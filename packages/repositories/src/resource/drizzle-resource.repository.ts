@@ -31,6 +31,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { DrizzleSecretVersionRepository } from "../secret/drizzle-secret-version.repository";
+import { assertReadLimit, chunk } from "../shared/collection";
 import { isPostgresUniqueViolation } from "../shared/database-errors";
 import type { Executor } from "../shared/types";
 
@@ -93,7 +94,11 @@ export class DrizzleResourceRepository implements IResourceRepository {
       .from(resource)
       .where(eq(resource.environmentId, environmentId))
       .limit(MAX_HYDRATED_RESOURCE_READS + 1);
-    assertHydratedResourceReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_HYDRATED_RESOURCE_READS,
+      "Resource discovery exceeded the maximum supported resource count",
+    );
     return this.hydrate(rows);
   }
 
@@ -103,7 +108,11 @@ export class DrizzleResourceRepository implements IResourceRepository {
       .from(resource)
       .where(eq(resource.environmentId, environmentId))
       .limit(MAX_HYDRATED_RESOURCE_READS + 1);
-    assertHydratedResourceReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_HYDRATED_RESOURCE_READS,
+      "Resource discovery exceeded the maximum supported resource count",
+    );
     return rows.map((row) => row.id);
   }
 
@@ -113,7 +122,11 @@ export class DrizzleResourceRepository implements IResourceRepository {
       .from(resource)
       .where(eq(resource.provider, provider))
       .limit(MAX_HYDRATED_RESOURCE_READS + 1);
-    assertHydratedResourceReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_HYDRATED_RESOURCE_READS,
+      "Resource discovery exceeded the maximum supported resource count",
+    );
     return this.hydrate(rows);
   }
 
@@ -128,7 +141,11 @@ export class DrizzleResourceRepository implements IResourceRepository {
         ),
       )
       .limit(MAX_HYDRATED_RESOURCE_READS + 1);
-    assertHydratedResourceReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_HYDRATED_RESOURCE_READS,
+      "Resource discovery exceeded the maximum supported resource count",
+    );
     return this.hydrate(rows);
   }
 
@@ -143,7 +160,11 @@ export class DrizzleResourceRepository implements IResourceRepository {
         ),
       )
       .limit(MAX_HYDRATED_RESOURCE_READS + 1);
-    assertHydratedResourceReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_HYDRATED_RESOURCE_READS,
+      "Resource discovery exceeded the maximum supported resource count",
+    );
     return this.hydrate(rows);
   }
 
@@ -164,7 +185,11 @@ export class DrizzleResourceRepository implements IResourceRepository {
           : eq(resource.serverId, serverId),
       )
       .limit(MAX_HYDRATED_RESOURCE_READS + 1);
-    assertHydratedResourceReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_HYDRATED_RESOURCE_READS,
+      "Resource discovery exceeded the maximum supported resource count",
+    );
     return this.hydrate(rows);
   }
 
@@ -260,7 +285,11 @@ export class DrizzleResourceRepository implements IResourceRepository {
         ),
       )
       .limit(MAX_HYDRATED_RESOURCE_READS + 1);
-    assertHydratedResourceReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_HYDRATED_RESOURCE_READS,
+      "Resource discovery exceeded the maximum supported resource count",
+    );
     return rows.map((row) => row.id);
   }
 
@@ -289,7 +318,11 @@ export class DrizzleResourceRepository implements IResourceRepository {
       .select()
       .from(resource)
       .limit(MAX_HYDRATED_RESOURCE_READS + 1);
-    assertHydratedResourceReadLimit(rows.length);
+    assertReadLimit(
+      rows.length,
+      MAX_HYDRATED_RESOURCE_READS,
+      "Resource discovery exceeded the maximum supported resource count",
+    );
     return this.hydrate(rows);
   }
 
@@ -568,22 +601,6 @@ export class DrizzleResourceRepository implements IResourceRepository {
       });
     }
   }
-}
-
-function assertHydratedResourceReadLimit(rowCount: number): void {
-  if (rowCount > MAX_HYDRATED_RESOURCE_READS) {
-    throw new Error(
-      "Resource discovery exceeded the maximum supported resource count",
-    );
-  }
-}
-
-function chunk<T>(values: readonly T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push([...values.slice(index, index + size)]);
-  }
-  return chunks;
 }
 
 type ResourceConfigurationValues = {

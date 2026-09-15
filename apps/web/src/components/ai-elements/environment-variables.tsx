@@ -20,6 +20,7 @@ import {
   EyeIcon,
   EyeOffIcon,
 } from "@/components/huge-icons";
+import { copyText } from "@/lib/browser";
 
 interface EnvironmentVariablesContextType {
   showValues: boolean;
@@ -285,7 +286,7 @@ export const EnvironmentVariableCopyButton = ({
     }
 
     try {
-      await navigator.clipboard.writeText(getTextToCopy());
+      await copyText(getTextToCopy());
       setIsCopied(true);
       onCopy?.();
       timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout);
