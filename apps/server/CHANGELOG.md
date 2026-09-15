@@ -1,5 +1,11 @@
 # server
 
+## 0.13.7
+
+### Patch Changes
+
+- [#508](https://github.com/UpstandPlatform/upstand/pull/508) [`5782f31`](https://github.com/UpstandPlatform/upstand/commit/5782f31d48818c8fcb5d69bb543092cd2e1e10f0) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden control-plane authorization, runtime safeguards, and operational monitoring across the release packages.
+
 ## 0.13.6
 
 ### Patch Changes
