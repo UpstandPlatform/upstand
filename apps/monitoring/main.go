@@ -80,22 +80,27 @@ func main() {
 
 	app.Post("/config/thresholds", func(c *fiber.Ctx) error {
 		var payload struct {
-			CPU    int `json:"cpu"`
-			Memory int `json:"memory"`
+			CPU    int  `json:"cpu"`
+			Memory int  `json:"memory"`
+			Disk   *int `json:"disk"`
 		}
 		if err := c.BodyParser(&payload); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "invalid threshold payload",
 			})
 		}
-		if err := config.UpdateThresholds(payload.CPU, payload.Memory); err != nil {
+		disk := 90
+		if payload.Disk != nil {
+			disk = *payload.Disk
+		}
+		if err := config.UpdateThresholds(payload.CPU, payload.Memory, disk); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": err.Error(),
 			})
 		}
 
-		cpu, memory := config.GetThresholds()
-		return c.JSON(fiber.Map{"cpu": cpu, "memory": memory})
+		cpu, memory, disk := config.GetThresholds()
+		return c.JSON(fiber.Map{"cpu": cpu, "memory": memory, "disk": disk})
 	})
 
 	app.Get("/metrics", func(c *fiber.Ctx) error {
@@ -207,7 +212,7 @@ func main() {
 
 	log.Printf("Server starting on port %d", port)
 	if err := app.Listen(":" + strconv.Itoa(port)); err != nil {
-		log.Printf("Server listen error: %v", err)
+		log.Fatalf("Server listen error: %v", err)
 	}
 }
 

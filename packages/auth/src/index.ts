@@ -54,6 +54,10 @@ export interface AuthCallbacks {
     organization: { id: string; name: string };
     invitation: Record<string, unknown>;
   }): Promise<void>;
+  sendVerificationEmail(input: {
+    user: { id: string; email: string; name: string };
+    url: string;
+  }): Promise<void>;
   applyInvitationPermissions(input: {
     permissions: string | null | undefined;
     memberId: string;
@@ -194,7 +198,10 @@ export function isPrivateDirectIpHttpRequest(request: Request): boolean {
 }
 
 function isDirectHttpRequest(request: Request): boolean {
-  return isDirectIpHttpRequest(request);
+  // Only private/local recovery origins may receive cookies with Secure and
+  // Domain stripped. Public-IP HTTP access must fail closed instead of
+  // downgrading a session cookie for an internet-routable host.
+  return isPrivateDirectIpHttpRequest(request);
 }
 
 function getSetCookieHeaders(headers: Headers): string[] {
@@ -367,12 +374,26 @@ export function createAuth(options: {
     },
     emailAndPassword: {
       enabled: true,
-      // The dashboard's local bootstrap and normal sign-up flow expect the
-      // newly created account to receive a session immediately. Email
-      // verification remains independently configurable for deployments that
-      // require it.
-      autoSignIn: true,
+      // Self-hosted bootstrap remains frictionless, while cloud accounts must
+      // prove control of their email address before receiving a session.
+      autoSignIn: !configuration.isCloud,
+      requireEmailVerification: configuration.isCloud === true,
     },
+    emailVerification: configuration.isCloud
+      ? {
+          sendOnSignUp: true,
+          sendVerificationEmail: async ({ user, url }) => {
+            await callbacks.sendVerificationEmail({
+              user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+              },
+              url,
+            });
+          },
+        }
+      : undefined,
     user: {
       // Admin-created members still use Better Auth's normal credential
       // account and can sign in immediately with the password they were given.
@@ -423,11 +444,9 @@ export function createAuth(options: {
       // boundary. Database persistence provides recovery if Redis is rebuilt.
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,
-      // Session settings are available throughout the valid session lifetime.
-      // Better Auth's list-sessions endpoint uses the fresh-session middleware;
-      // leaving its default one-day freshness window makes the settings tab
-      // return 403 for otherwise valid seven-day cloud sessions.
-      freshAge: 0,
+      // Sensitive Better Auth operations must require a recent session. A
+      // nonzero freshness window limits the impact of a stolen old cookie.
+      freshAge: 60 * 60 * 24,
       storeSessionInDatabase: true,
     },
     advanced: {
@@ -462,6 +481,18 @@ export function createAuth(options: {
         "/two-factor/verify-backup-code": {
           window: 60,
           max: 5,
+        },
+        "/sign-up/email": {
+          window: 60,
+          max: 5,
+        },
+        "/forget-password": {
+          window: 60,
+          max: 5,
+        },
+        "/reset-password": {
+          window: 60,
+          max: 10,
         },
       },
     },

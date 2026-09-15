@@ -28,7 +28,7 @@
     "@upstand/redis": "workspace:*",
     "@upstand/repositories": "workspace:*",
     "@upstand/usecases": "workspace:*",
-    "ai": "^7.0.22",
+    "ai": "7.0.48",
     "evlog": "catalog:",
     "hono": "catalog:",
     "ssh2": "^1.17.0",

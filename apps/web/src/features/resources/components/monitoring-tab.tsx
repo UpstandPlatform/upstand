@@ -33,6 +33,7 @@ import {
   MemoryStick,
   Network,
 } from "@/components/huge-icons";
+import { formatBytes } from "@/lib/format";
 import { trpc } from "@/utils/trpc";
 
 type RangeKey = "1h" | "24h" | "7d";
@@ -89,16 +90,6 @@ const finite = (value: number | string | null | undefined) => {
   const parsed =
     typeof value === "number" ? value : Number.parseFloat(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const formatBytes = (bytes: number) => {
-  if (bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const exponent = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(bytes / 1024 ** exponent)} ${units[exponent]}`;
 };
 
 function MetricChart({

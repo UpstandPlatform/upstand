@@ -19,8 +19,9 @@ type Config struct {
 		CronJob       string `json:"cronJob"`
 		RetentionDays int    `json:"retentionDays"`
 		Thresholds    struct {
-			CPU    int `json:"cpu"`
-			Memory int `json:"memory"`
+			CPU    int  `json:"cpu"`
+			Memory int  `json:"memory"`
+			Disk   *int `json:"disk"`
 		} `json:"thresholds"`
 	} `json:"server"`
 	Containers struct {
@@ -43,6 +44,7 @@ type RuntimeConfig struct {
 	URLCallback     string
 	CPUThreshold    int
 	MemoryThreshold int
+	DiskThreshold   int
 }
 
 var (
@@ -79,6 +81,10 @@ func GetMetricsConfig() *Config {
 		if config.Server.CronJob == "" {
 			config.Server.CronJob = "0 0 * * *"
 		}
+		if config.Server.Thresholds.Disk == nil {
+			defaultDiskThreshold := 90
+			config.Server.Thresholds.Disk = &defaultDiskThreshold
+		}
 		if config.Containers.RefreshRate <= 0 {
 			config.Containers.RefreshRate = config.Server.RefreshRate
 		}
@@ -89,9 +95,9 @@ func GetMetricsConfig() *Config {
 
 // GetThresholds returns the current runtime alert thresholds. A value of zero
 // disables the corresponding alert.
-func GetThresholds() (cpu int, memory int) {
+func GetThresholds() (cpu int, memory int, disk int) {
 	runtimeConfig := GetRuntimeConfig()
-	return runtimeConfig.CPUThreshold, runtimeConfig.MemoryThreshold
+	return runtimeConfig.CPUThreshold, runtimeConfig.MemoryThreshold, runtimeConfig.DiskThreshold
 }
 
 // GetRuntimeConfig returns the alerting configuration as a value snapshot.
@@ -108,12 +114,13 @@ func GetRuntimeConfig() RuntimeConfig {
 		URLCallback:     cfg.Server.UrlCallback,
 		CPUThreshold:    cfg.Server.Thresholds.CPU,
 		MemoryThreshold: cfg.Server.Thresholds.Memory,
+		DiskThreshold:   *cfg.Server.Thresholds.Disk,
 	}
 }
 
 // UpdateThresholds changes alert thresholds without requiring an agent restart.
-func UpdateThresholds(cpu int, memory int) error {
-	if cpu < 0 || cpu > 100 || memory < 0 || memory > 100 {
+func UpdateThresholds(cpu int, memory int, disk int) error {
+	if cpu < 0 || cpu > 100 || memory < 0 || memory > 100 || disk < 0 || disk > 100 {
 		return fmt.Errorf("thresholds must be between 0 and 100")
 	}
 
@@ -123,5 +130,6 @@ func UpdateThresholds(cpu int, memory int) error {
 	cfg := GetMetricsConfig()
 	cfg.Server.Thresholds.CPU = cpu
 	cfg.Server.Thresholds.Memory = memory
+	cfg.Server.Thresholds.Disk = &disk
 	return nil
 }

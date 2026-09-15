@@ -103,6 +103,7 @@ export async function searchWeb(
   const timeout = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
   try {
     const response = await fetch(endpoint, {
+      redirect: "error",
       headers: {
         Accept: "application/json",
         "X-Subscription-Token": apiKey,

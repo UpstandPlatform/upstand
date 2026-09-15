@@ -1810,7 +1810,8 @@ func isRawContainerResourcePath(method, path string) bool {
 	return (method == http.MethodDelete && containerPath(path, "")) ||
 		(method == http.MethodGet && (containerPath(path, "") || containerActionPath(path, "json") ||
 			containerActionPath(path, "logs") || containerActionPath(path, "changes") ||
-			containerActionPath(path, "stats") || containerActionPath(path, "top"))) ||
+			containerActionPath(path, "stats") || containerActionPath(path, "top") ||
+			containerActionPath(path, "archive"))) ||
 		(method == http.MethodPost && isContainerMutationPath(path)) ||
 		(method == http.MethodPut && containerActionPath(path, "archive"))
 }

@@ -100,9 +100,20 @@ export async function getJson<T>(redis: Redis, key: string): Promise<T | null> {
 }
 
 export async function delByPattern(redis: Redis, pattern: string) {
-  const keys = await redis.keys(pattern);
-  if (keys.length === 0) return 0;
-  return redis.del(...keys);
+  let cursor = "0";
+  let deleted = 0;
+  do {
+    const [nextCursor, keys] = await redis.scan(
+      cursor,
+      "MATCH",
+      pattern,
+      "COUNT",
+      500,
+    );
+    cursor = nextCursor;
+    if (keys.length > 0) deleted += await redis.del(...keys);
+  } while (cursor !== "0");
+  return deleted;
 }
 
 export async function withRedisLock<T>(params: {

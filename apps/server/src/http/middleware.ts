@@ -60,16 +60,6 @@ export function registerHttpMiddleware(
     );
     c.header("X-Request-ID", correlationId);
   });
-
-  app.use(
-    "*",
-    secureHeaders({
-      xFrameOptions: "DENY",
-      xContentTypeOptions: "nosniff",
-      referrerPolicy: "strict-origin-when-cross-origin",
-    }),
-  );
-
   // Keep JSON, auth, terminal, and streaming transports from buffering an
   // unbounded request before their route-specific validation runs. Smaller
   // endpoints (webhooks and AI/MCP) install stricter limits in their routers.

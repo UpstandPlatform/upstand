@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { copyText } from "@/lib/browser";
 
 export interface UseCopyToClipboardOptions {
   timeout?: number;
@@ -17,14 +18,9 @@ export function useCopyToClipboard(
   const onError = options?.onError;
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not available"));
-      return;
-    }
-
     try {
       if (!isCopied) {
-        await navigator.clipboard.writeText(textToCopy);
+        await copyText(textToCopy);
         setIsCopied(true);
         onCopy?.();
         timeoutRef.current = window.setTimeout(

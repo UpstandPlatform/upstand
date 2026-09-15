@@ -53,10 +53,28 @@ export async function getOrRefreshGitProviderToken(
   provider: GitProvider,
   config: GitProviderConfig,
 ): Promise<string> {
+  const refreshed = await refreshGitProviderToken(provider, config);
+  if (refreshed.changed) {
+    await tx.gitProviderRepository.updateById(provider.id, {
+      config: JSON.stringify(refreshed.config),
+    });
+  }
+  return refreshed.accessToken;
+}
+
+export async function refreshGitProviderToken(
+  provider: GitProvider,
+  config: GitProviderConfig,
+): Promise<{
+  accessToken: string;
+  config: GitProviderConfig;
+  changed: boolean;
+}> {
   const currentTime = Math.floor(Date.now() / 1000);
   const safetyMargin = 60;
 
   let accessToken = requiredGitProviderString(config, "accessToken");
+  let changed = false;
 
   if (provider.provider === "gitlab") {
     const expiresAt = optionalNumber(config, "expiresAt");
@@ -71,10 +89,8 @@ export async function getOrRefreshGitProviderToken(
       config.refreshToken = refreshed.refreshToken;
       config.expiresAt = refreshed.expiresAt;
 
-      await tx.gitProviderRepository.updateById(provider.id, {
-        config: JSON.stringify(config),
-      });
       accessToken = refreshed.accessToken;
+      changed = true;
     }
   } else if (provider.provider === "gitea") {
     const expiresAt = optionalNumber(config, "expiresAt");
@@ -89,12 +105,10 @@ export async function getOrRefreshGitProviderToken(
       config.refreshToken = refreshed.refreshToken;
       config.expiresAt = refreshed.expiresAt;
 
-      await tx.gitProviderRepository.updateById(provider.id, {
-        config: JSON.stringify(config),
-      });
       accessToken = refreshed.accessToken;
+      changed = true;
     }
   }
 
-  return accessToken;
+  return { accessToken, config, changed };
 }

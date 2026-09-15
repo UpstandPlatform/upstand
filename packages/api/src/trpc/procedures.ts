@@ -1,10 +1,12 @@
 import { TRPCError } from "@trpc/server";
+import { withOrganizationAccessCache } from "../access-control";
 import { enforceApiKeyRoute, isApiKeyPrincipal } from "../api-key-auth";
 import { stepUp } from "../auth";
 import type { AuthenticatedContext, Context } from "../context";
 import {
   type AuditOutcome,
   recordAuditEvent,
+  resolveAuditAction,
   resolveAuditOrganizationId,
 } from "./audit";
 import { t } from "./core";
@@ -64,28 +66,44 @@ export const protectedProcedure = t.procedure
   .use(async ({ ctx, path, getRawInput, next }) => {
     if (path === "auditLog.list") return next();
 
-    let input: unknown;
-    try {
-      input = await getRawInput();
-      if (isApiKeyPrincipal(ctx.actor)) {
-        await enforceApiKeyRoute(path, ctx.actor, input);
-      }
+    return withOrganizationAccessCache(async () => {
+      let input: unknown;
+      const operation = path.split(".").at(-1) ?? "read";
+      const isRead = resolveAuditAction(operation) === "read";
+      try {
+        input = await getRawInput();
+        if (isApiKeyPrincipal(ctx.actor)) {
+          await enforceApiKeyRoute(path, ctx.actor, input);
+        }
 
-      const result = await next();
-      await safeRecordAudit(ctx, path, input, {
-        success: result.ok,
-        ...(!result.ok && result.error.code
-          ? { errorCode: result.error.code }
-          : {}),
-      });
-      return result;
-    } catch (error) {
-      await safeRecordAudit(ctx, path, input, {
-        success: false,
-        ...(error instanceof TRPCError ? { errorCode: error.code } : {}),
-      });
-      throw error;
-    }
+        const result = await next();
+        const audit = safeRecordAudit(ctx, path, input, {
+          success: result.ok,
+          ...(!result.ok && result.error.code
+            ? { errorCode: result.error.code }
+            : {}),
+        });
+        if (isRead) {
+          void audit.catch((error) =>
+            ctx.log.error(error instanceof Error ? error : String(error), {
+              message: "Deferred read audit failed",
+              route: path,
+            }),
+          );
+        } else {
+          await audit;
+        }
+        return result;
+      } catch (error) {
+        const audit = safeRecordAudit(ctx, path, input, {
+          success: false,
+          ...(error instanceof TRPCError ? { errorCode: error.code } : {}),
+        });
+        if (isRead) void audit.catch(() => undefined);
+        else await audit;
+        throw error;
+      }
+    });
   });
 
 /** Procedures that require an additional step-up authentication check. */
@@ -101,7 +119,7 @@ export const twoFactorVerifiedProcedure = protectedProcedure.use(
     if (!(await stepUp.isStepUpAuthenticationSatisfied(ctx.session))) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "2FA verification required",
+        message: "2FA enrollment and verification required",
         cause: "2FA_PENDING",
       });
     }

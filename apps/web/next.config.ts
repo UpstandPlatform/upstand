@@ -57,17 +57,11 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
-    const isDev = env.NODE_ENV !== "production";
-    const scriptSrc = isDev
-      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-      : "script-src 'self' 'unsafe-inline'";
     // Self-hosted instances may be reached through an HTTP IP:port recovery
     // URL when their configured domain is unavailable. The browser must be
     // able to reach the sibling API and websocket ports in that mode; CORS,
     // authentication, and server-side origin checks remain the enforcement
     // boundaries for those requests.
-    const connectSrc = "connect-src 'self' http: https: ws: wss:";
-
     return [
       {
         source: "/:path*",
@@ -88,10 +82,15 @@ const nextConfig: NextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",
           },
-          {
-            key: "Content-Security-Policy",
-            value: `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://github.com; ${connectSrc}; img-src 'self' data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; ${scriptSrc}`,
-          },
+          ...(env.NODE_ENV === "production" &&
+          env.NEXT_PUBLIC_SERVER_URL.startsWith("https://")
+            ? [
+                {
+                  key: "Strict-Transport-Security",
+                  value: "max-age=31536000; includeSubDomains",
+                },
+              ]
+            : []),
         ],
       },
     ];

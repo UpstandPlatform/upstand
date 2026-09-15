@@ -163,6 +163,31 @@ registerProviderRoutes(app);
 
 registerApiTransports(app);
 
+const metricsToken = (() => {
+  const tokenFile = env.UPSTAND_METRICS_TOKEN_FILE?.trim();
+  if (!tokenFile) return undefined;
+  try {
+    const token = fs.readFileSync(tokenFile, "utf8").trim();
+    if (!token) {
+      log.error({
+        message:
+          "Metrics token file is empty; metrics endpoint will remain disabled",
+        path: tokenFile,
+      });
+      return undefined;
+    }
+    return token;
+  } catch (error) {
+    log.error({
+      message:
+        "Metrics token file could not be read; metrics endpoint will remain disabled",
+      path: tokenFile,
+      err: error,
+    });
+    return undefined;
+  }
+})();
+
 registerSystemRoutes(app, {
   isShuttingDown: () => shuttingDown,
   isCaddyReady: () => caddyReady,
@@ -189,9 +214,7 @@ registerSystemRoutes(app, {
     monitoringReady &&
     (env.NODE_ENV !== "production" || (await probeLocalMonitoringHealth())),
   monitoringRequired: env.NODE_ENV === "production",
-  metricsToken: env.UPSTAND_METRICS_TOKEN_FILE
-    ? fs.readFileSync(env.UPSTAND_METRICS_TOKEN_FILE, "utf8").trim()
-    : undefined,
+  metricsToken,
 });
 
 // Initialize Caddy Web Server on Startup
@@ -278,7 +301,7 @@ if (completedUpdateVersion) {
   }, 15_000).unref?.();
 }
 
-async function shutdown(signal: string): Promise<void> {
+async function shutdown(signal: string, exitCode = 0): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info({ message: "Graceful shutdown started", signal });
@@ -294,11 +317,19 @@ async function shutdown(signal: string): Promise<void> {
   await closeDb();
   log.info({ message: "Graceful shutdown completed", signal });
   await drain.flush();
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("unhandledRejection", (reason) => {
+  log.error({ message: "Unhandled promise rejection; shutting down", reason });
+  void shutdown("unhandledRejection", 1);
+});
+process.once("uncaughtException", (error) => {
+  log.error({ message: "Uncaught exception; shutting down", err: error });
+  void shutdown("uncaughtException", 1);
+});
 
 export default {
   // Bind on all interfaces so the same process works for host development,

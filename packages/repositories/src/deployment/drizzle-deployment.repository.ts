@@ -9,6 +9,7 @@ import type {
 import { DeploymentPlanSchema } from "@upstand/domain";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { BaseRepository } from "../shared/base.repository";
+import { chunk } from "../shared/collection";
 import type { Executor } from "../shared/types";
 
 const MAX_IN_CLAUSE_ITEMS = 1_000;
@@ -250,12 +251,4 @@ export class DrizzleDeploymentRepository
       .returning();
     return updated ? (updated as Deployment) : null;
   }
-}
-
-function chunk<T>(values: readonly T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push([...values.slice(index, index + size)]);
-  }
-  return chunks;
 }

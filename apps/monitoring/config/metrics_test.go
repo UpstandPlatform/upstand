@@ -10,12 +10,12 @@ func TestRuntimeConfigIsValueSnapshot(t *testing.T) {
 		t.Fatalf("unexpected initial thresholds: %+v", initial)
 	}
 
-	if err := UpdateThresholds(1, 2); err != nil {
+	if err := UpdateThresholds(1, 2, 3); err != nil {
 		t.Fatalf("update thresholds: %v", err)
 	}
 
 	updated := GetRuntimeConfig()
-	if updated.CPUThreshold != 1 || updated.MemoryThreshold != 2 {
+	if updated.CPUThreshold != 1 || updated.MemoryThreshold != 2 || updated.DiskThreshold != 3 {
 		t.Fatalf("unexpected updated thresholds: %+v", updated)
 	}
 	if initial.CPUThreshold != 90 || initial.MemoryThreshold != 80 {

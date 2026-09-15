@@ -52,6 +52,7 @@ import {
   Trash2,
 } from "@/components/huge-icons";
 import { CodeBlock } from "@/components/shared/code-block";
+import { copyText } from "@/lib/browser";
 import { getDocsUrl } from "@/lib/server-url";
 import { trpc } from "@/utils/trpc";
 import type { ResourceDetailState } from "../hooks/use-resource-detail";
@@ -305,7 +306,9 @@ export function CronJobsTab({ resource }: CronJobsTabProps) {
   });
 
   const _copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
+    void copyText(text).catch(() => {
+      toast.error("Failed to copy to clipboard");
+    });
     setCopiedKey(key);
     toast.success("Copied to clipboard");
     setTimeout(() => setCopiedKey(null), 2000);
