@@ -10,7 +10,13 @@ import { authUiClient } from "@/lib/auth-client";
 import { queryClient } from "@/utils/trpc";
 import { ThemeProvider } from "./theme-provider";
 
-export default function Providers({ children }: { children: React.ReactNode }) {
+export default function Providers({
+  children,
+  nonce,
+}: {
+  children: React.ReactNode;
+  nonce?: string;
+}) {
   const router = useRouter();
 
   return (
@@ -19,6 +25,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       defaultTheme="system"
       enableSystem
       disableTransitionOnChange
+      nonce={nonce}
     >
       <QueryClientProvider client={queryClient}>
         <AuthProvider

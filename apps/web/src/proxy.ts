@@ -1,8 +1,5 @@
-import { evlogMiddleware } from "evlog/next";
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getServerUrlFromHeaders } from "@/lib/server-url";
-
-const logProxy = evlogMiddleware();
 
 function createCspNonce(): string {
   const bytes = new Uint8Array(16);
@@ -90,16 +87,18 @@ export async function proxy(request: NextRequest) {
   const nonce = createCspNonce();
   const csp = contentSecurityPolicy(nonce);
   const requestHeaders = new Headers(request.headers);
+  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
-  const loggedResponse = await logProxy(
-    new NextRequest(request, { headers: requestHeaders }),
-  );
-  loggedResponse.headers.set("Content-Security-Policy", csp);
-  if (!isDashboardPath(request.nextUrl.pathname)) return loggedResponse;
+  requestHeaders.set("x-request-id", requestId);
+  requestHeaders.set("x-evlog-start", String(Date.now()));
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("x-request-id", requestId);
+  response.headers.set("Content-Security-Policy", csp);
+  if (!isDashboardPath(request.nextUrl.pathname)) return response;
 
   const sessionState = await dashboardSessionState(request);
-  if (sessionState !== "anonymous") return loggedResponse;
+  if (sessionState !== "anonymous") return response;
 
   const loginUrl = new URL("/login", request.url);
   loginUrl.searchParams.set(
