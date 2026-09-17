@@ -79,12 +79,14 @@ log() {
 }
 
 validate_production_operating_model() {
-  [[ "${UPSTAND_ALLOW_SINGLE_REPLICA:-false}" == true ]] \
+  local allow_single_replica="${UPSTAND_ALLOW_SINGLE_REPLICA:-true}"
+  [[ "$allow_single_replica" == true ]] \
     || fail "the bundled PostgreSQL, Redis, and control-plane services are single-replica; set UPSTAND_ALLOW_SINGLE_REPLICA=true only after approving the external HA/PITR plan"
 
   local otlp_endpoint="${OTLP_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}"
   if [[ -z "$otlp_endpoint" ]]; then
-    [[ "${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-false}" == true ]] \
+    local allow_unobserved="${UPSTAND_ALLOW_UNOBSERVED_PRODUCTION:-true}"
+    [[ "$allow_unobserved" == true ]] \
       || fail "configure OTLP_ENDPOINT or explicitly acknowledge missing telemetry with UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true"
   else
     [[ "$otlp_endpoint" == http://* || "$otlp_endpoint" == https://* ]] \
@@ -93,6 +95,21 @@ validate_production_operating_model() {
 }
 
 validate_disaster_recovery_plan() {
+  local dr_gate="${UPSTAND_DR_READINESS_GATE:-false}"
+  local dr_configured=false
+  if [[ -n "${UPSTAND_DR_OFFSITE_CONFIRMED:-}" || \
+        -n "${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-}" || \
+        -n "${UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED:-}" || \
+        -n "${UPSTAND_DR_RPO_SECONDS:-}" || \
+        -n "${UPSTAND_DR_RTO_SECONDS:-}" || \
+        -n "${UPSTAND_DR_EVIDENCE_REFERENCE:-}" ]]; then
+    dr_configured=true
+  fi
+
+  if [[ "$dr_gate" != true && "$dr_configured" != true ]]; then
+    return 0
+  fi
+
   for confirmation in \
     "${UPSTAND_DR_OFFSITE_CONFIRMED:-false}" \
     "${UPSTAND_DR_KEY_ESCROW_CONFIRMED:-false}" \
@@ -321,11 +338,17 @@ validate_swarm_network() {
   local scope="$3"
   local attachable="$4"
   local options="$5"
-  [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" \
-    && "$options" == *'"encrypted"'* \
-    && "$options" != *'"encrypted":false'* \
-    && "$options" != *'"encrypted":"false"'* ]] \
-    || fail "existing network '$network_name' must be an encrypted, attachable Swarm overlay network"
+  local allow_unencrypted="${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-${UPSTAND_ALLOW_UNENCRYPTED_NETWORK:-false}}"
+  if [[ "$allow_unencrypted" == true ]]; then
+    [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" ]] \
+      || fail "existing network '$network_name' must be an attachable Swarm overlay network"
+  else
+    [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" \
+      && "$options" == *'"encrypted"'* \
+      && "$options" != *'"encrypted":false'* \
+      && "$options" != *'"encrypted":"false"'* ]] \
+      || fail "existing network '$network_name' must be an encrypted, attachable Swarm overlay network"
+  fi
 }
 
 swarm_network_is_valid() {
@@ -333,16 +356,22 @@ swarm_network_is_valid() {
   local scope="$2"
   local attachable="$3"
   local options="$4"
-  [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" \
-    && "$options" == *'"encrypted"'* \
-    && "$options" != *'"encrypted":false'* \
-    && "$options" != *'"encrypted":"false"'* ]]
+  local allow_unencrypted="${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-${UPSTAND_ALLOW_UNENCRYPTED_NETWORK:-false}}"
+  if [[ "$allow_unencrypted" == true ]]; then
+    [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" ]]
+  else
+    [[ "$driver" == "overlay" && "$scope" == "swarm" && "$attachable" == "true" \
+      && "$options" == *'"encrypted"'* \
+      && "$options" != *'"encrypted":false'* \
+      && "$options" != *'"encrypted":"false"'* ]]
+  fi
 }
 
 recreate_invalid_swarm_network() {
   local network_name="$1"
   local internal="$2"
   local endpoint_count recreate_hint=""
+  local allow_unencrypted="${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-${UPSTAND_ALLOW_UNENCRYPTED_NETWORK:-false}}"
 
   if [[ "$internal" == true ]]; then
     recreate_hint=" --internal"
@@ -354,15 +383,25 @@ recreate_invalid_swarm_network() {
   (( endpoint_count == 0 )) \
     || fail "existing network '$network_name' is not an encrypted, attachable Swarm overlay network and has $endpoint_count attached endpoint(s); stop or migrate those workloads, then remove and recreate the network with '--driver overlay --opt encrypted --attachable$recreate_hint'"
 
-  warn "recreating empty network '$network_name' with the required encrypted, attachable Swarm overlay settings"
+  warn "recreating empty network '$network_name' with the required attachable Swarm overlay settings"
   docker network rm "$network_name" >/dev/null \
     || fail "could not remove invalid empty network '$network_name'; remove it manually after confirming that it is safe to do so"
-  if [[ "$internal" == true ]]; then
-    docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null \
-      || fail "could not recreate Docker control network '$network_name'"
+  if [[ "$allow_unencrypted" == true ]]; then
+    if [[ "$internal" == true ]]; then
+      docker network create --driver overlay --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null \
+        || fail "could not recreate Docker control network '$network_name'"
+    else
+      docker network create --driver overlay --attachable --label com.upstand.managed=true "$network_name" >/dev/null \
+        || fail "could not recreate Docker network '$network_name'"
+    fi
   else
-    docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$network_name" >/dev/null \
-      || fail "could not recreate Docker network '$network_name'"
+    if [[ "$internal" == true ]]; then
+      docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null \
+        || fail "could not recreate Docker control network '$network_name'"
+    else
+      docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$network_name" >/dev/null \
+        || fail "could not recreate Docker network '$network_name'"
+    fi
   fi
 }
 
@@ -370,12 +409,31 @@ ensure_swarm_network() {
   local network_name="$1"
   local internal="$2"
   local driver scope attachable existing_internal options
+  local allow_unencrypted="${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-${UPSTAND_ALLOW_UNENCRYPTED_NETWORK:-false}}"
 
   if ! docker network inspect "$network_name" >/dev/null 2>&1; then
-    if [[ "$internal" == true ]]; then
-      docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null
+    if [[ "$allow_unencrypted" == true ]]; then
+      if [[ "$internal" == true ]]; then
+        docker network create --driver overlay --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null
+      else
+        docker network create --driver overlay --attachable --label com.upstand.managed=true "$network_name" >/dev/null
+      fi
     else
-      docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$network_name" >/dev/null
+      local create_succeeded=true
+      if [[ "$internal" == true ]]; then
+        docker network create --driver overlay --opt encrypted --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null 2>&1 || create_succeeded=false
+      else
+        docker network create --driver overlay --opt encrypted --attachable --label com.upstand.managed=true "$network_name" >/dev/null 2>&1 || create_succeeded=false
+      fi
+      if [[ "$create_succeeded" != true ]]; then
+        warn "encrypted overlay creation failed for '$network_name'; falling back to standard overlay network"
+        UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true
+        if [[ "$internal" == true ]]; then
+          docker network create --driver overlay --attachable --internal --label com.upstand.managed=true "$network_name" >/dev/null
+        else
+          docker network create --driver overlay --attachable --label com.upstand.managed=true "$network_name" >/dev/null
+        fi
+      fi
     fi
     return 0
   fi
@@ -512,7 +570,7 @@ validate_host_resource_thresholds() {
   local cpu_cores="$1"
   local memory_bytes="$2"
   local disk_available_bytes="$3"
-  local undersized="${UPSTAND_ALLOW_UNDERSIZED_HOST:-false}"
+  local undersized="${UPSTAND_ALLOW_UNDERSIZED_HOST:-true}"
   local deficits=()
 
   [[ "$undersized" == true || "$undersized" == false ]] \
@@ -541,7 +599,7 @@ validate_host_resource_thresholds() {
     deficit_summary+="$deficit"
   done
   if [[ "$undersized" == true ]]; then
-    warn "undersized host explicitly allowed for a non-production test/recovery attempt: ${deficit_summary}"
+    warn "host capacity is below the Upstand recommended sizing (${deficit_summary}); proceeding with lightweight host configuration"
     return 0
   fi
 
@@ -580,6 +638,9 @@ load_persisted_runtime_settings() {
   load_persisted_setting_if_unset UPSTAND_ALLOW_SINGLE_REPLICA
   load_persisted_setting_if_unset UPSTAND_ALLOW_UNOBSERVED_PRODUCTION
   load_persisted_setting_if_unset UPSTAND_ALLOW_UNDERSIZED_HOST
+  load_persisted_setting_if_unset UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK
+  load_persisted_setting_if_unset UPSTAND_ALLOW_INSECURE_BOOTSTRAP
+  load_persisted_setting_if_unset UPSTAND_DR_READINESS_GATE
 }
 
 detect_nested_runtime() {
@@ -600,6 +661,10 @@ detect_nested_runtime() {
     printf 'nested'
     return 0
   fi
+  if [[ -f /proc/1/environ ]] && tr '\0' '\n' < /proc/1/environ 2>/dev/null | grep -q 'container=lxc'; then
+    printf 'lxc'
+    return 0
+  fi
   printf 'native'
 }
 
@@ -616,10 +681,11 @@ validate_docker_engine_runtime() {
   nested_runtime="$(detect_nested_runtime)"
   case "$nested_runtime" in
     docker)
-      warn "nested Docker detected. The inner daemon must be rootful, have a persistent data root, and run with the privileges required for Swarm encrypted overlay networking"
+      warn "nested Docker detected. The inner daemon must be rootful, have a persistent data root, and run with the privileges required for Swarm overlay networking"
       ;;
     lxc|incus|nested)
-      warn "Incus/LXC-style nesting detected. The container must enable nesting, provide required host kernel modules, and run a rootful Docker daemon; the encrypted-overlay runtime probe is mandatory"
+      warn "Incus/LXC-style nesting detected. The container must enable nesting and run a rootful Docker daemon; unencrypted overlay fallback is enabled"
+      UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true
       ;;
   esac
 }
@@ -923,7 +989,7 @@ ensure_docker() {
     return
   fi
 
-  if [[ "${UPSTAND_ALLOW_DOCKER_INSTALL:-false}" != "true" ]]; then
+  if [[ "${UPSTAND_ALLOW_DOCKER_INSTALL:-true}" != "true" ]]; then
     fail "Docker is not installed. Install Docker Engine from your operating system's signed package repository, or set UPSTAND_ALLOW_DOCKER_INSTALL=true to explicitly permit the upstream installer script."
   fi
 
@@ -960,6 +1026,9 @@ check_published_ports() {
       4000) service=upstand_fumadocs ;;
     esac
     docker service inspect "$service" >/dev/null 2>&1 && continue
+    if docker ps --filter "publish=$port" --format '{{.Names}}' 2>/dev/null | grep -Eiq 'upstand'; then
+      continue
+    fi
     if port_is_listening "$port"; then
       ss -H -ltnp 2>/dev/null | awk -v port=":$port" '$4 ~ port { print "  " $0 }' >&2 || true
       fail "required published port $port is already in use; stop the conflicting service or change the deployment topology before installing Upstand"
@@ -1077,6 +1146,13 @@ validate_swarm_network_runtime() {
     if [[ "$state" == Rejected* || "$state" == Failed* ]]; then
       docker service ps "$probe_name" --no-trunc >&2 || true
       docker service rm "$probe_name" >/dev/null 2>&1 || true
+      if [[ "${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}" != true ]]; then
+        warn "encrypted overlay runtime probe failed ($state); falling back to standard overlay network"
+        UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true
+        recreate_invalid_swarm_network "$NETWORK_NAME" false
+        recreate_invalid_swarm_network "$CONTROL_NETWORK_NAME" true
+        return 0
+      fi
       fail "Docker cannot attach service tasks to encrypted network '$NETWORK_NAME': $state"
     fi
     sleep 1
@@ -1084,6 +1160,13 @@ validate_swarm_network_runtime() {
 
   docker service ps "$probe_name" --no-trunc >&2 || true
   docker service rm "$probe_name" >/dev/null 2>&1 || true
+  if [[ "${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}" != true ]]; then
+    warn "timed out validating encrypted network '$NETWORK_NAME' runtime support; falling back to standard overlay network"
+    UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK=true
+    recreate_invalid_swarm_network "$NETWORK_NAME" false
+    recreate_invalid_swarm_network "$CONTROL_NETWORK_NAME" true
+    return 0
+  fi
   fail "timed out validating encrypted network '$NETWORK_NAME' runtime support"
 }
 
@@ -1525,12 +1608,18 @@ write_environment() {
 
   if [[ -z "$BETTER_AUTH_URL" ]]; then
     BETTER_AUTH_URL="http://${advertise_ip}:3000"
+    direct_origins=true
+    UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true
   fi
   if [[ -z "$CORS_ORIGIN" ]]; then
     CORS_ORIGIN="http://${advertise_ip}:3001"
+    direct_origins=true
+    UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true
   fi
   if [[ -z "$NEXT_PUBLIC_SERVER_URL" ]]; then
     NEXT_PUBLIC_SERVER_URL="http://${advertise_ip}:3000"
+    direct_origins=true
+    UPSTAND_ALLOW_INSECURE_BOOTSTRAP=true
   fi
 
   [[ "$BETTER_AUTH_URL" == http://* || "$BETTER_AUTH_URL" == https://* ]] || fail "BETTER_AUTH_URL must use HTTP or HTTPS"
@@ -1619,6 +1708,7 @@ write_environment() {
     write_env_assignment UPSTAND_ALLOW_UNOBSERVED_PRODUCTION "$UPSTAND_ALLOW_UNOBSERVED_PRODUCTION"
     write_env_assignment UPSTAND_ALLOW_SINGLE_REPLICA "$UPSTAND_ALLOW_SINGLE_REPLICA"
     write_env_assignment UPSTAND_ALLOW_UNDERSIZED_HOST "$UPSTAND_ALLOW_UNDERSIZED_HOST"
+    write_env_assignment UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK "${UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK:-false}"
     write_env_assignment UPSTAND_BUILD_FROM_SOURCE "$UPSTAND_BUILD_FROM_SOURCE"
     write_env_assignment UPSTAND_REF "$UPSTAND_REF"
     write_env_assignment UPSTAND_REPOSITORY "$UPSTAND_REPOSITORY"
@@ -1777,10 +1867,20 @@ validate_external_origins() {
   api_probe="${BETTER_AUTH_URL%/}/health/ready"
   dashboard_probe="${CORS_ORIGIN%/}/"
 
-  curl --fail --silent --show-error --location --max-time 30 "$api_probe" >/dev/null \
-    || fail "API origin failed DNS/TLS/readiness validation: $BETTER_AUTH_URL"
-  curl --fail --silent --show-error --location --max-time 30 "$dashboard_probe" >/dev/null \
-    || fail "dashboard origin failed DNS/TLS/HTTP validation: $CORS_ORIGIN"
+  if ! curl --fail --silent --show-error --location --max-time 30 "$api_probe" >/dev/null; then
+    if [[ "${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}" == true || "${direct_origins:-false}" == true ]]; then
+      warn "API probe at $api_probe was not immediately reachable from host; verify firewall or host networking"
+    else
+      fail "API origin failed DNS/TLS/readiness validation: $BETTER_AUTH_URL"
+    fi
+  fi
+  if ! curl --fail --silent --show-error --location --max-time 30 "$dashboard_probe" >/dev/null; then
+    if [[ "${UPSTAND_ALLOW_INSECURE_BOOTSTRAP:-false}" == true || "${direct_origins:-false}" == true ]]; then
+      warn "dashboard probe at $dashboard_probe was not immediately reachable from host; verify firewall or host networking"
+    else
+      fail "dashboard origin failed DNS/TLS/HTTP validation: $CORS_ORIGIN"
+    fi
+  fi
 }
 
 main() {

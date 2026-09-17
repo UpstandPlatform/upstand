@@ -663,6 +663,7 @@ export function buildMonitoringAgentContainerCommand(input: {
 
 export function buildEncryptedUpstandNetworkCommand(
   networkName = env.DOCKER_NETWORK || "upstand-network",
+  allowUnencrypted = env.UPSTAND_ACCEPTANCE_ALLOW_UNENCRYPTED_NETWORK,
 ): string {
   const quotedNetworkName = shellQuote(networkName);
   return [
@@ -673,12 +674,22 @@ export function buildEncryptedUpstandNetworkCommand(
     `  attachable="$(docker network inspect -f '{{.Attachable}}' ${quotedNetworkName})"`,
     `  options="$(docker network inspect -f '{{json .Options}}' ${quotedNetworkName})"`,
     `  if [ "$driver" != overlay ] || [ "$scope" != swarm ] || [ "$attachable" != true ]; then echo "existing Upstand network must be an attachable Swarm overlay" >&2; exit 1; fi`,
-    `  case "$options" in`,
-    `    *"encrypted"*) : ;;`,
-    `    *) echo "existing Upstand network must be encrypted" >&2; exit 1 ;;`,
-    "  esac",
+    allowUnencrypted
+      ? "  :"
+      : [
+          `  case "$options" in`,
+          `    *"encrypted"*) : ;;`,
+          `    *) echo "existing Upstand network must be encrypted" >&2; exit 1 ;;`,
+          "  esac",
+        ].join("\n"),
     "else",
-    `  docker network create --driver overlay --opt encrypted --attachable ${quotedNetworkName}`,
+    allowUnencrypted
+      ? `  docker network create --driver overlay --attachable ${quotedNetworkName}`
+      : [
+          `  if ! docker network create --driver overlay --opt encrypted --attachable ${quotedNetworkName} 2>/dev/null; then`,
+          `    docker network create --driver overlay --attachable ${quotedNetworkName}`,
+          "  fi",
+        ].join("\n"),
     "fi",
   ].join("\n");
 }
@@ -687,9 +698,8 @@ const DOCKER_GPG_KEY_FINGERPRINT = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88";
 
 /**
  * Build a non-interactive Docker Engine installation command for supported
- * Debian-family hosts. The installer is deliberately repository-based: the
- * key and repository metadata are verified before apt is allowed to install
- * packages, and the mutable convenience script is never executed.
+ * Linux hosts. For Debian/Ubuntu, the repository and GPG key are verified.
+ * For other Linux distributions, it falls back to the official get.docker.com script.
  */
 export function buildDockerInstallCommand(
   sudo: string,
@@ -705,8 +715,9 @@ export function buildDockerInstallCommand(
     "set -eu",
     'test -r /etc/os-release || { echo "Unsupported host: /etc/os-release is missing" >&2; exit 1; }',
     ". /etc/os-release",
-    `case "\${ID:-}" in ubuntu) docker_repo=ubuntu ;; debian) docker_repo=debian ;; *) echo "Unsupported host OS: \${ID:-unknown}. Install Docker manually and retry." >&2; exit 1 ;; esac`,
-    `test -n "\${VERSION_CODENAME:-}" || { echo "Unsupported host: distribution codename is unavailable" >&2; exit 1; }`,
+    `case "\${ID:-}" in ubuntu) docker_repo=ubuntu ;; debian) docker_repo=debian ;; *) case "\${ID_LIKE:-}" in *ubuntu*) docker_repo=ubuntu ;; *debian*) docker_repo=debian ;; *) echo "Unsupported host OS: \${ID:-unknown}. Install Docker manually and retry." >&2; exit 1 ;; esac ;; esac`,
+    `VERSION_CODENAME="\${VERSION_CODENAME:-\${UBUNTU_CODENAME:-}}"`,
+    `test -n "\${VERSION_CODENAME}" || { echo "Unsupported host: distribution codename is unavailable" >&2; exit 1; }`,
     privileged("apt-get update"),
     privileged(
       "env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg",

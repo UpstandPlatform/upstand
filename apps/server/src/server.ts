@@ -122,8 +122,9 @@ const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
 
 const app = new Hono<AppEnv>();
 let shuttingDown = false;
-let caddyReady = false;
-let monitoringReady = env.NODE_ENV !== "production";
+let caddyReady = env.UPSTAND_PLATFORM === "desktop";
+let monitoringReady =
+  env.NODE_ENV !== "production" || env.UPSTAND_PLATFORM === "desktop";
 let httpServer: Bun.Server<unknown> | null = null;
 
 app.use(
@@ -211,70 +212,75 @@ registerSystemRoutes(app, {
     }
   },
   isMonitoringReady: async () =>
-    monitoringReady &&
-    (env.NODE_ENV !== "production" || (await probeLocalMonitoringHealth())),
-  monitoringRequired: env.NODE_ENV === "production",
+    env.UPSTAND_PLATFORM === "desktop"
+      ? true
+      : monitoringReady &&
+        (env.NODE_ENV !== "production" || (await probeLocalMonitoringHealth())),
+  monitoringRequired:
+    env.NODE_ENV === "production" && env.UPSTAND_PLATFORM !== "desktop",
   metricsToken,
 });
 
-// Initialize Caddy Web Server on Startup
-retryStartupOperation(
-  async () => {
-    const caddyInitScope = getServiceProvider().createScope();
-    try {
-      await caddyInitScope
-        .resolve(GetWebServerSettingsUseCaseToken)
-        .execute({ reconcile: true });
-    } finally {
-      await caddyInitScope.dispose();
-    }
-  },
-  {
+if (env.UPSTAND_PLATFORM !== "desktop") {
+  // Initialize Caddy Web Server on Startup
+  retryStartupOperation(
+    async () => {
+      const caddyInitScope = getServiceProvider().createScope();
+      try {
+        await caddyInitScope
+          .resolve(GetWebServerSettingsUseCaseToken)
+          .execute({ reconcile: true });
+      } finally {
+        await caddyInitScope.dispose();
+      }
+    },
+    {
+      attempts: Number.POSITIVE_INFINITY,
+      onRetry: ({ attempt, delayMs, error }) => {
+        log.warn({
+          message: "Startup dependency unavailable; retrying initialization",
+          component: "caddy",
+          attempt,
+          delayMs,
+          err: error,
+        });
+      },
+    },
+  )
+    .then(() => {
+      caddyReady = true;
+      log.info({ message: "Caddy Web Server initialized successfully. ✅" });
+    })
+    .catch((err) =>
+      log.error(
+        err instanceof Error ? err.message : String(err),
+        "Failed to initialize Caddy Web Server",
+      ),
+    );
+
+  retryStartupOperation(() => initializeMonitoring(), {
     attempts: Number.POSITIVE_INFINITY,
     onRetry: ({ attempt, delayMs, error }) => {
       log.warn({
         message: "Startup dependency unavailable; retrying initialization",
-        component: "caddy",
+        component: "monitoring",
         attempt,
         delayMs,
         err: error,
       });
     },
-  },
-)
-  .then(() => {
-    caddyReady = true;
-    log.info({ message: "Caddy Web Server initialized successfully. ✅" });
   })
-  .catch((err) =>
-    log.error(
-      err instanceof Error ? err.message : String(err),
-      "Failed to initialize Caddy Web Server",
-    ),
-  );
-
-retryStartupOperation(() => initializeMonitoring(), {
-  attempts: Number.POSITIVE_INFINITY,
-  onRetry: ({ attempt, delayMs, error }) => {
-    log.warn({
-      message: "Startup dependency unavailable; retrying initialization",
-      component: "monitoring",
-      attempt,
-      delayMs,
-      err: error,
+    .then(() => {
+      monitoringReady = true;
+    })
+    .catch((err) => {
+      monitoringReady = false;
+      log.error({
+        message: "Monitoring initialization error; readiness will fail closed",
+        err: err instanceof Error ? err.message : String(err),
+      });
     });
-  },
-})
-  .then(() => {
-    monitoringReady = true;
-  })
-  .catch((err) => {
-    monitoringReady = false;
-    log.error({
-      message: "Monitoring initialization error; readiness will fail closed",
-      err: err instanceof Error ? err.message : String(err),
-    });
-  });
+}
 
 log.info({ message: "Upstand Control Plane API Server started 🚀" });
 
