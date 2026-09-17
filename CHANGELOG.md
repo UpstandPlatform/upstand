@@ -4,6 +4,14 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.9 - 2026-09-17
+
+Fix step-up 2FA verification loops and standalone desktop runtime:
+- Restore step-up authentication compatibility for non-2FA accounts across procedures and services.
+- Only query session 2FA verification and trigger 2FA redirects when the user has two-factor authentication enabled, eliminating recursive toast errors and infinite dashboard redirects.
+- Provide self-contained in-memory fallback storage for Better Auth secondary storage and step-up auth when running in standalone desktop runtime without Redis.
+
+
 ## 0.13.8 - 2026-09-17
 
 Streamline installation topology, Proxmox LXC/container support, and standalone desktop runtime:
