@@ -114,15 +114,20 @@ Cloud mode uses the same immutable control-plane images but blocks local
 workload targets. Add remote Docker servers over SSH after the control plane
 is ready.
 
-## Production acknowledgements
+## Production acknowledgements and defaults
 
-The secure installer deliberately does not silently accept an undersized or
-unobserved production setup. Non-interactive installs must provide the
-following values (interactive installs ask for them):
+The installer provides streamlined defaults to get started quickly on standard VPSs,
+Proxmox LXC containers, and cloud instances without unnecessary roadblocks:
+
+- **Single-replica & telemetry**: Defaults to single-replica and local operation. Setting `OTLP_ENDPOINT` automatically enables external telemetry.
+- **Resource thresholds**: Warns when below recommended sizing (2 vCPUs, 4 GiB RAM, 30 GiB disk) and automatically optimizes for lightweight hosts, only failing if physical minimums are unsatisfied.
+- **LXC and container environments**: Automatically detects container virtualization (Proxmox LXC, Incus) and provides seamless overlay network fallback.
+- **Direct IP bootstrap**: Automatically configures accessible HTTP direct IP access (`http://<ip>:3000` / `http://<ip>:3001`) if custom domains/HTTPS are not provided upfront.
+
+For strict enterprise deployments requiring formal DR attestations and compliance gates, enable `UPSTAND_DR_READINESS_GATE=true`:
 
 ```bash
-export UPSTAND_ALLOW_SINGLE_REPLICA=true
-export UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true
+export UPSTAND_DR_READINESS_GATE=true
 export UPSTAND_DR_OFFSITE_CONFIRMED=true
 export UPSTAND_DR_KEY_ESCROW_CONFIRMED=true
 export UPSTAND_DR_IMMUTABLE_RETENTION_CONFIRMED=true
@@ -133,13 +138,19 @@ export UPSTAND_DR_EVIDENCE_REFERENCE=change-or-runbook-id
 
 For real high availability, configure both `DATABASE_URL` and `REDIS_URL`
 using an independently operated PostgreSQL/Redis service and follow the
-[database upgrade runbook](/docs/operations/database-upgrades). The bundled
-PostgreSQL and Redis services are single-replica convenience services, not an
-HA data plane. `UPSTAND_ALLOW_UNDERSIZED_HOST=true` is only a test/recovery
-override and does not make an undersized host production-ready.
+[database upgrade runbook](/docs/operations/database-upgrades).
 
-To use telemetry instead of the explicit observability acknowledgement, set
-`OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` to an HTTP(S) collector.
+To use telemetry instead of local logging, set `OTLP_ENDPOINT` or
+`OTEL_EXPORTER_OTLP_ENDPOINT` to an HTTP(S) collector.
+
+## Desktop standalone control plane
+
+Upstand Desktop includes a built-in, standalone control plane powered by embedded
+PGlite. When selecting **Use this computer (Local Desktop runtime)**:
+
+- Upstand starts a private local control plane and dashboard directly on loopback ports.
+- It operates completely independently without requiring any connection to an external self-hosted or cloud Upstand instance.
+- You can connect to remote servers via SSH, manage projects, and orchestrate deployments directly from your desktop machine.
 
 ## Interactive and non-interactive operation
 

@@ -1,5 +1,22 @@
 # schedules
 
+## 0.13.8
+
+### Patch Changes
+
+- [#512](https://github.com/UpstandPlatform/upstand/pull/512) [`64587bd`](https://github.com/UpstandPlatform/upstand/commit/64587bd1edf41edb62ad6d92a5b62410ed2c409c) Thanks [@mhbdev](https://github.com/mhbdev)! - Streamline installation topology, Proxmox LXC/container support, and standalone desktop runtime:
+  - Fix Desktop local control plane startup by provisioning `UPGAL_TOOL_APPROVAL_SECRET`, capturing diagnostic process logs, and bypassing daemon-dependent background reconciliation when running in desktop mode.
+  - Streamline `install.sh` defaults for single-replica, telemetry acknowledgements, and host resource sizing, allowing seamless deployment on single VPS instances and containers without manual overrides.
+  - Add automatic container detection for Proxmox LXC and Incus with unencrypted Swarm overlay network fallback when IPsec/ESP kernel encryption is unavailable.
+  - Default to accessible direct IP bootstrap origins (`http://<ip>:3000` / `http://<ip>:3001`) when custom domains/HTTPS are omitted, with non-fatal host connectivity warnings.
+  - Broaden Linux distribution support in remote server setup using official Docker install scripts and unencrypted overlay fallback.
+
+## 0.13.7
+
+### Patch Changes
+
+- [#508](https://github.com/UpstandPlatform/upstand/pull/508) [`5782f31`](https://github.com/UpstandPlatform/upstand/commit/5782f31d48818c8fcb5d69bb543092cd2e1e10f0) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden control-plane authorization, runtime safeguards, and operational monitoring across the release packages.
+
 ## 0.13.6
 
 ### Patch Changes
