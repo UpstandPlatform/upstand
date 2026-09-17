@@ -13,6 +13,16 @@ describe("remote monitoring agent provisioning", () => {
     expect(command).toContain("existing Upstand network must be encrypted");
   });
 
+  test("creates an unencrypted overlay network when unencrypted networks are allowed", () => {
+    const command = buildEncryptedUpstandNetworkCommand(
+      "upstand-network",
+      true,
+    );
+
+    expect(command).toContain("--driver overlay --attachable");
+    expect(command).not.toContain("existing Upstand network must be encrypted");
+  });
+
   test("inspects only containers when the development image shares the container name", () => {
     const command = buildMonitoringAgentContainerCommand({
       containerName: "upstand-monitoring-agent",

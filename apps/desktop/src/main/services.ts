@@ -7,8 +7,10 @@ import { app } from "electron";
 
 type StoredPorts = { api?: number; dashboard?: number };
 
-let apiProcess: ChildProcess | null = null;
-let dashboardProcess: ChildProcess | null = null;
+type MonitoredChildProcess = ChildProcess & { getRecentOutput: () => string };
+
+let apiProcess: MonitoredChildProcess | null = null;
+let dashboardProcess: MonitoredChildProcess | null = null;
 let apiOrigin = "";
 let dashboardOrigin = "";
 let started = false;
@@ -109,14 +111,35 @@ async function localAuthSecret() {
 }
 
 async function localEncryptionKey() {
-  return readOrCreateSecret("encryption-key");
+  const file = join(app.getPath("userData"), "encryption-key");
+  try {
+    const existing = (await readFile(file, "utf8")).trim();
+    if (existing) return existing;
+  } catch {
+    // First launch.
+  }
+  const secret = randomBytes(32).toString("base64");
+  await mkdir(app.getPath("userData"), { recursive: true });
+  await writeFile(file, secret, { mode: 0o600 });
+  return secret;
 }
 
-async function waitFor(url: string, processRef: ChildProcess): Promise<void> {
+async function localUpgalToolApprovalSecret() {
+  return readOrCreateSecret("upgal-tool-approval-secret");
+}
+
+async function waitFor(
+  url: string,
+  processRef: MonitoredChildProcess,
+): Promise<void> {
   const deadline = Date.now() + serviceStartupTimeoutMs;
   while (Date.now() < deadline) {
     if (processRef.exitCode !== null) {
-      throw new Error(`Local service exited before readiness: ${url}`);
+      const recent = processRef.getRecentOutput();
+      const details = recent ? `:\n${recent}` : "";
+      throw new Error(
+        `Local service exited before readiness (${url})${details}`,
+      );
     }
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
@@ -128,7 +151,9 @@ async function waitFor(url: string, processRef: ChildProcess): Promise<void> {
       setTimeout(resolve, serviceStartupPollIntervalMs),
     );
   }
-  throw new Error(`Local service did not become ready: ${url}`);
+  const recent = processRef.getRecentOutput();
+  const details = recent ? `:\n${recent}` : "";
+  throw new Error(`Local service did not become ready (${url})${details}`);
 }
 
 function spawnService(
@@ -136,7 +161,22 @@ function spawnService(
   cwd: string,
   environment: NodeJS.ProcessEnv,
   useElectronNode = true,
-) {
+): MonitoredChildProcess {
+  const recentLogs: string[] = [];
+  const maxLogs = 50;
+  const appendLog = (chunk: Buffer) => {
+    const text = chunk.toString("utf8");
+    for (const line of text.split("\n")) {
+      const trimmed = line.trimEnd();
+      if (trimmed) {
+        recentLogs.push(trimmed);
+        if (recentLogs.length > maxLogs) {
+          recentLogs.shift();
+        }
+      }
+    }
+  };
+
   const child = spawn(
     useElectronNode ? process.execPath : entry,
     useElectronNode ? [entry] : [],
@@ -148,13 +188,18 @@ function spawnService(
       stdio: "pipe",
       windowsHide: true,
     },
-  );
-  child.stdout?.on("data", (chunk: Buffer) =>
-    process.stdout.write(`[desktop:${entry}] ${chunk}`),
-  );
-  child.stderr?.on("data", (chunk: Buffer) =>
-    process.stderr.write(`[desktop:${entry}] ${chunk}`),
-  );
+  ) as MonitoredChildProcess;
+
+  child.getRecentOutput = () => recentLogs.join("\n");
+
+  child.stdout?.on("data", (chunk: Buffer) => {
+    appendLog(chunk);
+    process.stdout.write(`[desktop:${entry}] ${chunk}`);
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    appendLog(chunk);
+    process.stderr.write(`[desktop:${entry}] ${chunk}`);
+  });
   return child;
 }
 
@@ -194,6 +239,7 @@ export async function startLocalServices(): Promise<{
     UPSTAND_NODE_RUNTIME_PATH: process.execPath,
     DB_MIGRATIONS_PATH: paths.migrations,
     BETTER_AUTH_SECRET: await localAuthSecret(),
+    UPGAL_TOOL_APPROVAL_SECRET: await localUpgalToolApprovalSecret(),
     ENCRYPTION_KEY_V1: await localEncryptionKey(),
     HOST: "127.0.0.1",
     PORT: String(apiPort),
