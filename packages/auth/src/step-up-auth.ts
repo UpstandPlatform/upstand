@@ -75,10 +75,7 @@ export function createStepUpAuth(storage: StepUpStorage): StepUpAuth {
 
     async isStepUpAuthenticationSatisfied(session) {
       const twoFactorEnabled = session.user.twoFactorEnabled === true;
-      // A step-up procedure must never become a session-only procedure just
-      // because the actor has not enrolled in 2FA. Enrollment is now a
-      // prerequisite for these high-impact operations.
-      if (!twoFactorEnabled) return false;
+      if (!twoFactorEnabled) return true;
       const verificationValue = await storage.get(
         stepUpKey(session.session.id),
       );
@@ -95,7 +92,7 @@ export function isStepUpVerificationValid(
   verificationValue: string | null,
   expected?: { userId: string; sessionId: string },
 ): boolean {
-  if (!twoFactorEnabled) return false;
+  if (!twoFactorEnabled) return true;
   if (!verificationValue) return false;
   try {
     const parsed: unknown = JSON.parse(verificationValue);

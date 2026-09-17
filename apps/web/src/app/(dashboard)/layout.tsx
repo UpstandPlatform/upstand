@@ -525,12 +525,16 @@ export function DashboardLayout({
     return () => window.removeEventListener("open-create-org-dialog", handler);
   }, []);
 
+  const isTwoFactorRequired = session?.user.twoFactorEnabled === true;
+
   const { data: mfaData, isPending: mfaPending } = useQuery({
     ...trpc.auth.isSession2faVerified.queryOptions(),
-    enabled: !!session,
+    enabled: !!session && isTwoFactorRequired,
     // Don't use stale data for security checks
     staleTime: 0,
   });
+
+  const isMfaChecking = isTwoFactorRequired && mfaPending;
 
   useEffect(() => {
     if (sessionPending || organizationsPending || activeOrgPending) return;
@@ -641,9 +645,15 @@ export function DashboardLayout({
       };
     }
 
-    if (mfaPending) return;
+    if (isMfaChecking) return;
 
-    if (session && mfaData && !mfaData.verified && pathname !== "/2fa-verify") {
+    if (
+      session &&
+      isTwoFactorRequired &&
+      mfaData &&
+      !mfaData.verified &&
+      pathname !== "/2fa-verify"
+    ) {
       router.replace("/2fa-verify");
       return;
     }
@@ -655,7 +665,8 @@ export function DashboardLayout({
     sessionPendingTimedOut,
     sessionValidationError,
     mfaData,
-    mfaPending,
+    isMfaChecking,
+    isTwoFactorRequired,
     pathname,
     refetchSession,
     router,
@@ -664,7 +675,7 @@ export function DashboardLayout({
   if (
     (sessionPending && !sessionPendingTimedOut) ||
     sessionValidationPending ||
-    (session && mfaPending)
+    (session && isMfaChecking)
   ) {
     return (
       <div className="flex h-svh items-center justify-center">

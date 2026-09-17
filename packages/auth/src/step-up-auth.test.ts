@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isStepUpVerificationValid } from "./step-up-auth";
+import { createStepUpAuth, isStepUpVerificationValid } from "./step-up-auth";
 
 const session = { userId: "user-1", sessionId: "session-1" };
 
@@ -36,7 +36,34 @@ describe("step-up verification", () => {
     ).toBe(false);
   });
 
-  test("does not treat non-2FA accounts as step-up verified", () => {
-    expect(isStepUpVerificationValid(false, null, session)).toBe(false);
+  test("keeps non-2FA accounts compatible", () => {
+    expect(isStepUpVerificationValid(false, null, session)).toBe(true);
+  });
+
+  test("satisfies step-up authentication when 2FA is not enabled", async () => {
+    const storage = {
+      get: async () => null,
+      set: async () => {},
+      del: async () => {},
+    };
+    const stepUp = createStepUpAuth(storage);
+    expect(
+      await stepUp.isStepUpAuthenticationSatisfied({
+        user: { id: "user-1", twoFactorEnabled: false },
+        session: { id: "session-1" },
+      }),
+    ).toBe(true);
+    expect(
+      await stepUp.isStepUpAuthenticationSatisfied({
+        user: { id: "user-1", twoFactorEnabled: null },
+        session: { id: "session-1" },
+      }),
+    ).toBe(true);
+    expect(
+      await stepUp.isStepUpAuthenticationSatisfied({
+        user: { id: "user-1" },
+        session: { id: "session-1" },
+      }),
+    ).toBe(true);
   });
 });
