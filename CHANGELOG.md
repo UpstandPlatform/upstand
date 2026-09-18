@@ -4,6 +4,14 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.10 - 2026-09-18
+
+Resolve desktop runtime SSR session redirect loop and dynamic port routing:
+- Allow getServerUrlFromHeaders to resolve dynamically allocated desktop API ports via UPSTAND_SERVER_INTERNAL_URL and NEXT_PUBLIC_SERVER_URL during SSR instead of falling back to default port 3000.
+- Prevent infinite redirect ping-pong between SSR /projects and client-side /login in desktop local runtime.
+- Update inferApiOrigin to preserve explicit loopback ports when configured.
+
+
 ## 0.13.9 - 2026-09-17
 
 Fix step-up 2FA verification loops and standalone desktop runtime:

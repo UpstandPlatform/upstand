@@ -14,6 +14,7 @@ export const env = createEnv({
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
+    UPSTAND_PLATFORM: z.enum(["desktop", "self-hosted", "cloud"]).optional(),
     SKIP_TYPECHECK: z.string().optional(),
     /** Internal API origin used only by server-rendered web requests. */
     UPSTAND_SERVER_INTERNAL_URL: z.url().optional(),
@@ -27,6 +28,7 @@ export const env = createEnv({
   },
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
+    UPSTAND_PLATFORM: process.env.UPSTAND_PLATFORM,
     SKIP_TYPECHECK: process.env.SKIP_TYPECHECK,
     UPSTAND_SERVER_INTERNAL_URL: process.env.UPSTAND_SERVER_INTERNAL_URL,
     OTLP_ENDPOINT: process.env.OTLP_ENDPOINT,
