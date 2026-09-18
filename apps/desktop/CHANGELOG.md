@@ -1,5 +1,14 @@
 # desktop
 
+## 0.2.32
+
+### Patch Changes
+
+- [#518](https://github.com/UpstandPlatform/upstand/pull/518) [`b7bb0d8`](https://github.com/UpstandPlatform/upstand/commit/b7bb0d85d6f8c794faea59d44f28f3119d421a1e) Thanks [@mhbdev](https://github.com/mhbdev)! - Resolve desktop runtime SSR session redirect loop and dynamic port routing:
+  - Allow getServerUrlFromHeaders to resolve dynamically allocated desktop API ports via UPSTAND_SERVER_INTERNAL_URL and NEXT_PUBLIC_SERVER_URL during SSR instead of falling back to default port 3000.
+  - Prevent infinite redirect ping-pong between SSR /projects and client-side /login in desktop local runtime.
+  - Update inferApiOrigin to preserve explicit loopback ports when configured.
+
 ## 0.2.31
 
 ### Patch Changes
