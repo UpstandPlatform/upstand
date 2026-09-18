@@ -111,7 +111,7 @@ function inferApiOrigin(protocol: string, hostname: string, port = ""): string {
     ? hostname
     : inferSiblingHostname(hostname, "api");
   const apiPort =
-    port === "3001" ? "3000" : isLoopbackHost(hostname) ? "3000" : port;
+    port === "3001" ? "3000" : port || (isLoopbackHost(hostname) ? "3000" : "");
   const portSuffix = apiPort ? `:${apiPort}` : "";
 
   return new URL(`${protocol}//${apiHostname}${portSuffix}`).origin;
@@ -189,13 +189,30 @@ export function getServerUrlFromHeaders(
   const configuredUrl = parseConfiguredUrl(configured);
   const hostUrl = parseRequestHostHeader(requestHeaders);
 
+  // In desktop runtime or when an internal loopback URL is configured,
+  // local services run on dynamically allocated ports. Always use the
+  // explicitly configured internal API origin.
+  if (
+    env.UPSTAND_PLATFORM === "desktop" ||
+    (internalUrl && isLoopbackHost(internalUrl.hostname))
+  ) {
+    if (internalUrl) return internalUrl.origin;
+    if (isConfiguredOrigin(configuredUrl)) {
+      return resolveConfiguredApiOrigin(configuredUrl);
+    }
+  }
+
   // A direct IP request is the user's explicit recovery path. Resolve the
   // sibling API on that same validated Host instead of sending SSR to a
   // service name that is only reachable inside the container network. Never
   // derive this destination from X-Forwarded-Host or X-Forwarded-Proto: those
   // headers are attacker-controlled until a trusted proxy boundary proves
   // otherwise.
-  if (hostUrl && isDirectHost(hostUrl.hostname)) {
+  if (
+    hostUrl &&
+    isDirectHost(hostUrl.hostname) &&
+    !isLoopbackHost(hostUrl.hostname)
+  ) {
     return inferApiOrigin("http:", hostUrl.hostname, hostUrl.port);
   }
 
@@ -203,7 +220,7 @@ export function getServerUrlFromHeaders(
   // This prevents an untrusted Host header from turning session rendering
   // into a server-side request to an attacker-selected sibling domain.
   if (internalUrl) return internalUrl.origin;
-  if (isConfiguredOrigin(configuredUrl) && !isDirectOrigin(configuredUrl)) {
+  if (isConfiguredOrigin(configuredUrl)) {
     return resolveConfiguredApiOrigin(configuredUrl);
   }
 
