@@ -146,4 +146,12 @@ describe("runtime URL resolution", () => {
 
     expect(getDocsUrl()).toBe("http://85.155.230.19:4000/docs/");
   });
+
+  test("resolves dynamic desktop loopback API port for server-rendered sessions", () => {
+    const headers = new Headers({ host: "127.0.0.1:54321" });
+
+    expect(getServerUrlFromHeaders(headers, "http://127.0.0.1:61442")).toBe(
+      "http://127.0.0.1:61442",
+    );
+  });
 });
