@@ -2,9 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
   type AuthCallbacks,
   type AuthInstance,
+  type AuthSecondaryStorage,
   createAuth,
 } from "@upstand/auth";
-import { createStepUpAuth } from "@upstand/auth/step-up-auth";
+import {
+  createStepUpAuth,
+  type StepUpStorage,
+} from "@upstand/auth/step-up-auth";
 import { db } from "@upstand/db";
 import * as authSchema from "@upstand/db/schema/auth";
 import { backupRun, backupSchedule } from "@upstand/db/schema/backup";
@@ -23,50 +27,128 @@ import { and, count, eq, gt, isNull, sql } from "drizzle-orm";
 
 export const notificationTransport = new NotificationTransportRegistry();
 
-const stepUp = createStepUpAuth({
-  get: (key) => withRedisTimeout(redis.get(key)),
-  set: (key, value, mode, ttl) =>
-    withRedisTimeout(redis.set(key, value, mode, ttl)),
-  del: (key) => withRedisTimeout(redis.del(key)),
-});
+const isDesktop = env.UPSTAND_PLATFORM === "desktop" && !env.IS_CLOUD;
 
-const secondaryStorage = {
-  get: async (key: string) => (await withRedisTimeout(redis.get(key))) || null,
-  // Better Auth uses this operation for one-time secondary-storage values.
-  // Keep the read/delete pair atomic so a concurrent API replica cannot reuse
-  // a token, nonce, or rate-limit challenge after it has been consumed.
-  getAndDelete: async (key: string) => {
-    const result = await withRedisTimeout(
-      redis.eval(
-        "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
-        1,
-        key,
-      ),
-    );
-    return result === null ? null : String(result);
-  },
-  set: async (key: string, value: string, ttl?: number) => {
-    if (ttl) await withRedisTimeout(redis.set(key, value, "EX", ttl));
-    else await withRedisTimeout(redis.set(key, value));
-  },
-  // Better Auth uses increment for its distributed rate limiter when it is
-  // available. Keep the increment and first-write expiry in one Redis script
-  // so concurrent API instances cannot bypass the limit or create immortal
-  // counters.
-  increment: async (key: string, ttl: number) => {
-    const result = await withRedisTimeout(
-      redis.eval(
-        "local value = redis.call('INCR', KEYS[1]); if value == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return value",
-        1,
-        key,
-        String(Math.max(1, Math.ceil(ttl))),
-      ),
-    );
-    return Number(result);
-  },
-  delete: (key: string) =>
-    withRedisTimeout(redis.del(key)).then(() => undefined),
-};
+function createInMemoryStepUpStorage(): StepUpStorage {
+  const map = new Map<string, { value: string; expiresAt: number }>();
+  return {
+    async get(key: string) {
+      const entry = map.get(key);
+      if (!entry) return null;
+      if (entry.expiresAt <= Math.floor(Date.now() / 1000)) {
+        map.delete(key);
+        return null;
+      }
+      return entry.value;
+    },
+    async set(key: string, value: string, _mode: "EX", ttl: number) {
+      map.set(key, {
+        value,
+        expiresAt: Math.floor(Date.now() / 1000) + ttl,
+      });
+    },
+    async del(key: string) {
+      map.delete(key);
+    },
+  };
+}
+
+function createInMemorySecondaryStorage(): AuthSecondaryStorage {
+  const map = new Map<string, { value: string; expiresAt?: number }>();
+  return {
+    get: async (key: string) => {
+      const entry = map.get(key);
+      if (!entry) return null;
+      if (entry.expiresAt && entry.expiresAt <= Date.now()) {
+        map.delete(key);
+        return null;
+      }
+      return entry.value;
+    },
+    getAndDelete: async (key: string) => {
+      const entry = map.get(key);
+      if (!entry) return null;
+      map.delete(key);
+      if (entry.expiresAt && entry.expiresAt <= Date.now()) {
+        return null;
+      }
+      return entry.value;
+    },
+    set: async (key: string, value: string, ttl?: number) => {
+      map.set(key, {
+        value,
+        expiresAt: ttl ? Date.now() + ttl * 1000 : undefined,
+      });
+    },
+    increment: async (key: string, ttl: number) => {
+      const entry = map.get(key);
+      let count = 1;
+      if (entry && (!entry.expiresAt || entry.expiresAt > Date.now())) {
+        count = Number(entry.value) + 1;
+      }
+      map.set(key, {
+        value: String(count),
+        expiresAt: Date.now() + ttl * 1000,
+      });
+      return count;
+    },
+    delete: async (key: string) => {
+      map.delete(key);
+    },
+  };
+}
+
+const stepUpStorage: StepUpStorage = isDesktop
+  ? createInMemoryStepUpStorage()
+  : {
+      get: (key) => withRedisTimeout(redis.get(key)),
+      set: (key, value, mode, ttl) =>
+        withRedisTimeout(redis.set(key, value, mode, ttl)),
+      del: (key) => withRedisTimeout(redis.del(key)),
+    };
+
+const stepUp = createStepUpAuth(stepUpStorage);
+
+const secondaryStorage: AuthSecondaryStorage = isDesktop
+  ? createInMemorySecondaryStorage()
+  : {
+      get: async (key: string) =>
+        (await withRedisTimeout(redis.get(key))) || null,
+      // Better Auth uses this operation for one-time secondary-storage values.
+      // Keep the read/delete pair atomic so a concurrent API replica cannot reuse
+      // a token, nonce, or rate-limit challenge after it has been consumed.
+      getAndDelete: async (key: string) => {
+        const result = await withRedisTimeout(
+          redis.eval(
+            "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
+            1,
+            key,
+          ),
+        );
+        return result === null ? null : String(result);
+      },
+      set: async (key: string, value: string, ttl?: number) => {
+        if (ttl) await withRedisTimeout(redis.set(key, value, "EX", ttl));
+        else await withRedisTimeout(redis.set(key, value));
+      },
+      // Better Auth uses increment for its distributed rate limiter when it is
+      // available. Keep the increment and first-write expiry in one Redis script
+      // so concurrent API instances cannot bypass the limit or create immortal
+      // counters.
+      increment: async (key: string, ttl: number) => {
+        const result = await withRedisTimeout(
+          redis.eval(
+            "local value = redis.call('INCR', KEYS[1]); if value == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return value",
+            1,
+            key,
+            String(Math.max(1, Math.ceil(ttl))),
+          ),
+        );
+        return Number(result);
+      },
+      delete: (key: string) =>
+        withRedisTimeout(redis.del(key)).then(() => undefined),
+    };
 
 const callbacks: AuthCallbacks = {
   async createPersonalOrganization(user) {

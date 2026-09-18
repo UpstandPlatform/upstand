@@ -1,5 +1,14 @@
 # fumadocs
 
+## 0.13.9
+
+### Patch Changes
+
+- [#515](https://github.com/UpstandPlatform/upstand/pull/515) [`4fc5d73`](https://github.com/UpstandPlatform/upstand/commit/4fc5d739c956104936df28208eb6cf05ad29a7b8) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix step-up 2FA verification loops and standalone desktop runtime:
+  - Restore step-up authentication compatibility for non-2FA accounts across procedures and services.
+  - Only query session 2FA verification and trigger 2FA redirects when the user has two-factor authentication enabled, eliminating recursive toast errors and infinite dashboard redirects.
+  - Provide self-contained in-memory fallback storage for Better Auth secondary storage and step-up auth when running in standalone desktop runtime without Redis.
+
 ## 0.13.8
 
 ### Patch Changes
