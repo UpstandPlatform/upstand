@@ -1,5 +1,9 @@
 # fumadocs
 
+## 0.13.10
+
+No changes in this release.
+
 ## 0.13.9
 
 ### Patch Changes
