@@ -1,5 +1,11 @@
 # @upstand/cli
 
+## 0.3.1
+
+### Patch Changes
+
+- [#533](https://github.com/UpstandPlatform/upstand/pull/533) [`d6bd946`](https://github.com/UpstandPlatform/upstand/commit/d6bd94657f2ef0366b5eaf8c114e30974e5996c1) Thanks [@mhbdev](https://github.com/mhbdev)! - Bundle the private domain configuration parser into the published CLI so npm consumers never receive an unresolved workspace dependency.
+
 ## 0.3.0
 
 ### Minor Changes

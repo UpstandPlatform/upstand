@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.1 - 2026-09-19
+
+Bundle the private domain configuration parser into the published CLI so npm consumers never receive an unresolved workspace dependency.
+
+
 ## 0.14.0 - 2026-09-19
 
 Add production-oriented bare host builds with automatic framework and runtime detection, explicit repository and UI overrides, portable Docker packaging, richer `upstand.json` configuration, local CLI validation commands, and desktop-local source builds that deploy only to configured remote servers.
