@@ -41,6 +41,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
+          config-file: ./.github/codeql/codeql-config.yml
       - name: Autobuild
         if: matrix.build_mode == 'autobuild'
         uses: github/codeql-action/autobuild@5595ccaf912efad79be6eef63a5619ff05969be3

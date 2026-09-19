@@ -27,6 +27,22 @@ function scalarValue(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return value.slice(0, end);
+}
+function collapseRepeatedSlashes(value: string): string {
+  let result = "";
+  let previousWasSlash = false;
+  for (const character of value) {
+    const isSlash = character === "/";
+    if (isSlash && previousWasSlash) continue;
+    result += character;
+    previousWasSlash = isSlash;
+  }
+  return result;
+}
 function objectToValues(value: unknown): Record<string, string> {
   if (!isRecord(value)) return {};
   return Object.fromEntries(
@@ -59,7 +75,7 @@ function allowlistedHosts(): string[] {
 }
 async function safeProviderUrl(rawUrl: string): Promise<string> {
   const url = await assertConfiguredHttpUrl(rawUrl, allowlistedHosts());
-  return url.toString().replace(/\/+$/, "");
+  return trimTrailingSlashes(url.toString());
 }
 function providerRequestInit(
   headers: Record<string, string>,
@@ -337,9 +353,9 @@ async function readInfisical(
     const secretPath = path
       ? path.startsWith("/")
         ? path
-        : `${basePath.replace(/\/+$/, "")}/${path}`
+        : `${trimTrailingSlashes(basePath)}/${path}`
       : basePath;
-    const normalizedPath = secretPath.replace(/\/{2,}/g, "/");
+    const normalizedPath = collapseRepeatedSlashes(secretPath);
     byPath.set(normalizedPath, [
       ...(byPath.get(normalizedPath) ?? []),
       reference,

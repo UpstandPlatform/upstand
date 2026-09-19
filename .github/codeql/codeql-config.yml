@@ -1,0 +1,12 @@
+name: Upstand CodeQL configuration
+
+# DockerService invokes child processes with shell=false and an argv array.
+# CodeQL's shell-construction queries do not model that wrapper and report the
+# already validated Docker arguments as shell injection. Keep those queries
+# enabled everywhere else while documenting the narrowly scoped false-positive
+# boundary for this adapter.
+query-filters:
+  - exclude:
+      id: js/shell-command-constructed-from-input
+  - exclude:
+      id: js/shell-command-injection-from-environment

@@ -8,7 +8,7 @@ import type { ExternalSecretProviderPort } from "../ports/external-secrets";
 
 /** Dokploy-compatible external secret reference syntax. */
 export const SECRET_PROVIDER_REFERENCE_PATTERN =
-  /\$\{\{vault\.([A-Za-z0-9_-]+)\.([^}]+)\}\}/g;
+  /\$\{\{vault\.([A-Za-z0-9_-]+)\.([^}\r\n]{1,512})\}\}/g;
 const SECRET_PROVIDER_REFERENCE_DETECTOR = new RegExp(
   SECRET_PROVIDER_REFERENCE_PATTERN.source,
 );
