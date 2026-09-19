@@ -400,13 +400,14 @@ function RequestsTable({
 
 export function RequestsSubpage() {
   const organizationState = useRequiredActiveOrganization();
-  const { isCloud, isInstanceOwner } = useSystemConfig();
-  const canViewLocalLogs = !isCloud || isInstanceOwner;
-  const remoteOnly = isCloud && !isInstanceOwner;
+  const { isCloud, isInstanceOwner, platformMode } = useSystemConfig();
+  const remoteOnly =
+    platformMode === "desktop" || (isCloud && !isInstanceOwner);
+  const canViewLocalLogs = !remoteOnly && (!isCloud || isInstanceOwner);
   const organizationId = organizationState.organizationId as string;
   const remoteServersQuery = useQuery({
     ...trpc.server.list.queryOptions({ organizationId }),
-    enabled: remoteOnly && Boolean(organizationId),
+    enabled: Boolean(organizationId),
   });
   const remoteServers = (remoteServersQuery.data ?? []).filter(
     (server) => server.status === "ready",
@@ -421,18 +422,34 @@ export function RequestsSubpage() {
       setSelectedServerId(remoteServers[0].id);
     }
   }, [remoteOnly, remoteServers, selectedServerId]);
+  const remoteTargetSelected = remoteOnly || Boolean(selectedServerId);
+  const remoteStatus = useQuery({
+    ...trpc.webServer.remoteAccessLogStatus.queryOptions({
+      organizationId,
+      serverId: selectedServerId,
+    }),
+    enabled:
+      remoteTargetSelected && Boolean(organizationId && selectedServerId),
+  });
   const logs = useAccessLogs(
-    Boolean(organizationId) && (canViewLocalLogs || Boolean(selectedServerId)),
+    Boolean(organizationId) &&
+      (remoteTargetSelected
+        ? Boolean(selectedServerId) && remoteStatus.data?.enabled === true
+        : canViewLocalLogs),
     organizationId,
-    remoteOnly ? selectedServerId : undefined,
+    remoteTargetSelected ? selectedServerId : undefined,
   );
   const status = useQuery({
     ...trpc.webServer.accessLogStatus.queryOptions(),
-    enabled: Boolean(organizationId) && canViewLocalLogs,
+    enabled:
+      Boolean(organizationId) && canViewLocalLogs && !remoteTargetSelected,
   });
 
   const toggleMutation = useMutation({
     ...trpc.webServer.toggleAccessLogs.mutationOptions(),
+  });
+  const remoteToggleMutation = useMutation({
+    ...trpc.webServer.toggleRemoteAccessLogs.mutationOptions(),
   });
   const cleanupMutation = useMutation({
     ...trpc.webServer.updateAccessLogCleanup.mutationOptions(),
@@ -467,16 +484,27 @@ export function RequestsSubpage() {
     );
   }
 
-  const pending = toggleMutation.isPending;
-  const active = remoteOnly
-    ? Boolean(selectedServerId)
+  const pending = toggleMutation.isPending || remoteToggleMutation.isPending;
+  const active = remoteTargetSelected
+    ? remoteStatus.data?.enabled === true
     : Boolean(status.data?.enabled);
 
   const toggle = async () => {
-    const wasEnabled = Boolean(status.data?.enabled);
+    const wasEnabled = remoteOnly
+      ? remoteStatus.data?.enabled === true
+      : Boolean(status.data?.enabled);
     try {
-      await toggleMutation.mutateAsync({ enabled: !wasEnabled });
-      await status.refetch();
+      if (remoteTargetSelected) {
+        await remoteToggleMutation.mutateAsync({
+          organizationId,
+          serverId: selectedServerId,
+          enabled: !wasEnabled,
+        });
+        await remoteStatus.refetch();
+      } else {
+        await toggleMutation.mutateAsync({ enabled: !wasEnabled });
+        await status.refetch();
+      }
       toast.success(
         wasEnabled
           ? "Caddy access logging disabled"
@@ -491,7 +519,7 @@ export function RequestsSubpage() {
     }
   };
 
-  if (!remoteOnly && status.isPending) {
+  if (!remoteTargetSelected && status.isPending) {
     return (
       <div className="flex h-32 items-center justify-center">
         <Spinner />
@@ -501,7 +529,37 @@ export function RequestsSubpage() {
 
   return (
     <div className="space-y-6">
-      {remoteOnly ? (
+      {!remoteOnly && remoteServers.length > 0 && (
+        <Card className="border-border/60">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div>
+              <h2 className="font-semibold text-sm">Request log target</h2>
+              <p className="text-muted-foreground text-xs">
+                Choose the local Caddy instance or a connected remote server.
+              </p>
+            </div>
+            <Select
+              value={selectedServerId || "local"}
+              onValueChange={(value) =>
+                setSelectedServerId(value === "local" ? "" : (value ?? ""))
+              }
+            >
+              <SelectTrigger className="w-full sm:w-64">
+                <SelectValue placeholder="Select a request log target" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">Local Caddy</SelectItem>
+                {remoteServers.map((server) => (
+                  <SelectItem key={server.id} value={server.id}>
+                    {server.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      )}
+      {remoteTargetSelected ? (
         <Card className="border-border/60">
           <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -527,6 +585,11 @@ export function RequestsSubpage() {
                 ))}
               </SelectContent>
             </Select>
+            <Switch
+              checked={active}
+              onCheckedChange={toggle}
+              disabled={pending || !selectedServerId || remoteStatus.isPending}
+            />
           </CardContent>
         </Card>
       ) : (
@@ -716,7 +779,7 @@ export function RequestsSubpage() {
           icon={Activity01FreeIcons}
           title="Request monitoring is off"
           description={
-            remoteOnly
+            remoteTargetSelected
               ? "Select a ready remote server to view its Caddy request logs."
               : "Enable Caddy access logs to start collecting request distribution and detailed HTTP entries."
           }

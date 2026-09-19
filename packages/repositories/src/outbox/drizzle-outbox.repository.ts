@@ -110,6 +110,7 @@ export class DrizzleOutboxRepository implements IOutboxRepository {
     now: Date,
     leaseMs: number,
     limit = 100,
+    type?: string,
   ): Promise<OutboxMessage[]> {
     const safeLimit = Math.max(1, Math.min(limit, MAX_BATCH_SIZE));
     const staleBefore = new Date(now.getTime() - Math.max(1_000, leaseMs));
@@ -121,6 +122,7 @@ export class DrizzleOutboxRepository implements IOutboxRepository {
           (status = 'pending' AND available_at <= ${now})
           OR (status = 'publishing' AND claimed_at < ${staleBefore})
         )
+        ${type ? sql`AND type = ${type}` : sql``}
         ORDER BY available_at ASC, created_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT ${safeLimit}

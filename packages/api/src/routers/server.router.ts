@@ -59,10 +59,10 @@ async function requireLocalDockerOwner(
   serverId: string | undefined,
 ): Promise<boolean> {
   if (!serverId || serverId === "local" || serverId === "manager") {
-    if (getConfiguredControlPlaneMode() === "desktop") {
+    if (getConfiguredControlPlaneMode() === "cloud") {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Desktop bare mode does not expose local Docker operations",
+        message: "Cloud control planes cannot access the local Docker runtime",
       });
     }
     await requireInstanceOwnerContext(ctx);

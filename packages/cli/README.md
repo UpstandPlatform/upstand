@@ -13,8 +13,10 @@ upstand link --organization org_... --project project_... --environment env_...
 upstand deploy <resource-id>
 ```
 
-Use `UPSTAND_URL` to target a self-hosted control plane and `UPSTAND_TOKEN` for
-CI. Tokens are never written to project files.
+Use `UPSTAND_URL` to target a self-hosted or desktop-local control plane and
+`UPSTAND_TOKEN` for CI. Tokens are never written to project files. The CLI
+uses the same project/resource API as the dashboard, including deployment
+history, logs, and the repository's `upstand.json` configuration.
 
 Interactive `upstand login` opens the Upstand browser sign-in flow and waits
 for organization approval. Use `upstand login --token upk_...` in CI or when a

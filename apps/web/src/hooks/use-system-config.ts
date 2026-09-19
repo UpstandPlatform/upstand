@@ -61,7 +61,7 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
     platformMode,
     capabilities: payload.capabilities ?? {
       mode: platformMode,
-      localRuntime: platformMode === "self-hosted",
+      localRuntime: platformMode !== "cloud",
       remoteServers: true,
       scheduler: platformMode !== "desktop",
       redis: platformMode !== "desktop",
@@ -69,7 +69,7 @@ async function fetchSystemConfig(): Promise<SystemConfig> {
       jobs: platformMode !== "desktop",
       acmeCertificates: platformMode !== "desktop",
       localGitCli: false,
-      localDockerSocket: platformMode === "self-hosted",
+      localDockerSocket: platformMode !== "cloud",
       swarmManagement: platformMode === "self-hosted",
       localFileSystemBackups: platformMode === "self-hosted",
       embeddedMonitoring: platformMode === "self-hosted",

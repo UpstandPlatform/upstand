@@ -406,6 +406,7 @@ export const auth: AuthInstance = createAuth({
     googleClientId: env.GOOGLE_CLIENT_ID,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET,
     isCloud: getConfiguredControlPlaneMode() === "cloud",
+    isDesktop: getConfiguredControlPlaneMode() === "desktop",
   },
 });
 

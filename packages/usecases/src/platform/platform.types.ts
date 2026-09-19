@@ -289,7 +289,7 @@ export function getPlatformCapabilities(
     case "desktop":
       return {
         mode,
-        localRuntime: false,
+        localRuntime: true,
         remoteServers: true,
         scheduler: false,
         redis: false,
@@ -297,7 +297,7 @@ export function getPlatformCapabilities(
         jobs: false,
         acmeCertificates: false,
         localGitCli: false,
-        localDockerSocket: false,
+        localDockerSocket: runtimeAvailability.docker,
         swarmManagement: false,
         localFileSystemBackups: false,
         embeddedMonitoring: false,
@@ -306,7 +306,23 @@ export function getPlatformCapabilities(
         serverMigration: true,
         controlPlaneTransfer: true,
         dataOwnership: "local-control-plane",
-        runtimeMatrix: createDesktopRuntimeMatrix(runtimeAvailability),
+        runtimeMatrix: [
+          {
+            target: "local",
+            runtime: "docker",
+            supported: runtimeAvailability.docker,
+            buildLocations: runtimeAvailability.docker
+              ? ["control-plane", "target"]
+              : [],
+            zeroDowntimeReplacement: true,
+            reason: runtimeAvailability.docker
+              ? null
+              : "Docker execution is unavailable because no local Docker runtime was detected",
+          },
+          ...createDesktopRuntimeMatrix(runtimeAvailability).filter(
+            (entry) => entry.target !== "local",
+          ),
+        ],
       };
     case "cloud":
       return {

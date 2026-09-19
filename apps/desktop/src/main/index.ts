@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   app,
@@ -52,6 +59,15 @@ let activeDocsOrigin = "";
 
 const OFFICIAL_CLOUD_ORIGIN = "https://upstand.dev";
 const OFFICIAL_DOCS_ORIGIN = "https://docs.upstand.dev";
+const UPSTAND_GITHUB_REPOSITORY = "UpstandPlatform/upstand";
+
+type DesktopUpdateInfo = {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  releaseUrl: string | null;
+  downloadUrl: string | null;
+};
 
 interface WindowConfig {
   windowBounds?: { x: number; y: number; width: number; height: number };
@@ -140,6 +156,101 @@ async function isDocsOrigin(origin: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function comparableVersion(version: string): number[] {
+  const normalized = version.replace(/^v/i, "").split("-")[0] ?? "0";
+  return normalized
+    .split(".")
+    .map((part) => Number.parseInt(part, 10))
+    .map((part) => (Number.isFinite(part) ? part : 0));
+}
+
+function isNewerVersion(latest: string, current: string): boolean {
+  const left = comparableVersion(latest);
+  const right = comparableVersion(current);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return false;
+}
+
+function desktopAssetMatchesPlatform(name: string): boolean {
+  const lowerName = name.toLowerCase();
+  if (process.platform === "win32") return lowerName.endsWith(".exe");
+  if (process.platform === "darwin") return lowerName.endsWith(".zip");
+  return lowerName.endsWith(".deb") || lowerName.endsWith(".zip");
+}
+
+async function checkForDesktopUpdates(): Promise<DesktopUpdateInfo> {
+  const currentVersion = app.getVersion();
+  const response = await fetch(
+    `https://api.github.com/repos/${UPSTAND_GITHUB_REPOSITORY}/releases/latest`,
+    {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "Upstand-Desktop",
+      },
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`GitHub returned HTTP ${response.status}`);
+  }
+  const release = (await response.json()) as {
+    tag_name?: unknown;
+    html_url?: unknown;
+    draft?: unknown;
+    prerelease?: unknown;
+    assets?: Array<{ name?: unknown; browser_download_url?: unknown }>;
+  };
+  const latestVersion =
+    typeof release.tag_name === "string" ? release.tag_name : null;
+  const asset = release.assets?.find(
+    (candidate) =>
+      typeof candidate.name === "string" &&
+      typeof candidate.browser_download_url === "string" &&
+      desktopAssetMatchesPlatform(candidate.name),
+  );
+  const releaseUrl =
+    typeof release.html_url === "string" ? release.html_url : null;
+  const updateAvailable =
+    latestVersion !== null &&
+    release.draft !== true &&
+    release.prerelease !== true &&
+    isNewerVersion(latestVersion, currentVersion);
+  return {
+    currentVersion,
+    latestVersion,
+    updateAvailable,
+    releaseUrl,
+    downloadUrl:
+      updateAvailable && asset && typeof asset.browser_download_url === "string"
+        ? asset.browser_download_url
+        : null,
+  };
+}
+
+async function installDesktopUpdate(downloadUrl: string): Promise<void> {
+  const parsed = new URL(downloadUrl);
+  if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") {
+    throw new Error("Desktop updates must be downloaded from GitHub");
+  }
+  const response = await fetch(parsed, {
+    headers: { "User-Agent": "Upstand-Desktop" },
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!response.ok) throw new Error(`GitHub returned HTTP ${response.status}`);
+  const fileName = decodeURIComponent(parsed.pathname.split("/").pop() || "");
+  if (!/\.(exe|deb|zip)$/i.test(fileName)) {
+    throw new Error("GitHub release does not contain a supported installer");
+  }
+  const directory = await mkdtemp(join(app.getPath("temp"), "upstand-update-"));
+  const filePath = join(directory, fileName);
+  await writeFile(filePath, Buffer.from(await response.arrayBuffer()));
+  const openResult = await shell.openPath(filePath);
+  if (openResult) throw new Error(openResult);
 }
 
 async function resolveRuntimeOrigins(
@@ -746,6 +857,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle("app:open-external", async (event, value: string) => {
     validateIpcSender(event);
     await openExternalWebUrl(value);
+  });
+  ipcMain.handle("app:check-for-updates", async (event) => {
+    validateIpcSender(event);
+    return checkForDesktopUpdates();
+  });
+  ipcMain.handle("app:install-update", async (event, downloadUrl: string) => {
+    validateIpcSender(event);
+    await installDesktopUpdate(downloadUrl);
   });
 
   ipcMain.handle("window:minimize", () => {

@@ -8,7 +8,10 @@ import { authUiClient } from "@/lib/auth-client";
 import { getUserFacingError } from "@/lib/error-message";
 import { trpc } from "@/utils/trpc";
 
-export function useMembersSettings(organizationId: string) {
+export function useMembersSettings(
+  organizationId: string,
+  options: { invitationsEnabled?: boolean } = {},
+) {
   const queryClient = useQueryClient();
 
   const membersQuery = useQuery({
@@ -24,6 +27,7 @@ export function useMembersSettings(organizationId: string) {
   const { data: invites, refetch: refetchInvites } =
     useListOrganizationInvitations(authUiClient, {
       query: { organizationId },
+      enabled: options.invitationsEnabled !== false,
     });
 
   const refresh = () => {

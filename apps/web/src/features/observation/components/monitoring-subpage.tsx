@@ -337,7 +337,8 @@ export function MonitoringSubpage() {
   const systemConfig = useSystemConfig();
   const { isCloud, isInstanceOwner } = systemConfig;
   const systemConfigPending = systemConfig.isPending;
-  const canInspectLocal = !isCloud || isInstanceOwner;
+  const canInspectLocal =
+    systemConfig.platformMode !== "desktop" && (!isCloud || isInstanceOwner);
   const activeOrganization =
     organizationState.status === "ready"
       ? organizationState.organization

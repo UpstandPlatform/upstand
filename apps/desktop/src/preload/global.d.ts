@@ -11,6 +11,14 @@ export type DesktopBridge = {
     platform: string;
     version: () => Promise<string>;
     openExternal: (url: string) => Promise<void>;
+    checkForUpdates: () => Promise<{
+      currentVersion: string;
+      latestVersion: string | null;
+      updateAvailable: boolean;
+      releaseUrl: string | null;
+      downloadUrl: string | null;
+    }>;
+    installUpdate: (downloadUrl: string) => Promise<void>;
   };
   connection: {
     get: () => Promise<DesktopConnection | null>;
