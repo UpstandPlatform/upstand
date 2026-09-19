@@ -30,6 +30,7 @@ export interface AuthConfiguration {
   googleClientId?: string;
   googleClientSecret?: string;
   isCloud?: boolean;
+  isDesktop?: boolean;
 }
 
 export function resolvePasskeyConfiguration(
@@ -444,9 +445,11 @@ export function createAuth(options: {
       // boundary. Database persistence provides recovery if Redis is rebuilt.
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,
-      // Sensitive Better Auth operations must require a recent session. A
-      // nonzero freshness window limits the impact of a stolen old cookie.
-      freshAge: 60 * 60 * 24,
+      // Desktop is a single-user local control plane. Better Auth's
+      // sessions/settings endpoints otherwise become unusable after the
+      // normal freshness window because there is no remote re-auth flow.
+      // Cloud and self-hosted deployments retain the security boundary.
+      freshAge: configuration.isDesktop ? 0 : 60 * 60 * 24,
       storeSessionInDatabase: true,
     },
     advanced: {

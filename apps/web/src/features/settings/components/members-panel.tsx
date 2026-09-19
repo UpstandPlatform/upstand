@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import z from "zod";
 import { ConfirmActionDialog } from "@/components/dashboard/confirm-action-dialog";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { getUserFacingError } from "@/lib/error-message";
 import { trpc } from "@/utils/trpc";
 import { useMembersSettings } from "../hooks/use-members-settings";
@@ -59,6 +60,8 @@ const ADMIN_MEMBER_CAPABILITIES: Capability[] = capabilitiesForRole(
 export function MembersPanel() {
   const organizationState = useRequiredActiveOrganization();
   const organizationId = organizationState.organizationId as string;
+  const { capabilities } = useSystemConfig();
+  const invitationsEnabled = capabilities?.mode !== "desktop";
   const customRolesQuery = useQuery({
     ...trpc.customRole.list.queryOptions({ organizationId }),
     enabled: organizationState.status === "ready",
@@ -89,9 +92,11 @@ export function MembersPanel() {
     updateMember,
     removeMember,
     cancelInvitation,
-  } = useMembersSettings(organizationId);
+  } = useMembersSettings(organizationId, { invitationsEnabled });
 
-  const [mode, setMode] = useState<"invite" | "create">("invite");
+  const [mode, setMode] = useState<"invite" | "create">(
+    invitationsEnabled ? "invite" : "create",
+  );
   const [roleToDelete, setRoleToDelete] = useState<{
     id: string;
     name: string;
@@ -230,23 +235,26 @@ export function MembersPanel() {
         <CardHeader>
           <CardTitle className="text-sm">Add workspace member</CardTitle>
           <CardDescription>
-            Grant precise capabilities, create credentials immediately, or send
-            an invitation through a configured Email/Resend channel.
+            {invitationsEnabled
+              ? "Grant precise capabilities, create credentials immediately, or send an invitation through a configured Email/Resend channel."
+              : "Grant precise capabilities and create credentials immediately for this local desktop workspace."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex gap-2 pb-4">
-            <Button
-              type="button"
-              size="sm"
-              variant={mode === "invite" ? "default" : "outline"}
-              onClick={() => {
-                setMode("invite");
-                form.reset();
-              }}
-            >
-              Invitation
-            </Button>
+            {invitationsEnabled && (
+              <Button
+                type="button"
+                size="sm"
+                variant={mode === "invite" ? "default" : "outline"}
+                onClick={() => {
+                  setMode("invite");
+                  form.reset();
+                }}
+              >
+                Invitation
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"
@@ -687,7 +695,7 @@ export function MembersPanel() {
         </CardContent>
       </Card>
 
-      {!!invites?.length && (
+      {invitationsEnabled && !!invites?.length && (
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Pending invitations</CardTitle>

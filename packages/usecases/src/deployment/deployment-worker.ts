@@ -21,6 +21,7 @@ import { isSshGitUrl } from "../git-provider/git-url-sanitizer";
 import { getInstallationToken } from "../git-provider/github-client";
 import type { NotificationPublisher } from "../notification/publish-notification.usecase";
 import { withJobTelemetry } from "../observability/job-telemetry";
+import type { DeployOutboxPayload } from "../outbox/outbox-commands";
 import {
   assertRuntimeCapability,
   getConfiguredControlPlaneMode,
@@ -400,6 +401,37 @@ export class DeploymentWorker {
     return Boolean(this.worker?.isRunning());
   }
 
+  /** Execute a deployment directly for the desktop runtime, which has no
+   * Redis/BullMQ process. The same pipeline and persistence semantics are used
+   * as the queue worker; only queue transport and the distributed lock differ. */
+  public async processInline(payload: DeployOutboxPayload): Promise<void> {
+    const job = {
+      id: `desktop-${payload.deploymentId}-${randomUUID()}`,
+      data: payload,
+      attemptsMade: 0,
+      token: "desktop-inline",
+      moveToDelayed: async () => {
+        throw new Error("A desktop inline deployment cannot be delayed");
+      },
+    } as unknown as Job;
+    while (true) {
+      try {
+        await withDeploymentScopeToken(payload.dockerScopeToken, () =>
+          this.processJob(job, { local: true }),
+        );
+        return;
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !error.message.includes("desktop inline deployment cannot be delayed")
+        ) {
+          throw error;
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+      }
+    }
+  }
+
   private async startPubSubListener(): Promise<void> {
     this.pubsubRedis = createRedis({
       loggerName: `deployment-concurrency:${this.serverId}`,
@@ -451,7 +483,7 @@ export class DeploymentWorker {
     }
   }
 
-  private async processJob(job: Job) {
+  private async processJob(job: Job, options: { local?: boolean } = {}) {
     const {
       resourceId,
       deploymentId,
@@ -474,12 +506,14 @@ export class DeploymentWorker {
 
     const lockKey = `upstand:resource:lock:${resourceId}`;
 
-    if (!this.workerRedis) {
+    if (!options.local && !this.workerRedis) {
       throw new Error("Worker Redis client is not initialized");
     }
 
     // 1. Try to acquire the Redis lock for serialization of this resource
-    const resourceLock = await ResourceLock.acquire(this.workerRedis, lockKey);
+    const resourceLock = options.local
+      ? ResourceLock.acquireLocal(lockKey)
+      : await ResourceLock.acquire(this.workerRedis as Redis, lockKey);
     if (!resourceLock) {
       log.info({
         message: `Resource ${resourceId} is currently building. Delaying job ${job.id}.`,
@@ -1782,9 +1816,9 @@ export class DeploymentWorker {
       });
     } catch (err: unknown) {
       if (executionLeaseLost) return;
-      const cancelled = Boolean(
-        await redis.get(`upstand:deployment:cancel:${deploymentId}`),
-      );
+      const cancelled = options.local
+        ? false
+        : Boolean(await redis.get(`upstand:deployment:cancel:${deploymentId}`));
       appendLog(
         cancelled
           ? `\nDeployment cancelled by user. 🛑\nReason: ${errorMessage(err)}\n`
@@ -1848,7 +1882,9 @@ export class DeploymentWorker {
       await scope.dispose();
       remoteCliCleanup?.();
       buildCliCleanup?.();
-      await redis.del(`upstand:deployment:cancel:${deploymentId}`);
+      if (!options.local) {
+        await redis.del(`upstand:deployment:cancel:${deploymentId}`);
+      }
       await resourceLock.release().catch((error) => {
         log.error({
           message: "Failed to release resource deployment lock",

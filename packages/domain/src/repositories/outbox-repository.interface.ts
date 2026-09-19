@@ -17,6 +17,7 @@ export interface IOutboxRepository {
     now: Date,
     leaseMs: number,
     limit?: number,
+    type?: string,
   ): Promise<OutboxMessage[]>;
   markPublished(
     id: string,

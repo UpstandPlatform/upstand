@@ -22,6 +22,7 @@ import { SsoSignInForm } from "@/components/sso-sign-in-form";
 import { authClient } from "@/lib/auth-client";
 import { getLoginSuccessPath } from "@/lib/auth-redirect";
 import { cliUserCodeFromSearchParams } from "@/lib/cli-authorization";
+import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { getServerApiUrl } from "@/lib/server-url";
 
 const GoogleIcon = () => (
@@ -60,6 +61,7 @@ function LoginPageContent() {
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
   const [sessionRetrying, setSessionRetrying] = useState(false);
   const [setupRetrying, setSetupRetrying] = useState(false);
+  const isDesktop = Boolean(getDesktopBridge());
   const {
     data: session,
     isPending: sessionPending,
@@ -291,7 +293,9 @@ function LoginPageContent() {
                   />
                 )}
 
-                {!isSignUp && <PasskeySignInButton successPath={successPath} />}
+                {!isSignUp && !isDesktop && (
+                  <PasskeySignInButton successPath={successPath} />
+                )}
 
                 {googleEnabled && (
                   <Button

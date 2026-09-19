@@ -150,7 +150,8 @@ export function GeneralTab({
 }: GeneralTabProps) {
   const queryClient = useQueryClient();
   const organizationState = useRequiredActiveOrganization();
-  const { isCloud } = useSystemConfig();
+  const { isCloud, platformMode } = useSystemConfig();
+  const isDesktop = platformMode === "desktop";
   const activeOrganization =
     organizationState.status === "ready"
       ? organizationState.organization
@@ -303,6 +304,12 @@ export function GeneralTab({
   // Provider State
   const [providerType, setProviderType] = useState<ResourceProvider>("github");
   const [autoDeploy, setAutoDeploy] = useState(true);
+
+  useEffect(() => {
+    if (isDesktop && !["docker", "drop", "git", "raw"].includes(providerType)) {
+      setProviderType("git");
+    }
+  }, [isDesktop, providerType]);
 
   // Specific Provider States
   const [tagPattern, setTagPattern] = useState("");
@@ -2350,30 +2357,36 @@ export function GeneralTab({
                   ...(resource.type === "compose"
                     ? [{ id: "raw", label: "Raw", icon: Code }]
                     : []),
-                ].map((prov) => {
-                  const Icon = prov.icon;
-                  const active = providerType === prov.id;
-                  return (
-                    <button
-                      key={prov.id}
-                      aria-selected={active}
-                      role="tab"
-                      type="button"
-                      onClick={() =>
-                        setProviderType(prov.id as ResourceProvider)
-                      }
-                      className={cn(
-                        "flex shrink-0 cursor-pointer items-center gap-2 border-none px-3 py-1.5 font-semibold text-xs transition-colors",
-                        active
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:bg-background/20 hover:text-foreground",
-                      )}
-                    >
-                      <Icon className="size-3.5" />
-                      {prov.label}
-                    </button>
-                  );
-                })}
+                ]
+                  .filter(
+                    (prov) =>
+                      !isDesktop ||
+                      ["docker", "drop", "git", "raw"].includes(prov.id),
+                  )
+                  .map((prov) => {
+                    const Icon = prov.icon;
+                    const active = providerType === prov.id;
+                    return (
+                      <button
+                        key={prov.id}
+                        aria-selected={active}
+                        role="tab"
+                        type="button"
+                        onClick={() =>
+                          setProviderType(prov.id as ResourceProvider)
+                        }
+                        className={cn(
+                          "flex shrink-0 cursor-pointer items-center gap-2 border-none px-3 py-1.5 font-semibold text-xs transition-colors",
+                          active
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground hover:bg-background/20 hover:text-foreground",
+                        )}
+                      >
+                        <Icon className="size-3.5" />
+                        {prov.label}
+                      </button>
+                    );
+                  })}
               </div>
 
               {resource.type === "compose" && providerType !== "raw" && (

@@ -17,6 +17,16 @@ const desktopBridge = {
     version: () => ipcRenderer.invoke("app:version") as Promise<string>,
     openExternal: (url: string) =>
       ipcRenderer.invoke("app:open-external", url) as Promise<void>,
+    checkForUpdates: () =>
+      ipcRenderer.invoke("app:check-for-updates") as Promise<{
+        currentVersion: string;
+        latestVersion: string | null;
+        updateAvailable: boolean;
+        releaseUrl: string | null;
+        downloadUrl: string | null;
+      }>,
+    installUpdate: (downloadUrl: string) =>
+      ipcRenderer.invoke("app:install-update", downloadUrl) as Promise<void>,
   },
   connection: {
     get: () => ipcRenderer.invoke("connection:get"),
