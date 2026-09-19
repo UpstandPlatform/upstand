@@ -4,6 +4,13 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.0 - 2026-09-19
+
+Add production-oriented bare host builds with automatic framework and runtime detection, explicit repository and UI overrides, portable Docker packaging, richer `upstand.json` configuration, local CLI validation commands, and desktop-local source builds that deploy only to configured remote servers.
+
+Add a first-class UpGal MCP configuration panel with runtime-aware endpoints, scoped read-only key creation, and copy-ready configurations for Codex, Claude Code, Gemini/Antigravity, Cursor, VS Code/Copilot, and generic MCP clients.
+
+
 ## 0.13.11 - 2026-09-19
 
 Improve the desktop local runtime with embedded database health reporting, local deployment processing, native GitHub updates, remote-server observability, and runtime-specific settings and provider controls.

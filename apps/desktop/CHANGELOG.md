@@ -1,5 +1,11 @@
 # desktop
 
+## 0.3.0
+
+### Minor Changes
+
+- [#525](https://github.com/UpstandPlatform/upstand/pull/525) [`0d4dc64`](https://github.com/UpstandPlatform/upstand/commit/0d4dc64d32552e9d3c689c6c7778ba216e8385e5) Thanks [@mhbdev](https://github.com/mhbdev)! - Add production-oriented bare host builds with automatic framework and runtime detection, explicit repository and UI overrides, portable Docker packaging, richer `upstand.json` configuration, local CLI validation commands, and desktop-local source builds that deploy only to configured remote servers.
+
 ## 0.2.33
 
 ### Patch Changes
