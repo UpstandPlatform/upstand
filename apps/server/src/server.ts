@@ -20,6 +20,7 @@ import { createOTLPDrain } from "evlog/otlp";
 import { createDrainPipeline } from "evlog/pipeline";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
+import { DesktopDeploymentRunner } from "./desktop-deployment-runner";
 import { getServiceProvider } from "./di";
 import { registerHttpMiddleware } from "./http/middleware";
 import { registerAiRoutes } from "./http/routes/ai";
@@ -284,6 +285,17 @@ if (env.UPSTAND_PLATFORM !== "desktop") {
 
 log.info({ message: "Upstand Control Plane API Server started 🚀" });
 
+const desktopDeploymentRunner =
+  env.UPSTAND_PLATFORM === "desktop" ? new DesktopDeploymentRunner() : null;
+if (desktopDeploymentRunner) {
+  void desktopDeploymentRunner.start().catch((error: unknown) => {
+    log.error({
+      message: "Desktop deployment runner failed to start",
+      err: error instanceof Error ? error.message : error,
+    });
+  });
+}
+
 const completedUpdateVersion = env.UPSTAND_UPDATE_COMPLETION_VERSION;
 if (completedUpdateVersion) {
   setTimeout(() => {
@@ -313,6 +325,7 @@ async function shutdown(signal: string, exitCode = 0): Promise<void> {
   log.info({ message: "Graceful shutdown started", signal });
 
   terminalBroker.stop();
+  await desktopDeploymentRunner?.stop();
   if (httpServer) {
     await Promise.race([httpServer.stop(), Bun.sleep(30_000)]);
     if (httpServer) await httpServer.stop(true);

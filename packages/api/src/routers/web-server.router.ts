@@ -15,6 +15,7 @@ import type {
 } from "@upstand/usecases/ports/docker";
 import {
   CaddyServiceToken,
+  DatabaseHealthToken,
   DockerInventoryReaderToken,
   DockerWebServerMaintenancePortToken,
   GetUpdateStatusUseCaseToken,
@@ -160,6 +161,28 @@ export const webServerRouter = router({
     };
   }),
 
+  remoteAccessLogStatus: twoFactorVerifiedProcedure
+    .input(
+      z.object({
+        organizationId: z.string().min(1),
+        serverId: z.string().min(1),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:view",
+      );
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      const server = await uow.serverRepository.findById(input.serverId);
+      if (!server || server.organizationId !== input.organizationId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Server not found" });
+      }
+      const settings = await uow.webServerSettingsRepository.findGlobal();
+      return { enabled: settings?.accessLogsEnabled ?? false };
+    }),
+
   toggleAccessLogs: twoFactorVerifiedProcedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
@@ -172,6 +195,63 @@ export const webServerRouter = router({
         return { enabled: settings?.accessLogsEnabled ?? input.enabled };
       } catch (error) {
         handleUseCaseError(error, ctx.log);
+      }
+    }),
+
+  toggleRemoteAccessLogs: twoFactorVerifiedProcedure
+    .input(
+      z.object({
+        organizationId: z.string().min(1),
+        serverId: z.string().min(1),
+        enabled: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await checkPermission(
+        ctx.session.user.id,
+        input.organizationId,
+        "server:update",
+      );
+      const uow = ctx.scope.resolve(UnitOfWorkToken);
+      const server = await uow.serverRepository.findById(input.serverId);
+      if (!server || server.organizationId !== input.organizationId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Server not found" });
+      }
+      const current =
+        (await uow.webServerSettingsRepository.findGlobal()) ??
+        (await uow.webServerSettingsRepository.createGlobal({}));
+      const { caddyService, cleanup } = await resolveCaddyServiceForServer(
+        input.serverId,
+        uow,
+      );
+      try {
+        const resources =
+          (await uow.resourceRepository.findForCaddyByDeploymentServerId?.(
+            input.serverId,
+          )) ??
+          (await uow.resourceRepository.findMany()).filter(
+            (resource) => resource.serverId === input.serverId,
+          );
+        const certificates =
+          (await uow.certificateRepository.findAll?.()) ?? [];
+        const nextSettings = {
+          ...current,
+          accessLogsEnabled: input.enabled,
+        };
+        await caddyService.initializeCaddy(nextSettings, false);
+        await caddyService.syncResourceConfigs(
+          resources,
+          nextSettings,
+          certificates,
+        );
+        await uow.transaction((tx) =>
+          tx.webServerSettingsRepository.updateGlobal({
+            accessLogsEnabled: input.enabled,
+          }),
+        );
+        return { enabled: input.enabled };
+      } finally {
+        cleanup();
       }
     }),
 
@@ -357,11 +437,9 @@ export const webServerRouter = router({
 
     let dbConnected = false;
     try {
-      const { pool } = await import("@upstand/db");
+      const healthCheck = ctx.scope.resolve(DatabaseHealthToken);
       dbConnected = await Promise.race([
-        pool
-          .query("SELECT 1")
-          .then((res) => res !== null && res.rowCount !== null),
+        healthCheck.ping().then(() => true),
         new Promise<boolean>((resolve) =>
           setTimeout(() => resolve(false), 1000),
         ),

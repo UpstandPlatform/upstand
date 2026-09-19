@@ -12,11 +12,16 @@ import { Spinner } from "@upstand/ui/components/spinner";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SelfUpdateDialog } from "@/components/self-update-dialog";
+import { type DesktopUpdateInfo, getDesktopBridge } from "@/lib/desktop-bridge";
 import { trpc } from "@/utils/trpc";
 
 export function AppInfoPanel() {
   const queryClient = useQueryClient();
   const [updateDialogVersion, setUpdateDialogVersion] = useState<string>();
+  const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | null>(
+    null,
+  );
+  const [isDesktopChecking, setIsDesktopChecking] = useState(false);
 
   const { data, isFetching, refetch } = useQuery({
     ...trpc.webServer.getUpdateData.queryOptions(),
@@ -96,6 +101,24 @@ export function AppInfoPanel() {
   });
 
   const handleCheck = async () => {
+    const desktopBridge = getDesktopBridge();
+    if (desktopBridge) {
+      setIsDesktopChecking(true);
+      try {
+        const result = await desktopBridge.app.checkForUpdates();
+        setDesktopUpdate(result);
+        if (result.updateAvailable) {
+          toast.info(`Upstand ${result.latestVersion} is available.`);
+        } else {
+          toast.success(`Upstand is up to date (${result.currentVersion}).`);
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      } finally {
+        setIsDesktopChecking(false);
+      }
+      return;
+    }
     const result = await checkUpdates.mutateAsync();
     if (result.channel === "managed" && result.updateAvailable) {
       toast.info(`Managed Upstand ${result.latestVersion} is available.`);
@@ -117,6 +140,10 @@ export function AppInfoPanel() {
       );
     }
   };
+
+  const desktopBridge = getDesktopBridge();
+  const displayedVersion =
+    desktopUpdate?.currentVersion ?? data?.currentVersion;
 
   return (
     <>
@@ -150,7 +177,7 @@ export function AppInfoPanel() {
                 label: "Version",
                 value: (
                   <span className="font-medium font-mono text-foreground text-xs">
-                    {data?.currentVersion ?? "Loading…"}
+                    {displayedVersion ?? "Loading…"}
                   </span>
                 ),
               },
@@ -239,15 +266,36 @@ export function AppInfoPanel() {
             <Button
               size="sm"
               variant="outline"
-              disabled={isFetching || checkUpdates.isPending}
+              disabled={
+                isFetching || checkUpdates.isPending || isDesktopChecking
+              }
               onClick={handleCheck}
             >
-              {(isFetching || checkUpdates.isPending) && (
+              {(isFetching || checkUpdates.isPending || isDesktopChecking) && (
                 <Spinner data-icon="inline-start" />
               )}
-              {checkUpdates.isPending ? "Checking…" : "Check for Updates"}
+              {checkUpdates.isPending || isDesktopChecking
+                ? "Checking…"
+                : "Check for Updates"}
             </Button>
-            {data?.updateAvailable && data.canUpdate ? (
+            {desktopUpdate?.updateAvailable && desktopUpdate.downloadUrl ? (
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await desktopBridge?.app.installUpdate(
+                      desktopUpdate.downloadUrl as string,
+                    );
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : String(error),
+                    );
+                  }
+                }}
+              >
+                Update to {desktopUpdate.latestVersion}
+              </Button>
+            ) : !desktopBridge && data?.updateAvailable && data.canUpdate ? (
               <Button
                 size="sm"
                 disabled={update.isPending}

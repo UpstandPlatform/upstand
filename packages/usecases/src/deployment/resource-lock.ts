@@ -44,12 +44,13 @@ export interface ResourceLockOptions {
  * from modifying a lock that has since been acquired by another worker.
  */
 export class ResourceLock {
+  private static readonly localLocks = new Map<string, string>();
   private renewalTimer: ReturnType<typeof setInterval> | null = null;
   private renewalError: Error | null = null;
   private renewalInFlight = false;
 
   private constructor(
-    private readonly redis: Redis,
+    private readonly redis: Redis | null,
     readonly key: string,
     private readonly token: string,
     private readonly ttlMs: number,
@@ -97,6 +98,13 @@ export class ResourceLock {
       : null;
   }
 
+  static acquireLocal(key: string): ResourceLock | null {
+    if (ResourceLock.localLocks.has(key)) return null;
+    const token = randomUUID();
+    ResourceLock.localLocks.set(key, token);
+    return new ResourceLock(null, key, token, 0, 0, 0);
+  }
+
   assertOwned(): void {
     if (this.renewalError) {
       throw new Error(
@@ -110,6 +118,12 @@ export class ResourceLock {
       clearInterval(this.renewalTimer);
       this.renewalTimer = null;
     }
+    if (!this.redis) {
+      if (ResourceLock.localLocks.get(this.key) === this.token) {
+        ResourceLock.localLocks.delete(this.key);
+      }
+      return;
+    }
     await withTimeout(
       this.redis.eval(RELEASE_SCRIPT, 1, this.key, this.token),
       this.operationTimeoutMs,
@@ -117,6 +131,7 @@ export class ResourceLock {
   }
 
   private async renew(): Promise<void> {
+    if (!this.redis) return;
     if (this.renewalInFlight || this.renewalError) return;
     this.renewalInFlight = true;
     try {

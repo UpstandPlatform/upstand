@@ -167,8 +167,10 @@ For database schema changes, update the TypeScript schema and run `bun run db:ge
 ### Desktop shell
 
 The Electron desktop shell packages the existing Upstand dashboard as a secure
-native client. It connects to a self-hosted or cloud control-plane origin; it
-does not duplicate the control plane or Docker engine on the workstation.
+native client. Its local profile uses embedded PGlite and runs the deployment
+pipeline in-process; local Docker builds require a reachable Docker Engine.
+Remote servers can still be selected for deployments, monitoring, and Caddy
+request logs.
 
 ```bash
 # Development (connect the dialog to http://localhost:3001 after bun dev)

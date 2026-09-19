@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.13.11 - 2026-09-19
+
+Improve the desktop local runtime with embedded database health reporting, local deployment processing, native GitHub updates, remote-server observability, and runtime-specific settings and provider controls.
+
+
 ## 0.13.10 - 2026-09-18
 
 Resolve desktop runtime SSR session redirect loop and dynamic port routing:

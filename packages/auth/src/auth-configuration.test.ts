@@ -58,6 +58,19 @@ describe("authentication origin configuration", () => {
     });
   });
 
+  test("keeps desktop sessions usable without remote re-authentication", async () => {
+    const { createAuth } = await import("./index");
+    const auth = createAuth({
+      database: { db: {} } as never,
+      secondaryStorage: {} as never,
+      callbacks: {} as never,
+      stepUp: {} as never,
+      configuration: configuration({ isDesktop: true }),
+    });
+
+    expect(auth.options.session?.freshAge).toBe(0);
+  });
+
   test("classifies only non-public direct addresses as private bootstrap targets", () => {
     expect(isPrivateDirectIpHost("127.0.0.1")).toBe(true);
     expect(isPrivateDirectIpHost("10.0.0.8")).toBe(true);

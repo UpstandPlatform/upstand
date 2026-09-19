@@ -115,7 +115,9 @@ export function SettingsDialog() {
         { name: "profile", label: "Profile", icon: UserIcon },
         { name: "sessions", label: "Sessions", icon: Monitor },
         { name: "security", label: "Security & 2FA", icon: ShieldCheck },
-        { name: "passkeys", label: "Passkeys", icon: Key01Icon },
+        ...(capabilities?.mode === "desktop"
+          ? []
+          : [{ name: "passkeys", label: "Passkeys", icon: Key01Icon }]),
       ],
     },
     {

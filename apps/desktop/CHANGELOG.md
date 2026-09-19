@@ -1,5 +1,11 @@
 # desktop
 
+## 0.2.33
+
+### Patch Changes
+
+- [#521](https://github.com/UpstandPlatform/upstand/pull/521) [`d6e8de2`](https://github.com/UpstandPlatform/upstand/commit/d6e8de292ac2c7b655b640cbbbf84fa1da0fd5b8) Thanks [@mhbdev](https://github.com/mhbdev)! - Improve the desktop local runtime with embedded database health reporting, local deployment processing, native GitHub updates, remote-server observability, and runtime-specific settings and provider controls.
+
 ## 0.2.32
 
 ### Patch Changes

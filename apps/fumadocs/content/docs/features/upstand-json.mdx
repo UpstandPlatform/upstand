@@ -7,6 +7,13 @@ Upstand supports **declarative auto-discovery** through an `upstand.json` file p
 
 When your repository is deployed, Upstand automatically parses `upstand.json` right after cloning, synchronizing your build engine, container resource limits, entrypoint commands, monorepo watch paths, and cron jobs directly into your resource.
 
+The file describes the project and workload; deployment target and build
+concurrency are selected in Upstand. In the desktop-local runtime, application
+builds use the workstation's Docker Engine and the local concurrency value
+from **Observation → Deployments**. The desktop runtime currently supports the
+Docker execution path; select a connected remote server for other deployment
+targets.
+
 ---
 
 ## 1. Editor Autocompletion & `$schema`
