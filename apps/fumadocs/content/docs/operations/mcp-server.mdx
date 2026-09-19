@@ -23,6 +23,12 @@ To connect an external MCP client to Upstand, you need:
    - `mcp: ["*"]` or `mcp-read-only` for read access to resources, logs, and infrastructure status.
 5. Copy the generated key (`upstand_ak_...`). Keep it safe as it will not be shown again.
 
+### Generated client configurations
+
+Administrators can use **Settings → UpGal Settings → MCP server** to create a read-only MCP key and select a client tab. The panel generates runtime-aware, copy-ready snippets for Claude Code, Codex, Gemini/Antigravity, Cursor, VS Code/Copilot, and generic HTTP MCP clients. It works with desktop-local, cloud, and self-hosted Upstand instances without hard-coding a deployment origin.
+
+The key is displayed only once. If a configuration is lost, generate a replacement and revoke the old key from **Settings → API Keys**.
+
 ---
 
 Upstand's MCP server endpoint accepts standard JSON-RPC 2.0 requests over HTTP / SSE:

@@ -19,6 +19,7 @@ import { trpc } from "@/utils/trpc";
 import { AddProviderDialog } from "./add-provider-dialog";
 import { EditProviderDialog } from "./edit-provider-dialog";
 import { FeatureAssignmentsSection } from "./feature-assignments-section";
+import { McpSettingsSection } from "./mcp-settings-section";
 import { ProviderCard, type ProviderView } from "./provider-card";
 import { TavilySettingsSection } from "./tavily-settings-section";
 
@@ -106,6 +107,8 @@ export function UpGalSettingsPanel(_props: UpGalSettingsPanelProps) {
           )}
         </CardContent>
       </Card>
+
+      {organizationId && <McpSettingsSection organizationId={organizationId} />}
 
       {!providersQuery.isPending && (
         <>
