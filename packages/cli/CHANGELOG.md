@@ -1,5 +1,11 @@
 # @upstand/cli
 
+## 0.3.2
+
+### Patch Changes
+
+- [#535](https://github.com/UpstandPlatform/upstand/pull/535) [`20b6f5a`](https://github.com/UpstandPlatform/upstand/commit/20b6f5a914313a3865faf4dba3743ddb7008a985) Thanks [@mhbdev](https://github.com/mhbdev)! - Remove the private workspace dependency from the published CLI manifest so stable npm releases remain installable outside the monorepo.
+
 ## 0.3.1
 
 ### Patch Changes
