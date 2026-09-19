@@ -63,5 +63,9 @@ if (invalid.length > 0) {
 }
 NODE
 require_text "$PACKAGE" '"zod": "^4.4.3"'
+if grep -Fq -- '"@upstand/domain": "workspace:' "$PACKAGE"; then
+  echo "published CLI must bundle the private @upstand/domain package instead of shipping a workspace dependency" >&2
+  exit 1
+fi
 
 echo "npm CLI release contract passed."
