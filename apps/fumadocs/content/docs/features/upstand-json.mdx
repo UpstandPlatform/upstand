@@ -8,11 +8,15 @@ Upstand supports **declarative auto-discovery** through an `upstand.json` file p
 When your repository is deployed, Upstand automatically parses `upstand.json` right after cloning, synchronizing your build engine, container resource limits, entrypoint commands, monorepo watch paths, and cron jobs directly into your resource.
 
 The file describes the project and workload; deployment target and build
-concurrency are selected in Upstand. In the desktop-local runtime, application
-builds use the workstation's Docker Engine and the local concurrency value
-from **Observation → Deployments**. The desktop runtime currently supports the
-Docker execution path; select a connected remote server for other deployment
-targets.
+concurrency are selected in Upstand. Detection runs first and explicit values
+in `upstand.json` override detected values. A user-selected value in the
+resource editor is the final override for that deployment.
+
+In desktop-local runtime, a bare build runs install/build commands on the
+selected build host and then packages the result into the normal Docker image.
+It does not turn the desktop app into a process supervisor. Docker is still
+used for image assembly and deployment; when the desktop has no Docker Engine,
+select a remote build server.
 
 ---
 
@@ -38,6 +42,14 @@ Configure build engines, Dockerfile locations, build arguments, and monorepo tri
 
 | Property | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
+| `strategy` | `string` | `"auto"` | Build execution: `"auto"`, `"docker"`, or `"bare"`. Bare runs commands on the build host, then packages a Docker image. |
+| `framework` | `string` | detected | Optional framework override used by auto-detection. |
+| `language` | `string` | detected | Optional bare-build language override: `"node"`, `"python"`, `"go"`, or `"rust"`. |
+| `packageManager` | `string` | detected | Node package manager override: `"bun"`, `"npm"`, `"pnpm"`, or `"yarn"`. |
+| `installCommand` | `string` | detected | Host-side dependency installation command for bare builds. |
+| `buildCommand` | `string` | detected | Host-side production build command for bare builds. |
+| `startCommand` | `string` | detected | Production entrypoint used when packaging a bare build. |
+| `port` | `integer` | detected | Application port override. |
 | `type` | `string` | `"dockerfile"` | Engine type: `"dockerfile"`, `"railpack"`, `"nixpacks"`, `"heroku-buildpacks"`, `"paketo-buildpacks"`, or `"static"`. |
 | `buildPath` | `string` | `"."` | Relative path where the build executes. |
 | `dockerfilePath` | `string` | `"Dockerfile"` | Relative path to the Dockerfile (when `type` is `"dockerfile"`). |

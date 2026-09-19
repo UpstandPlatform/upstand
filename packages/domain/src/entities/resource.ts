@@ -46,6 +46,23 @@ export const ApplicationBuildTypeSchema = z.enum([
   "static",
 ]);
 
+export const ApplicationBuildStrategySchema = z.enum([
+  "auto",
+  "docker",
+  "bare",
+]);
+
+const ApplicationBuildOverridesSchema = z.object({
+  strategy: ApplicationBuildStrategySchema.optional(),
+  framework: z.string().trim().min(1).max(128).optional(),
+  language: z.enum(["node", "python", "go", "rust"]).optional(),
+  packageManager: z.enum(["bun", "npm", "pnpm", "yarn"]).optional(),
+  installCommand: z.string().trim().min(1).max(4096).optional(),
+  buildCommand: z.string().trim().min(1).max(4096).optional(),
+  startCommand: z.string().trim().min(1).max(4096).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+});
+
 export const DATABASE_IMAGE_OPTIONS = {
   postgres: ["postgres:18-alpine"],
   mysql: ["mysql:8.0", "mysql:8.4"],
@@ -408,53 +425,60 @@ export const parseResourceAdvancedConfig = (
   }
 };
 
-export const DockerfileBuildConfigSchema = z.object({
-  type: z.literal("dockerfile"),
-  autoDetect: z.boolean().default(true).optional(),
-  buildPath: RelativeBuildPathSchema.default("."),
-  dockerfilePath: RelativeBuildPathSchema.default("Dockerfile"),
-  dockerContextPath: RelativeBuildPathSchema.default("."),
-  dockerBuildStage: z.string().trim().min(1).max(128).optional(),
-  dockerBuildArgs: z.record(z.string(), z.string()).default({}),
-  dockerNoCache: z.boolean().default(false),
-  dockerCleanupCache: z.boolean().default(false),
-});
+export const DockerfileBuildConfigSchema =
+  ApplicationBuildOverridesSchema.extend({
+    type: z.literal("dockerfile"),
+    autoDetect: z.boolean().default(true).optional(),
+    buildPath: RelativeBuildPathSchema.default("."),
+    dockerfilePath: RelativeBuildPathSchema.default("Dockerfile"),
+    dockerContextPath: RelativeBuildPathSchema.default("."),
+    dockerBuildStage: z.string().trim().min(1).max(128).optional(),
+    dockerBuildArgs: z.record(z.string(), z.string()).default({}),
+    dockerNoCache: z.boolean().default(false),
+    dockerCleanupCache: z.boolean().default(false),
+  });
 
-export const RailpackBuildConfigSchema = z.object({
-  type: z.literal("railpack"),
-  autoDetect: z.boolean().default(true).optional(),
-  buildPath: RelativeBuildPathSchema.default("."),
-  railpackVersion: z
-    .string()
-    .trim()
-    .regex(
-      /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/,
-      "Use a valid Railpack version",
-    )
-    .default("0.15.4"),
-});
+export const RailpackBuildConfigSchema = ApplicationBuildOverridesSchema.extend(
+  {
+    type: z.literal("railpack"),
+    autoDetect: z.boolean().default(true).optional(),
+    buildPath: RelativeBuildPathSchema.default("."),
+    railpackVersion: z
+      .string()
+      .trim()
+      .regex(
+        /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/,
+        "Use a valid Railpack version",
+      )
+      .default("0.15.4"),
+  },
+);
 
-export const NixpacksBuildConfigSchema = z.object({
-  type: z.literal("nixpacks"),
-  autoDetect: z.boolean().default(true).optional(),
-  buildPath: RelativeBuildPathSchema.default("."),
-  publishDirectory: RelativeBuildPathSchema.optional(),
-});
+export const NixpacksBuildConfigSchema = ApplicationBuildOverridesSchema.extend(
+  {
+    type: z.literal("nixpacks"),
+    autoDetect: z.boolean().default(true).optional(),
+    buildPath: RelativeBuildPathSchema.default("."),
+    publishDirectory: RelativeBuildPathSchema.optional(),
+  },
+);
 
-export const HerokuBuildpacksBuildConfigSchema = z.object({
-  type: z.literal("heroku-buildpacks"),
-  autoDetect: z.boolean().default(true).optional(),
-  buildPath: RelativeBuildPathSchema.default("."),
-  herokuVersion: z.enum(["24", "26"]).default("24"),
-});
+export const HerokuBuildpacksBuildConfigSchema =
+  ApplicationBuildOverridesSchema.extend({
+    type: z.literal("heroku-buildpacks"),
+    autoDetect: z.boolean().default(true).optional(),
+    buildPath: RelativeBuildPathSchema.default("."),
+    herokuVersion: z.enum(["24", "26"]).default("24"),
+  });
 
-export const PaketoBuildpacksBuildConfigSchema = z.object({
-  type: z.literal("paketo-buildpacks"),
-  autoDetect: z.boolean().default(true).optional(),
-  buildPath: RelativeBuildPathSchema.default("."),
-});
+export const PaketoBuildpacksBuildConfigSchema =
+  ApplicationBuildOverridesSchema.extend({
+    type: z.literal("paketo-buildpacks"),
+    autoDetect: z.boolean().default(true).optional(),
+    buildPath: RelativeBuildPathSchema.default("."),
+  });
 
-export const StaticBuildConfigSchema = z.object({
+export const StaticBuildConfigSchema = ApplicationBuildOverridesSchema.extend({
   type: z.literal("static"),
   autoDetect: z.boolean().default(true).optional(),
   buildPath: RelativeBuildPathSchema.default("."),

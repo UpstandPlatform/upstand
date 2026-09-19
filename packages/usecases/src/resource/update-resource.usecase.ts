@@ -19,7 +19,7 @@ import {
 } from "@upstand/platform/crypto/secret-box";
 import { log } from "evlog";
 import { z } from "zod";
-import { requiresRemoteServerPlacement } from "../platform/platform.types";
+import { requiresRemoteDeploymentServer } from "../platform/platform.types";
 import {
   assertBuildServerSupportsResource,
   assertDeploymentServerSupportsResource,
@@ -487,7 +487,7 @@ export class UpdateResourceUseCase {
         );
       }
     }
-    if (requiresRemoteServerPlacement()) {
+    if (requiresRemoteDeploymentServer()) {
       if (
         input.serverId === null ||
         (input.serverId && ["local", "manager"].includes(input.serverId))

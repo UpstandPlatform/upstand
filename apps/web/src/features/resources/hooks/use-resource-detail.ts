@@ -3,6 +3,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useSystemConfig } from "@/hooks/use-system-config";
 import { trpc } from "@/utils/trpc";
 
 export function useResourceDetail({
@@ -28,6 +29,7 @@ export function useResourceDetail({
 }) {
   const router = useRouter();
   const [isDeleted, setIsDeleted] = useState(false);
+  const { platformMode, isPending: systemConfigPending } = useSystemConfig();
 
   const projectQuery = useQuery({
     ...trpc.project.get.queryOptions({ id: projectId }),
@@ -66,16 +68,25 @@ export function useResourceDetail({
     enabled: !isDeleted,
     refetchInterval: isDeleted ? false : 3000,
   });
+  const localDesktopResource =
+    platformMode === "desktop" &&
+    (!resourceQuery.data?.serverId ||
+      ["local", "manager"].includes(resourceQuery.data.serverId));
+  const runtimeQueriesEnabled = !systemConfigPending && !localDesktopResource;
 
   const routingTargetsQuery = useQuery({
     ...trpc.resource.getRoutingTargets.queryOptions({ id: resourceId }),
-    enabled: !isDeleted && !!resourceId && activeTab === "domains",
+    enabled:
+      !isDeleted &&
+      !!resourceId &&
+      activeTab === "domains" &&
+      runtimeQueriesEnabled,
     staleTime: 15_000,
   });
 
   const liveContainersQuery = useQuery({
     ...trpc.resource.getContainers.queryOptions({ id: resourceId }),
-    enabled: !isDeleted,
+    enabled: !isDeleted && runtimeQueriesEnabled,
     refetchInterval: isDeleted ? false : 5000,
   });
 
@@ -106,14 +117,18 @@ export function useResourceDetail({
         selectedLogContainerId === "all" ? undefined : selectedLogContainerId,
       since: logsSince,
     }),
-    enabled: !isDeleted && activeTab === "logs",
+    enabled: !isDeleted && activeTab === "logs" && runtimeQueriesEnabled,
     refetchInterval: !isDeleted && activeTab === "logs" ? 4000 : false,
   });
 
   const statsQuery = useQuery({
     ...trpc.resource.getStats.queryOptions({ id: resourceId }),
     refetchInterval: isDeleted ? false : statsIntervalEnabled ? 5000 : false,
-    enabled: !isDeleted && !!resourceId && statsIntervalEnabled,
+    enabled:
+      !isDeleted &&
+      !!resourceId &&
+      statsIntervalEnabled &&
+      runtimeQueriesEnabled,
   });
 
   const containerLogsQuery = useQuery({
@@ -122,7 +137,11 @@ export function useResourceDetail({
       containerId: selectedContainerId || undefined,
       since: logsSince,
     }),
-    enabled: !isDeleted && containerModalOpen && !!selectedContainerId,
+    enabled:
+      !isDeleted &&
+      containerModalOpen &&
+      !!selectedContainerId &&
+      runtimeQueriesEnabled,
     refetchInterval: isDeleted ? false : containerModalOpen ? 3000 : false,
   });
 

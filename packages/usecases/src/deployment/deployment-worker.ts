@@ -26,6 +26,7 @@ import {
   assertRuntimeCapability,
   getConfiguredControlPlaneMode,
   getPlatformCapabilities,
+  requiresRemoteDeploymentServer,
 } from "../platform/platform.types";
 import type { CaddyResource } from "../ports/caddy";
 import type { DockerApiTarget, DockerRegistryAuth } from "../ports/docker";
@@ -802,6 +803,16 @@ export class DeploymentWorker {
         );
       }
       const deployedResource = { ...resource };
+      const controlPlaneMode = getConfiguredControlPlaneMode();
+      if (
+        requiresRemoteDeploymentServer(controlPlaneMode) &&
+        (!deployedResource.serverId ||
+          ["local", "manager"].includes(deployedResource.serverId))
+      ) {
+        throw new Error(
+          "Desktop and cloud control planes require a remote deployment server",
+        );
+      }
 
       let previewDeploymentRecord: PreviewDeployment | null = null;
       if (previewDeploymentId) {
@@ -1252,6 +1263,7 @@ export class DeploymentWorker {
             `Setting up Git deployment provider: ${resource.provider}...\n`,
           );
           let cloneUrl = "";
+          let localSourcePath: string | undefined;
           let gitEnvironment: Record<string, string> | undefined;
           let sshHostKeyFingerprint: string | undefined;
           let credentialsObj: Record<string, unknown> = {};
@@ -1368,6 +1380,18 @@ export class DeploymentWorker {
             }
           } else if (resource.provider === "drop") {
             // Bypasses git setup, cloneUrl remains empty
+          } else if (resource.provider === "local") {
+            if (getConfiguredControlPlaneMode() !== "desktop") {
+              throw new Error(
+                "Local project folders are only supported by the desktop runtime",
+              );
+            }
+            localSourcePath = stringField(credentialsObj, "localPath");
+            if (!localSourcePath) {
+              throw new Error(
+                "Local project folder is missing. Select a folder before deploying.",
+              );
+            }
           } else {
             throw new Error(
               `Unsupported deployment provider: ${resource.provider}`,
@@ -1427,7 +1451,7 @@ export class DeploymentWorker {
             gitEnvironment,
             sshHostKeyFingerprint,
             async (artifact) => {
-              const mode = getConfiguredControlPlaneMode();
+              const mode = controlPlaneMode;
               const capabilities = getPlatformCapabilities(mode);
               const target =
                 deployedResource.serverId &&
@@ -1496,6 +1520,7 @@ export class DeploymentWorker {
               );
             },
             resolvedBuildSecrets,
+            localSourcePath,
           );
           appendLog(
             "Build compiled successfully and Swarm Service registered.\n",

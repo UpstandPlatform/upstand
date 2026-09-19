@@ -1278,6 +1278,73 @@ volumes:
     );
   });
 
+  test("packages bare builds with the detected runtime and keeps command text out of logs", async () => {
+    const service = new DockerService(
+      {} as never,
+      {},
+      null as never,
+    ) as unknown as {
+      buildBareApplicationImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        envVars: Record<string, string>,
+        onLog: (message: string) => void,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (message: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { cwd?: string; redactions?: string[]; resourceId?: string },
+      ) => Promise<void>;
+    };
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-bare-build-"),
+    );
+    const logs: string[] = [];
+    const dockerfiles: string[] = [];
+    const calls: string[] = [];
+    service.runCommandAsync = async (command, args) => {
+      calls.push(command);
+      if (command === "docker") {
+        const fileIndex = args.indexOf("--file");
+        const dockerfilePath = fileIndex >= 0 ? args[fileIndex + 1] : undefined;
+        if (dockerfilePath)
+          dockerfiles.push(fs.readFileSync(dockerfilePath, "utf8"));
+      }
+    };
+    try {
+      await service.buildBareApplicationImage(
+        "resource-1",
+        workspace,
+        "upstand-app-resource-1:latest",
+        {
+          buildPath: ".",
+          language: "node",
+          packageManager: "bun",
+          installCommand: "echo install-secret",
+          buildCommand: "echo build-secret",
+          startCommand: "bun run start",
+          port: 3000,
+        },
+        {},
+        (message) => logs.push(message),
+        false,
+      );
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+    expect(calls.at(-1)).toBe("docker");
+    expect(dockerfiles[0]).toContain("FROM oven/bun:1.3.14");
+    expect(dockerfiles[0]).toContain("RUN bun install");
+    expect(dockerfiles[0]).toContain("EXPOSE 3000");
+    expect(logs.join(" ")).not.toContain("install-secret");
+    expect(logs.join(" ")).not.toContain("build-secret");
+  });
+
   test("keeps resolved environment values out of Docker image history", async () => {
     const service = new DockerService(
       {} as never,

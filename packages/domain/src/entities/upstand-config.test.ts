@@ -96,6 +96,26 @@ describe("parseUpstandConfig", () => {
     }
   });
 
+  it("supports auto-detected bare build overrides", () => {
+    const result = parseUpstandConfig({
+      build: {
+        strategy: "bare",
+        language: "node",
+        framework: "nextjs",
+        packageManager: "bun",
+        installCommand: "bun install --frozen-lockfile",
+        buildCommand: "bun run build",
+        startCommand: "bun run start",
+        port: 3000,
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.build?.strategy).toBe("bare");
+      expect(result.data.build?.packageManager).toBe("bun");
+    }
+  });
+
   it("should return empty crons array for empty json object", () => {
     const result = parseUpstandConfig("{}");
     expect(result.success).toBe(true);

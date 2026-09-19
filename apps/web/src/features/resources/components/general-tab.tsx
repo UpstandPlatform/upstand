@@ -116,6 +116,7 @@ type ResourceUpdateInput = Parameters<ResourceDetailState["updateResource"]>[0];
 function isResourceProvider(value: string): value is ResourceProvider {
   return [
     "docker",
+    "local",
     "github",
     "gitlab",
     "bitbucket",
@@ -152,6 +153,7 @@ export function GeneralTab({
   const organizationState = useRequiredActiveOrganization();
   const { isCloud, platformMode } = useSystemConfig();
   const isDesktop = platformMode === "desktop";
+  const requiresRemoteTarget = isCloud || isDesktop;
   const activeOrganization =
     organizationState.status === "ready"
       ? organizationState.organization
@@ -298,7 +300,9 @@ export function GeneralTab({
   const [previewWildcard, setPreviewWildcard] = useState("");
   const [previewHttps, setPreviewHttps] = useState(false);
   const [previewPort, setPreviewPort] = useState("3000");
-  const [deploymentServerId, setDeploymentServerId] = useState("local");
+  const [deploymentServerId, setDeploymentServerId] = useState(
+    requiresRemoteTarget ? "" : "local",
+  );
   const [buildServerId, setBuildServerId] = useState("default");
 
   // Provider State
@@ -306,8 +310,11 @@ export function GeneralTab({
   const [autoDeploy, setAutoDeploy] = useState(true);
 
   useEffect(() => {
-    if (isDesktop && !["docker", "drop", "git", "raw"].includes(providerType)) {
-      setProviderType("git");
+    if (
+      isDesktop &&
+      !["docker", "drop", "local", "git", "raw"].includes(providerType)
+    ) {
+      setProviderType("local");
     }
   }, [isDesktop, providerType]);
 
@@ -331,6 +338,7 @@ export function GeneralTab({
   const [gitTriggerType, setGitTriggerType] = useState("push");
   const [gitWatchPaths, setGitWatchPaths] = useState<string[]>([]);
   const [gitSubmodules, setGitSubmodules] = useState(false);
+  const [localPath, setLocalPath] = useState("");
 
   const [rawComposeFile, setRawComposeFile] = useState("");
   const [dockerImage, setDockerImage] = useState("");
@@ -460,7 +468,9 @@ export function GeneralTab({
       setPreviewWildcard(resource.previewWildcard ?? "");
       setPreviewHttps(resource.previewHttps === true);
       setPreviewPort(String(resource.previewPort ?? 3000));
-      setDeploymentServerId(resource.serverId ?? "local");
+      setDeploymentServerId(
+        resource.serverId ?? (requiresRemoteTarget ? "" : "local"),
+      );
       setBuildServerId(resource.buildServerId ?? "default");
       if (resource.provider) {
         const provider =
@@ -528,6 +538,7 @@ export function GeneralTab({
           provider &&
           [
             "docker",
+            "local",
             "github",
             "gitlab",
             "bitbucket",
@@ -587,6 +598,8 @@ export function GeneralTab({
           setGitSubmodules(config.enableSubmodules ?? false);
         } else if (config.provider === "raw") {
           setRawComposeFile(config.composeFile ?? "");
+        } else if (config.provider === "local") {
+          setLocalPath(config.localPath ?? "");
         }
         if (resource.type === "database") {
           setDatabaseCredentials(toStringRecord(config));
@@ -741,6 +754,11 @@ export function GeneralTab({
         triggerType: gitTriggerType,
         watchPaths: gitWatchPaths,
         enableSubmodules: gitSubmodules,
+      };
+    } else if (providerType === "local") {
+      config = {
+        ...config,
+        localPath: localPath.trim(),
       };
     } else if (providerType === "raw") {
       config = {
@@ -1095,7 +1113,7 @@ export function GeneralTab({
               <Label htmlFor="deployment-server">Deployment server</Label>
               <Select
                 items={[
-                  ...(!isCloud
+                  ...(!requiresRemoteTarget
                     ? [{ value: "local", label: "Local Swarm manager" }]
                     : []),
                   ...servers
@@ -1118,12 +1136,14 @@ export function GeneralTab({
                 <SelectTrigger id="deployment-server" className="w-full">
                   <SelectValue
                     placeholder={
-                      isCloud ? "Select Server" : "Use local Swarm manager"
+                      requiresRemoteTarget
+                        ? "Select Server"
+                        : "Use local Swarm manager"
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {!isCloud && (
+                  {!requiresRemoteTarget && (
                     <SelectItem value="local">Local Swarm manager</SelectItem>
                   )}
                   {servers
@@ -1237,7 +1257,7 @@ export function GeneralTab({
                 disabled={isUpdatingResource || migrateResource.isPending}
                 onClick={() => {
                   if (
-                    isCloud &&
+                    requiresRemoteTarget &&
                     (deploymentServerId === "local" || !deploymentServerId)
                   ) {
                     toast.error(
@@ -1733,6 +1753,49 @@ export function GeneralTab({
               </div>
             </CardHeader>
             <CardContent className="space-y-5 border-border/20 border-t pt-4">
+              <FieldGroup>
+                <Field>
+                  <FieldContent>
+                    <FieldLabel htmlFor="build-strategy">
+                      Build execution
+                    </FieldLabel>
+                    <FieldDescription>
+                      Auto detects the framework and commands. Bare runs those
+                      commands on the build host, then packages a Docker image.
+                    </FieldDescription>
+                  </FieldContent>
+                  <Select
+                    items={[
+                      { value: "auto", label: "Automatic" },
+                      { value: "docker", label: "Docker builder" },
+                      { value: "bare", label: "Bare host build" },
+                    ]}
+                    value={
+                      buildConfig.strategy ??
+                      (buildConfig.autoDetect !== false ? "auto" : "docker")
+                    }
+                    onValueChange={(value) =>
+                      setBuildConfig({
+                        ...buildConfig,
+                        strategy: value as ApplicationBuildConfig["strategy"],
+                        autoDetect:
+                          value === "auto" ? true : buildConfig.autoDetect,
+                      })
+                    }
+                  >
+                    <SelectTrigger id="build-strategy" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="auto">Automatic</SelectItem>
+                        <SelectItem value="docker">Docker builder</SelectItem>
+                        <SelectItem value="bare">Bare host build</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </FieldGroup>
               {buildConfig.autoDetect !== false ? (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
                   <div className="flex items-start space-x-3">
@@ -2346,6 +2409,7 @@ export function GeneralTab({
                   ...(resource.type === "application"
                     ? [
                         { id: "docker", label: "Docker", icon: Code },
+                        { id: "local", label: "Local folder", icon: Code },
                         { id: "drop", label: "Drag & Drop", icon: Upload },
                       ]
                     : []),
@@ -2361,7 +2425,9 @@ export function GeneralTab({
                   .filter(
                     (prov) =>
                       !isDesktop ||
-                      ["docker", "drop", "git", "raw"].includes(prov.id),
+                      ["docker", "drop", "local", "git", "raw"].includes(
+                        prov.id,
+                      ),
                   )
                   .map((prov) => {
                     const Icon = prov.icon;
@@ -2427,6 +2493,25 @@ export function GeneralTab({
                   <p className="text-muted-foreground text-xs">
                     The selected organization registry is used to authenticate
                     private images during Compose or Stack deployment.
+                  </p>
+                </div>
+              )}
+
+              {providerType === "local" && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="local-project-path">
+                    Local project folder
+                  </Label>
+                  <Input
+                    id="local-project-path"
+                    value={localPath}
+                    onChange={(event) => setLocalPath(event.target.value)}
+                    placeholder="C:\\Users\\you\\Projects\\my-app"
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    The desktop runtime reads this folder for local Docker or
+                    bare builds, then deploys the resulting workload to the
+                    selected remote server.
                   </p>
                 </div>
               )}

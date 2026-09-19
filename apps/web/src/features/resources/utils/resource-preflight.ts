@@ -32,12 +32,17 @@ export function getResourcePreflightErrors(
   secrets: { credentials?: string } | null | undefined,
   servers: (Server | Record<string, any>)[],
   gitProviders: (GitProviderItem | Record<string, any>)[],
-  options?: { isCloud?: boolean },
+  options?: {
+    isCloud?: boolean;
+    platformMode?: "desktop" | "self-hosted" | "cloud";
+  },
 ): PreflightError[] {
   if (!resource) return [];
 
   const errors: PreflightError[] = [];
   const credentials = parseResourceCredentials(secrets?.credentials);
+  const requiresRemoteTarget =
+    options?.isCloud === true || options?.platformMode === "desktop";
 
   // 1. Source Availability & Validation
   if (resource.type === "database") {
@@ -151,6 +156,22 @@ export function getResourcePreflightErrors(
             "Go to General settings and specify a valid Docker image (e.g., nginx:alpine or ghcr.io/org/app:v1).",
         });
       }
+    } else if (resource.provider === "local") {
+      const localPath = credentials?.localPath;
+      if (!localPath || typeof localPath !== "string" || !localPath.trim()) {
+        errors.push({
+          id: "source-app-local-path",
+          category: "source",
+          title: "Local Project Path Missing",
+          message:
+            "No local project folder has been selected for this application.",
+          actionableTip:
+            "Go to General settings and select or enter the local project folder.",
+        });
+      }
+    } else if (resource.provider === "drop") {
+      // The uploaded archive is validated by the deployment worker when the
+      // user starts a deployment.
     } else if (GIT_SOURCE_PROVIDERS.has(resource.provider)) {
       const providerId = credentials?.githubAccount;
       const repo = credentials?.repository;
@@ -200,12 +221,16 @@ export function getResourcePreflightErrors(
   }
 
   // 2. Server Configuration & Credentials
-  if (options?.isCloud && !resource.serverId) {
+  if (
+    requiresRemoteTarget &&
+    (!resource.serverId || ["local", "manager"].includes(resource.serverId))
+  ) {
     errors.push({
       id: "server-unassigned",
       category: "server",
       title: "Deployment Server Unassigned",
-      message: "No deployment server target is assigned to this resource.",
+      message:
+        "Desktop and cloud runtimes require a configured remote deployment server.",
       actionableTip:
         "Go to General settings and select a deployment server target.",
     });

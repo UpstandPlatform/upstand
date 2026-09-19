@@ -1,3 +1,4 @@
+import { parseUpstandConfig } from "@upstand/domain";
 import { flag } from "./args";
 import { UpstandClient } from "./client";
 import {
@@ -65,6 +66,7 @@ export async function runCommand(context: CommandContext): Promise<number> {
       return await controlPlaneCommand(context, output, client, action);
     if (group === "diagnostics")
       return await diagnosticsCommand(context, output, client, action);
+    if (group === "config") return await configCommand(context, output, action);
     throw new Error(
       `Unknown command '${context.positionals.join(" ")}'. Run 'upstand help'.`,
     );
@@ -741,6 +743,57 @@ async function diagnosticsCommand(
   return result.data.ready ? 0 : 4;
 }
 
+async function configCommand(
+  context: CommandContext,
+  output: Output,
+  action: string,
+): Promise<number> {
+  const filename =
+    flag(context, "file") || context.positionals[2] || "upstand.json";
+  if (action === "init") {
+    const file = Bun.file(filename);
+    if ((await file.exists()) && !context.flags.has("force")) {
+      throw new Error(`${filename} already exists; use --force to replace it.`);
+    }
+    const template = {
+      $schema: "https://upstand.dev/upstand.schema.json",
+      build: {
+        strategy: "auto",
+        buildPath: ".",
+        watchPaths: ["src/**", "package.json"],
+      },
+    };
+    await Bun.write(filename, `${JSON.stringify(template, null, 2)}\n`);
+    await output.value(
+      { file: filename, config: template },
+      `Created ${filename}`,
+    );
+    return 0;
+  }
+  if (action === "validate") {
+    const file = Bun.file(filename);
+    if (!(await file.exists())) throw new Error(`${filename} was not found.`);
+    const parsed = parseUpstandConfig(await file.text());
+    if (!parsed.success) {
+      if (context.options.output === "json") {
+        await output.value({
+          valid: false,
+          file: filename,
+          error: parsed.error,
+          issues: parsed.issues,
+        });
+      } else await output.error(`${filename} is invalid: ${parsed.error}`);
+      return 4;
+    }
+    await output.value(
+      { valid: true, file: filename, config: parsed.data },
+      `${filename} is valid`,
+    );
+    return 0;
+  }
+  throw new Error("Supported config commands: init, validate.");
+}
+
 function helpText(): string {
   return `Upstand CLI
 
@@ -772,6 +825,8 @@ Commands:
   control-plane export          Stream an installation export to --file
   control-plane import          Import --file in merge or replace mode
   diagnostics github <repo>     Run redacted GitHub readiness checks
+  config init                   Create a starter upstand.json
+  config validate               Validate upstand.json and show normalized config
   api <procedure>                Call any supported API procedure
 
 Global options:

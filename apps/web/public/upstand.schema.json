@@ -13,6 +13,44 @@
       "type": "object",
       "description": "Build & framework configuration settings.",
       "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["auto", "docker", "bare"],
+          "default": "auto",
+          "description": "Build execution strategy. Bare runs install/build commands on the build host before Docker packaging."
+        },
+        "framework": {
+          "type": "string",
+          "description": "Optional framework override used by auto-detection."
+        },
+        "language": {
+          "type": "string",
+          "enum": ["node", "python", "go", "rust"],
+          "description": "Optional language override for bare builds."
+        },
+        "packageManager": {
+          "type": "string",
+          "enum": ["bun", "npm", "pnpm", "yarn"],
+          "description": "Package manager override for Node/Bun builds."
+        },
+        "installCommand": {
+          "type": "string",
+          "description": "Explicit host-side dependency installation command for bare builds."
+        },
+        "buildCommand": {
+          "type": "string",
+          "description": "Explicit host-side production build command for bare builds."
+        },
+        "startCommand": {
+          "type": "string",
+          "description": "Explicit production entrypoint used when the bare artifact is packaged."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Application port override."
+        },
         "type": {
           "type": "string",
           "enum": [

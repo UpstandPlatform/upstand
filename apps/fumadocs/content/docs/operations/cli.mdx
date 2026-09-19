@@ -67,6 +67,18 @@ upstand control-plane export --file upstand.ndjson
 upstand diagnostics github owner/repository --organization <org-id> --provider <provider-id>
 ```
 
+Project configuration can be initialized and validated locally:
+
+```bash
+upstand config init
+upstand config validate
+upstand config validate --file path/to/upstand.json --json
+```
+
+`config validate` uses the same strict parser as the deployment pipeline. Set
+`build.strategy` to `"bare"` to run detected or explicitly configured commands
+on the build host before Docker image packaging.
+
 Control-plane export/import requires `UPSTAND_SESSION_COOKIE` for an
 instance-owner session with recent 2FA. Put an optional transfer passphrase in
 `UPSTAND_TRANSFER_PASSPHRASE`, never in a command argument. The public CLI

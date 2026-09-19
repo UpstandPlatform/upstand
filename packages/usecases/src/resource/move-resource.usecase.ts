@@ -6,7 +6,7 @@ import {
   ValidationError,
 } from "@upstand/domain";
 import { z } from "zod";
-import { requiresRemoteServerPlacement } from "../platform/platform.types";
+import { requiresRemoteDeploymentServer } from "../platform/platform.types";
 import {
   parseResourceCredentials,
   parseResourceCredentialsStrict,
@@ -137,9 +137,12 @@ export class MoveResourceUseCase {
       ) {
         throw new ValidationError("Resource has an active workload migration");
       }
-      if (requiresRemoteServerPlacement() && !serverId) {
+      if (
+        requiresRemoteDeploymentServer() &&
+        (!serverId || ["local", "manager"].includes(serverId))
+      ) {
         throw new ValidationError(
-          "Cloud resources must remain assigned to a deployment server",
+          "Desktop and cloud resources must remain assigned to a remote deployment server",
         );
       }
 

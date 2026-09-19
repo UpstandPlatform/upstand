@@ -46,6 +46,7 @@ interface ConsoleTabProps {
   };
   organizationId: string;
   containers: ContainerInfo[];
+  runtimeAvailable?: boolean;
   sshKeys?: ResourceDetailState["sshKeys"];
 }
 
@@ -53,6 +54,7 @@ export function ConsoleTab({
   resource,
   organizationId,
   containers,
+  runtimeAvailable = true,
 }: ConsoleTabProps) {
   const [logsLimit] = useState(300);
   const logsQuery = useQuery({
@@ -61,7 +63,8 @@ export function ConsoleTab({
       containerId: undefined, // Queries all containers multiplexed
       tail: logsLimit,
     }),
-    refetchInterval: 4000,
+    enabled: runtimeAvailable,
+    refetchInterval: runtimeAvailable ? 4000 : false,
   });
 
   const realLogs = useMemo(() => {
