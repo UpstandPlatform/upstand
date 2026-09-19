@@ -40,13 +40,6 @@ export function resolvePasskeyConfiguration(
   return { rpID: origin.hostname, origin: origin.origin };
 }
 
-export function resolvePasskeyConfiguration(
-  configuration: Pick<AuthConfiguration, "corsOrigin">,
-): { rpID: string; origin: string } {
-  const origin = new URL(configuration.corsOrigin);
-  return { rpID: origin.hostname, origin: origin.origin };
-}
-
 export interface AuthCallbacks {
   createPersonalOrganization(user: { id: string }): Promise<void>;
   canCreateInitialAccount(): Promise<boolean>;
