@@ -18,7 +18,6 @@ import {
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { log } from "evlog";
 import { z } from "zod";
-import { requiresRemoteServerPlacement } from "../platform/platform.types";
 import {
   requiresRemoteDeploymentServer,
   requiresRemoteServerPlacement,
