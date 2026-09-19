@@ -25,7 +25,7 @@ require_text "$WORKFLOW" 'fetch-depth: 0'
 require_text "$WORKFLOW" 'git merge-base --is-ancestor'
 require_text "$WORKFLOW" 'npm pack'
 require_text "$WORKFLOW" 'scripts/prepare-cli-publish.ts'
-require_text "$WORKFLOW" 'PUBLISH_DIR'
+require_text "$WORKFLOW" 'publish_dir="$RUNNER_TEMP/upstand-cli-package"'
 require_text "$WORKFLOW" 'npm publish --access public --provenance'
 require_text "$WORKFLOW" 'working-directory: ${{ steps.package.outputs.publish_dir }}'
 if grep -Fq -- 'publish "${{ steps.package.outputs.tarball }}"' "$WORKFLOW"; then
