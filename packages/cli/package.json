@@ -33,6 +33,7 @@
     "test": "bun test src"
   },
   "dependencies": {
+    "@upstand/domain": "workspace:*",
     "@opentui/core": "^0.4.5",
     "@opentui/keymap": "^0.4.5",
     "zod": "^4.4.3"
