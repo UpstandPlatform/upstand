@@ -24,8 +24,10 @@ require_text "$WORKFLOW" 'id-token: write'
 require_text "$WORKFLOW" 'fetch-depth: 0'
 require_text "$WORKFLOW" 'git merge-base --is-ancestor'
 require_text "$WORKFLOW" 'npm pack'
+require_text "$WORKFLOW" 'scripts/prepare-cli-publish.ts'
+require_text "$WORKFLOW" 'publish_dir="$RUNNER_TEMP/upstand-cli-package"'
 require_text "$WORKFLOW" 'npm publish --access public --provenance'
-require_text "$WORKFLOW" 'working-directory: ${{ env.PACKAGE_DIR }}'
+require_text "$WORKFLOW" 'working-directory: ${{ steps.package.outputs.publish_dir }}'
 if grep -Fq -- 'publish "${{ steps.package.outputs.tarball }}"' "$WORKFLOW"; then
   echo "npm trusted publishing must publish the package from its working directory" >&2
   exit 1
@@ -45,7 +47,12 @@ require_text "$RUNBOOK" 'npm trusted publishing'
 require_text "$RUNBOOK" 'npm-cli.yml'
 require_text "$README" 'npm install -g @upstand/cli'
 
-node - "$PACKAGE" <<'NODE'
+publish_dir="$(mktemp -d)"
+trap 'rm -rf "$publish_dir"' EXIT
+"${BUN_COMMAND:-bun}" "$ROOT_DIR/scripts/prepare-cli-publish.ts" "$ROOT_DIR/packages/cli" "$publish_dir" >/dev/null
+publish_package="$publish_dir/package.json"
+
+node - "$publish_package" <<'NODE'
 const fs = require("node:fs");
 const packageJson = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const runtimeDependencies = {
@@ -62,6 +69,6 @@ if (invalid.length > 0) {
   process.exit(1);
 }
 NODE
-require_text "$PACKAGE" '"zod": "^4.4.3"'
+require_text "$publish_package" '"zod": "^4.4.3"'
 
 echo "npm CLI release contract passed."

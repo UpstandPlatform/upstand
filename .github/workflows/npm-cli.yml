@@ -80,6 +80,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          publish_dir="$RUNNER_TEMP/upstand-cli-package"
 
           write_output() {
             printf '%s\n' "$1" >> "$GITHUB_OUTPUT"
@@ -137,7 +138,13 @@ jobs:
             exit 1
           }
 
-          pack_json="$(npm pack "./$PACKAGE_DIR" --ignore-scripts --json --pack-destination "$RUNNER_TEMP")"
+          bun scripts/prepare-cli-publish.ts "$PACKAGE_DIR" "$publish_dir"
+          [[ -f "$publish_dir/package.json" && -f "$publish_dir/dist/index.js" ]] || {
+            echo "Prepared CLI publish directory is incomplete" >&2
+            exit 1
+          }
+
+          pack_json="$(npm pack "$publish_dir" --ignore-scripts --json --pack-destination "$RUNNER_TEMP")"
           tarball="$(node -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(value[0].filename)' "$pack_json")"
           tarball="$RUNNER_TEMP/$tarball"
           [[ -f "$tarball" ]] || {
@@ -182,6 +189,7 @@ jobs:
           write_output "package_name=$package_name"
           write_output "package_version=$package_version"
           write_output "tarball=$tarball"
+          write_output "publish_dir=$publish_dir"
 
       - name: Check npm client supports trusted publishing
         if: steps.package.outputs.should_publish == 'true'
@@ -198,5 +206,5 @@ jobs:
 
       - name: Publish @upstand/cli with npm trusted publishing
         if: steps.package.outputs.should_publish == 'true'
-        working-directory: ${{ env.PACKAGE_DIR }}
+        working-directory: ${{ steps.package.outputs.publish_dir }}
         run: npm publish --access public --provenance --tag latest --registry "$NPM_REGISTRY"
