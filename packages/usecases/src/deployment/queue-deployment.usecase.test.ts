@@ -38,7 +38,27 @@ describe("queue deployment", () => {
       new QueueDeploymentUseCase(uow, undefined, "cloud").execute({
         resourceId: currentResource.id,
       }),
-    ).rejects.toThrow("require a remote server");
+    ).rejects.toThrow("require a remote deployment server");
+  });
+
+  test("rejects local deployment targets in desktop mode", async () => {
+    const currentResource = resource({
+      serverId: null,
+      provider: "drop",
+    });
+    const uow = {
+      transaction: async (callback: (tx: unknown) => unknown) =>
+        await callback(uow),
+      resourceRepository: {
+        findById: async () => currentResource,
+      },
+    } as never;
+
+    await expect(
+      new QueueDeploymentUseCase(uow, undefined, "desktop").execute({
+        resourceId: currentResource.id,
+      }),
+    ).rejects.toThrow("require a remote deployment server");
   });
 
   test("rejects local build targets in cloud mode", async () => {
@@ -60,7 +80,7 @@ describe("queue deployment", () => {
       new QueueDeploymentUseCase(uow, undefined, "cloud").execute({
         resourceId: currentResource.id,
       }),
-    ).rejects.toThrow("require a remote server");
+    ).rejects.toThrow("require a remote build server");
   });
 
   test("rejects an unconfigured Git source before creating queue state", async () => {

@@ -19,7 +19,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.2.29",
+      "version": "0.2.33",
       "devDependencies": {
         "@electron-forge/cli": "^7.11.1",
         "@electron-forge/maker-deb": "^7.11.1",
@@ -36,13 +36,13 @@
     },
     "apps/fumadocs": {
       "name": "fumadocs",
-      "version": "0.13.1",
+      "version": "0.13.11",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@openrouter/ai-sdk-provider": "^3.0.0",
         "@upstand/env": "workspace:*",
         "@upstand/redis": "workspace:*",
-        "ai": "^7.0.14",
+        "ai": "7.0.48",
         "class-variance-authority": "^0.7.1",
         "cnfast": "^0.1.0",
         "evlog": "catalog:",
@@ -81,7 +81,7 @@
     },
     "apps/schedules": {
       "name": "schedules",
-      "version": "0.13.1",
+      "version": "0.13.11",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@upstand/api": "workspace:*",
@@ -105,7 +105,7 @@
     },
     "apps/server": {
       "name": "server",
-      "version": "0.13.1",
+      "version": "0.13.11",
       "dependencies": {
         "@circulo-ai/di": "catalog:",
         "@hono/trpc-server": "^0.4.2",
@@ -120,7 +120,7 @@
         "@upstand/redis": "workspace:*",
         "@upstand/repositories": "workspace:*",
         "@upstand/usecases": "workspace:*",
-        "ai": "^7.0.22",
+        "ai": "7.0.48",
         "evlog": "catalog:",
         "hono": "catalog:",
         "ssh2": "^1.17.0",
@@ -138,7 +138,7 @@
     },
     "apps/web": {
       "name": "web",
-      "version": "0.13.1",
+      "version": "0.13.11",
       "dependencies": {
         "@ai-sdk/react": "^4.0.44",
         "@better-auth-ui/core": "catalog:",
@@ -180,7 +180,7 @@
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/xterm": "^6.0.0",
         "@xyflow/react": "*",
-        "ai": "^7.0.22",
+        "ai": "7.0.48",
         "ansi-to-react": "*",
         "babel-plugin-react-compiler": "^1.0.0",
         "better-auth": "catalog:",
@@ -237,7 +237,7 @@
         "@upstand/redis": "workspace:*",
         "@upstand/repositories": "workspace:*",
         "@upstand/usecases": "workspace:*",
-        "ai": "^7.0.22",
+        "ai": "7.0.48",
         "better-auth": "catalog:",
         "bullmq": "^5.81.2",
         "drizzle-orm": "catalog:",
@@ -276,6 +276,7 @@
       "dependencies": {
         "@opentui/core": "^0.4.5",
         "@opentui/keymap": "^0.4.5",
+        "@upstand/domain": "workspace:*",
         "zod": "^4.4.3",
       },
       "devDependencies": {

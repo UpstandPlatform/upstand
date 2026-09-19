@@ -160,6 +160,7 @@ export interface DockerServicePort {
     sshHostKeyFingerprint?: string,
     onBuildResolved?: (artifact: ResolvedBuildArtifact) => Promise<void>,
     resolvedBuildSecrets?: Record<string, string>,
+    localSourcePath?: string,
   ): Promise<void>;
   readComposeFileFromGit(
     resource: Resource,

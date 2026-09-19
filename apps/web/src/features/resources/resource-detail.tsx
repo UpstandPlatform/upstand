@@ -228,14 +228,15 @@ export default function ResourceDetail({
     return logsData.trim().split("\n");
   }, [logsData]);
 
-  const { isCloud } = useSystemConfig();
+  const { isCloud, platformMode } = useSystemConfig();
 
   const preflightErrors = useMemo(
     () =>
       getResourcePreflightErrors(resource, secrets, servers, gitProviders, {
         isCloud,
+        platformMode,
       }),
-    [resource, secrets, servers, gitProviders, isCloud],
+    [resource, secrets, servers, gitProviders, isCloud, platformMode],
   );
 
   const containerList = liveContainers ?? [];
@@ -255,6 +256,9 @@ export default function ResourceDetail({
       : determineResourceRuntimeStatus(resource.status, liveContainers);
   const displayedStatus =
     runtimeStatus === "unknown" ? resource.status : runtimeStatus;
+  const localDesktopResource =
+    platformMode === "desktop" &&
+    (!resource.serverId || ["local", "manager"].includes(resource.serverId));
 
   const Icon = TYPE_ICONS[resource.type] || ComputerIcon;
 
@@ -594,6 +598,7 @@ export default function ResourceDetail({
               resource={resource}
               organizationId={project.organizationId}
               containers={containerList}
+              runtimeAvailable={!localDesktopResource}
             />
           )}
         </TabsContent>
@@ -605,9 +610,13 @@ export default function ResourceDetail({
           <MonitoringTab
             appName={resource.appName ?? resource.name}
             organizationId={project?.organizationId}
-            // Resources created on the control plane use a null serverId;
-            // their monitoring agent is the local agent.
-            serverId={resource.serverId ?? "local"}
+            serverId={
+              platformMode === "desktop" &&
+              (!resource.serverId ||
+                ["local", "manager"].includes(resource.serverId))
+                ? undefined
+                : (resource.serverId ?? "local")
+            }
             statsData={statsData}
             statsError={statsError}
             isLoadingStats={isLoadingStats}

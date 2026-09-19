@@ -279,6 +279,17 @@ export function requiresRemoteServerPlacement(): boolean {
   return getConfiguredControlPlaneMode() === "cloud";
 }
 
+/**
+ * Desktop can build on the local machine, but it never owns a local workload
+ * deployment target. Applications and databases must therefore be assigned
+ * to an organization-owned remote server before they can be deployed.
+ */
+export function requiresRemoteDeploymentServer(
+  mode: ControlPlaneMode = getConfiguredControlPlaneMode(),
+): boolean {
+  return mode === "cloud" || mode === "desktop";
+}
+
 export function getPlatformCapabilities(
   mode: ControlPlaneMode,
   runtimeAvailability: RuntimeAdapterAvailability = DEFAULT_RUNTIME_ADAPTER_AVAILABILITY,

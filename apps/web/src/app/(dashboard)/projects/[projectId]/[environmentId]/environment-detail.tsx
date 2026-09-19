@@ -235,14 +235,14 @@ function ResourceCard({
 function TargetServerField({
   id,
   serverId,
-  isCloud,
+  requiresRemoteTarget,
   servers,
   description,
   onServerChange,
 }: {
   id: string;
   serverId: string;
-  isCloud: boolean;
+  requiresRemoteTarget: boolean;
   servers: ReadonlyArray<Server>;
   description: string;
   onServerChange: (serverId: string) => void;
@@ -256,7 +256,7 @@ function TargetServerField({
       <Label htmlFor={id}>Target Server</Label>
       <Select
         items={[
-          ...(!isCloud
+          ...(!requiresRemoteTarget
             ? [{ value: "local", label: "Local Server (Leader)" }]
             : []),
           ...deployServers.map((server) => ({
@@ -272,12 +272,14 @@ function TargetServerField({
           className="border-border/40 focus:border-primary"
         >
           <SelectValue
-            placeholder={isCloud ? "Select Server" : "Local Server"}
+            placeholder={
+              requiresRemoteTarget ? "Select Server" : "Local Server"
+            }
           />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {!isCloud && (
+            {!requiresRemoteTarget && (
               <SelectItem value="local">Local Server (Leader)</SelectItem>
             )}
             {deployServers.map((server) => (
@@ -361,12 +363,15 @@ function CreateAppDialog({
   const [name, setName] = useState("");
   const [appName, setAppName] = useState("");
   const [description, setDescription] = useState("");
-  const { isCloud } = useSystemConfig();
-  const [serverId, setServerId] = useState(() => (isCloud ? "" : "local"));
+  const { isCloud, platformMode } = useSystemConfig();
+  const requiresRemoteTarget = isCloud || platformMode === "desktop";
+  const [serverId, setServerId] = useState(() =>
+    requiresRemoteTarget ? "" : "local",
+  );
 
   useEffect(() => {
-    setServerId(isCloud ? "" : "local");
-  }, [isCloud]);
+    setServerId(requiresRemoteTarget ? "" : "local");
+  }, [requiresRemoteTarget]);
 
   const { data: servers = [] } = useQuery({
     ...trpc.server.list.queryOptions({ organizationId }),
@@ -389,7 +394,7 @@ function CreateAppDialog({
       setName("");
       setAppName("");
       setDescription("");
-      setServerId(isCloud ? "" : "local");
+      setServerId(requiresRemoteTarget ? "" : "local");
       onOpenChange(false);
       onCreated();
     },
@@ -412,7 +417,7 @@ function CreateAppDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (name.trim() && appName.trim()) {
-              if (isCloud && (!serverId || serverId === "local")) {
+              if (requiresRemoteTarget && (!serverId || serverId === "local")) {
                 toast.error("Please select a target server for deployment.");
                 return;
               }
@@ -442,7 +447,7 @@ function CreateAppDialog({
           <TargetServerField
             id="app-server"
             serverId={serverId}
-            isCloud={isCloud}
+            requiresRemoteTarget={requiresRemoteTarget}
             servers={servers}
             onServerChange={setServerId}
             description="Select which server node in your cluster to deploy this application on."
@@ -521,12 +526,15 @@ function CreateDbDialog({
   );
   const [customImage, setCustomImage] = useState("");
   const [description, setDescription] = useState("");
-  const { isCloud } = useSystemConfig();
-  const [serverId, setServerId] = useState(() => (isCloud ? "" : "local"));
+  const { isCloud, platformMode } = useSystemConfig();
+  const requiresRemoteTarget = isCloud || platformMode === "desktop";
+  const [serverId, setServerId] = useState(() =>
+    requiresRemoteTarget ? "" : "local",
+  );
 
   useEffect(() => {
-    setServerId(isCloud ? "" : "local");
-  }, [isCloud]);
+    setServerId(requiresRemoteTarget ? "" : "local");
+  }, [requiresRemoteTarget]);
 
   const { data: servers = [] } = useQuery({
     ...trpc.server.list.queryOptions({ organizationId }),
@@ -650,7 +658,7 @@ function CreateDbDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (validateForm()) {
-              if (isCloud && (!serverId || serverId === "local")) {
+              if (requiresRemoteTarget && (!serverId || serverId === "local")) {
                 toast.error("Please select a target server for deployment.");
                 return;
               }
@@ -801,7 +809,7 @@ function CreateDbDialog({
             <Label htmlFor="db-server">Target Server</Label>
             <Select
               items={[
-                ...(!isCloud
+                ...(!requiresRemoteTarget
                   ? [{ value: "local", label: "Local Server (Leader)" }]
                   : []),
                 ...(servers ?? [])
@@ -821,12 +829,14 @@ function CreateDbDialog({
             >
               <SelectTrigger id="db-server">
                 <SelectValue
-                  placeholder={isCloud ? "Select Server" : "Local Server"}
+                  placeholder={
+                    requiresRemoteTarget ? "Select Server" : "Local Server"
+                  }
                 />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {!isCloud && (
+                  {!requiresRemoteTarget && (
                     <SelectItem value="local">Local Server (Leader)</SelectItem>
                   )}
                   {servers
@@ -1096,12 +1106,15 @@ function CreateComposeDialog({
     "compose",
   );
   const [description, setDescription] = useState("");
-  const { isCloud } = useSystemConfig();
-  const [serverId, setServerId] = useState(() => (isCloud ? "" : "local"));
+  const { isCloud, platformMode } = useSystemConfig();
+  const requiresRemoteTarget = isCloud || platformMode === "desktop";
+  const [serverId, setServerId] = useState(() =>
+    requiresRemoteTarget ? "" : "local",
+  );
 
   useEffect(() => {
-    setServerId(isCloud ? "" : "local");
-  }, [isCloud]);
+    setServerId(requiresRemoteTarget ? "" : "local");
+  }, [requiresRemoteTarget]);
 
   const { data: servers = [] } = useQuery({
     ...trpc.server.list.queryOptions({ organizationId }),
@@ -1124,7 +1137,7 @@ function CreateComposeDialog({
       setName("");
       setAppName("");
       setDescription("");
-      setServerId(isCloud ? "" : "local");
+      setServerId(requiresRemoteTarget ? "" : "local");
       onOpenChange(false);
       onCreated();
     },
@@ -1147,7 +1160,7 @@ function CreateComposeDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (name.trim() && appName.trim()) {
-              if (isCloud && (!serverId || serverId === "local")) {
+              if (requiresRemoteTarget && (!serverId || serverId === "local")) {
                 toast.error("Please select a target server for deployment.");
                 return;
               }
@@ -1177,7 +1190,7 @@ function CreateComposeDialog({
           <TargetServerField
             id="comp-server"
             serverId={serverId}
-            isCloud={isCloud}
+            requiresRemoteTarget={requiresRemoteTarget}
             servers={servers}
             onServerChange={setServerId}
             description="Select which server node in your cluster to deploy this Compose stack on."

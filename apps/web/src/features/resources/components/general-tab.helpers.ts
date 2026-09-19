@@ -18,6 +18,7 @@ export const RAILPACK_VERSIONS = [
 
 export type ResourceProvider =
   | "docker"
+  | "local"
   | "github"
   | "gitlab"
   | "bitbucket"
@@ -44,6 +45,7 @@ const ResourceCredentialsSchema = z
     watchPaths: z.array(z.string()).optional(),
     enableSubmodules: z.boolean().optional(),
     repositoryUrl: z.string().optional(),
+    localPath: z.string().optional(),
     sshKeyId: z.string().optional(),
     sshHostKeyFingerprint: z.string().optional(),
     composeFile: z.string().optional(),

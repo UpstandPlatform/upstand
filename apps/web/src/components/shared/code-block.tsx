@@ -53,6 +53,8 @@ function normalizeLanguage(language: string): BundledLanguage {
       return "ruby";
     case "ts":
       return "typescript";
+    case "toml":
+      return "ini";
     case "yml":
       return "yaml";
     case "css":
@@ -143,6 +145,7 @@ function getDownloadFilename(
     swift: "swift",
     kotlin: "kt",
     kt: "kt",
+    toml: "toml",
   };
 
   const ext = extMap[lang] || "txt";

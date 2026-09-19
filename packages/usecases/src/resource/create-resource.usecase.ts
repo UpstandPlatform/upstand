@@ -18,7 +18,10 @@ import {
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { log } from "evlog";
 import { z } from "zod";
-import { requiresRemoteServerPlacement } from "../platform/platform.types";
+import {
+  requiresRemoteDeploymentServer,
+  requiresRemoteServerPlacement,
+} from "../platform/platform.types";
 import {
   assertBuildServerSupportsResource,
   assertDeploymentServerSupportsResource,
@@ -88,7 +91,7 @@ export class CreateResourceUseCase {
   constructor(private readonly uow: IUnitOfWork) {}
 
   async execute(input: CreateResourceInput): Promise<Resource> {
-    if (requiresRemoteServerPlacement()) {
+    if (requiresRemoteDeploymentServer()) {
       if (!input.serverId || ["local", "manager"].includes(input.serverId)) {
         throw new ValidationError(
           "Please select a target server for deployment.",
@@ -199,20 +202,21 @@ export class CreateResourceUseCase {
         }
       }
 
-      if (requiresRemoteServerPlacement()) {
+      if (requiresRemoteDeploymentServer()) {
         if (!input.serverId || ["local", "manager"].includes(input.serverId)) {
           throw new ValidationError(
-            "Local server deployments are disabled in Cloud mode. Please select a valid remote server.",
+            "Local server deployments are disabled in this runtime. Please select a valid remote server.",
           );
         }
-        if (
-          input.buildServerId &&
-          ["local", "manager"].includes(input.buildServerId)
-        ) {
-          throw new ValidationError(
-            "Local build server operations are disabled in Cloud mode. Please select a valid remote server.",
-          );
-        }
+      }
+      if (
+        requiresRemoteServerPlacement() &&
+        input.buildServerId &&
+        ["local", "manager"].includes(input.buildServerId)
+      ) {
+        throw new ValidationError(
+          "Local build server operations are disabled in Cloud mode. Please select a valid remote server.",
+        );
       }
 
       if (input.buildServerId) {

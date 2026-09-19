@@ -130,8 +130,16 @@ function toApplicationBuildConfig(
 ): ApplicationBuildConfig | null {
   if (!build.type) return null;
   const common = {
-    autoDetect: false,
+    autoDetect: build.strategy === "auto",
     buildPath: build.buildPath ?? fallbackBuildPath,
+    strategy: build.strategy,
+    framework: build.framework,
+    language: build.language,
+    packageManager: build.packageManager,
+    installCommand: build.installCommand,
+    buildCommand: build.buildCommand,
+    startCommand: build.startCommand,
+    port: build.port,
   };
   switch (build.type) {
     case "dockerfile":

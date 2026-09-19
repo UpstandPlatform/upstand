@@ -7,6 +7,7 @@ import {
   ExecutionRuntimeSchema,
   getPlatformCapabilities,
   PlatformCapabilityError,
+  requiresRemoteDeploymentServer,
   resolveControlPlaneMode,
 } from "./platform.types";
 
@@ -21,6 +22,12 @@ describe("platform types", () => {
     expect(
       resolveControlPlaneMode({ platform: "invalid", isCloud: false }),
     ).toBe("self-hosted");
+  });
+
+  test("requires remote workload targets in desktop and cloud modes only", () => {
+    expect(requiresRemoteDeploymentServer("desktop")).toBe(true);
+    expect(requiresRemoteDeploymentServer("cloud")).toBe(true);
+    expect(requiresRemoteDeploymentServer("self-hosted")).toBe(false);
   });
 
   test("keeps cloud control planes remote-only", () => {

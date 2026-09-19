@@ -49,6 +49,7 @@ function parseProviderConfig(value: string): Record<string, unknown> {
 async function validateDeploymentSource(
   uow: IUnitOfWork,
   resource: Resource,
+  controlPlaneMode: ControlPlaneMode,
 ): Promise<void> {
   const credentials = parseResourceCredentials(resource.credentials);
 
@@ -139,6 +140,20 @@ async function validateDeploymentSource(
 
   if (resource.provider === "drop") return;
 
+  if (resource.provider === "local") {
+    if (controlPlaneMode !== "desktop") {
+      throw new ValidationError(
+        "Local project folders are only supported by the desktop runtime",
+      );
+    }
+    if (!stringField(credentials, "localPath")) {
+      throw new ValidationError(
+        "Local project folder is missing. Select a folder before deploying.",
+      );
+    }
+    return;
+  }
+
   throw new ValidationError(
     `Unsupported deployment provider: ${resource.provider}`,
   );
@@ -181,17 +196,23 @@ export class QueueDeploymentUseCase {
         throw new ValidationError("Resource not found");
       }
       if (
-        this.controlPlaneMode === "cloud" &&
-        (!resource.serverId ||
-          ["local", "manager"].includes(resource.serverId) ||
-          (resource.buildServerId != null &&
-            ["local", "manager"].includes(resource.buildServerId)))
+        ["desktop", "cloud"].includes(this.controlPlaneMode) &&
+        (!resource.serverId || ["local", "manager"].includes(resource.serverId))
       ) {
         throw new ValidationError(
-          "Cloud control planes require a remote server for every deployment",
+          "Desktop and cloud control planes require a remote deployment server",
         );
       }
-      await validateDeploymentSource(tx, resource);
+      if (
+        this.controlPlaneMode === "cloud" &&
+        resource.buildServerId != null &&
+        ["local", "manager"].includes(resource.buildServerId)
+      ) {
+        throw new ValidationError(
+          "Cloud control planes require a remote build server",
+        );
+      }
+      await validateDeploymentSource(tx, resource, this.controlPlaneMode);
       const environment = await tx.environmentRepository.findById(
         resource.environmentId,
       );

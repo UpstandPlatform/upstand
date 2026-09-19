@@ -1,5 +1,15 @@
 # fumadocs
 
+## 0.14.0
+
+### Minor Changes
+
+- [#525](https://github.com/UpstandPlatform/upstand/pull/525) [`0d4dc64`](https://github.com/UpstandPlatform/upstand/commit/0d4dc64d32552e9d3c689c6c7778ba216e8385e5) Thanks [@mhbdev](https://github.com/mhbdev)! - Add production-oriented bare host builds with automatic framework and runtime detection, explicit repository and UI overrides, portable Docker packaging, richer `upstand.json` configuration, local CLI validation commands, and desktop-local source builds that deploy only to configured remote servers.
+
+### Patch Changes
+
+- [#526](https://github.com/UpstandPlatform/upstand/pull/526) [`cd6f6aa`](https://github.com/UpstandPlatform/upstand/commit/cd6f6aa1f3cacd489a3bdf54e8b1bf6bd8a5caf9) Thanks [@mhbdev](https://github.com/mhbdev)! - Add a first-class UpGal MCP configuration panel with runtime-aware endpoints, scoped read-only key creation, and copy-ready configurations for Codex, Claude Code, Gemini/Antigravity, Cursor, VS Code/Copilot, and generic MCP clients.
+
 ## 0.13.11
 
 ### Patch Changes

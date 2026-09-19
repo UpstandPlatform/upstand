@@ -92,6 +92,14 @@ export type UpstandCronConfig = z.infer<typeof UpstandCronConfigSchema>;
 
 export const UpstandBuildConfigSchema = z
   .object({
+    strategy: z.enum(["auto", "docker", "bare"]).optional(),
+    framework: z.string().trim().min(1).max(128).optional(),
+    language: z.enum(["node", "python", "go", "rust"]).optional(),
+    packageManager: z.enum(["bun", "npm", "pnpm", "yarn"]).optional(),
+    installCommand: z.string().trim().min(1).max(4096).optional(),
+    buildCommand: z.string().trim().min(1).max(4096).optional(),
+    startCommand: z.string().trim().min(1).max(4096).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
     type: z
       .enum([
         "dockerfile",

@@ -141,3 +141,5 @@ UpGal exposes a JSON-RPC Model Context Protocol endpoint at `/api/mcp` for exter
 - **Supported Methods**: Standard MCP actions: `initialize`, `tools/list`, and `tools/call`.
 - **Enforced Security**: MCP calls run with the same authorization context as the dashboard. Read-only queries execute instantly, while mutative commands return an "approval-required" payload that must be completed inside the dashboard UI.
 - **Configuration Guides**: For detailed setup in VS Code, Claude Desktop, Claude Code, Cursor, Codex, and Windsurf, see [MCP Server Setup & Editor Integration](/docs/operations/mcp-server).
+
+The quickest setup is available in **Settings → UpGal Settings → MCP server**. The panel resolves the correct `/api/mcp` origin for the current cloud, self-hosted, or desktop-local runtime, creates a scoped read-only key, and provides copy-ready snippets for supported clients. The secret is returned once by the API and is only held in the page while the configuration is visible; revoke or rotate it from **Settings → API Keys**.

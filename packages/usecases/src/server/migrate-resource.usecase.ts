@@ -46,6 +46,14 @@ export class MigrateResourceUseCase {
         `Migration to the local control plane is not enabled for control plane mode '${mode}'`,
       );
     }
+    if (
+      mode === "desktop" &&
+      ["local", "manager"].includes(input.targetServerId)
+    ) {
+      throw new Error(
+        "Desktop workloads must be deployed to a configured remote server",
+      );
+    }
 
     return this.uow.transaction(async (tx) => {
       const resource = await tx.resourceRepository.findById(input.resourceId);

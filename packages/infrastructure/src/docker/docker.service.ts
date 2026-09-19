@@ -1808,6 +1808,7 @@ export class DockerService implements DockerSwarmManagementPort {
     sshHostKeyFingerprint?: string,
     onBuildResolved?: (artifact: ResolvedBuildArtifact) => Promise<void>,
     resolvedBuildSecrets?: Record<string, string>,
+    localSourcePath?: string,
   ): Promise<void> {
     let currentResource = resource;
     const serviceName = this.sanitizeName(
@@ -1822,7 +1823,13 @@ export class DockerService implements DockerSwarmManagementPort {
     ).id;
 
     const buildDir = path.join(process.cwd(), ".builds");
-    const clonePath = path.join(buildDir, currentResource.id);
+    // Resource identifiers originate at the application boundary. Keep the
+    // workspace name opaque and filesystem-safe before it reaches Docker CLI
+    // arguments or any generated build paths.
+    const workspaceKey = createHash("sha256")
+      .update(currentResource.id)
+      .digest("hex");
+    const clonePath = path.join(buildDir, workspaceKey);
     const sourceConfig = parseResourceAdvancedConfig(
       currentResource.advancedConfig,
     ).source;
@@ -1833,7 +1840,7 @@ export class DockerService implements DockerSwarmManagementPort {
         process.cwd(),
         ".builds",
         "drops",
-        currentResource.id,
+        workspaceKey,
       );
       if (!fs.existsSync(dropsDir)) {
         throw new Error(
@@ -1847,6 +1854,32 @@ export class DockerService implements DockerSwarmManagementPort {
       fs.mkdirSync(clonePath, { recursive: true });
       onLog("Copying files from uploaded ZIP payload...\n");
       fs.cpSync(dropsDir, clonePath, { recursive: true });
+    } else if (currentResource.provider === "local") {
+      if (!localSourcePath) {
+        throw new Error(
+          "Local project folder is missing. Select a folder before deploying.",
+        );
+      }
+      const sourcePath = path.resolve(localSourcePath);
+      if (
+        !fs.existsSync(sourcePath) ||
+        !fs.statSync(sourcePath).isDirectory()
+      ) {
+        throw new Error(`Local project folder does not exist: ${sourcePath}`);
+      }
+      if (fs.existsSync(clonePath)) {
+        onLog("Cleaning up old workspace directory...\n");
+        fs.rmSync(clonePath, { recursive: true, force: true });
+      }
+      fs.mkdirSync(clonePath, { recursive: true });
+      onLog("Copying files from the local project folder...\n");
+      fs.cpSync(sourcePath, clonePath, {
+        recursive: true,
+        filter: (source) => {
+          const entryName = path.basename(source);
+          return entryName !== ".git" && entryName !== "node_modules";
+        },
+      });
     } else {
       let branch = "main";
       let submodules = false;
@@ -2044,7 +2077,7 @@ export class DockerService implements DockerSwarmManagementPort {
           );
         }
         const sourceIdentity =
-          sourceRevision?.trim() || this.resolveGitHead(clonePath);
+          sourceRevision?.trim() || this.resolveSourceIdentity(clonePath);
         const configurationVersion = `sha256:${createHash("sha256")
           .update(JSON.stringify(buildConfig))
           .digest("hex")}`;
@@ -2151,10 +2184,33 @@ export class DockerService implements DockerSwarmManagementPort {
     const revision = result.success
       ? new TextDecoder().decode(result.stdout).trim()
       : "";
-    if (!/^[0-9a-f]{40,64}$/i.test(revision)) {
-      throw new Error("Unable to resolve the immutable source revision");
+    if (/^[0-9a-f]{40,64}$/i.test(revision)) return revision;
+    throw new Error("Unable to resolve the immutable source revision");
+  }
+
+  private resolveSourceIdentity(sourcePath: string): string {
+    try {
+      return this.resolveGitHead(sourcePath);
+    } catch {
+      const digest = createHash("sha256");
+      const visit = (directory: string, relativeDirectory: string) => {
+        for (const entry of fs
+          .readdirSync(directory, { withFileTypes: true })
+          .sort((left, right) => left.name.localeCompare(right.name))) {
+          if (entry.name === ".git" || entry.name === "node_modules") continue;
+          const absolute = path.join(directory, entry.name);
+          const relative = path.join(relativeDirectory, entry.name);
+          if (entry.isDirectory()) {
+            visit(absolute, relative);
+          } else if (entry.isFile()) {
+            digest.update(relative.replaceAll(path.sep, "/"));
+            digest.update(fs.readFileSync(absolute));
+          }
+        }
+      };
+      visit(sourcePath, ".");
+      return digest.digest("hex");
     }
-    return revision;
   }
 
   async readComposeFileFromGit(
@@ -2466,6 +2522,18 @@ export class DockerService implements DockerSwarmManagementPort {
     buildSecrets: Record<string, string>,
     preserveForRollback: boolean,
   ): Promise<void> {
+    if (config.strategy === "bare") {
+      await this.buildBareApplicationImage(
+        resourceId,
+        clonePath,
+        imageName,
+        config,
+        envVars,
+        onLog,
+        preserveForRollback,
+      );
+      return;
+    }
     switch (config.type) {
       case "dockerfile":
         await this.buildDockerfileImage(
@@ -2538,6 +2606,179 @@ export class DockerService implements DockerSwarmManagementPort {
         );
         return;
     }
+  }
+
+  private async buildBareApplicationImage(
+    resourceId: string,
+    clonePath: string,
+    imageName: string,
+    config: ApplicationBuildConfig,
+    envVars: Record<string, string>,
+    onLog: (log: string) => void,
+    preserveForRollback: boolean,
+  ): Promise<void> {
+    const buildPath = this.resolveBuildPath(
+      clonePath,
+      config.buildPath,
+      "Build path",
+    );
+    const shell = process.platform === "win32" ? "cmd.exe" : "sh";
+    const shellArgs = (command: string) =>
+      process.platform === "win32"
+        ? ["/d", "/s", "/c", command]
+        : ["-lc", command];
+    const run = async (command: string, label: string) => {
+      onLog(`[Bare Build] ${label} command starting.\n`);
+      await this.runCommandAsync(
+        shell,
+        shellArgs(command),
+        onLog,
+        this.getBuildEnvironment(envVars, resourceId),
+        { cwd: buildPath, redactions: Object.values(envVars) },
+      );
+    };
+    const language = config.language ?? "node";
+    const manager = config.packageManager ?? "npm";
+    const hasLockfile =
+      language !== "node" ||
+      (manager === "bun"
+        ? fs.existsSync(path.join(buildPath, "bun.lock")) ||
+          fs.existsSync(path.join(buildPath, "bun.lockb"))
+        : manager === "pnpm"
+          ? fs.existsSync(path.join(buildPath, "pnpm-lock.yaml"))
+          : manager === "yarn"
+            ? fs.existsSync(path.join(buildPath, "yarn.lock"))
+            : fs.existsSync(path.join(buildPath, "package-lock.json")) ||
+              fs.existsSync(path.join(buildPath, "npm-shrinkwrap.json")));
+    const install =
+      config.installCommand ??
+      (language === "node"
+        ? manager === "bun"
+          ? hasLockfile
+            ? "bun install --frozen-lockfile"
+            : "bun install"
+          : manager === "pnpm"
+            ? hasLockfile
+              ? "pnpm install --frozen-lockfile"
+              : "pnpm install"
+            : manager === "yarn"
+              ? hasLockfile
+                ? "yarn install --immutable"
+                : "yarn install"
+              : hasLockfile
+                ? "npm ci"
+                : "npm install"
+        : language === "python"
+          ? fs.existsSync(path.join(buildPath, "requirements.txt"))
+            ? "python -m pip install -r requirements.txt"
+            : "python -m pip install ."
+          : language === "go"
+            ? "go mod download"
+            : "cargo fetch --locked");
+    const build =
+      config.buildCommand ??
+      (language === "node"
+        ? `${manager} run build`
+        : language === "go"
+          ? "go build -o .upstand-artifact ./..."
+          : language === "rust"
+            ? "cargo build --release --locked"
+            : "");
+    await run(install, "install");
+    if (build) await run(build, "build");
+    const start =
+      config.startCommand ??
+      (language === "node"
+        ? `${manager} run start`
+        : language === "go"
+          ? "./.upstand-artifact"
+          : language === "rust"
+            ? `./target/release/${this.resolveRustBinaryName(buildPath)}`
+            : language === "python"
+              ? "python app.py"
+              : "");
+    if (!start)
+      throw new Error(
+        "Bare build requires build.startCommand for this project.",
+      );
+    const generatedDockerfile = path.join(
+      clonePath,
+      ".upstand-bare.Dockerfile",
+    );
+    const base =
+      language === "python"
+        ? "python:3.13-slim"
+        : language === "node"
+          ? manager === "bun"
+            ? "oven/bun:1.3.14"
+            : "node:22-bookworm-slim"
+          : "debian:bookworm-slim";
+    const runtimeSetup =
+      language === "node" && (manager === "pnpm" || manager === "yarn")
+        ? ["RUN corepack enable"]
+        : language === "python"
+          ? fs.existsSync(path.join(buildPath, "requirements.txt"))
+            ? ["RUN python -m pip install --no-cache-dir -r requirements.txt"]
+            : fs.existsSync(path.join(buildPath, "pyproject.toml"))
+              ? ["RUN python -m pip install --no-cache-dir ."]
+              : []
+          : [];
+    const runtimeDependencies =
+      language === "node"
+        ? manager === "bun"
+          ? [`RUN bun install${hasLockfile ? " --frozen-lockfile" : ""}`]
+          : manager === "pnpm"
+            ? [
+                `RUN pnpm install --prod${hasLockfile ? " --frozen-lockfile" : ""}`,
+              ]
+            : manager === "yarn"
+              ? [
+                  `RUN yarn install --production${hasLockfile ? " --immutable" : ""}`,
+                ]
+              : ["RUN npm install --omit=dev"]
+        : [];
+    const relativeBuildPath =
+      path.relative(clonePath, buildPath).split(path.sep).join("/") || ".";
+    fs.writeFileSync(
+      generatedDockerfile,
+      [
+        `FROM ${base}`,
+        "WORKDIR /app",
+        "COPY . /app",
+        `WORKDIR /app/${relativeBuildPath}`,
+        ...runtimeSetup,
+        ...runtimeDependencies,
+        ...(config.port ? [`EXPOSE ${config.port}`] : []),
+        `CMD ["/bin/sh", "-lc", ${JSON.stringify(start)}]`,
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    try {
+      const args = ["build", "--file", generatedDockerfile, "--tag", imageName];
+      if (preserveForRollback)
+        args.push("--label", "com.upstand.rollback.keep=true");
+      args.push(clonePath);
+      onLog(`Packaging bare build as Docker image ${imageName}...\n`);
+      await this.runCommandAsync("docker", args, onLog, undefined, {
+        resourceId,
+        redactions: Object.values(envVars),
+      });
+    } finally {
+      fs.rmSync(generatedDockerfile, { force: true });
+    }
+  }
+
+  private resolveRustBinaryName(buildPath: string): string {
+    const cargoPath = path.join(buildPath, "Cargo.toml");
+    try {
+      const cargo = fs.readFileSync(cargoPath, "utf8");
+      const match = cargo.match(/^name\s*=\s*["']([^"']+)["']/m);
+      if (match?.[1] && /^[A-Za-z0-9_-]+$/.test(match[1])) return match[1];
+    } catch {
+      // An explicit startCommand remains the escape hatch for workspaces.
+    }
+    return "app";
   }
 
   private getRuntimeCommand(clonePath: string): string[] | undefined {
@@ -4707,6 +4948,7 @@ export class DockerService implements DockerSwarmManagementPort {
       timeoutMs?: number;
       inheritEnvironment?: boolean;
       maxOutputBytes?: number;
+      cwd?: string;
     } = {},
   ): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -4737,6 +4979,7 @@ export class DockerService implements DockerSwarmManagementPort {
       const p = spawn(cmd, args, {
         shell: false,
         env: commandEnvironment,
+        cwd: options.cwd,
       });
 
       if (options.stdin !== undefined) p.stdin.end(options.stdin);
