@@ -1823,7 +1823,13 @@ export class DockerService implements DockerSwarmManagementPort {
     ).id;
 
     const buildDir = path.join(process.cwd(), ".builds");
-    const clonePath = path.join(buildDir, currentResource.id);
+    // Resource identifiers originate at the application boundary. Keep the
+    // workspace name opaque and filesystem-safe before it reaches Docker CLI
+    // arguments or any generated build paths.
+    const workspaceKey = createHash("sha256")
+      .update(currentResource.id)
+      .digest("hex");
+    const clonePath = path.join(buildDir, workspaceKey);
     const sourceConfig = parseResourceAdvancedConfig(
       currentResource.advancedConfig,
     ).source;
@@ -1834,7 +1840,7 @@ export class DockerService implements DockerSwarmManagementPort {
         process.cwd(),
         ".builds",
         "drops",
-        currentResource.id,
+        workspaceKey,
       );
       if (!fs.existsSync(dropsDir)) {
         throw new Error(
