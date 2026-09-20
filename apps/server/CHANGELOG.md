@@ -1,5 +1,11 @@
 # server
 
+## 0.14.5
+
+### Patch Changes
+
+- [#545](https://github.com/UpstandPlatform/upstand/pull/545) [`f3d3006`](https://github.com/UpstandPlatform/upstand/commit/f3d300693fddd62a33830b18519987fe46f6c846) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep production readiness healthy during short-lived monitoring collection failures while the last successful sample is still fresh.
+
 ## 0.14.4
 
 ### Patch Changes
