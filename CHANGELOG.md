@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.5 - 2026-09-20
+
+Keep production readiness healthy during short-lived monitoring collection failures while the last successful sample is still fresh.
+
+
 ## 0.14.4 - 2026-09-20
 
 Improve desktop-local project selection, build detection overrides, resource cleanup, pre-flight presentation, and MCP key scope selection.
