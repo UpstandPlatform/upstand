@@ -1,5 +1,11 @@
 # desktop
 
+## 0.3.1
+
+### Patch Changes
+
+- [#541](https://github.com/UpstandPlatform/upstand/pull/541) [`31f7abe`](https://github.com/UpstandPlatform/upstand/commit/31f7abeb4077a6818de0a4c8a82db9c4495f42f1) Thanks [@mhbdev](https://github.com/mhbdev)! - Improve desktop-local project selection, build detection overrides, resource cleanup, pre-flight presentation, and MCP key scope selection.
+
 ## 0.3.0
 
 ### Minor Changes
