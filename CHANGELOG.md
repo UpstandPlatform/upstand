@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.6 - 2026-09-20
+
+Fix password-authenticated remote server onboarding and terminal sessions, make remote Docker checks work through passwordless sudo when required, and make Docker Engine repository installation safe to retry after partial failures.
+
+
 ## 0.14.5 - 2026-09-20
 
 Keep production readiness healthy during short-lived monitoring collection failures while the last successful sample is still fresh.
