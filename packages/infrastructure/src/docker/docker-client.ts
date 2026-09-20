@@ -183,6 +183,12 @@ export interface RemoteDockerConnection {
   hostKeyFingerprint?: string;
 }
 
+export function buildRemoteDockerDialCommand(username: string): string {
+  return username === "root"
+    ? "docker system dial-stdio"
+    : "sudo -n docker system dial-stdio";
+}
+
 function assertSafeRemoteConnection(
   connection: RemoteDockerConnection,
 ): string {
@@ -283,31 +289,34 @@ function ensureRemoteDockerProxy(
     };
     client
       .once("ready", () => {
-        client.exec("docker system dial-stdio", (error, stream) => {
-          if (error) return fail();
-          targetStream = stream;
-          stream.stderr?.resume?.();
-          for (const chunk of bufferedChunks) {
-            stream.write(chunk);
-          }
-          bufferedChunks.length = 0;
-          streamReady = true;
-          if (socketEnded) {
-            targetStream.end();
-          }
+        client.exec(
+          buildRemoteDockerDialCommand(connection.username),
+          (error, stream) => {
+            if (error) return fail();
+            targetStream = stream;
+            stream.stderr?.resume?.();
+            for (const chunk of bufferedChunks) {
+              stream.write(chunk);
+            }
+            bufferedChunks.length = 0;
+            streamReady = true;
+            if (socketEnded) {
+              targetStream.end();
+            }
 
-          stream.on("data", (chunk: Buffer) => {
-            socket.write(chunk);
-          });
-          stream.once("end", () => {
-            socket.end();
-          });
-          stream.once("close", () => {
-            socket.end();
-            client.end();
-          });
-          stream.once("error", fail);
-        });
+            stream.on("data", (chunk: Buffer) => {
+              socket.write(chunk);
+            });
+            stream.once("end", () => {
+              socket.end();
+            });
+            stream.once("close", () => {
+              socket.end();
+              client.end();
+            });
+            stream.once("error", fail);
+          },
+        );
       })
       .once("error", fail)
       .connect({

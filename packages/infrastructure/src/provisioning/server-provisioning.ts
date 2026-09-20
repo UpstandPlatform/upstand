@@ -50,10 +50,15 @@ export function createServerProvisioningPort(): ServerProvisioningPort {
       });
 
       // Run docker info via SSH to avoid the Unix socket proxy (not supported on Windows).
+      const dockerCommand =
+        server.username === "root" ? "docker" : "sudo -n docker";
       const dockerInfoViaSsh = async (): Promise<{
         Swarm?: { LocalNodeState?: string };
       }> => {
-        const result = await execute(client, "docker info --format json");
+        const result = await execute(
+          client,
+          `${dockerCommand} info --format json`,
+        );
         if (result.code !== 0) {
           throw new Error(
             `docker info failed (code ${result.code}): ${result.stderr.trim()}`,

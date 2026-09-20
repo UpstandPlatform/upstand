@@ -44,7 +44,7 @@ export function WebServerTerminalDialog({
     ...trpc.sshKey.list.queryOptions({
       organizationId: organization?.id as string,
     }),
-    enabled: Boolean(organization?.id && open),
+    enabled: Boolean(organization?.id && open && !serverId),
   });
 
   const { data: server } = useQuery({
@@ -61,6 +61,9 @@ export function WebServerTerminalDialog({
   const [token, setToken] = useState<string | null>(null);
   const [requestingSession, setRequestingSession] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
+  const usesStoredServerCredentials = Boolean(serverId);
+  const serverAuthenticationLabel =
+    server?.authType === "password" ? "stored SSH password" : "stored SSH key";
 
   const connecting =
     requestingSession || Boolean(token !== null && !sessionReady);
@@ -93,7 +96,7 @@ export function WebServerTerminalDialog({
 
   const connect = async () => {
     if (!organization?.id) return;
-    if (!serverId && !keyId) {
+    if (!usesStoredServerCredentials && !keyId) {
       toast.error("Choose an SSH key first");
       return;
     }
@@ -155,7 +158,7 @@ export function WebServerTerminalDialog({
       title={server ? `Terminal for ${server.name}` : "Control-plane terminal"}
       description={
         server
-          ? `Secure SSH access to ${server.name} (${server.ipAddress}). Your private key stays encrypted on the server.`
+          ? `Secure SSH access to ${server.name} (${server.ipAddress}) using the ${serverAuthenticationLabel}.`
           : "Secure SSH access to the configured control-plane server. Your private key stays encrypted on the server."
       }
       token={token}
@@ -166,7 +169,11 @@ export function WebServerTerminalDialog({
           ? `${username.trim() || "root"}@${server.name}`
           : `${username.trim() || "root"}@control-plane`
       }
-      emptyMessage="Choose a key and confirm the SSH details to open a session."
+      emptyMessage={
+        server
+          ? "Confirm the server connection details to open a session."
+          : "Choose a key and confirm the SSH details to open a session."
+      }
       onTerminalReady={() => setSessionReady(true)}
       onTerminalClose={(reason) => {
         disconnect();
@@ -185,50 +192,52 @@ export function WebServerTerminalDialog({
           }}
         >
           <FieldGroup className="grid grid-cols-2 gap-4">
-            <Field className="col-span-2">
-              <FieldLabel htmlFor="control-plane-ssh-key">SSH key</FieldLabel>
-              <Select
-                items={keys.map((key) => ({
-                  value: key.id,
-                  label: key.name,
-                }))}
-                value={keyId}
-                onValueChange={(value) => setKeyId(value ?? "")}
-                disabled={Boolean(token)}
-              >
-                <SelectTrigger
-                  id="control-plane-ssh-key"
-                  className="w-full min-w-0"
+            {!usesStoredServerCredentials && (
+              <Field className="col-span-2">
+                <FieldLabel htmlFor="control-plane-ssh-key">SSH key</FieldLabel>
+                <Select
+                  items={keys.map((key) => ({
+                    value: key.id,
+                    label: key.name,
+                  }))}
+                  value={keyId}
+                  onValueChange={(value) => setKeyId(value ?? "")}
+                  disabled={Boolean(token)}
                 >
-                  <HugeiconsIcon icon={Key01Icon} />
-                  <SelectValue placeholder="Select an SSH key" />
-                </SelectTrigger>
-                <SelectContent align="start">
-                  <SelectGroup>
-                    {keys.map(
-                      (key: {
-                        id: string;
-                        name: string;
-                        fingerprint: string;
-                      }) => (
-                        <SelectItem
-                          key={key.id}
-                          value={key.id}
-                          title={`${key.name} · ${key.fingerprint}`}
-                        >
-                          <span className="max-w-40 truncate sm:max-w-72">
-                            {key.name}
-                          </span>
-                          <span className="max-w-28 truncate font-mono text-muted-foreground text-xs sm:max-w-52">
-                            {key.fingerprint}
-                          </span>
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
+                  <SelectTrigger
+                    id="control-plane-ssh-key"
+                    className="w-full min-w-0"
+                  >
+                    <HugeiconsIcon icon={Key01Icon} />
+                    <SelectValue placeholder="Select an SSH key" />
+                  </SelectTrigger>
+                  <SelectContent align="start">
+                    <SelectGroup>
+                      {keys.map(
+                        (key: {
+                          id: string;
+                          name: string;
+                          fingerprint: string;
+                        }) => (
+                          <SelectItem
+                            key={key.id}
+                            value={key.id}
+                            title={`${key.name} · ${key.fingerprint}`}
+                          >
+                            <span className="max-w-40 truncate sm:max-w-72">
+                              {key.name}
+                            </span>
+                            <span className="max-w-28 truncate font-mono text-muted-foreground text-xs sm:max-w-52">
+                              {key.fingerprint}
+                            </span>
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
 
             <Field className="col-span-2 sm:col-span-1">
               <FieldLabel htmlFor="control-plane-username">Username</FieldLabel>
