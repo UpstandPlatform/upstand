@@ -1424,7 +1424,7 @@ export function RemoteServerWizard({
                 onClick={() => setStep(2)}
                 className="w-full font-semibold sm:w-auto"
               >
-                Next: SSH Key Setup
+                Next: Authentication
                 <ArrowRightIcon data-icon="inline-end" />
               </Button>
             )}
@@ -1433,7 +1433,11 @@ export function RemoteServerWizard({
               <Button
                 size="sm"
                 onClick={() => {
-                  if (!selectedSshKeyId && !activeSshKey?.id) {
+                  if (
+                    authType === "ssh_key" &&
+                    !selectedSshKeyId &&
+                    !activeSshKey?.id
+                  ) {
                     toast.error(
                       "Please select or generate an SSH key to continue",
                     );

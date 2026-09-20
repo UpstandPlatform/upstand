@@ -167,7 +167,7 @@ export class SetupServerUseCase {
         message: `[Server Setup] Checking Docker installation on ${server.ipAddress}`,
       });
       try {
-        const dockerVersion = await executeCommand("docker --version");
+        const dockerVersion = await privileged("docker --version");
         await progress(
           "Checking Docker installation",
           `Docker already installed: ${dockerVersion.trim()}`,
@@ -722,10 +722,10 @@ export function buildDockerInstallCommand(
     privileged(
       "env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg",
     ),
-    'key_tmp=$(mktemp); keyring_tmp=$(mktemp); source_tmp=$(mktemp); trap \'rm -f "$key_tmp" "$keyring_tmp" "$source_tmp"\' EXIT',
+    'key_tmp=$(mktemp); keyring_tmp=$(mktemp); source_tmp=$(mktemp); rm -f "$keyring_tmp" "$source_tmp"; trap \'rm -f "$key_tmp" "$keyring_tmp" "$source_tmp"\' EXIT',
     'curl --fail --silent --show-error --location --proto "=https" --tlsv1.2 https://download.docker.com/linux/$docker_repo/gpg -o "$key_tmp"',
     `key_fingerprint=$(gpg --batch --show-keys --with-colons "$key_tmp" | awk -F: '$1 == "fpr" { print toupper($10); exit }'); test "$key_fingerprint" = "${DOCKER_GPG_KEY_FINGERPRINT}" || { echo "Docker repository key fingerprint mismatch" >&2; exit 1; }`,
-    `gpg --batch --dearmor -o "$keyring_tmp" "$key_tmp"`,
+    `gpg --batch --yes --dearmor -o "$keyring_tmp" "$key_tmp"`,
     privileged("install -m 0755 -d /etc/apt/keyrings"),
     privileged('install -m 0644 "$keyring_tmp" /etc/apt/keyrings/docker.gpg'),
     'printf "Types: deb\\nURIs: https://download.docker.com/linux/%s\\nSuites: %s\\nComponents: stable\\nArchitectures: %s\\nSigned-By: /etc/apt/keyrings/docker.gpg\\n" "$docker_repo" "$VERSION_CODENAME" "$(dpkg --print-architecture)" > "$source_tmp"',
@@ -779,6 +779,13 @@ function toSetupErrorMessage(error: unknown): string {
   }
   if (/ECONNREFUSED|Cannot connect to the Docker daemon/i.test(message)) {
     return `Docker refused the connection on the remote server. Verify that Docker is running and its local socket is available (for example, run 'sudo systemctl status docker' and 'sudo docker info' on the server), then retry setup. ${EXISTING_SWARM_SETUP_GUIDANCE}`;
+  }
+  if (
+    /docker(?:\.exe)?:?\s+command not found|command not found:\s*docker/i.test(
+      message,
+    )
+  ) {
+    return "Docker is not installed or is not available to the remote SSH user. Retry server setup after Docker installation completes, then run the verification again.";
   }
   if (
     /advertise|advertised address|address.*(available|assigned|bound)/i.test(
