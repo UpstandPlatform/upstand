@@ -77,8 +77,8 @@ func TestControlPlaneCollectionPersistsEveryReplicaAndReportsRecovery(t *testing
 	}
 	failed.Store(true)
 	cm.collectMetrics()
-	if cm.Healthy() {
-		t.Fatal("collection failure must degrade health")
+	if !cm.Healthy() {
+		t.Fatal("a transient collection failure must preserve health while the sample is fresh")
 	}
 	samples, _ = db.GetLastNContainerMetrics("", 10)
 	if len(samples) != 2 {
