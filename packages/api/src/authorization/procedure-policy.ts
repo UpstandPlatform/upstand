@@ -21,6 +21,7 @@ export const SESSION_ONLY_PROCEDURES = [
   "apiKey.revoke",
   "apiKey.update",
   "auth.isSession2faVerified",
+  "application.detectBuild",
   "backup.verifyRun",
   "backup.createWebServerSchedule",
   "backup.deleteWebServerSchedule",

@@ -14,6 +14,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@upstand/ui/components/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@upstand/ui/components/collapsible";
 import { Label } from "@upstand/ui/components/label";
 import {
   Select,
@@ -160,6 +165,7 @@ export default function ResourceDetail({
   const [activeTab, setActiveTab] = useState(
     requestedTab && RESOURCE_TABS.has(requestedTab) ? requestedTab : "general",
   );
+  const [preflightOpen, setPreflightOpen] = useState(false);
 
   useEffect(() => {
     if (requestedTab && RESOURCE_TABS.has(requestedTab)) {
@@ -321,42 +327,48 @@ export default function ResourceDetail({
 
       {/* Pre-flight & Configuration Errors Alert Banner */}
       {preflightErrors.length > 0 && (
-        <Card className="border-destructive/30 bg-destructive/5 p-4 shadow-sm dark:bg-destructive/10">
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 font-semibold text-destructive text-sm">
-              <AlertTriangleIcon className="size-5 shrink-0" />
-              <span>
-                Configuration & Pre-flight Issues Detected (
-                {preflightErrors.length})
+        <Card className="border-destructive/30 bg-destructive/5 shadow-sm dark:bg-destructive/10">
+          <Collapsible open={preflightOpen} onOpenChange={setPreflightOpen}>
+            <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 p-3 text-left">
+              <span className="flex min-w-0 items-center gap-2 font-semibold text-destructive text-sm">
+                <AlertTriangleIcon className="size-4 shrink-0" />
+                <span className="truncate">
+                  {preflightErrors.length} configuration issue
+                  {preflightErrors.length === 1 ? "" : "s"} block deployment
+                </span>
               </span>
-            </div>
-            <p className="text-muted-foreground text-xs">
-              Deployment cannot proceed until the following configuration issues
-              are resolved:
-            </p>
-            <div className="space-y-2">
-              {preflightErrors.map((err) => (
-                <div
-                  key={err.id}
-                  className="flex flex-col gap-1 rounded-lg border border-border/40 bg-background/60 p-3 text-xs"
-                >
-                  <div className="flex items-center justify-between font-medium text-foreground">
-                    <span>{err.title}</span>
-                    <Badge
-                      variant="outline"
-                      className="font-mono text-[10px] uppercase"
-                    >
-                      {err.category}
-                    </Badge>
+              <span className="shrink-0 text-muted-foreground text-xs">
+                {preflightOpen ? "Hide details" : "Show details"}
+              </span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="border-border/30 border-t px-3 pt-3 pb-3">
+              <p className="mb-2 text-muted-foreground text-xs">
+                Resolve these checks before deploying.
+              </p>
+              <div className="space-y-2">
+                {preflightErrors.map((err) => (
+                  <div
+                    key={err.id}
+                    className="flex flex-col gap-1 rounded-lg border border-border/40 bg-background/60 p-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2 font-medium text-foreground">
+                      <span>{err.title}</span>
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-[10px] uppercase"
+                      >
+                        {err.category}
+                      </Badge>
+                    </div>
+                    <p className="text-muted-foreground">{err.message}</p>
+                    <p className="mt-0.5 font-medium text-[11px] text-primary">
+                      👉 {err.actionableTip}
+                    </p>
                   </div>
-                  <p className="text-muted-foreground">{err.message}</p>
-                  <p className="mt-0.5 font-medium text-[11px] text-primary">
-                    👉 {err.actionableTip}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </Card>
       )}
 

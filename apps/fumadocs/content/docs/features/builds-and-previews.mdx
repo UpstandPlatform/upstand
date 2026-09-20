@@ -20,6 +20,23 @@ Paths are relative to the source checkout. Keep the build path, Docker context, 
 
 Build secrets are distinct from ordinary build arguments. Use a secret when a value must be available during a build without becoming ordinary runtime configuration or a final image layer.
 
+## Desktop-local build hosts
+
+In the desktop-local runtime, the deployment target is always a server that the
+user has added to Upstand. The desktop itself is a build host only: it cannot
+receive the deployed application or database resource. For a local source
+resource, use the **Browse** action beside the project-folder field to select a
+folder from the PC. The same folder can be built with Docker or with a bare
+host command flow when Docker is unavailable or not desired.
+
+When auto-detection is enabled, Upstand shows the detected framework, builder,
+commands, confidence, and evidence files in the resource editor. Build path,
+builder type, install/build/start commands, port, and strategy remain editable;
+an explicit value is retained as the operator override while detection fills
+the remaining defaults. The editor's preview is local-runtime only; remote
+Git-backed builds still perform detection from the checked-out source on the
+selected build server.
+
 ---
 
 ### Distributed BuildKit Remote Caching (`--cache-from` / `--cache-to`)

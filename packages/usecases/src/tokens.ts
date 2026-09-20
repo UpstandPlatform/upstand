@@ -233,6 +233,10 @@ export const DeleteResourceUseCaseToken =
   createToken<UseCases.DeleteResourceUseCase>("DeleteResourceUseCase");
 export const DeployResourceUseCaseToken =
   createToken<UseCases.DeployResourceUseCase>("DeployResourceUseCase");
+export const DetectApplicationBuildUseCaseToken =
+  createToken<UseCases.DetectApplicationBuildUseCase>(
+    "DetectApplicationBuildUseCase",
+  );
 export const ControlResourceUseCaseToken =
   createToken<UseCases.ControlResourceUseCase>("ControlResourceUseCase");
 export const RollbackResourceUseCaseToken =

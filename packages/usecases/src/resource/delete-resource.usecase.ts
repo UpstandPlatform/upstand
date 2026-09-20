@@ -39,6 +39,22 @@ export class DeleteResourceUseCase {
       throw new ValidationError("Resource not found");
     }
 
+    const deployments = this.uow.deploymentRepository.findByResourceId
+      ? await this.uow.deploymentRepository.findByResourceId(resource.id)
+      : [];
+    const runtime = this.uow.resourceRuntimeRepository.findByResourceId
+      ? await this.uow.resourceRuntimeRepository.findByResourceId(resource.id)
+      : null;
+    if (deployments.length === 0 && !runtime) {
+      return this.uow.transaction(async (tx) => {
+        await tx.environmentRepository.incrementResourceCount(
+          resource.environmentId,
+          -1,
+        );
+        return tx.resourceRepository.deleteById(input.id);
+      });
+    }
+
     const resources = this.uow.resourceRepository
       .findForCaddyByDeploymentServerId
       ? await this.uow.resourceRepository.findForCaddyByDeploymentServerId(

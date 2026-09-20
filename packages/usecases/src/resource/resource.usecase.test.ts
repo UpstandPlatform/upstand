@@ -386,7 +386,7 @@ describe("Resource Usecases", () => {
       deleteVolumes: true,
     });
     expect(success).toBe(true);
-    expect(removeResourceCalledWith).toBe(true);
+    expect(removeResourceCalledWith).toBeUndefined();
     expect(uow.resourceRepository.store).toHaveLength(0);
     expect(uow.environmentRepository.store[0]?.resourceCount).toBe(0);
   });
@@ -429,7 +429,7 @@ describe("Resource Usecases", () => {
       organizationId: "org-1",
     });
     expect(success).toBe(true);
-    expect(removeResourceCalledWith).toBe(false);
+    expect(removeResourceCalledWith).toBeUndefined();
   });
 
   test("rebuilds a database only through the confirmed destructive path", async () => {

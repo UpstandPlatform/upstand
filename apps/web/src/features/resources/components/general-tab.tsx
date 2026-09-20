@@ -59,6 +59,7 @@ import { DangerZoneCard } from "@/components/dashboard/danger-zone-card";
 import {
   Code,
   Copy,
+  FolderOpenIcon,
   Globe,
   Play,
   RefreshCw,
@@ -339,6 +340,28 @@ export function GeneralTab({
   const [gitWatchPaths, setGitWatchPaths] = useState<string[]>([]);
   const [gitSubmodules, setGitSubmodules] = useState(false);
   const [localPath, setLocalPath] = useState("");
+  const [debouncedLocalPath, setDebouncedLocalPath] = useState("");
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setDebouncedLocalPath(localPath.trim()),
+      300,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [localPath]);
+  const buildDetectionQuery = useQuery({
+    ...trpc.application.detectBuild.queryOptions({
+      resourceId: resource.id,
+      localPath: debouncedLocalPath,
+      buildPath: buildConfig.buildPath,
+    }),
+    enabled:
+      isDesktop &&
+      resource.type === "application" &&
+      providerType === "local" &&
+      debouncedLocalPath.length > 0,
+    retry: false,
+    staleTime: 10_000,
+  });
 
   const [rawComposeFile, setRawComposeFile] = useState("");
   const [dockerImage, setDockerImage] = useState("");
@@ -1796,414 +1819,530 @@ export function GeneralTab({
                   </Select>
                 </Field>
               </FieldGroup>
-              {buildConfig.autoDetect !== false ? (
+              {buildConfig.autoDetect !== false && (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
                   <div className="flex items-start space-x-3">
                     <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                     <div className="space-y-1">
                       <p className="font-semibold text-foreground text-sm">
-                        Auto Build-Configuration Detection Enabled
+                        Auto-detected build configuration
                       </p>
-                      <p className="text-muted-foreground text-xs leading-relaxed">
-                        Upstand will analyze your application source files
-                        (Dockerfile, package.json, go.mod, Cargo.toml,
-                        requirements.txt, etc.) during deployment and apply the
-                        best build configuration automatically.
-                      </p>
+                      {buildDetectionQuery.isPending ? (
+                        <p className="text-muted-foreground text-xs">
+                          Inspecting the selected project folder…
+                        </p>
+                      ) : buildDetectionQuery.data?.status === "detected" ? (
+                        <>
+                          <p className="text-muted-foreground text-xs leading-relaxed">
+                            {buildDetectionQuery.data.framework ??
+                              buildDetectionQuery.data.language ??
+                              "Repository configuration"}{" "}
+                            detected with{" "}
+                            {Math.round(
+                              buildDetectionQuery.data.confidence * 100,
+                            )}
+                            % confidence. You can edit the values below;
+                            explicit build and command overrides are preserved.
+                          </p>
+                          <div className="mt-3 grid gap-2 text-muted-foreground text-xs sm:grid-cols-3">
+                            <span>
+                              Builder:{" "}
+                              <strong className="text-foreground">
+                                {buildDetectionQuery.data.config?.type ?? "—"}
+                              </strong>
+                            </span>
+                            <span>
+                              Install:{" "}
+                              <code className="text-foreground">
+                                {buildDetectionQuery.data.commands.install ??
+                                  "—"}
+                              </code>
+                            </span>
+                            <span>
+                              Build:{" "}
+                              <code className="text-foreground">
+                                {buildDetectionQuery.data.commands.build ?? "—"}
+                              </code>
+                            </span>
+                          </div>
+                          <p className="mt-2 text-[11px] text-muted-foreground">
+                            Evidence:{" "}
+                            {buildDetectionQuery.data.evidence
+                              .map((item) => item.file)
+                              .join(", ") || "none"}
+                          </p>
+                        </>
+                      ) : buildDetectionQuery.data?.status ===
+                        "requires-operator-input" ? (
+                        <p className="text-destructive text-xs">
+                          {buildDetectionQuery.data.warnings.join(" ")}
+                        </p>
+                      ) : (
+                        <p className="text-muted-foreground text-xs leading-relaxed">
+                          Select a local project folder to see the exact
+                          detector result and evidence used by the next build.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
-              ) : (
+              )}
+              <div className="max-w-sm space-y-2">
+                <Label htmlFor="build-path">Build path</Label>
+                <Input
+                  id="build-path"
+                  value={buildConfig.buildPath}
+                  onChange={(event) =>
+                    setBuildConfig({
+                      ...buildConfig,
+                      buildPath: event.target.value || ".",
+                    })
+                  }
+                  placeholder=". or apps/web"
+                />
+                <p className="text-muted-foreground text-xs">
+                  Repository subdirectory used as the source root for the
+                  selected builder.
+                </p>
+              </div>
+              <FieldGroup>
+                <Field>
+                  <FieldContent>
+                    <FieldLabel htmlFor="build-type">Build type</FieldLabel>
+                    <FieldDescription>
+                      Dockerfile, Railpack, Nixpacks, Cloud Native Buildpacks,
+                      or a static NGINX image.
+                    </FieldDescription>
+                  </FieldContent>
+                  <Select
+                    items={[
+                      { value: "dockerfile", label: "Dockerfile" },
+                      { value: "railpack", label: "Railpack" },
+                      { value: "nixpacks", label: "Nixpacks" },
+                      {
+                        value: "heroku-buildpacks",
+                        label: "Heroku Buildpacks",
+                      },
+                      {
+                        value: "paketo-buildpacks",
+                        label: "Paketo Buildpacks",
+                      },
+                      { value: "static", label: "Static" },
+                    ]}
+                    value={buildConfig.type}
+                    onValueChange={(value) => {
+                      const nextType = value as ApplicationBuildConfig["type"];
+                      setBuildConfig({
+                        ...createBuildConfig(
+                          nextType,
+                          buildConfig.autoDetect !== false,
+                        ),
+                        buildTypeOverride: true,
+                        strategy:
+                          buildConfig.strategy === "auto"
+                            ? "docker"
+                            : buildConfig.strategy,
+                      });
+                    }}
+                  >
+                    <SelectTrigger id="build-type" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="dockerfile">Dockerfile</SelectItem>
+                        <SelectItem value="railpack">Railpack</SelectItem>
+                        <SelectItem value="nixpacks">Nixpacks</SelectItem>
+                        <SelectItem value="heroku-buildpacks">
+                          Heroku Buildpacks
+                        </SelectItem>
+                        <SelectItem value="paketo-buildpacks">
+                          Paketo Buildpacks
+                        </SelectItem>
+                        <SelectItem value="static">Static</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </FieldGroup>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="build-install-command">
+                    Install command{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="build-install-command"
+                    value={buildConfig.installCommand ?? ""}
+                    onChange={(event) =>
+                      setBuildConfig({
+                        ...buildConfig,
+                        installCommand: event.target.value.trim() || undefined,
+                      })
+                    }
+                    placeholder="bun install --frozen-lockfile"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="build-command">
+                    Build command{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="build-command"
+                    value={buildConfig.buildCommand ?? ""}
+                    onChange={(event) =>
+                      setBuildConfig({
+                        ...buildConfig,
+                        buildCommand: event.target.value.trim() || undefined,
+                      })
+                    }
+                    placeholder="bun run build"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="start-command">
+                    Start command{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="start-command"
+                    value={buildConfig.startCommand ?? ""}
+                    onChange={(event) =>
+                      setBuildConfig({
+                        ...buildConfig,
+                        startCommand: event.target.value.trim() || undefined,
+                      })
+                    }
+                    placeholder="bun run start"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="build-port">
+                    Application port{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="build-port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={buildConfig.port?.toString() ?? ""}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      setBuildConfig({
+                        ...buildConfig,
+                        port:
+                          Number.isInteger(value) && value > 0
+                            ? value
+                            : undefined,
+                      });
+                    }}
+                    placeholder="3000"
+                  />
+                </div>
+              </div>
+
+              {buildConfig.type === "dockerfile" && (
                 <>
-                  <div className="max-w-sm space-y-2">
-                    <Label htmlFor="build-path">Build path</Label>
-                    <Input
-                      id="build-path"
-                      value={buildConfig.buildPath}
-                      onChange={(event) =>
-                        setBuildConfig({
-                          ...buildConfig,
-                          buildPath: event.target.value || ".",
-                        })
-                      }
-                      placeholder=". or apps/web"
-                    />
-                    <p className="text-muted-foreground text-xs">
-                      Repository subdirectory used as the source root for the
-                      selected builder.
-                    </p>
-                  </div>
-                  <FieldGroup>
-                    <Field>
-                      <FieldContent>
-                        <FieldLabel htmlFor="build-type">Build type</FieldLabel>
-                        <FieldDescription>
-                          Dockerfile, Railpack, Nixpacks, Cloud Native
-                          Buildpacks, or a static NGINX image.
-                        </FieldDescription>
-                      </FieldContent>
-                      <Select
-                        items={[
-                          { value: "dockerfile", label: "Dockerfile" },
-                          { value: "railpack", label: "Railpack" },
-                          { value: "nixpacks", label: "Nixpacks" },
-                          {
-                            value: "heroku-buildpacks",
-                            label: "Heroku Buildpacks",
-                          },
-                          {
-                            value: "paketo-buildpacks",
-                            label: "Paketo Buildpacks",
-                          },
-                          { value: "static", label: "Static" },
-                        ]}
-                        value={buildConfig.type}
-                        onValueChange={(value) => {
-                          const nextType =
-                            value as ApplicationBuildConfig["type"];
-                          setBuildConfig(createBuildConfig(nextType, false));
-                        }}
-                      >
-                        <SelectTrigger id="build-type" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="dockerfile">
-                              Dockerfile
-                            </SelectItem>
-                            <SelectItem value="railpack">Railpack</SelectItem>
-                            <SelectItem value="nixpacks">Nixpacks</SelectItem>
-                            <SelectItem value="heroku-buildpacks">
-                              Heroku Buildpacks
-                            </SelectItem>
-                            <SelectItem value="paketo-buildpacks">
-                              Paketo Buildpacks
-                            </SelectItem>
-                            <SelectItem value="static">Static</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </FieldGroup>
-
-                  {buildConfig.type === "dockerfile" && (
-                    <>
-                      <div className="grid gap-4 sm:grid-cols-3">
-                        <div className="space-y-2">
-                          <Label htmlFor="dockerfile-path">
-                            Dockerfile path
-                          </Label>
-                          <Input
-                            id="dockerfile-path"
-                            value={buildConfig.dockerfilePath}
-                            onChange={(event) =>
-                              setBuildConfig({
-                                ...buildConfig,
-                                dockerfilePath: event.target.value,
-                              })
-                            }
-                            placeholder="Dockerfile"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="docker-context-path">
-                            Docker context path
-                          </Label>
-                          <Input
-                            id="docker-context-path"
-                            value={buildConfig.dockerContextPath}
-                            onChange={(event) =>
-                              setBuildConfig({
-                                ...buildConfig,
-                                dockerContextPath: event.target.value,
-                              })
-                            }
-                            placeholder="."
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="docker-build-stage">
-                            Build stage{" "}
-                            <span className="text-muted-foreground">
-                              (optional)
-                            </span>
-                          </Label>
-                          <Input
-                            id="docker-build-stage"
-                            value={buildConfig.dockerBuildStage ?? ""}
-                            onChange={(event) =>
-                              setBuildConfig({
-                                ...buildConfig,
-                                dockerBuildStage:
-                                  event.target.value.trim() || undefined,
-                              })
-                            }
-                            placeholder="runner"
-                          />
-                        </div>
-                      </div>
-
-                      <FieldGroup>
-                        <Field>
-                          <FieldContent>
-                            <FieldLabel>Docker build arguments</FieldLabel>
-                            <FieldDescription>
-                              KeyValue pairs passed to docker build via
-                              --build-arg.
-                            </FieldDescription>
-                          </FieldContent>
-                          <CodeEditor
-                            value={Object.entries(
-                              buildConfig.dockerBuildArgs ?? {},
-                            )
-                              .map(([k, v]) => `${k}=${v}`)
-                              .join("\n")}
-                            onChange={(content) => {
-                              const args: Record<string, string> = {};
-                              for (const line of content.split("\n")) {
-                                const trimmed = line.trim();
-                                if (!trimmed || trimmed.startsWith("#"))
-                                  continue;
-                                const idx = trimmed.indexOf("=");
-                                if (idx > 0) {
-                                  args[trimmed.slice(0, idx).trim()] = trimmed
-                                    .slice(idx + 1)
-                                    .trim();
-                                }
-                              }
-                              setBuildConfig({
-                                ...buildConfig,
-                                dockerBuildArgs: args,
-                              });
-                            }}
-                            language="shell"
-                            placeholder="KEY=value"
-                          />
-                        </Field>
-                      </FieldGroup>
-
-                      <div className="flex flex-col gap-4 sm:flex-row">
-                        <Field
-                          orientation="horizontal"
-                          className="w-full sm:w-auto"
-                        >
-                          <FieldContent>
-                            <FieldLabel htmlFor="docker-no-cache">
-                              Disable layer cache
-                            </FieldLabel>
-                            <FieldDescription>
-                              Force fresh stage downloads and builds.
-                            </FieldDescription>
-                          </FieldContent>
-                          <Switch
-                            id="docker-no-cache"
-                            checked={buildConfig.dockerNoCache}
-                            onCheckedChange={(dockerNoCache) =>
-                              setBuildConfig({ ...buildConfig, dockerNoCache })
-                            }
-                          />
-                        </Field>
-                        <Field
-                          orientation="horizontal"
-                          className="w-full sm:w-auto"
-                        >
-                          <FieldContent>
-                            <FieldLabel htmlFor="docker-cleanup-cache">
-                              Prune builder cache after build
-                            </FieldLabel>
-                            <FieldDescription>
-                              Reclaim build stage disk space after completion.
-                            </FieldDescription>
-                          </FieldContent>
-                          <Switch
-                            id="docker-cleanup-cache"
-                            checked={buildConfig.dockerCleanupCache}
-                            onCheckedChange={(dockerCleanupCache) =>
-                              setBuildConfig({
-                                ...buildConfig,
-                                dockerCleanupCache,
-                              })
-                            }
-                          />
-                        </Field>
-                      </div>
-                    </>
-                  )}
-
-                  {buildConfig.type === "railpack" && (
-                    <div className="max-w-sm space-y-2">
-                      <Label htmlFor="railpack-version">Railpack version</Label>
-                      <Select
-                        items={[
-                          ...RAILPACK_VERSIONS.map((v) => ({
-                            value: v,
-                            label: v,
-                          })),
-                          { value: "custom", label: "Custom version" },
-                        ]}
-                        value={
-                          (buildConfig.railpackVersion ??
-                            RAILPACK_VERSIONS[0]) &&
-                          RAILPACK_VERSIONS.includes(
-                            (buildConfig.railpackVersion ??
-                              "") as (typeof RAILPACK_VERSIONS)[number],
-                          )
-                            ? (buildConfig.railpackVersion ?? "")
-                            : "custom"
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="dockerfile-path">Dockerfile path</Label>
+                      <Input
+                        id="dockerfile-path"
+                        value={buildConfig.dockerfilePath}
+                        onChange={(event) =>
+                          setBuildConfig({
+                            ...buildConfig,
+                            dockerfilePath: event.target.value,
+                          })
                         }
-                        onValueChange={(value) => {
-                          const currentVersion =
-                            "railpackVersion" in buildConfig &&
-                            typeof buildConfig.railpackVersion === "string" &&
-                            buildConfig.railpackVersion
-                              ? buildConfig.railpackVersion
-                              : "0.15.4";
-                          const targetVersion =
-                            !value || value === "custom"
-                              ? currentVersion
-                              : value;
-                          const nextConfig: ApplicationBuildConfig = {
-                            autoDetect: buildConfig.autoDetect,
-                            type: "railpack",
-                            buildPath: buildConfig.buildPath || ".",
-                            railpackVersion: targetVersion,
-                          };
-                          setBuildConfig(nextConfig);
-                        }}
-                      >
-                        <SelectTrigger id="railpack-version" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {RAILPACK_VERSIONS.map((version) => (
-                            <SelectItem key={version} value={version}>
-                              {version}
-                            </SelectItem>
-                          ))}
-                          <SelectItem value="custom">Custom version</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {!RAILPACK_VERSIONS.includes(
-                        (buildConfig.railpackVersion ??
-                          "") as (typeof RAILPACK_VERSIONS)[number],
-                      ) && (
-                        <Input
-                          value={buildConfig.railpackVersion ?? ""}
-                          onChange={(event) =>
-                            setBuildConfig({
-                              ...buildConfig,
-                              railpackVersion: event.target.value,
-                            })
-                          }
-                          placeholder="0.15.4"
-                          aria-label="Custom Railpack version"
-                        />
-                      )}
+                        placeholder="Dockerfile"
+                      />
                     </div>
-                  )}
-
-                  {buildConfig.type === "nixpacks" && (
-                    <div className="max-w-sm space-y-2">
-                      <Label htmlFor="nixpacks-publish-directory">
-                        Publish directory{" "}
+                    <div className="space-y-2">
+                      <Label htmlFor="docker-context-path">
+                        Docker context path
+                      </Label>
+                      <Input
+                        id="docker-context-path"
+                        value={buildConfig.dockerContextPath}
+                        onChange={(event) =>
+                          setBuildConfig({
+                            ...buildConfig,
+                            dockerContextPath: event.target.value,
+                          })
+                        }
+                        placeholder="."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="docker-build-stage">
+                        Build stage{" "}
                         <span className="text-muted-foreground">
                           (optional)
                         </span>
                       </Label>
                       <Input
-                        id="nixpacks-publish-directory"
-                        value={buildConfig.publishDirectory ?? ""}
+                        id="docker-build-stage"
+                        value={buildConfig.dockerBuildStage ?? ""}
                         onChange={(event) =>
                           setBuildConfig({
                             ...buildConfig,
-                            publishDirectory: event.target.value || undefined,
+                            dockerBuildStage:
+                              event.target.value.trim() || undefined,
                           })
                         }
-                        placeholder="dist"
+                        placeholder="runner"
                       />
                     </div>
-                  )}
+                  </div>
 
-                  {buildConfig.type === "heroku-buildpacks" && (
-                    <div className="max-w-sm space-y-2">
-                      <Label htmlFor="heroku-version">
-                        Heroku stack version
-                      </Label>
-                      <Select
-                        items={[
-                          { value: "24", label: "Heroku-24" },
-                          { value: "26", label: "Heroku-26" },
-                        ]}
-                        value={buildConfig.herokuVersion}
-                        onValueChange={(value) => {
+                  <FieldGroup>
+                    <Field>
+                      <FieldContent>
+                        <FieldLabel>Docker build arguments</FieldLabel>
+                        <FieldDescription>
+                          KeyValue pairs passed to docker build via --build-arg.
+                        </FieldDescription>
+                      </FieldContent>
+                      <CodeEditor
+                        value={Object.entries(buildConfig.dockerBuildArgs ?? {})
+                          .map(([k, v]) => `${k}=${v}`)
+                          .join("\n")}
+                        onChange={(content) => {
+                          const args: Record<string, string> = {};
+                          for (const line of content.split("\n")) {
+                            const trimmed = line.trim();
+                            if (!trimmed || trimmed.startsWith("#")) continue;
+                            const idx = trimmed.indexOf("=");
+                            if (idx > 0) {
+                              args[trimmed.slice(0, idx).trim()] = trimmed
+                                .slice(idx + 1)
+                                .trim();
+                            }
+                          }
                           setBuildConfig({
                             ...buildConfig,
-                            herokuVersion: value as "24" | "26",
+                            dockerBuildArgs: args,
                           });
                         }}
-                      >
-                        <SelectTrigger id="heroku-version" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="24">Heroku-24</SelectItem>
-                            <SelectItem value="26">Heroku-26</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                        language="shell"
+                        placeholder="KEY=value"
+                      />
+                    </Field>
+                  </FieldGroup>
 
-                  {buildConfig.type === "paketo-buildpacks" && (
-                    <p className="rounded-md border border-border bg-muted/40 p-3 text-muted-foreground text-sm">
-                      Paketo builds use the production Jammy full builder and
-                      rely on buildpack detection in your repository.
-                    </p>
-                  )}
-
-                  {buildConfig.type === "static" && (
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-                      <div className="w-full max-w-sm space-y-2">
-                        <Label htmlFor="static-publish-directory">
-                          Publish directory
-                        </Label>
-                        <Input
-                          id="static-publish-directory"
-                          value={buildConfig.publishDirectory}
-                          onChange={(event) =>
-                            setBuildConfig({
-                              ...buildConfig,
-                              publishDirectory: event.target.value,
-                            })
-                          }
-                          placeholder="dist"
-                        />
-                      </div>
-                      <Field
-                        orientation="horizontal"
-                        className="w-full sm:w-auto"
-                      >
-                        <FieldContent>
-                          <FieldLabel htmlFor="static-spa">
-                            Single-page application
-                          </FieldLabel>
-                          <FieldDescription>
-                            Fallback unknown routes to index.html.
-                          </FieldDescription>
-                        </FieldContent>
-                        <Switch
-                          id="static-spa"
-                          checked={buildConfig.spa}
-                          onCheckedChange={(spa) => {
-                            setBuildConfig({ ...buildConfig, spa });
-                          }}
-                        />
-                      </Field>
-                    </div>
-                  )}
+                  <div className="flex flex-col gap-4 sm:flex-row">
+                    <Field
+                      orientation="horizontal"
+                      className="w-full sm:w-auto"
+                    >
+                      <FieldContent>
+                        <FieldLabel htmlFor="docker-no-cache">
+                          Disable layer cache
+                        </FieldLabel>
+                        <FieldDescription>
+                          Force fresh stage downloads and builds.
+                        </FieldDescription>
+                      </FieldContent>
+                      <Switch
+                        id="docker-no-cache"
+                        checked={buildConfig.dockerNoCache}
+                        onCheckedChange={(dockerNoCache) =>
+                          setBuildConfig({ ...buildConfig, dockerNoCache })
+                        }
+                      />
+                    </Field>
+                    <Field
+                      orientation="horizontal"
+                      className="w-full sm:w-auto"
+                    >
+                      <FieldContent>
+                        <FieldLabel htmlFor="docker-cleanup-cache">
+                          Prune builder cache after build
+                        </FieldLabel>
+                        <FieldDescription>
+                          Reclaim build stage disk space after completion.
+                        </FieldDescription>
+                      </FieldContent>
+                      <Switch
+                        id="docker-cleanup-cache"
+                        checked={buildConfig.dockerCleanupCache}
+                        onCheckedChange={(dockerCleanupCache) =>
+                          setBuildConfig({
+                            ...buildConfig,
+                            dockerCleanupCache,
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
                 </>
+              )}
+
+              {buildConfig.type === "railpack" && (
+                <div className="max-w-sm space-y-2">
+                  <Label htmlFor="railpack-version">Railpack version</Label>
+                  <Select
+                    items={[
+                      ...RAILPACK_VERSIONS.map((v) => ({
+                        value: v,
+                        label: v,
+                      })),
+                      { value: "custom", label: "Custom version" },
+                    ]}
+                    value={
+                      (buildConfig.railpackVersion ?? RAILPACK_VERSIONS[0]) &&
+                      RAILPACK_VERSIONS.includes(
+                        (buildConfig.railpackVersion ??
+                          "") as (typeof RAILPACK_VERSIONS)[number],
+                      )
+                        ? (buildConfig.railpackVersion ?? "")
+                        : "custom"
+                    }
+                    onValueChange={(value) => {
+                      const currentVersion =
+                        "railpackVersion" in buildConfig &&
+                        typeof buildConfig.railpackVersion === "string" &&
+                        buildConfig.railpackVersion
+                          ? buildConfig.railpackVersion
+                          : "0.15.4";
+                      const targetVersion =
+                        !value || value === "custom" ? currentVersion : value;
+                      const nextConfig: ApplicationBuildConfig = {
+                        autoDetect: buildConfig.autoDetect,
+                        type: "railpack",
+                        buildPath: buildConfig.buildPath || ".",
+                        railpackVersion: targetVersion,
+                      };
+                      setBuildConfig(nextConfig);
+                    }}
+                  >
+                    <SelectTrigger id="railpack-version" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RAILPACK_VERSIONS.map((version) => (
+                        <SelectItem key={version} value={version}>
+                          {version}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="custom">Custom version</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {!RAILPACK_VERSIONS.includes(
+                    (buildConfig.railpackVersion ??
+                      "") as (typeof RAILPACK_VERSIONS)[number],
+                  ) && (
+                    <Input
+                      value={buildConfig.railpackVersion ?? ""}
+                      onChange={(event) =>
+                        setBuildConfig({
+                          ...buildConfig,
+                          railpackVersion: event.target.value,
+                        })
+                      }
+                      placeholder="0.15.4"
+                      aria-label="Custom Railpack version"
+                    />
+                  )}
+                </div>
+              )}
+
+              {buildConfig.type === "nixpacks" && (
+                <div className="max-w-sm space-y-2">
+                  <Label htmlFor="nixpacks-publish-directory">
+                    Publish directory{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="nixpacks-publish-directory"
+                    value={buildConfig.publishDirectory ?? ""}
+                    onChange={(event) =>
+                      setBuildConfig({
+                        ...buildConfig,
+                        publishDirectory: event.target.value || undefined,
+                      })
+                    }
+                    placeholder="dist"
+                  />
+                </div>
+              )}
+
+              {buildConfig.type === "heroku-buildpacks" && (
+                <div className="max-w-sm space-y-2">
+                  <Label htmlFor="heroku-version">Heroku stack version</Label>
+                  <Select
+                    items={[
+                      { value: "24", label: "Heroku-24" },
+                      { value: "26", label: "Heroku-26" },
+                    ]}
+                    value={buildConfig.herokuVersion}
+                    onValueChange={(value) => {
+                      setBuildConfig({
+                        ...buildConfig,
+                        herokuVersion: value as "24" | "26",
+                      });
+                    }}
+                  >
+                    <SelectTrigger id="heroku-version" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="24">Heroku-24</SelectItem>
+                        <SelectItem value="26">Heroku-26</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {buildConfig.type === "paketo-buildpacks" && (
+                <p className="rounded-md border border-border bg-muted/40 p-3 text-muted-foreground text-sm">
+                  Paketo builds use the production Jammy full builder and rely
+                  on buildpack detection in your repository.
+                </p>
+              )}
+
+              {buildConfig.type === "static" && (
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                  <div className="w-full max-w-sm space-y-2">
+                    <Label htmlFor="static-publish-directory">
+                      Publish directory
+                    </Label>
+                    <Input
+                      id="static-publish-directory"
+                      value={buildConfig.publishDirectory}
+                      onChange={(event) =>
+                        setBuildConfig({
+                          ...buildConfig,
+                          publishDirectory: event.target.value,
+                        })
+                      }
+                      placeholder="dist"
+                    />
+                  </div>
+                  <Field orientation="horizontal" className="w-full sm:w-auto">
+                    <FieldContent>
+                      <FieldLabel htmlFor="static-spa">
+                        Single-page application
+                      </FieldLabel>
+                      <FieldDescription>
+                        Fallback unknown routes to index.html.
+                      </FieldDescription>
+                    </FieldContent>
+                    <Switch
+                      id="static-spa"
+                      checked={buildConfig.spa}
+                      onCheckedChange={(spa) => {
+                        setBuildConfig({ ...buildConfig, spa });
+                      }}
+                    />
+                  </Field>
+                </div>
               )}
               <div className="flex justify-end border-border/20 border-t pt-4">
                 <Button
@@ -2502,12 +2641,36 @@ export function GeneralTab({
                   <Label htmlFor="local-project-path">
                     Local project folder
                   </Label>
-                  <Input
-                    id="local-project-path"
-                    value={localPath}
-                    onChange={(event) => setLocalPath(event.target.value)}
-                    placeholder="C:\\Users\\you\\Projects\\my-app"
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="local-project-path"
+                      value={localPath}
+                      onChange={(event) => setLocalPath(event.target.value)}
+                      placeholder="C:\\Users\\you\\Projects\\my-app"
+                      className="min-w-0 flex-1"
+                    />
+                    {isDesktop && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={async () => {
+                          const selected = await (
+                            window as unknown as {
+                              upstandDesktop?: {
+                                projectFolder?: {
+                                  select: () => Promise<string | null>;
+                                };
+                              };
+                            }
+                          ).upstandDesktop?.projectFolder?.select();
+                          if (selected) setLocalPath(selected);
+                        }}
+                      >
+                        <FolderOpenIcon data-icon="inline-start" />
+                        Browse
+                      </Button>
+                    )}
+                  </div>
                   <p className="text-muted-foreground text-xs">
                     The desktop runtime reads this folder for local Docker or
                     bare builds, then deploys the resulting workload to the

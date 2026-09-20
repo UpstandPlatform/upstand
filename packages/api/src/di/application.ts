@@ -328,6 +328,13 @@ export function registerApplicationFeatures(services: ServiceCollection) {
       ),
   );
   services.addTransient(
+    dependencies.DetectApplicationBuildUseCaseToken,
+    (c) =>
+      new dependencies.DetectApplicationBuildUseCase(
+        c.resolve(dependencies.UnitOfWorkToken),
+      ),
+  );
+  services.addTransient(
     dependencies.GetResourcesUseCaseToken,
     (c) =>
       new dependencies.GetResourcesUseCase(
