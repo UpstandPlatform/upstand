@@ -1,5 +1,11 @@
 # server
 
+## 0.14.3
+
+### Patch Changes
+
+- [#539](https://github.com/UpstandPlatform/upstand/pull/539) [`cf03302`](https://github.com/UpstandPlatform/upstand/commit/cf03302c0ca5d15895f77d669d703f0a4dbd1d77) Thanks [@mhbdev](https://github.com/mhbdev)! - Advance the product patch version for the corrected release verification workflow.
+
 ## 0.14.2
 
 ### Patch Changes

@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.3 - 2026-09-20
+
+Advance the product patch version for the corrected release verification workflow.
+
+
 ## 0.14.2 - 2026-09-19
 
 Remove the private workspace dependency from the published CLI manifest so stable npm releases remain installable outside the monorepo.
