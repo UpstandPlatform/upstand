@@ -25,7 +25,7 @@ To connect an external MCP client to Upstand, you need:
 
 ### Generated client configurations
 
-Administrators can use **Settings → UpGal Settings → MCP server** to create a read-only MCP key and select a client tab. The panel generates runtime-aware, copy-ready snippets for Claude Code, Codex, Gemini/Antigravity, Cursor, VS Code/Copilot, and generic HTTP MCP clients. It works with desktop-local, cloud, and self-hosted Upstand instances without hard-coding a deployment origin.
+Administrators can use **Settings → UpGal Settings → MCP server** to create an MCP key and select a client tab. The panel defaults to a read-only key and generates runtime-aware, copy-ready snippets for Claude Code, Codex, Gemini/Antigravity, Cursor, VS Code/Copilot, and generic HTTP MCP clients. A full-access key can be selected explicitly when the connected coding tool is trusted; Upstand shows a warning because that key can invoke write-capable MCP tools. It works with desktop-local, cloud, and self-hosted Upstand instances without hard-coding a deployment origin.
 
 The key is displayed only once. If a configuration is lost, generate a replacement and revoke the old key from **Settings → API Keys**.
 

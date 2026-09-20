@@ -54,6 +54,7 @@ export const ApplicationBuildStrategySchema = z.enum([
 
 const ApplicationBuildOverridesSchema = z.object({
   strategy: ApplicationBuildStrategySchema.optional(),
+  buildTypeOverride: z.boolean().optional(),
   framework: z.string().trim().min(1).max(128).optional(),
   language: z.enum(["node", "python", "go", "rust"]).optional(),
   packageManager: z.enum(["bun", "npm", "pnpm", "yarn"]).optional(),

@@ -10,13 +10,16 @@ import {
 import {
   CreateResourceInputSchema,
   DeleteResourceInputSchema,
+  DetectApplicationBuildInputSchema,
   GetResourceInputSchema,
+  getConfiguredControlPlaneMode,
   parseResourceEnvironmentVariables,
   UpdateResourceInputSchema,
 } from "@upstand/usecases";
 import {
   CreateResourceUseCaseToken,
   DeleteResourceUseCaseToken,
+  DetectApplicationBuildUseCaseToken,
   GetEnvironmentUseCaseToken,
   GetProjectUseCaseToken,
   UpdateResourceUseCaseToken,
@@ -156,6 +159,26 @@ export const applicationRouter = router({
       return publicApplication(
         await authorizeApplication(ctx, input.id, "resource:view"),
       );
+    }),
+
+  detectBuild: twoFactorVerifiedProcedure
+    .input(DetectApplicationBuildInputSchema)
+    .query(async ({ ctx, input }) => {
+      if (getConfiguredControlPlaneMode() !== "desktop") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Local build detection is available only in the desktop runtime.",
+        });
+      }
+      await authorizeApplication(ctx, input.resourceId, "resource:view");
+      try {
+        return await ctx.scope
+          .resolve(DetectApplicationBuildUseCaseToken)
+          .execute(input);
+      } catch (error) {
+        handleUseCaseError(error, ctx.log);
+      }
     }),
 
   update: twoFactorVerifiedProcedure

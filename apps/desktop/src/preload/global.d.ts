@@ -20,6 +20,9 @@ export type DesktopBridge = {
     }>;
     installUpdate: (downloadUrl: string) => Promise<void>;
   };
+  projectFolder: {
+    select: () => Promise<string | null>;
+  };
   connection: {
     get: () => Promise<DesktopConnection | null>;
     set: (

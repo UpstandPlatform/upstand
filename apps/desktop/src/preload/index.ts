@@ -28,6 +28,10 @@ const desktopBridge = {
     installUpdate: (downloadUrl: string) =>
       ipcRenderer.invoke("app:install-update", downloadUrl) as Promise<void>,
   },
+  projectFolder: {
+    select: () =>
+      ipcRenderer.invoke("project-folder:select") as Promise<string | null>,
+  },
   connection: {
     get: () => ipcRenderer.invoke("connection:get"),
     set: (

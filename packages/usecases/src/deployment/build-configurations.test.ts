@@ -56,6 +56,21 @@ describe("Application Build Configuration Pipeline", () => {
     }
   });
 
+  test("preserves an explicit builder type override while auto-detection stays enabled", () => {
+    const config = ApplicationBuildConfigSchema.parse({
+      type: "static",
+      autoDetect: true,
+      buildTypeOverride: true,
+      buildPath: ".",
+      publishDirectory: "dist",
+      spa: true,
+    });
+
+    expect(config.autoDetect).toBe(true);
+    expect(config.buildTypeOverride).toBe(true);
+    expect(config.type).toBe("static");
+  });
+
   test("parses Heroku buildpack configuration with version 24 / 26", () => {
     const heroku26 = parseApplicationBuildConfig(
       JSON.stringify({

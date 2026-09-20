@@ -44,6 +44,8 @@ const EXPIRATION_OPTIONS = [
   { value: "never", label: "No expiration" },
 ];
 
+type McpAccessMode = "read-only" | "full-access";
+
 function getRuntimeLabel(mode: string): string {
   switch (mode) {
     case "desktop":
@@ -58,6 +60,7 @@ function getRuntimeLabel(mode: string): string {
 export function McpSettingsSection({ organizationId }: Props) {
   const { platformMode } = useSystemConfig();
   const [expiration, setExpiration] = useState("90");
+  const [accessMode, setAccessMode] = useState<McpAccessMode>("read-only");
   const [secret, setSecret] = useState<string | null>(null);
   const endpoint = getServerApiUrl("/api/mcp");
   const tabs = secret ? createMcpClientConfigTabs(endpoint, secret) : [];
@@ -76,7 +79,7 @@ export function McpSettingsSection({ organizationId }: Props) {
     createKey.mutate({
       organizationId,
       name: "UpGal MCP client",
-      preset: "mcp-read-only",
+      preset: accessMode === "full-access" ? "full-access" : "mcp-read-only",
       expiresInDays: expiration === "never" ? null : Number(expiration),
       rateLimitEnabled: true,
       rateLimitTimeWindowMs: 3_600_000,
@@ -106,13 +109,23 @@ export function McpSettingsSection({ organizationId }: Props) {
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <Alert className="border-primary/20 bg-primary/5">
+        <Alert
+          className={
+            accessMode === "full-access"
+              ? "border-warning/30 bg-warning/10"
+              : "border-primary/20 bg-primary/5"
+          }
+        >
           <ShieldCheck />
-          <AlertTitle className="text-xs">Read-only by default</AlertTitle>
+          <AlertTitle className="text-xs">
+            {accessMode === "full-access"
+              ? "Full-access MCP key selected"
+              : "Read-only by default"}
+          </AlertTitle>
           <AlertDescription className="text-xs">
-            Create a scoped MCP key for your coding tool. Read operations are
-            available to the client; write operations remain behind UpGal
-            approval in the dashboard.
+            {accessMode === "full-access"
+              ? "This key can invoke write-capable MCP tools and may change organization resources. Only use it with a coding tool and workspace you trust."
+              : "Create a scoped MCP key for your coding tool. Read operations are available to the client; write operations remain unavailable to this key."}
           </AlertDescription>
         </Alert>
 
@@ -149,11 +162,38 @@ export function McpSettingsSection({ organizationId }: Props) {
                   Generate client configuration
                 </p>
                 <p className="mt-1 max-w-xl text-muted-foreground text-xs">
-                  The read-only token is shown once and never stored in the
-                  browser. Generate a new key if you lose the configuration.
+                  The token is shown once and never stored in the browser.
+                  Generate a new key if you lose the configuration.
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                <Select
+                  items={[
+                    { value: "read-only", label: "Read-only" },
+                    { value: "full-access", label: "Full access" },
+                  ]}
+                  value={accessMode}
+                  onValueChange={(value) => {
+                    if (value === "read-only" || value === "full-access") {
+                      setAccessMode(value);
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    className="h-8 w-32 text-xs"
+                    aria-label="MCP access mode"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="read-only" className="text-xs">
+                      Read-only
+                    </SelectItem>
+                    <SelectItem value="full-access" className="text-xs">
+                      Full access
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select
                   items={EXPIRATION_OPTIONS}
                   value={expiration}

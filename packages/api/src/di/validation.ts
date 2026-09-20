@@ -99,6 +99,7 @@ const STARTUP_TOKENS: readonly Token[] = [
   dependencies.DeleteScheduleUseCaseToken,
   dependencies.DeleteTemplateUseCaseToken,
   dependencies.DeployResourceUseCaseToken,
+  dependencies.DetectApplicationBuildUseCaseToken,
   dependencies.DeployTemplateUseCaseToken,
   dependencies.DockerArchiveTransferToken,
   dependencies.DockerContainerControllerToken,

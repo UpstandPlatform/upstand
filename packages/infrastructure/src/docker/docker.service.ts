@@ -1982,7 +1982,25 @@ export class DockerService implements DockerSwarmManagementPort {
         for (const warning of detection.warnings) {
           onLog(`[Auto-Detect] Warning: ${warning}\n`);
         }
-        buildConfig = detection.config;
+        const explicitStrategy =
+          buildConfig.strategy && buildConfig.strategy !== "auto";
+        buildConfig = {
+          ...detection.config,
+          ...(buildConfig.buildTypeOverride ? buildConfig : {}),
+          autoDetect: true,
+          strategy: explicitStrategy ? buildConfig.strategy : "auto",
+          framework: buildConfig.framework ?? detection.config.framework,
+          language: buildConfig.language ?? detection.config.language,
+          packageManager:
+            buildConfig.packageManager ?? detection.config.packageManager,
+          installCommand:
+            buildConfig.installCommand ?? detection.config.installCommand,
+          buildCommand:
+            buildConfig.buildCommand ?? detection.config.buildCommand,
+          startCommand:
+            buildConfig.startCommand ?? detection.config.startCommand,
+          port: buildConfig.port ?? detection.config.port,
+        };
       }
 
       const buildPath = this.resolveBuildPath(

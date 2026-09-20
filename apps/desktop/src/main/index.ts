@@ -607,6 +607,15 @@ async function openExternalWebUrl(value: string): Promise<void> {
   await shell.openExternal(url.toString());
 }
 
+async function selectLocalProjectFolder(): Promise<string | null> {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Select local project folder",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+}
+
 function createWindow(): BrowserWindow {
   const winConfig = readWindowConfig();
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -865,6 +874,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle("app:install-update", async (event, downloadUrl: string) => {
     validateIpcSender(event);
     await installDesktopUpdate(downloadUrl);
+  });
+  ipcMain.handle("project-folder:select", async (event) => {
+    validateIpcSender(event);
+    return selectLocalProjectFolder();
   });
 
   ipcMain.handle("window:minimize", () => {
