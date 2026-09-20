@@ -2,8 +2,6 @@
 "server": patch
 "web": patch
 "desktop": patch
-"@upstand/infrastructure": patch
-"@upstand/usecases": patch
 ---
 
 Improve desktop-local project selection, build detection overrides, resource cleanup, pre-flight presentation, and MCP key scope selection.
