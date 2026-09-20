@@ -110,7 +110,12 @@ func (cm *ContainerMonitor) collectMetrics() {
 func (cm *ContainerMonitor) Healthy() bool {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	return !cm.collectionFailed && !cm.lastCollected.IsZero() && time.Since(cm.lastCollected) <= cm.staleAfter
+	// A temporary control-plane failure must not make the agent unhealthy
+	// immediately. The last successful sample remains valid until the
+	// freshness window expires; this is important while the control plane is
+	// recovering a database or Redis dependency. Once the sample is stale,
+	// readiness fails closed regardless of the most recent collection result.
+	return !cm.lastCollected.IsZero() && time.Since(cm.lastCollected) <= cm.staleAfter
 }
 
 func (cm *ContainerMonitor) collect(ctx context.Context) error {
