@@ -44,6 +44,23 @@ import { trpc } from "@/utils/trpc";
 
 const createServerTarget = getUpGalTargetDefinition("create-server");
 
+function formatServerCheckError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    /docker(?:\.exe)?:?\s+command not found|command not found:\s*docker/i.test(
+      message,
+    )
+  ) {
+    return "Docker is not installed or is not available to the remote SSH user. Run server setup again after Docker installation completes.";
+  }
+  if (
+    /socket connection was closed unexpectedly|socket hang up/i.test(message)
+  ) {
+    return "The remote Docker connection closed before verification completed. Confirm Docker is installed and running on the server, then retry setup or verification.";
+  }
+  return message;
+}
+
 export default function RemoteServersPage() {
   const organizationState = useRequiredActiveOrganization();
   const organizationId = organizationState.organizationId as string;
@@ -455,7 +472,7 @@ export default function RemoteServersPage() {
                 {validationQuery.isPending
                   ? "Verifying Docker version and daemon state..."
                   : validationQuery.isError
-                    ? validationQuery.error.message
+                    ? formatServerCheckError(validationQuery.error)
                     : `Version: ${validationInfo?.serverVersion ?? "unknown"}\nSwarm State: ${validationInfo?.swarmState ?? "unknown"}`}
               </p>
             </div>
@@ -502,7 +519,7 @@ export default function RemoteServersPage() {
                 {hostTimeQuery.isPending
                   ? "Reading host clock..."
                   : hostTimeQuery.isError
-                    ? hostTimeQuery.error.message
+                    ? formatServerCheckError(hostTimeQuery.error)
                     : `ISO: ${hostTimeQuery.data?.iso}`}
               </p>
             </div>
@@ -550,7 +567,7 @@ export default function RemoteServersPage() {
                   <p>Reading Docker runtime stats...</p>
                 ) : runtimeStatsQuery.isError ? (
                   <p className="text-destructive">
-                    {runtimeStatsQuery.error.message}
+                    {formatServerCheckError(runtimeStatsQuery.error)}
                   </p>
                 ) : runtimeStatsQuery.data ? (
                   <>

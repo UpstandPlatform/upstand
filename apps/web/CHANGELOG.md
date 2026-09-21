@@ -1,8 +1,14 @@
 # web
 
-## 0.14.6
+## 0.14.7
 
 No changes in this release.
+
+## 0.14.6
+
+### Patch Changes
+
+- [#548](https://github.com/UpstandPlatform/upstand/pull/548) [`a3aadbc`](https://github.com/UpstandPlatform/upstand/commit/a3aadbc64842c0a68a6d44a147b87484e74160e6) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix password-authenticated remote server onboarding and terminal sessions, make remote Docker checks work through passwordless sudo when required, and make Docker Engine repository installation safe to retry after partial failures.
 
 ## 0.14.5
 

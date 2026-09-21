@@ -95,6 +95,8 @@ describe("server use cases", () => {
     );
     expect(command).toContain("Docker repository key fingerprint mismatch");
     expect(command).toContain("docker-ce='5:29.6.1-1~ubuntu.24.04~noble'");
+    expect(command).toContain('rm -f "$keyring_tmp" "$source_tmp"');
+    expect(command).toContain("gpg --batch --yes --dearmor");
     expect(command).not.toContain("get.docker.com | sudo sh");
   });
 

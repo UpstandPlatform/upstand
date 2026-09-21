@@ -4,9 +4,14 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
-## 0.14.6 - 2026-09-21
+## 0.14.7 - 2026-09-21
 
-Fix remote terminal authentication races, provide actionable diagnostics for Docker overlay filesystem failures, and make remote server setup errors readable and recoverable in the dashboard.
+Fix remote terminal authentication races and provide actionable diagnostics for Docker overlay filesystem failures during remote server setup.
+
+
+## 0.14.6 - 2026-09-20
+
+Fix password-authenticated remote server onboarding and terminal sessions, make remote Docker checks work through passwordless sudo when required, and make Docker Engine repository installation safe to retry after partial failures.
 
 
 ## 0.14.5 - 2026-09-20

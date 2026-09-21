@@ -1,10 +1,17 @@
 # server
 
+## 0.14.7
+
+### Patch Changes
+
+- [#550](https://github.com/UpstandPlatform/upstand/pull/550) [`d97aabf`](https://github.com/UpstandPlatform/upstand/commit/d97aabf8025537c4d5c190c37429f59f3842e1b8) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix remote terminal authentication races and provide actionable diagnostics for Docker overlay filesystem failures during remote server setup.
+
 ## 0.14.6
 
 ### Patch Changes
 
 - [#554](https://github.com/UpstandPlatform/upstand/pull/554) [`38e1897`](https://github.com/UpstandPlatform/upstand/commit/38e1897d565f6f25c5b27c511f85d6e557f0712d) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix remote terminal authentication races, provide actionable diagnostics for Docker overlay filesystem failures, and make remote server setup errors readable and recoverable in the dashboard.
+- [#548](https://github.com/UpstandPlatform/upstand/pull/548) [`a3aadbc`](https://github.com/UpstandPlatform/upstand/commit/a3aadbc64842c0a68a6d44a147b87484e74160e6) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix password-authenticated remote server onboarding and terminal sessions, make remote Docker checks work through passwordless sudo when required, and make Docker Engine repository installation safe to retry after partial failures.
 
 ## 0.14.5
 

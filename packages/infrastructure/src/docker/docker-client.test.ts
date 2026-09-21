@@ -7,6 +7,7 @@ import {
   isSensitiveDockerBuildContextPath,
 } from "./docker-broker-client";
 import {
+  buildRemoteDockerDialCommand,
   createDockerClientFromEnvironment,
   createRemoteDocker,
   createRemoteDockerCliEnvironment,
@@ -45,6 +46,15 @@ async function readTarEntryNames(stream: AsyncIterable<Uint8Array>) {
 }
 
 describe("remote Docker client", () => {
+  test("uses passwordless sudo for non-root remote Docker sessions", () => {
+    expect(buildRemoteDockerDialCommand("root")).toBe(
+      "docker system dial-stdio",
+    );
+    expect(buildRemoteDockerDialCommand("deploy")).toBe(
+      "sudo -n docker system dial-stdio",
+    );
+  });
+
   test("keeps sensitive repository files out of typed Docker build contexts", () => {
     const sensitivePaths = [
       ".env",

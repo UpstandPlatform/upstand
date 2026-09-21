@@ -58,7 +58,10 @@ export function createServerProvisioningPort(): ServerProvisioningPort {
       const dockerInfoViaSsh = async (): Promise<{
         Swarm?: { LocalNodeState?: string };
       }> => {
-        const result = await execute(client, "docker info --format json");
+        const result = await execute(
+          client,
+          `${dockerCommand} info --format json`,
+        );
         if (result.code !== 0) {
           throw new Error(
             `docker info failed (code ${result.code}): ${result.stderr.trim()}`,
