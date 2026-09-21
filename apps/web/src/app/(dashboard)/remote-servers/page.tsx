@@ -3,11 +3,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { getUpGalTargetDefinition } from "@upstand/api/ai/upgal-ui-targets";
 import type { ServerType } from "@upstand/domain";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@upstand/ui/components/alert";
 import { Badge } from "@upstand/ui/components/badge";
 import { Button } from "@upstand/ui/components/button";
 import { Checkbox } from "@upstand/ui/components/checkbox";
@@ -28,7 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@upstand/ui/components/select";
-import { Spinner } from "@upstand/ui/components/spinner";
 import { cn } from "@upstand/ui/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -39,14 +33,11 @@ import {
 } from "@/components/dashboard/dashboard-page";
 import { PageEmpty } from "@/components/dashboard/page-empty";
 import { CardGridSkeleton } from "@/components/dashboard/page-skeleton";
-import {
-  AlertTriangleIcon,
-  PlusIcon,
-  ServerIcon,
-} from "@/components/huge-icons";
+import { PlusIcon, ServerIcon } from "@/components/huge-icons";
 import { UpGalTarget } from "@/components/upgal-target";
 import { WebServerTerminalDialog } from "@/components/web-server-terminal-dialog";
 import { RemoteServerCard } from "@/features/remote-servers/components/remote-server-card";
+import { RemoteServerSetupDialog } from "@/features/remote-servers/components/remote-server-setup-dialog";
 import { RemoteServerWizard } from "@/features/remote-servers/components/remote-server-wizard";
 import { useRequiredActiveOrganization } from "@/hooks/use-required-active-organization";
 import { trpc } from "@/utils/trpc";
@@ -798,144 +789,22 @@ export default function RemoteServersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <RemoteServerSetupDialog
         open={Boolean(setupServerId)}
         onOpenChange={(open) => {
           if (!open) closeSetupDialog();
         }}
-      >
-        <DialogContent
-          className="flex max-h-[85vh] max-w-xl flex-col"
-          showCloseButton={true}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {setupProgressQuery.data?.status === "ready" ||
-              setupMutation.isSuccess
-                ? "Server ready"
-                : setupProgressQuery.data?.status === "failed" ||
-                    setupMutation.isError
-                  ? "Setup needs attention"
-                  : `Setting up ${setupServer?.name ?? "server"}`}
-            </DialogTitle>
-            <DialogDescription>
-              Upstand installs and verifies Docker, initializes this server's
-              independent Swarm, creates its network, and starts Caddy routing &
-              monitoring.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex-1 space-y-4 overflow-y-auto pr-1">
-            <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 p-4">
-              <div className="flex items-center gap-3">
-                {setupProgressQuery.data?.status === "setting_up" ||
-                setupMutation.isPending ? (
-                  <Spinner className="size-5 shrink-0 text-primary" />
-                ) : setupProgressQuery.data?.status === "ready" ||
-                  setupMutation.isSuccess ? (
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-success/15 font-bold text-success text-xs">
-                    ✓
-                  </span>
-                ) : (
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-destructive/15 font-bold text-destructive text-xs">
-                    !
-                  </span>
-                )}
-                <div className="min-w-0">
-                  <p className="font-medium text-sm">
-                    {setupServer?.name ?? "Remote server"}
-                  </p>
-                  <p className="break-all font-mono text-muted-foreground text-xs">
-                    {setupServer?.ipAddress}:{setupServer?.port} (
-                    {setupServer?.username})
-                  </p>
-                </div>
-              </div>
-              <Badge
-                variant={
-                  setupProgressQuery.data?.status === "ready" ||
-                  setupMutation.isSuccess
-                    ? "default"
-                    : setupProgressQuery.data?.status === "failed" ||
-                        setupMutation.isError
-                      ? "destructive"
-                      : "outline"
-                }
-              >
-                {setupProgressQuery.data?.status === "setting_up" ||
-                setupMutation.isPending
-                  ? setupProgressQuery.data?.setupStage || "In Progress"
-                  : setupProgressQuery.data?.status === "ready" ||
-                      setupMutation.isSuccess
-                    ? "Provisioned"
-                    : setupProgressQuery.data?.status === "failed" ||
-                        setupMutation.isError
-                      ? "Failed"
-                      : "Idle"}
-              </Badge>
-            </div>
-
-            {setupProgressQuery.data?.setupStage && (
-              <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-xs">
-                <Spinner className="size-3.5 shrink-0 text-primary" />
-                <span className="font-medium text-foreground">
-                  Current Stage: {setupProgressQuery.data.setupStage}
-                </span>
-              </div>
-            )}
-
-            {setupProgressQuery.data?.setupLogs && (
-              <div className="space-y-1.5">
-                <p className="font-semibold text-muted-foreground text-xs">
-                  Setup Terminal Output:
-                </p>
-                <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] text-zinc-100 leading-relaxed dark:bg-black/90">
-                  {setupProgressQuery.data.setupLogs}
-                </div>
-              </div>
-            )}
-
-            {(setupMutation.isError ||
-              setupProgressQuery.data?.status === "failed") && (
-              <Alert variant="destructive">
-                <AlertTriangleIcon />
-                <AlertTitle className="break-words">
-                  {setupProgressQuery.data?.setupError ||
-                    setupMutation.error?.message ||
-                    "Server setup encountered an issue"}
-                </AlertTitle>
-                <AlertDescription>
-                  Review the error details above. You can retry setup anytime,
-                  which will resume safely from the last step.
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={closeSetupDialog}>
-              {setupProgressQuery.data?.status === "setting_up" ||
-              setupMutation.isPending
-                ? "Run in Background"
-                : "Close"}
-            </Button>
-            {(setupMutation.isError ||
-              setupProgressQuery.data?.status === "failed") &&
-              setupServerId && (
-                <Button
-                  type="button"
-                  onClick={() => handleSetup(setupServerId)}
-                  disabled={
-                    setupMutation.isPending ||
-                    setupProgressQuery.data?.status === "setting_up"
-                  }
-                >
-                  Retry setup
-                </Button>
-              )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        server={setupServer}
+        status={setupProgressQuery.data?.status}
+        setupStage={setupProgressQuery.data?.setupStage}
+        setupLogs={setupProgressQuery.data?.setupLogs}
+        setupError={setupProgressQuery.data?.setupError}
+        mutationError={setupMutation.error?.message}
+        isPending={setupMutation.isPending}
+        isSuccess={setupMutation.isSuccess}
+        onClose={closeSetupDialog}
+        onRetry={() => setupServerId && handleSetup(setupServerId)}
+      />
 
       <ConfirmActionDialog
         open={deleteTarget !== null}
