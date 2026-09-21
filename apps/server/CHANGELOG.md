@@ -1,5 +1,11 @@
 # server
 
+## 0.14.7
+
+### Patch Changes
+
+- [#550](https://github.com/UpstandPlatform/upstand/pull/550) [`d97aabf`](https://github.com/UpstandPlatform/upstand/commit/d97aabf8025537c4d5c190c37429f59f3842e1b8) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix remote terminal authentication races and provide actionable diagnostics for Docker overlay filesystem failures during remote server setup.
+
 ## 0.14.6
 
 ### Patch Changes
