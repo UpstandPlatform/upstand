@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.6 - 2026-09-21
+
+Fix remote terminal authentication races, provide actionable diagnostics for Docker overlay filesystem failures, and make remote server setup errors readable and recoverable in the dashboard.
+
+
 ## 0.14.5 - 2026-09-20
 
 Keep production readiness healthy during short-lived monitoring collection failures while the last successful sample is still fresh.
