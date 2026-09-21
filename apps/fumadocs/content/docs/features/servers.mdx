@@ -108,11 +108,14 @@ Follow these steps to connect and provision a new remote Docker host:
 
 If setup reports that Docker cannot mount an overlay filesystem, the remote
 host is not currently capable of running the required Docker image layers.
-This is common with rootless Docker, unprivileged LXC/Incus containers, or
-Docker data stored on an unsupported filesystem. Enable nesting, `keyctl`, and
-the host overlayfs capability where applicable, or use a rootful Docker Engine
-on ext4 or XFS with `ftype=1`; then retry setup. Do not delete Docker's data
-directory as a workaround.
+Docker Engine 29 and later may report this as the `overlayfs` containerd
+snapshotter. This is common with rootless Docker, unprivileged LXC/Incus
+containers, restricted VPS kernels, or Docker data stored on an unsupported
+filesystem. Enable nesting, `keyctl`, and the host overlayfs capability where
+applicable, or use a rootful Docker Engine on ext4 or XFS with `ftype=1`;
+then verify `docker run --rm hello-world` and retry setup. Do not delete
+Docker's data directory or switch storage drivers without first backing up
+images and containers.
 
 ---
 

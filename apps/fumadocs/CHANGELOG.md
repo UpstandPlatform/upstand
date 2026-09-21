@@ -1,5 +1,9 @@
 # fumadocs
 
+## 0.14.8
+
+No changes in this release.
+
 ## 0.14.7
 
 No changes in this release.

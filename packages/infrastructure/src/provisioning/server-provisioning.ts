@@ -269,8 +269,10 @@ export function formatCaddyPullError(
   return [
     base,
     "Remote Docker cannot mount its overlay filesystem.",
-    "This usually means the server is running rootless Docker, an unprivileged LXC/Incus container, or Docker data is on an unsupported filesystem.",
-    "Enable nested Docker/overlayfs on the host (including nesting/keyctl where applicable), use a rootful Docker Engine on ext4 or XFS with ftype=1, or configure rootless Docker with fuse-overlayfs, then retry setup.",
+    dockerDiagnostic.includes("driver=overlayfs")
+      ? "The Docker daemon is using the overlayfs snapshotter, but the host denied the required mount. This commonly happens with an unprivileged LXC/Incus container, restricted VPS kernel, or a security policy that blocks nested overlay mounts."
+      : "This usually means the server is running rootless Docker, an unprivileged LXC/Incus container, or Docker data is on an unsupported filesystem.",
+    "Run Docker on a VM or bare-metal host, or enable nested Docker/overlayfs with nesting and keyctl where applicable. For rootless Docker, configure fuse-overlayfs; for rootful Docker, use ext4 or XFS with ftype=1. Then verify `docker run --rm hello-world` and retry setup.",
     dockerDiagnostic ? `Docker storage diagnostic: ${dockerDiagnostic}` : "",
   ]
     .filter(Boolean)
