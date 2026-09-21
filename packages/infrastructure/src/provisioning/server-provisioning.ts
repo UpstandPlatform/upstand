@@ -11,6 +11,9 @@ const CADDY_NETWORK = "upstand-network";
 export const MAX_SSH_STDOUT_BYTES = 2 * 1024 * 1024;
 export const MAX_SSH_STDERR_BYTES = 512 * 1024;
 
+const OVERLAYFS_PERMISSION_ERROR =
+  /failed to mount[^\n]*overlay[^\n]*(?:permission denied|operation not permitted)/i;
+
 export function appendBoundedSshOutput(
   current: string,
   chunk: Buffer | string,
@@ -85,7 +88,8 @@ export function createServerProvisioningPort(): ServerProvisioningPort {
             });
           }),
         dockerInfo: dockerInfoViaSsh,
-        initializeCaddy: (settings) => initializeCaddyViaSsh(client, settings),
+        initializeCaddy: (settings) =>
+          initializeCaddyViaSsh(client, settings, dockerCommand),
         close: async () => {
           client.end();
         },
@@ -103,6 +107,7 @@ export function createServerProvisioningPort(): ServerProvisioningPort {
 async function initializeCaddyViaSsh(
   client: Client,
   settings: CaddySettings,
+  dockerCommand: string,
 ): Promise<void> {
   // Generate the initial Caddyfile and base64-encode it for the bootstrap env var.
   const caddyfileContent = generateCaddyfileContent(settings);
@@ -122,7 +127,7 @@ async function initializeCaddyViaSsh(
   for (const vol of volumes) {
     const r = await execute(
       client,
-      `docker volume inspect ${vol} >/dev/null 2>&1 || docker volume create ${vol}`,
+      `${dockerCommand} volume inspect ${vol} >/dev/null 2>&1 || ${dockerCommand} volume create ${vol}`,
     );
     if (r.code !== 0) {
       throw new Error(
@@ -132,21 +137,35 @@ async function initializeCaddyViaSsh(
   }
 
   // 2. Pull the Caddy image (no-op if already present).
-  const pull = await execute(client, `docker pull ${CADDY_IMAGE}`);
+  const pull = await execute(
+    client,
+    `${dockerCommand} pull ${shellQuote(CADDY_IMAGE)}`,
+  );
   if (pull.code !== 0) {
-    throw new Error(`Failed to pull ${CADDY_IMAGE}: ${pull.stderr.trim()}`);
+    const diagnostic = await execute(
+      client,
+      `${dockerCommand} info --format 'driver={{.Driver}} root={{.DockerRootDir}} security={{json .SecurityOptions}}' 2>&1`,
+      30_000,
+    );
+    throw new Error(
+      formatCaddyPullError(
+        CADDY_IMAGE,
+        pull.stderr.trim() || pull.stdout.trim(),
+        diagnostic.stdout.trim() || diagnostic.stderr.trim(),
+      ),
+    );
   }
 
   // 3. Check whether the container already exists.
   const inspect = await execute(
     client,
-    `docker inspect ${CADDY_CONTAINER_NAME} >/dev/null 2>&1`,
+    `${dockerCommand} inspect ${CADDY_CONTAINER_NAME} >/dev/null 2>&1`,
   );
 
   if (inspect.code === 0) {
     const bindings = await execute(
       client,
-      `docker inspect --format '{{json .HostConfig.PortBindings}}' ${CADDY_CONTAINER_NAME}`,
+      `${dockerCommand} inspect --format '{{json .HostConfig.PortBindings}}' ${CADDY_CONTAINER_NAME}`,
     );
     let expectedBindings = true;
     try {
@@ -168,16 +187,16 @@ async function initializeCaddyViaSsh(
       expectedBindings = false;
     }
     if (!expectedBindings) {
-      await execute(client, `docker rm -f ${CADDY_CONTAINER_NAME}`);
+      await execute(client, `${dockerCommand} rm -f ${CADDY_CONTAINER_NAME}`);
     } else {
       // Container already exists – make sure it is running and on the overlay network.
       await execute(
         client,
-        `docker start ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
+        `${dockerCommand} start ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
       );
       await execute(
         client,
-        `docker network connect ${CADDY_NETWORK} ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
+        `${dockerCommand} network connect ${CADDY_NETWORK} ${CADDY_CONTAINER_NAME} 2>/dev/null || true`,
       );
       return;
     }
@@ -188,7 +207,7 @@ async function initializeCaddyViaSsh(
   //    overlay network is attached before starting – matching what the Docker
   //    API path does (create → network connect → start).
   const runCmd = [
-    "docker create",
+    `${dockerCommand} create`,
     `--name ${shellQuote(CADDY_CONTAINER_NAME)}`,
     "--label com.upstand.component=caddy",
     "--label com.upstand.platform=true",
@@ -221,7 +240,7 @@ async function initializeCaddyViaSsh(
   // 5. Attach to the overlay network.
   const connect = await execute(
     client,
-    `docker network connect ${CADDY_NETWORK} ${CADDY_CONTAINER_NAME}`,
+    `${dockerCommand} network connect ${CADDY_NETWORK} ${CADDY_CONTAINER_NAME}`,
   );
   if (connect.code !== 0) {
     throw new Error(
@@ -230,10 +249,32 @@ async function initializeCaddyViaSsh(
   }
 
   // 6. Start the container.
-  const start = await execute(client, `docker start ${CADDY_CONTAINER_NAME}`);
+  const start = await execute(
+    client,
+    `${dockerCommand} start ${CADDY_CONTAINER_NAME}`,
+  );
   if (start.code !== 0) {
     throw new Error(`Failed to start Caddy container: ${start.stderr.trim()}`);
   }
+}
+
+export function formatCaddyPullError(
+  image: string,
+  detail: string,
+  dockerDiagnostic = "",
+): string {
+  const base = `Failed to pull ${image}: ${detail || "unknown Docker error"}`;
+  if (!OVERLAYFS_PERMISSION_ERROR.test(detail)) return base;
+
+  return [
+    base,
+    "Remote Docker cannot mount its overlay filesystem.",
+    "This usually means the server is running rootless Docker, an unprivileged LXC/Incus container, or Docker data is on an unsupported filesystem.",
+    "Enable nested Docker/overlayfs on the host (including nesting/keyctl where applicable), use a rootful Docker Engine on ext4 or XFS with ftype=1, or configure rootless Docker with fuse-overlayfs, then retry setup.",
+    dockerDiagnostic ? `Docker storage diagnostic: ${dockerDiagnostic}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 async function execute(
