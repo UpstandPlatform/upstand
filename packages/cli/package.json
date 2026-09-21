@@ -34,8 +34,8 @@
   },
   "dependencies": {
     "@upstand/domain": "workspace:*",
-    "@opentui/core": "^0.4.5",
-    "@opentui/keymap": "^0.4.5",
+    "@opentui/core": "^0.5.11",
+    "@opentui/keymap": "^0.5.11",
     "zod": "^4.4.3"
   },
   "devDependencies": {

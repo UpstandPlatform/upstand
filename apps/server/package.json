@@ -28,19 +28,19 @@
     "@upstand/redis": "workspace:*",
     "@upstand/repositories": "workspace:*",
     "@upstand/usecases": "workspace:*",
-    "ai": "7.0.48",
+    "ai": "7.0.106",
     "evlog": "catalog:",
     "hono": "catalog:",
     "ssh2": "^1.17.0",
-    "swagger-ui-dist": "^5.32.11",
+    "swagger-ui-dist": "^5.33.0",
     "trpc-to-openapi": "^3.3.0",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
-    "@types/ssh2": "^1.15.5",
+    "@types/ssh2": "^1.15.6",
     "@upstand/config": "workspace:*",
-    "tsdown": "^0.22.14",
+    "tsdown": "^0.23.0",
     "typescript": "catalog:"
   }
 }
