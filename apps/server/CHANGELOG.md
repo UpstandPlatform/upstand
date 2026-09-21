@@ -1,5 +1,11 @@
 # server
 
+## 0.14.8
+
+### Patch Changes
+
+- [#556](https://github.com/UpstandPlatform/upstand/pull/556) [`99abc89`](https://github.com/UpstandPlatform/upstand/commit/99abc8999ea00429302bddc4e0b79f4cf51dd2c9) Thanks [@mhbdev](https://github.com/mhbdev)! - Improve remote server setup recovery with a readable, responsive dialog and actionable Docker overlay filesystem diagnostics.
+
 ## 0.14.7
 
 ### Patch Changes

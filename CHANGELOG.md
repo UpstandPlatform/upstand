@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.8 - 2026-09-21
+
+Improve remote server setup recovery with a readable, responsive dialog and actionable Docker overlay filesystem diagnostics.
+
+
 ## 0.14.7 - 2026-09-21
 
 Fix remote terminal authentication races and provide actionable diagnostics for Docker overlay filesystem failures during remote server setup.
