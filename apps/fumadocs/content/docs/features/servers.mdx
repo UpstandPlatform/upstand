@@ -62,10 +62,15 @@ Follow these steps to connect and provision a new remote Docker host:
 
 <Steps>
   <Step>
-    ### Generate or import an SSH key pair
-    
-    Navigate to **Settings → SSH Keys** and create or import a key.
-    Copy the **public key** text.
+    ### Choose SSH credentials
+
+    Remote servers support either a password or an SSH key. Passwords are
+    encrypted at rest and used only to establish the SSH connection; Upstand
+    never copies them into setup logs or terminal output. SSH keys remain the
+    recommended option for unattended provisioning.
+
+    To use a key, navigate to **Settings → SSH Keys**, create or import one,
+    and install its public key in the target user's `authorized_keys` file.
   </Step>
 
   <Step>
@@ -84,7 +89,8 @@ Follow these steps to connect and provision a new remote Docker host:
     ### Add the server in the Upstand Dashboard
     
     1. Go to the **Remote Servers** tab and click **Add Server**.
-    2. Input a name, public IP, SSH Port, SSH User, and select your SSH Key.
+    2. Input a name, public IP, SSH Port, SSH User, and choose either Password
+       or SSH Key authentication.
     3. Click **Setup Server**.
   </Step>
 
@@ -99,6 +105,14 @@ Follow these steps to connect and provision a new remote Docker host:
     - Spawns Caddy to handle routing on the remote server.
   </Step>
 </Steps>
+
+If setup reports that Docker cannot mount an overlay filesystem, the remote
+host is not currently capable of running the required Docker image layers.
+This is common with rootless Docker, unprivileged LXC/Incus containers, or
+Docker data stored on an unsupported filesystem. Enable nesting, `keyctl`, and
+the host overlayfs capability where applicable, or use a rootful Docker Engine
+on ext4 or XFS with `ftype=1`; then retry setup. Do not delete Docker's data
+directory as a workaround.
 
 ---
 

@@ -22,6 +22,7 @@ import {
   terminalBroker,
 } from "../../terminal-broker";
 import type { AppEnv } from "../types";
+import { decodeTerminalControlFrame } from "./terminal-auth";
 
 async function createTerminalToken(
   c: Context<AppEnv>,
@@ -626,8 +627,8 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
     "/api/terminal/connect",
     upgradeWebSocket((c) => {
       let token: string | null = null;
-      let authenticating = false;
       let socketOpen = true;
+      let openingSession: Promise<boolean> | null = null;
       let wsRef: {
         send(data: string | ArrayBuffer): void;
         close(code?: number, reason?: string): void;
@@ -654,18 +655,34 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
       return {
         onOpen: async (_event, ws) => {
           wsRef = ws;
-          try {
-            const currentSession = await auth.api.getSession({
+          // Mark the socket as ready for the first control frame before the
+          // asynchronous cookie/session lookup. Otherwise a fast browser can
+          // send its authentication frame while this lookup is pending and
+          // the frame is silently discarded.
+          openingSession = auth.api
+            .getSession({
               headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+            })
+            .then((currentSession) => {
+              if (!currentSession) {
+                closeSocket(1008, "Authentication required");
+                return false;
+              }
+              return true;
+            })
+            .catch((error) => {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Terminal connection failed";
+              if (socketOpen) {
+                sendSocket(JSON.stringify({ type: "terminal.error", message }));
+                closeSocket(1011, "Terminal connection failed");
+              }
+              return false;
             });
-            if (!currentSession) {
-              closeSocket(1008, "Authentication required");
-              return;
-            }
-            // The handoff token is deliberately received in the first
-            // WebSocket frame instead of the URL. This prevents it from being
-            // copied into proxy access logs, browser history, and telemetry.
-            authenticating = true;
+          try {
+            await openingSession;
           } catch (error) {
             const message =
               error instanceof Error
@@ -680,74 +697,74 @@ export function registerTerminalRoutes(app: Hono<AppEnv>): void {
         onMessage: async (event) => {
           if (!socketOpen) return;
           if (!token) {
-            if (authenticating || typeof event.data !== "string") {
-              let requestedToken: string | undefined;
-              try {
-                const parsed = JSON.parse(String(event.data)) as {
-                  type?: unknown;
-                  token?: unknown;
-                };
-                if (
-                  parsed.type === "terminal.authenticate" &&
-                  typeof parsed.token === "string"
-                ) {
-                  requestedToken = parsed.token;
-                }
-              } catch {
-                // Authentication must be a JSON control frame.
+            if (!(await openingSession)) return;
+
+            const frame = decodeTerminalControlFrame(event.data);
+            let requestedToken: string | undefined;
+            try {
+              const parsed = JSON.parse(frame ?? "") as {
+                type?: unknown;
+                token?: unknown;
+              };
+              if (
+                parsed.type === "terminal.authenticate" &&
+                typeof parsed.token === "string"
+              ) {
+                requestedToken = parsed.token;
               }
-              if (!requestedToken) {
-                closeSocket(1008, "Terminal authentication required");
+            } catch {
+              // Authentication must be a JSON control frame.
+            }
+            if (!requestedToken) {
+              closeSocket(1008, "Terminal authentication required");
+              return;
+            }
+            try {
+              const currentSession = await auth.api.getSession({
+                headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+              });
+              if (!currentSession) {
+                closeSocket(1008, "Authentication required");
                 return;
               }
-              try {
-                const currentSession = await auth.api.getSession({
-                  headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
-                });
-                if (!currentSession) {
-                  closeSocket(1008, "Authentication required");
-                  return;
-                }
-                token = await terminalBroker.connectForSession(
-                  currentSession.user.id,
-                  currentSession.session.id,
-                  (data) =>
-                    sendSocket(
-                      data.buffer.slice(
-                        data.byteOffset,
-                        data.byteOffset + data.byteLength,
-                      ) as ArrayBuffer,
-                    ),
-                  (message) => closeSocket(1000, message),
-                  async (identity) => {
-                    const refreshedSession = await auth.api.getSession({
-                      headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
-                    });
-                    if (!refreshedSession) return false;
-                    if (
-                      !matchesTerminalSession(identity, {
-                        userId: refreshedSession.user.id,
-                        sessionId: refreshedSession.session.id,
-                        twoFactorEnabled:
-                          refreshedSession.user.twoFactorEnabled === true,
-                      })
-                    ) {
-                      return false;
-                    }
-                    return isStepUpAuthenticationSatisfied(refreshedSession);
-                  },
-                  requestedToken,
-                );
-                authenticating = false;
-                sendSocket(JSON.stringify({ type: "terminal.ready" }));
-              } catch (error) {
-                const message =
-                  error instanceof Error
-                    ? error.message
-                    : "Terminal connection failed";
-                sendSocket(JSON.stringify({ type: "terminal.error", message }));
-                closeSocket(1011, "Terminal connection failed");
-              }
+              token = await terminalBroker.connectForSession(
+                currentSession.user.id,
+                currentSession.session.id,
+                (data) =>
+                  sendSocket(
+                    data.buffer.slice(
+                      data.byteOffset,
+                      data.byteOffset + data.byteLength,
+                    ) as ArrayBuffer,
+                  ),
+                (message) => closeSocket(1000, message),
+                async (identity) => {
+                  const refreshedSession = await auth.api.getSession({
+                    headers: normalizeDirectIpAuthRequest(c.req.raw).headers,
+                  });
+                  if (!refreshedSession) return false;
+                  if (
+                    !matchesTerminalSession(identity, {
+                      userId: refreshedSession.user.id,
+                      sessionId: refreshedSession.session.id,
+                      twoFactorEnabled:
+                        refreshedSession.user.twoFactorEnabled === true,
+                    })
+                  ) {
+                    return false;
+                  }
+                  return isStepUpAuthenticationSatisfied(refreshedSession);
+                },
+                requestedToken,
+              );
+              sendSocket(JSON.stringify({ type: "terminal.ready" }));
+            } catch (error) {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Terminal connection failed";
+              sendSocket(JSON.stringify({ type: "terminal.error", message }));
+              closeSocket(1011, "Terminal connection failed");
             }
             return;
           }
