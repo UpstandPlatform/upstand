@@ -4,6 +4,13 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.9 - 2026-09-22
+
+Allow the desktop-local runtime to provision remote monitoring from its bundled monitoring source while keeping immutable image enforcement for self-hosted and cloud production runtimes.
+
+Fix remote server verification so Docker connectivity cannot be reported as a successful Upstand installation when provisioning has failed. The verification dialog now reports setup failures, validates host clock drift, and only marks a server operational after provisioning and runtime checks pass.
+
+
 ## 0.14.8 - 2026-09-21
 
 Improve remote server setup recovery with a readable, responsive dialog and actionable Docker overlay filesystem diagnostics.

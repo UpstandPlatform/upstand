@@ -161,6 +161,7 @@ const validatedEnv = createEnv({
     OTLP_ENDPOINT: z.url().optional(),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
     UPSTAND_MONITORING_IMAGE: z.string().min(1).optional(),
+    UPSTAND_MONITORING_SOURCE_DIR: z.string().min(1).optional(),
     DB_MIGRATIONS_PATH: z.string().min(1).optional(),
     UPGAL_MCP_SERVERS: z.string().optional(),
     UPGAL_ALLOW_GLOBAL_MCP: z

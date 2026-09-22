@@ -184,9 +184,11 @@
 
 /* Sonner's rich error palette is too light for WCAG AA at body-sized text. */
 .cn-toast[data-type="error"] {
+  /* biome-ignore lint/complexity/noImportantStyles: Sonner sets this token with higher specificity. */
   --error-text: #991b1b !important;
 }
 
 .dark .cn-toast[data-type="error"] {
+  /* biome-ignore lint/complexity/noImportantStyles: Sonner sets this token with higher specificity. */
   --error-text: #fecaca !important;
 }

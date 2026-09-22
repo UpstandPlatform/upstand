@@ -76,6 +76,7 @@ describe("packaged Desktop server runtime", () => {
   test("uses Next's nested standalone dashboard entrypoint", () => {
     expect(services).toContain('"dashboard", "apps", "web", "server.js"');
     expect(desktopBuild).toContain('resolve(localRoot, "dashboard")');
+    expect(desktopBuild).toContain('resolve(localRoot, "monitoring")');
     expect(desktopBuild).toContain(
       'resolve(localRoot, "dashboard", "apps", "web", ".next", "static")',
     );
@@ -84,6 +85,7 @@ describe("packaged Desktop server runtime", () => {
     );
     expect(desktopBuild).toContain("dashboardNodeModules");
     expect(desktopBuild).toContain("stagedDashboardModules");
+    expect(services).toContain("UPSTAND_MONITORING_SOURCE_DIR");
   });
 
   test("declares Upstand as the installed product and handles Squirrel lifecycle commands", () => {

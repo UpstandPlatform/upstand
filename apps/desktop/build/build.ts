@@ -230,6 +230,7 @@ if (isPackageBuild) {
     "src",
     "migrations",
   );
+  const monitoringSource = resolve(workspaceRoot, "apps", "monitoring");
   for (const [source, destination] of [
     [dashboardStandalone, resolve(localRoot, "dashboard")],
     [
@@ -238,6 +239,7 @@ if (isPackageBuild) {
     ],
     [dashboardPublic, resolve(localRoot, "dashboard", "apps", "web", "public")],
     [migrations, resolve(localRoot, "migrations")],
+    [monitoringSource, resolve(localRoot, "monitoring")],
   ] as const) {
     try {
       await copyGeneratedTree(source, destination);
@@ -263,6 +265,11 @@ if (isPackageBuild) {
       resolve(workspaceRoot, "apps", "server", "src", "index.ts"),
       "--compile",
       "--packages=bundle",
+      // ssh2 treats cpu-features as an optional native optimization. Keep it
+      // external so Bun's compiler does not require the optional native module
+      // to be present in every runner's install layout; ssh2 safely falls back
+      // to the portable implementation when it is unavailable at runtime.
+      "--external=cpu-features",
       "--outfile",
       localServerBinary,
     ],

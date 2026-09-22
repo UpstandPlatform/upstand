@@ -15,6 +15,10 @@ type DockerInfo = {
   images: number;
   memoryBytes: number;
   swarmState: string;
+  ready: boolean;
+  installationStatus: string;
+  setupStage: string | null;
+  setupError: string | null;
 };
 
 type DockerContainer = {
@@ -93,6 +97,8 @@ describe("remote server E2E", () => {
       expect(info.images).toBeGreaterThan(0);
       expect(info.memoryBytes).toBeGreaterThan(0);
       expect(info.swarmState).toBe("active");
+      expect(info.ready).toBe(true);
+      expect(info.installationStatus).toBe("ready");
 
       const timeResult = await trpc("server.time", remoteInput());
       expect(timeResult.response.ok).toBe(true);
