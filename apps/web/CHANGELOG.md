@@ -1,5 +1,11 @@
 # web
 
+## 0.14.10
+
+### Patch Changes
+
+- [#568](https://github.com/UpstandPlatform/upstand/pull/568) [`2b2098e`](https://github.com/UpstandPlatform/upstand/commit/2b2098ed1ae4c8ae012e39f66f75fb5e2ef785aa) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix desktop-local resource source selection, credential draft validation, build previews, and runtime-aware preflight guidance.
+
 ## 0.14.9
 
 ### Patch Changes

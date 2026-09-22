@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.10 - 2026-09-22
+
+Fix desktop-local resource source selection, credential draft validation, build previews, and runtime-aware preflight guidance.
+
+
 ## 0.14.9 - 2026-09-22
 
 Allow the desktop-local runtime to provision remote monitoring from its bundled monitoring source while keeping immutable image enforcement for self-hosted and cloud production runtimes.
