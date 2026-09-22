@@ -28,12 +28,6 @@ export class DetectApplicationBuildUseCase {
     if (resource?.type !== "application") {
       throw new ValidationError("Application not found");
     }
-    if (resource.provider !== "local") {
-      throw new ValidationError(
-        "Build preview is currently available for local project folders only.",
-      );
-    }
-
     return detectBuildConfig(input.localPath, input.buildPath ?? ".");
   }
 }

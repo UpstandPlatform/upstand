@@ -41,6 +41,23 @@ describe("resource credential references", () => {
     ).resolves.toBeUndefined();
   });
 
+  test("accepts plaintext credential drafts before persistence encryption", async () => {
+    await expect(
+      validateResourceCredentialReferences(
+        {
+          gitProviderRepository: {
+            findById: async () => ({ organizationId: "org-1" }),
+          },
+          sshKeyRepository: {
+            findById: async () => ({ organizationId: "org-1" }),
+          },
+        } as never,
+        "org-1",
+        JSON.stringify({ githubAccount: "provider-1" }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   test("rejects references owned by another organization", async () => {
     await expect(
       validateResourceCredentialReferences(
