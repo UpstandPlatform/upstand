@@ -58,6 +58,11 @@ import {
 } from "../server/server-role";
 import type { CaddyService } from "../web-server/caddy.service";
 import { buildRegistryImageTag } from "./build-registry";
+import {
+  clearLocalDeploymentCancellation,
+  deploymentCancellationKey,
+  isLocalDeploymentCancellationRequested,
+} from "./deployment-cancellation";
 import { appendBoundedDeploymentLog } from "./deployment-log-safety";
 import { getDeploymentQueueName } from "./deployment-queue-name";
 import {
@@ -844,7 +849,7 @@ export class DeploymentWorker {
       buildCliCleanup = null;
       let registryInfo: RegistryInfo | undefined;
       let targetDestinationDocker: DockerApiTarget | undefined;
-      const cancellationKey = `upstand:deployment:cancel:${deploymentId}`;
+      const cancellationKey = deploymentCancellationKey(deploymentId);
       dockerService.setCancellationKey(cancellationKey);
 
       if (
@@ -1842,8 +1847,10 @@ export class DeploymentWorker {
     } catch (err: unknown) {
       if (executionLeaseLost) return;
       const cancelled = options.local
-        ? false
-        : Boolean(await redis.get(`upstand:deployment:cancel:${deploymentId}`));
+        ? isLocalDeploymentCancellationRequested(
+            deploymentCancellationKey(deploymentId),
+          )
+        : Boolean(await redis.get(deploymentCancellationKey(deploymentId)));
       appendLog(
         cancelled
           ? `\nDeployment cancelled by user. 🛑\nReason: ${errorMessage(err)}\n`
@@ -1907,8 +1914,12 @@ export class DeploymentWorker {
       await scope.dispose();
       remoteCliCleanup?.();
       buildCliCleanup?.();
-      if (!options.local) {
-        await redis.del(`upstand:deployment:cancel:${deploymentId}`);
+      if (options.local) {
+        clearLocalDeploymentCancellation(
+          deploymentCancellationKey(deploymentId),
+        );
+      } else {
+        await redis.del(deploymentCancellationKey(deploymentId));
       }
       await resourceLock.release().catch((error) => {
         log.error({

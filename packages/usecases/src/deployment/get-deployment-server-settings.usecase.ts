@@ -23,10 +23,17 @@ export class GetDeploymentServerSettingsUseCase {
     organizationId: string,
     options: { includeLocal?: boolean } = {},
   ): Promise<DeploymentServerSettingResult[]> {
-    const nodes = await this.inventory.listSwarmNodes({
-      kind: "local",
-      name: "local",
-    });
+    // Cloud control planes have no local Docker socket, so the local inventory
+    // must not be probed at all there; probing it would turn an unreachable
+    // daemon into a failed settings query instead of an empty local section.
+    // Where the probe does run, an unreachable daemon must still leave the
+    // remote servers listable rather than failing the whole query.
+    const nodes =
+      options.includeLocal === false
+        ? []
+        : await this.inventory
+            .listSwarmNodes({ kind: "local", name: "local" })
+            .catch(() => []);
     const visibleNodes =
       options.includeLocal === false
         ? []

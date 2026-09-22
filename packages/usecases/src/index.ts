@@ -22,6 +22,7 @@ export * from "./certificate/certificate.usecases";
 export * from "./control-plane-transfer/control-plane-transfer.service";
 export * from "./database/database-operations.usecases";
 export * from "./deployment/build-registry";
+export * from "./deployment/deployment-cancellation";
 export * from "./deployment/deployment-queue-name";
 // Deployments & Queues
 export * from "./deployment/deployment-worker";
