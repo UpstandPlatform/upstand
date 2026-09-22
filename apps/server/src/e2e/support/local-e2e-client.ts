@@ -178,6 +178,10 @@ function getMockTrpcData(
         images: 3,
         memoryBytes: 16106127360,
         swarmState: "active",
+        ready: true,
+        installationStatus: "ready",
+        setupStage: null,
+        setupError: null,
       },
     };
   }

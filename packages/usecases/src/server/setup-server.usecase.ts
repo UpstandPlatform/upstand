@@ -400,6 +400,7 @@ export class SetupServerUseCase {
     const token = settings.token;
 
     const configuredMonitoringImage = env.UPSTAND_MONITORING_IMAGE?.trim();
+    const canBuildMonitoringFromSource = env.UPSTAND_PLATFORM === "desktop";
     const monitoringImage =
       configuredMonitoringImage || "upstand-monitoring-agent";
     let remoteTarPath: string | undefined;
@@ -435,13 +436,15 @@ export class SetupServerUseCase {
           );
         }
       } else {
-        if (env.NODE_ENV === "production") {
+        if (env.NODE_ENV === "production" && !canBuildMonitoringFromSource) {
           throw new Error(
-            "UPSTAND_MONITORING_IMAGE is required in production for remote monitoring setup",
+            "UPSTAND_MONITORING_IMAGE is required in production for remote monitoring setup. Configure the immutable release image before retrying.",
           );
         }
 
-        let monitoringPath = path.join(process.cwd(), "apps", "monitoring");
+        let monitoringPath =
+          env.UPSTAND_MONITORING_SOURCE_DIR?.trim() ||
+          path.join(process.cwd(), "apps", "monitoring");
         if (!fs.existsSync(monitoringPath)) {
           const alternativePath = path.join(
             process.cwd(),

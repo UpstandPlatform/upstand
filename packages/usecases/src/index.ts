@@ -168,6 +168,7 @@ export * from "./server/prune-docker-resources.usecase";
 export * from "./server/reset-two-factor.usecase";
 export * from "./server/scan-server-host-key.usecase";
 export * from "./server/server-role";
+export * from "./server/server-validation";
 export * from "./server/setup-server.usecase";
 export * from "./server/update-monitoring-settings.usecase";
 export * from "./server/update-server.usecase";

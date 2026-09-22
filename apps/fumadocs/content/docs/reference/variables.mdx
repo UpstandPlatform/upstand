@@ -77,6 +77,7 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_DEPLOYMENT_WORKER_IMAGE` | Build-capable deployment-worker image reference. |
 | `UPSTAND_WEB_IMAGE` | Web image reference. |
 | `UPSTAND_MONITORING_IMAGE` | Monitoring image reference. |
+| `UPSTAND_MONITORING_SOURCE_DIR` | Desktop-local runtime path to the bundled monitoring source used to build the agent on a configured remote server. Self-hosted and cloud production runtimes must use `UPSTAND_MONITORING_IMAGE` instead. |
 | `UPSTAND_DOCS_IMAGE` | Fumadocs documentation image reference. |
 | `DB_MIGRATIONS_PATH` | Optional database migrations path. |
 | `UPSTAND_POSTGRES_CONTAINER` | Optional PostgreSQL container identifier/name. |

@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.14.9
+
+### Patch Changes
+
+- [#559](https://github.com/UpstandPlatform/upstand/pull/559) [`8d6eaa7`](https://github.com/UpstandPlatform/upstand/commit/8d6eaa7ddf7298373434a725aaf5ab6d6c48776f) Thanks [@mhbdev](https://github.com/mhbdev)! - Fix remote server verification so Docker connectivity cannot be reported as a successful Upstand installation when provisioning has failed. The verification dialog now reports setup failures, validates host clock drift, and only marks a server operational after provisioning and runtime checks pass.
+
 ## 0.14.8
 
 No changes in this release.
