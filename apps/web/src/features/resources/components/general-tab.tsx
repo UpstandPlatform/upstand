@@ -307,7 +307,9 @@ export function GeneralTab({
   const [buildServerId, setBuildServerId] = useState("default");
 
   // Provider State
-  const [providerType, setProviderType] = useState<ResourceProvider>("github");
+  const [providerType, setProviderType] = useState<ResourceProvider>(
+    isDesktop ? "local" : "github",
+  );
   const [autoDeploy, setAutoDeploy] = useState(true);
 
   useEffect(() => {
@@ -2672,9 +2674,10 @@ export function GeneralTab({
                     )}
                   </div>
                   <p className="text-muted-foreground text-xs">
-                    The desktop runtime reads this folder for local Docker or
-                    bare builds, then deploys the resulting workload to the
-                    selected remote server.
+                    The desktop runtime reads this folder for Docker or bare
+                    builds on this PC, then deploys the resulting workload to
+                    the selected remote server. Selecting a folder does not
+                    require a Git provider connection.
                   </p>
                 </div>
               )}

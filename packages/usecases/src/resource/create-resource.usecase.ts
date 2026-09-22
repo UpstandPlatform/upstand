@@ -19,6 +19,7 @@ import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import { log } from "evlog";
 import { z } from "zod";
 import {
+  getConfiguredControlPlaneMode,
   requiresRemoteDeploymentServer,
   requiresRemoteServerPlacement,
 } from "../platform/platform.types";
@@ -265,7 +266,11 @@ export class CreateResourceUseCase {
       }
 
       // Prefill provider and initial metadata
-      let provider = "github";
+      // Desktop has no hosted Git-provider surface. New applications start
+      // with the local-folder source so the first action is truthful and the
+      // user is not sent into an unavailable Git configuration path.
+      let provider =
+        getConfiguredControlPlaneMode() === "desktop" ? "local" : "github";
       if (input.type === "database") {
         provider = input.dockerImage || input.dbType || "docker-registry";
       } else if (input.type === "application" && input.dockerImage) {

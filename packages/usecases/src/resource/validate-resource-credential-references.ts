@@ -1,6 +1,9 @@
 import type { IUnitOfWork } from "@upstand/domain";
 import { ValidationError } from "@upstand/domain";
-import { parseResourceCredentialsStrict } from "./resource-credentials";
+import {
+  parseResourceCredentialInput,
+  parseResourceCredentialsStrict,
+} from "./resource-credentials";
 
 type CredentialReferenceRepositories = Pick<
   IUnitOfWork,
@@ -22,7 +25,11 @@ export async function validateResourceCredentialReferences(
   organizationId: string,
   credentials: string | null | undefined,
 ): Promise<void> {
-  const parsed = parseResourceCredentialsStrict(credentials);
+  // Create/update requests carry the credential draft as plaintext JSON so it
+  // can be encrypted exactly once at the persistence boundary. Stored
+  // resource credentials remain encrypted and are still accepted here for
+  // deployment, migration, and other server-side callers.
+  const parsed = parseResourceCredentialInput(credentials);
 
   if (typeof parsed.githubAccount === "string") {
     const provider = await repositories.gitProviderRepository.findById(

@@ -39,10 +39,37 @@ describe("DetectApplicationBuildUseCase", () => {
     }
   });
 
-  test("rejects build previews for non-local applications", async () => {
+  test("supports previewing a local draft before its provider is saved", async () => {
+    const projectPath = await mkdtemp(
+      path.join(os.tmpdir(), "upstand-detect-build-draft-"),
+    );
+    try {
+      await writeFile(
+        path.join(projectPath, "package.json"),
+        JSON.stringify({ scripts: { build: "npm run build" } }),
+      );
+
+      const useCase = new DetectApplicationBuildUseCase({
+        resourceRepository: {
+          findById: async () => ({ type: "application", provider: "github" }),
+        },
+      } as never);
+
+      const result = await useCase.execute({
+        resourceId: "application-1",
+        localPath: projectPath,
+      });
+
+      expect(result.status).toBe("detected");
+    } finally {
+      await rm(projectPath, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects build previews for non-application resources", async () => {
     const useCase = new DetectApplicationBuildUseCase({
       resourceRepository: {
-        findById: async () => ({ type: "application", provider: "github" }),
+        findById: async () => ({ type: "database", provider: "postgres" }),
       },
     } as never);
 
@@ -51,6 +78,6 @@ describe("DetectApplicationBuildUseCase", () => {
         resourceId: "application-1",
         localPath: "C:\\Projects\\app",
       }),
-    ).rejects.toThrow("local project folders only");
+    ).rejects.toThrow("Application not found");
   });
 });

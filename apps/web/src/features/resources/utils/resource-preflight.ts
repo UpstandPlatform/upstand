@@ -137,9 +137,18 @@ export function getResourcePreflightErrors(
     }
   } else {
     // Application type
+    // Hosted Git-provider tabs are intentionally unavailable in the desktop
+    // runtime. Treat a legacy persisted hosted source as a local-folder draft
+    // in preflight so the user gets an actionable local-path error instead of
+    // being sent to a Git-provider screen that cannot exist on this runtime.
+    const applicationProvider =
+      options?.platformMode === "desktop" &&
+      GIT_SOURCE_PROVIDERS.has(resource.provider)
+        ? "local"
+        : resource.provider;
     if (
-      resource.provider === "docker-registry" ||
-      resource.provider === "docker"
+      applicationProvider === "docker-registry" ||
+      applicationProvider === "docker"
     ) {
       if (
         !resource.dockerImage ||
@@ -156,7 +165,7 @@ export function getResourcePreflightErrors(
             "Go to General settings and specify a valid Docker image (e.g., nginx:alpine or ghcr.io/org/app:v1).",
         });
       }
-    } else if (resource.provider === "local") {
+    } else if (applicationProvider === "local") {
       const localPath = credentials?.localPath;
       if (!localPath || typeof localPath !== "string" || !localPath.trim()) {
         errors.push({
@@ -169,10 +178,10 @@ export function getResourcePreflightErrors(
             "Go to General settings and select or enter the local project folder.",
         });
       }
-    } else if (resource.provider === "drop") {
+    } else if (applicationProvider === "drop") {
       // The uploaded archive is validated by the deployment worker when the
       // user starts a deployment.
-    } else if (GIT_SOURCE_PROVIDERS.has(resource.provider)) {
+    } else if (GIT_SOURCE_PROVIDERS.has(applicationProvider)) {
       const providerId = credentials?.githubAccount;
       const repo = credentials?.repository;
       if (!providerId || typeof providerId !== "string" || !providerId.trim()) {
@@ -205,7 +214,7 @@ export function getResourcePreflightErrors(
           actionableTip: "Go to General settings and select a repository.",
         });
       }
-    } else if (resource.provider === "git") {
+    } else if (applicationProvider === "git") {
       const repoUrl = credentials?.repositoryUrl;
       if (!repoUrl || typeof repoUrl !== "string" || !repoUrl.trim()) {
         errors.push({
