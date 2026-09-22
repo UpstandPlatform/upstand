@@ -82,9 +82,16 @@ interface RemoteServerWizardProps {
 
 function dockerSwarmState(value: unknown): string {
   if (typeof value !== "object" || value === null || !("swarmState" in value)) {
-    return "active";
+    return "unknown";
   }
-  return typeof value.swarmState === "string" ? value.swarmState : "active";
+  return typeof value.swarmState === "string" ? value.swarmState : "unknown";
+}
+
+function isClockSynchronized(epochSeconds: number | undefined): boolean {
+  return (
+    typeof epochSeconds === "number" &&
+    Math.abs(Date.now() / 1000 - epochSeconds) <= 300
+  );
 }
 
 export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
@@ -252,6 +259,13 @@ export function RemoteServerWizard({
     }),
     enabled: Boolean(organizationId && createdServerId && step === 5),
   });
+
+  const validationData = validateQuery.data;
+  const verificationPassed =
+    validationData?.ready === true &&
+    !hostTimeQuery.isError &&
+    isClockSynchronized(hostTimeQuery.data?.epochSeconds) &&
+    !runtimeStatsQuery.isError;
 
   // Selected SSH Key object
   const activeSshKey =
@@ -1254,7 +1268,7 @@ export function RemoteServerWizard({
                     ) : (
                       <>
                         <p className="font-medium text-foreground">
-                          Operational
+                          Docker daemon reachable
                         </p>
                         <p className="font-mono text-[11px] text-muted-foreground">
                           Swarm: {dockerSwarmState(validateQuery.data)}
@@ -1282,7 +1296,9 @@ export function RemoteServerWizard({
                     ) : (
                       <>
                         <p className="font-medium text-foreground">
-                          Synchronized
+                          {isClockSynchronized(hostTimeQuery.data?.epochSeconds)
+                            ? "Synchronized"
+                            : "Clock drift detected"}
                         </p>
                         <p className="truncate font-mono text-[11px] text-muted-foreground">
                           ISO: {hostTimeQuery.data?.iso?.slice(11, 19)} UTC
@@ -1304,9 +1320,7 @@ export function RemoteServerWizard({
                     {runtimeStatsQuery.isPending ? (
                       <Spinner />
                     ) : runtimeStatsQuery.isError ? (
-                      <p className="text-muted-foreground">
-                        Ready for workloads
-                      </p>
+                      <p className="text-destructive">Metrics unavailable</p>
                     ) : (
                       <>
                         <p className="font-medium text-foreground">
@@ -1323,14 +1337,34 @@ export function RemoteServerWizard({
                 </Card>
               </div>
 
-              <Alert variant="default">
-                <CheckCircle2 data-icon="inline-start" />
-                <AlertTitle>Server Verified & Operational</AlertTitle>
-                <AlertDescription>
-                  All connection, Docker engine, clock synchronization, and
-                  resource checks passed successfully.
-                </AlertDescription>
-              </Alert>
+              {verificationPassed ? (
+                <Alert variant="default">
+                  <CheckCircle2 data-icon="inline-start" />
+                  <AlertTitle>Server Verified & Operational</AlertTitle>
+                  <AlertDescription>
+                    Provisioning completed and the Docker engine, Swarm, clock,
+                    and resource checks passed successfully.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert variant="destructive">
+                  <AlertTriangleIcon />
+                  <AlertTitle>Server is not ready</AlertTitle>
+                  <AlertDescription className="break-words">
+                    {validationData?.setupError ||
+                      (validationData?.installationStatus &&
+                      validationData.installationStatus !== "ready"
+                        ? `Upstand installation is ${validationData.installationStatus}.`
+                        : validateQuery.isError
+                          ? validateQuery.error.message
+                          : hostTimeQuery.isError
+                            ? hostTimeQuery.error.message
+                            : runtimeStatsQuery.isError
+                              ? runtimeStatsQuery.error.message
+                              : "One or more server verification checks have not passed yet.")}
+                  </AlertDescription>
+                </Alert>
+              )}
             </motion.div>
           )}
 

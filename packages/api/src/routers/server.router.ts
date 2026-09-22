@@ -5,6 +5,7 @@ import {
   ControlDockerResourceInputSchema,
   CreateServerInputSchema,
   DeleteServerInputSchema,
+  type DockerInfo,
   GetDockerInventoryInputSchema,
   GetServerCountInputSchema,
   GetServerHistoricalMetricsInputSchema,
@@ -13,6 +14,7 @@ import {
   GetServerRuntimeStatsInputSchema,
   GetServersInputSchema,
   getConfiguredControlPlaneMode,
+  isServerReadyForWorkloads,
   MigrateResourceInputSchema,
   ResourceWorkloadMigrationInputSchema,
   ScanServerHostKeyInputSchema,
@@ -149,7 +151,11 @@ export const serverRouter = router({
       );
       const useCase = ctx.scope.resolve(GetDockerInventoryUseCaseToken);
       try {
-        return await useCase.execute(
+        const server = await ctx.scope.resolve(GetServerUseCaseToken).execute({
+          organizationId: input.organizationId,
+          id: input.serverId,
+        });
+        const docker = (await useCase.execute(
           {
             organizationId: input.organizationId,
             serverId: input.serverId,
@@ -157,7 +163,18 @@ export const serverRouter = router({
             tail: 150,
           },
           { allowLocalInCloud },
-        );
+        )) as DockerInfo;
+        return {
+          ...docker,
+          ready: isServerReadyForWorkloads({
+            status: server.status,
+            serverType: server.serverType,
+            docker,
+          }),
+          installationStatus: server.status,
+          setupStage: server.setupStage ?? null,
+          setupError: server.setupError ?? null,
+        };
       } catch (error) {
         handleUseCaseError(error, ctx.log);
       }
