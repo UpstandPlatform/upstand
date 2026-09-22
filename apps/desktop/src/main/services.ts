@@ -89,6 +89,7 @@ function resourcePaths() {
     // available, then launch the nested server entrypoint.
     dashboard: join(root, "local", "dashboard", "apps", "web", "server.js"),
     migrations: join(root, "local", "migrations"),
+    monitoring: join(root, "local", "monitoring"),
   };
 }
 
@@ -238,6 +239,7 @@ export async function startLocalServices(): Promise<{
     SWAGGER_UI_ASSETS_DIR: join(resourceRoot(), "local", "swagger"),
     UPSTAND_NODE_RUNTIME_PATH: process.execPath,
     DB_MIGRATIONS_PATH: paths.migrations,
+    UPSTAND_MONITORING_SOURCE_DIR: paths.monitoring,
     BETTER_AUTH_SECRET: await localAuthSecret(),
     UPGAL_TOOL_APPROVAL_SECRET: await localUpgalToolApprovalSecret(),
     ENCRYPTION_KEY_V1: await localEncryptionKey(),

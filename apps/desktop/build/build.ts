@@ -230,6 +230,7 @@ if (isPackageBuild) {
     "src",
     "migrations",
   );
+  const monitoringSource = resolve(workspaceRoot, "apps", "monitoring");
   for (const [source, destination] of [
     [dashboardStandalone, resolve(localRoot, "dashboard")],
     [
@@ -238,6 +239,7 @@ if (isPackageBuild) {
     ],
     [dashboardPublic, resolve(localRoot, "dashboard", "apps", "web", "public")],
     [migrations, resolve(localRoot, "migrations")],
+    [monitoringSource, resolve(localRoot, "monitoring")],
   ] as const) {
     try {
       await copyGeneratedTree(source, destination);
