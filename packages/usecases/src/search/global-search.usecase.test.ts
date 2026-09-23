@@ -91,4 +91,46 @@ describe("GlobalSearchUseCase", () => {
       },
     ]);
   });
+
+  test("calls the repository projection with its own receiver", async () => {
+    // The production repository is a class whose query methods read
+    // `this.executor`. A detached method reference type-checks but throws at
+    // runtime, so the double here must be a real class method, not a closure.
+    class ProjectRepositoryDouble {
+      private readonly executor = { organizationId: "org-1" };
+
+      async searchByOrganizationId(organizationId: string) {
+        if (this.executor.organizationId !== organizationId) {
+          throw new Error("unexpected organization");
+        }
+        return [
+          {
+            type: "project" as const,
+            id: "project-1",
+            name: "Payments",
+          },
+        ];
+      }
+    }
+
+    const uow = {
+      projectRepository: new ProjectRepositoryDouble(),
+    } as unknown as IUnitOfWork;
+
+    await expect(
+      new GlobalSearchUseCase(uow).execute({
+        organizationId: "org-1",
+        query: "pay",
+        limit: 20,
+      }),
+    ).resolves.toEqual([
+      {
+        type: "project",
+        id: "project-1",
+        name: "Payments",
+        subtitle: "Project",
+        href: "/projects/project-1",
+      },
+    ]);
+  });
 });

@@ -8,6 +8,7 @@ import {
 import { closeRedis, createRedis, pingRedis, redis } from "@upstand/redis";
 import {
   BackupRunWorker,
+  consumesDeploymentQueue,
   DeploymentWorker,
   ExecuteWorkloadMigrationUseCase,
   NotificationDeliveryWorker,
@@ -403,13 +404,22 @@ export class DeploymentRuntime {
       const serverById = new Map(servers.map((server) => [server.id, server]));
       const settings = await uow.serverBuildSettingsRepository.findMany();
       for (const setting of settings) {
-        if (serverById.get(setting.id)?.serverType !== "database") {
+        // Build-settings rows also exist for local and Swarm node ids that
+        // have no server record; those still own a deployment queue.
+        const settingServer = serverById.get(setting.id);
+        if (
+          !settingServer ||
+          consumesDeploymentQueue(settingServer.serverType)
+        ) {
           serverIds.add(setting.id);
         }
       }
 
       for (const server of servers) {
-        if (server.status === "ready" && server.serverType !== "database") {
+        if (
+          server.status === "ready" &&
+          consumesDeploymentQueue(server.serverType)
+        ) {
           serverIds.add(server.id);
         }
       }

@@ -41,6 +41,20 @@ export function getServerProvisioningPlan(
   }
 }
 
+/**
+ * Whether a server consumes its own deployment queue.
+ *
+ * Deploy hosts run applications and Compose stacks, and database hosts run
+ * database resources, so both need a deployment queue consumer. Build hosts
+ * only compile images for another target's deployment job and therefore never
+ * own a deployment queue.
+ */
+export function consumesDeploymentQueue(
+  serverType: ServerType | null | undefined,
+): boolean {
+  return serverType !== "build";
+}
+
 export function assertDeploymentServerSupportsResource(
   server: Server,
   resourceType: ResourceType,

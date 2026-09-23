@@ -1,9 +1,11 @@
 import { type IUnitOfWork, ValidationError } from "@upstand/domain";
 import { redis, withRedisTimeout } from "@upstand/redis";
 import {
+  deploymentCancellationKey,
   getConfiguredControlPlaneMode,
   getDeploymentQueueName,
   getPlatformCapabilities,
+  requestLocalDeploymentCancellation,
 } from "@upstand/usecases";
 import {
   DeployResourceUseCaseToken,
@@ -81,6 +83,14 @@ async function markDeploymentCancelled(
       });
     }
   });
+}
+
+/**
+ * Desktop runs deployments inline in this process and has no Redis, so the
+ * cancellation marker and the queue lookup both have to stay in-process.
+ */
+function usesInProcessDeploymentQueue(): boolean {
+  return !getPlatformCapabilities(getConfiguredControlPlaneMode()).redis;
 }
 
 export const deploymentRouter = router({
@@ -245,13 +255,27 @@ export const deploymentRouter = router({
         );
         const serverId = scope.deployment.serverId || "local";
 
+        if (usesInProcessDeploymentQueue()) {
+          requestLocalDeploymentCancellation(
+            deploymentCancellationKey(deploymentId),
+          );
+          if (scope.deployment.status === "running") {
+            return {
+              success: true,
+              state: scope.deployment.status,
+              cancellationRequested: true,
+            };
+          }
+          await markDeploymentCancelled(scope.uow, deploymentId);
+          return {
+            success: true,
+            state: scope.deployment.status,
+            cancellationRequested: false,
+          };
+        }
+
         await withRedisTimeout(
-          redis.set(
-            `upstand:deployment:cancel:${deploymentId}`,
-            "1",
-            "EX",
-            3600,
-          ),
+          redis.set(deploymentCancellationKey(deploymentId), "1", "EX", 3600),
         );
 
         const queue = new Queue(getDeploymentQueueName(serverId), {
@@ -299,6 +323,27 @@ export const deploymentRouter = router({
         input.deploymentId,
         "resource:update",
       );
+      if (usesInProcessDeploymentQueue()) {
+        requestLocalDeploymentCancellation(
+          deploymentCancellationKey(input.deploymentId),
+        );
+        if (deployment.status === "running") {
+          return {
+            success: true,
+            state: deployment.status,
+            cancellationRequested: true,
+          };
+        }
+        await markDeploymentCancelled(
+          ctx.scope.resolve(UnitOfWorkToken),
+          input.deploymentId,
+        );
+        return {
+          success: true,
+          state: deployment.status,
+          cancellationRequested: false,
+        };
+      }
       const queue = new Queue(
         getDeploymentQueueName(deployment.serverId || "local"),
         { connection: redis },
@@ -311,7 +356,7 @@ export const deploymentRouter = router({
         if (state === "active") {
           await withRedisTimeout(
             redis.set(
-              `upstand:deployment:cancel:${input.deploymentId}`,
+              deploymentCancellationKey(input.deploymentId),
               "1",
               "EX",
               3600,

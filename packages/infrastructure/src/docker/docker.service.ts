@@ -27,6 +27,8 @@ import {
   assertSafeGitRef,
   assertSafeGitUrl,
   detectBuildConfig,
+  getConfiguredControlPlaneMode,
+  isLocalDeploymentCancellationRequested,
   normalizeBuildImageTag,
 } from "@upstand/usecases";
 import type {
@@ -5004,13 +5006,29 @@ export class DockerService implements DockerSwarmManagementPort {
 
       const cancellationTimer = this.cancellationKey
         ? setInterval(() => {
-            if (!this.cancellationKey) return;
-            void redis.get(this.cancellationKey).then((requested) => {
-              if (requested && !settled) {
+            const key = this.cancellationKey;
+            if (!key) return;
+            // Desktop keeps the marker in this process because it has no
+            // Redis; every other mode cancels across processes through Redis.
+            if (getConfiguredControlPlaneMode() === "desktop") {
+              if (isLocalDeploymentCancellationRequested(key) && !settled) {
                 cancelled = true;
                 p.kill("SIGTERM");
               }
-            });
+              return;
+            }
+            void redis
+              .get(key)
+              .then((requested) => {
+                if (requested && !settled) {
+                  cancelled = true;
+                  p.kill("SIGTERM");
+                }
+              })
+              // A Redis outage must not surface as an unhandled rejection
+              // every poll; the build keeps running and the timeout still
+              // applies.
+              .catch(() => undefined);
           }, 500)
         : null;
       const timeoutTimer = options.timeoutMs

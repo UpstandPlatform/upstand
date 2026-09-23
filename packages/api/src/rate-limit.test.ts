@@ -326,4 +326,42 @@ describe("bounded Redis rate-limit fallback", () => {
     expect(fourth.source).toBe("local");
     expect(incrCalled).toBe(2); // Redis was called a second time!
   });
+
+  test("never contacts Redis when no distributed limiter is configured", async () => {
+    const fake = createFakeRedis();
+    fake.setFailure(true);
+    const limiter = new RateLimiter(fake.redis, {
+      now: () => 60_000,
+      distributed: false,
+    });
+
+    const first = await limiter.check({
+      key: "project.create:client",
+      limit: 2,
+      fallbackLimit: 1,
+      windowSeconds: 60,
+    });
+    const second = await limiter.check({
+      key: "project.create:client",
+      limit: 2,
+      fallbackLimit: 1,
+      windowSeconds: 60,
+    });
+    const third = await limiter.check({
+      key: "project.create:client",
+      limit: 2,
+      fallbackLimit: 1,
+      windowSeconds: 60,
+    });
+
+    // The in-process bucket enforces the real limit, not the outage fallback.
+    expect(first).toMatchObject({ allowed: true, source: "local", limit: 2 });
+    expect(second).toMatchObject({ allowed: true, source: "local", limit: 2 });
+    expect(third).toMatchObject({ allowed: false, source: "local", limit: 2 });
+    expect(fake.incrementCalls).toBe(0);
+    expect(limiter.getHealth()).toMatchObject({
+      status: "single-process",
+      redisFailures: 0,
+    });
+  });
 });

@@ -38,7 +38,7 @@ export type RateLimitResult = {
 };
 
 export type RateLimiterHealth = {
-  status: "distributed" | "fallback";
+  status: "distributed" | "fallback" | "single-process";
   redisFailures: number;
   fallbackRequests: number;
   localEntryCount: number;
@@ -58,6 +58,13 @@ export type RateLimiterOptions = {
   redisCooldownMs?: number;
   localEntryLimit?: number;
   now?: () => number;
+  /**
+   * Whether a shared Redis limiter backs this process. Deployments that run a
+   * single control-plane process without Redis by design (desktop) set this to
+   * false so the in-process limiter is authoritative instead of a degraded
+   * fallback for an unknown number of replicas.
+   */
+  distributed?: boolean;
 };
 
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
@@ -83,12 +90,14 @@ export class RateLimiter {
   private redisFailures = 0;
   private fallbackRequests = 0;
   private lastRedisFailureAt: number | null = null;
+  private readonly distributed: boolean;
 
   constructor(
     private readonly redis: RateLimitRedis,
     options: RateLimiterOptions = {},
   ) {
     this.now = options.now ?? Date.now;
+    this.distributed = options.distributed ?? true;
     this.redisTimeoutMs = options.redisTimeoutMs ?? DEFAULT_REDIS_TIMEOUT_MS;
     this.redisCooldownMs = options.redisCooldownMs ?? DEFAULT_REDIS_COOLDOWN_MS;
     this.localEntryLimit = options.localEntryLimit ?? DEFAULT_LOCAL_ENTRY_LIMIT;
@@ -111,6 +120,12 @@ export class RateLimiter {
     }
 
     const now = this.now();
+    // Without a shared limiter there is nothing to degrade from, so the
+    // in-process bucket enforces the full limit rather than the conservative
+    // outage fallback, and Redis is never contacted.
+    if (!this.distributed) {
+      return this.checkLocal(key, limit, windowSeconds, now);
+    }
     if (this.fallbackUntil > now) {
       return this.checkLocal(key, fallbackLimit, windowSeconds, now);
     }
@@ -167,7 +182,11 @@ export class RateLimiter {
   getHealth(): RateLimiterHealth {
     const now = this.now();
     return {
-      status: this.fallbackUntil > now ? "fallback" : "distributed",
+      status: !this.distributed
+        ? "single-process"
+        : this.fallbackUntil > now
+          ? "fallback"
+          : "distributed",
       redisFailures: this.redisFailures,
       fallbackRequests: this.fallbackRequests,
       localEntryCount: this.localBuckets.size,

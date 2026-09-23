@@ -249,4 +249,75 @@ describe("MigrateResourceUseCase", () => {
     expect(deployments.size).toBe(0);
     expect(outbox.size).toBe(0);
   });
+
+  test("rejects migrating an application onto a database server", async () => {
+    const { uow, servers, resources, deployments, migrations, outbox } =
+      createMigrateTestUow();
+    servers.set("server-database", {
+      id: "server-database",
+      organizationId: "org-1",
+      name: "Database Node",
+      status: "ready",
+      serverType: "database",
+    } as unknown as Server);
+    Object.assign(resources.get("res-1") as Resource, { type: "application" });
+
+    await expect(
+      new MigrateResourceUseCase(uow).execute({
+        organizationId: "org-1",
+        resourceId: "res-1",
+        targetServerId: "server-database",
+      }),
+    ).rejects.toThrow("can only host database resources");
+    expect(resources.get("res-1")?.serverId).toBe("server-source");
+    expect(deployments.size).toBe(0);
+    expect(migrations.size).toBe(0);
+    expect(outbox.size).toBe(0);
+  });
+
+  test("rejects migrating any workload onto a build server", async () => {
+    const { uow, servers, resources, deployments, migrations, outbox } =
+      createMigrateTestUow();
+    servers.set("server-build", {
+      id: "server-build",
+      organizationId: "org-1",
+      name: "Build Node",
+      status: "ready",
+      serverType: "build",
+    } as unknown as Server);
+    Object.assign(resources.get("res-1") as Resource, { type: "application" });
+
+    await expect(
+      new MigrateResourceUseCase(uow).execute({
+        organizationId: "org-1",
+        resourceId: "res-1",
+        targetServerId: "server-build",
+      }),
+    ).rejects.toThrow("cannot host deployments");
+    expect(resources.get("res-1")?.serverId).toBe("server-source");
+    expect(deployments.size).toBe(0);
+    expect(migrations.size).toBe(0);
+    expect(outbox.size).toBe(0);
+  });
+
+  test("allows migrating a database resource onto a database server", async () => {
+    const { uow, servers, resources, migrations } = createMigrateTestUow();
+    servers.set("server-database", {
+      id: "server-database",
+      organizationId: "org-1",
+      name: "Database Node",
+      status: "ready",
+      serverType: "database",
+    } as unknown as Server);
+    Object.assign(resources.get("res-1") as Resource, { type: "database" });
+
+    const result = await new MigrateResourceUseCase(uow).execute({
+      organizationId: "org-1",
+      resourceId: "res-1",
+      targetServerId: "server-database",
+    });
+
+    expect(result.migration.targetServerId).toBe("server-database");
+    expect(migrations.size).toBe(1);
+  });
 });

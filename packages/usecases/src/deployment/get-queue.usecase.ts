@@ -1,6 +1,10 @@
 import type { IUnitOfWork } from "@upstand/domain";
 import { redis } from "@upstand/redis";
 import { Queue } from "bullmq";
+import {
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
+} from "../platform/platform.types";
 import { getDeploymentQueueName } from "./deployment-queue-name";
 import {
   findOrganizationResourceIds,
@@ -88,7 +92,13 @@ export class GetQueueUseCase {
     const representedDeploymentIds = new Set<string>();
     const deploymentIdsToLabel = new Set<string>();
 
-    for (const serverId of uniqueServerIds) {
+    // Desktop runs deployments inline without Redis, so there is no BullMQ
+    // queue to read; its jobs are reconciled from deployment history below.
+    const usesQueueBackend = getPlatformCapabilities(
+      getConfiguredControlPlaneMode(),
+    ).redis;
+
+    for (const serverId of usesQueueBackend ? uniqueServerIds : []) {
       const server = serverMap.get(serverId);
       const serverName =
         server?.hostname ||
@@ -171,9 +181,16 @@ export class GetQueueUseCase {
     // the BullMQ job. Reconcile queued rows here so the UI does not disagree
     // with deployment history during that hand-off (or after a transient
     // publisher outage).
+    // Without a queue backend the in-flight deployment only exists as a
+    // database row, so it must be reported too; otherwise the queue view is
+    // empty while a desktop build is running.
+    const reconciledStatuses = usesQueueBackend
+      ? new Set(["queued"])
+      : new Set(["queued", "running", "retrying"]);
+
     for (const deployment of queuedDeployments) {
       if (
-        deployment.status !== "queued" ||
+        !reconciledStatuses.has(deployment.status) ||
         representedDeploymentIds.has(deployment.id)
       ) {
         continue;
@@ -185,7 +202,7 @@ export class GetQueueUseCase {
         deploymentId: deployment.id,
         label: deployment.title,
         type: resource.type,
-        state: "waiting",
+        state: deployment.status === "running" ? "active" : "waiting",
         addedAt: deployment.createdAt.toISOString(),
         processedAt: null,
         finishedAt: null,

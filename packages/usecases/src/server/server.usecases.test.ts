@@ -8,6 +8,7 @@ import { ScanServerHostKeyInputSchema } from "./scan-server-host-key.usecase";
 import {
   assertBuildServerSupportsResource,
   assertDeploymentServerSupportsResource,
+  consumesDeploymentQueue,
   getServerProvisioningPlan,
 } from "./server-role";
 import { buildDockerInstallCommand } from "./setup-server.usecase";
@@ -166,6 +167,17 @@ describe("server use cases", () => {
       requiresCaddy: false,
       requiresMonitoring: true,
     });
+  });
+
+  test("gives every deployment target a queue consumer except build hosts", () => {
+    expect(consumesDeploymentQueue("deploy")).toBe(true);
+    // Database hosts receive database resource deployments, so a database
+    // server without a queue consumer would leave those deployments queued
+    // forever.
+    expect(consumesDeploymentQueue("database")).toBe(true);
+    expect(consumesDeploymentQueue("build")).toBe(false);
+    // Local and Swarm node ids have no server record.
+    expect(consumesDeploymentQueue(undefined)).toBe(true);
   });
 
   test("does not expose a server across organizations", async () => {
