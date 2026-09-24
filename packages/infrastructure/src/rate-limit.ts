@@ -62,9 +62,10 @@ export type RateLimiterOptions = {
    * Whether a shared Redis limiter backs this process. Deployments that run a
    * single control-plane process without Redis by design (desktop) set this to
    * false so the in-process limiter is authoritative instead of a degraded
-   * fallback for an unknown number of replicas.
+   * fallback for an unknown number of replicas. Can be a boolean or a function
+   * returning a boolean to resolve the mode dynamically.
    */
-  distributed?: boolean;
+  distributed?: boolean | (() => boolean);
 };
 
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
@@ -90,7 +91,13 @@ export class RateLimiter {
   private redisFailures = 0;
   private fallbackRequests = 0;
   private lastRedisFailureAt: number | null = null;
-  private readonly distributed: boolean;
+  private readonly distributed: boolean | (() => boolean);
+
+  private isDistributed(): boolean {
+    return typeof this.distributed === "function"
+      ? this.distributed()
+      : this.distributed;
+  }
 
   constructor(
     private readonly redis: RateLimitRedis,
@@ -123,7 +130,7 @@ export class RateLimiter {
     // Without a shared limiter there is nothing to degrade from, so the
     // in-process bucket enforces the full limit rather than the conservative
     // outage fallback, and Redis is never contacted.
-    if (!this.distributed) {
+    if (!this.isDistributed()) {
       return this.checkLocal(key, limit, windowSeconds, now);
     }
     if (this.fallbackUntil > now) {
@@ -181,8 +188,9 @@ export class RateLimiter {
 
   getHealth(): RateLimiterHealth {
     const now = this.now();
+    const isDistributed = this.isDistributed();
     return {
-      status: !this.distributed
+      status: !isDistributed
         ? "single-process"
         : this.fallbackUntil > now
           ? "fallback"
@@ -201,7 +209,9 @@ export class RateLimiter {
     windowSeconds: number,
     now: number,
   ): RateLimitResult {
-    this.fallbackRequests += 1;
+    if (this.isDistributed()) {
+      this.fallbackRequests += 1;
+    }
     this.cleanupLocalBuckets(now, windowSeconds * 1000);
 
     const refillPerMillisecond = limit / (windowSeconds * 1000);

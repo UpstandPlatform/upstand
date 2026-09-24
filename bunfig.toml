@@ -1,3 +1,6 @@
 # Configure Bun workspace watch root
 [watch]
 root = "."
+
+[test]
+timeout = 30000

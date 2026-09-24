@@ -19,12 +19,13 @@ import {
  * Desktop runs one control-plane process and ships no Redis, so its limiter is
  * in-process. Every other mode shares a Redis counter across replicas.
  */
-function hasDistributedLimiter(): boolean {
+export function hasDistributedLimiter(): boolean {
   return getPlatformCapabilities(getConfiguredControlPlaneMode()).redis;
 }
 
-const distributed = hasDistributedLimiter();
-const rateLimiter = new RateLimiter(redis, { distributed });
+const rateLimiter = new RateLimiter(redis, {
+  distributed: () => hasDistributedLimiter(),
+});
 
 export class RateLimiterUnavailableError extends Error {
   constructor() {
@@ -64,6 +65,7 @@ export async function enforceRequestRateLimit(
     options.path,
     options.hasSession,
   );
+  const distributed = hasDistributedLimiter();
   const policy = distributed
     ? resolvedPolicy
     : withoutDistributedLimiter(resolvedPolicy);

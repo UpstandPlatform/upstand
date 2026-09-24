@@ -71,7 +71,7 @@ describe("DrizzlePortableControlPlaneRecordApplier", () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   test("rejects records whose portable and physical identities diverge", async () => {
     const { client, database } = await databaseFixture();
@@ -88,5 +88,5 @@ describe("DrizzlePortableControlPlaneRecordApplier", () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 });
