@@ -999,8 +999,12 @@ jobs:
             exit 1
           }
 
+          # Monitoring agents perform their first health check after the
+          # application tasks are already running. Give this external-data
+          # topology the same bounded convergence window as the bundled lane
+          # instead of failing while the sidecar is still starting.
           external_accepted=false
-          for attempt in {1..5}; do
+          for attempt in {1..12}; do
             if DOCKER_BIN=docker timeout --foreground 60 \
               bash scripts/production-acceptance.sh \
               --stack "$STACK_NAME" --network "$DOCKER_NETWORK" --require-ha \
