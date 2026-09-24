@@ -182,4 +182,40 @@ describe("GetTopologyGraphUseCase", () => {
     expect(allowances.length).toBeGreaterThan(0);
     expect(allowances.every(Boolean)).toBe(true);
   });
+
+  test("does not probe Docker on a server that has not completed setup", async () => {
+    const probed: string[] = [];
+    const useCase = new GetTopologyGraphUseCase(
+      {
+        execute: async () => [
+          {
+            id: "pending-1",
+            name: "Awaiting setup",
+            ipAddress: "10.0.0.11",
+            status: "pending",
+          },
+        ],
+      } as unknown as GetServersUseCase,
+      {
+        execute: async (input: GetDockerInventoryInput) => {
+          probed.push(input.serverId ?? "local");
+          return [];
+        },
+      } as unknown as GetDockerInventoryUseCase,
+    );
+
+    const graph = await useCase.execute(
+      { organizationId: "org-1" },
+      { includeLocal: false },
+    );
+
+    expect(probed).toEqual([]);
+    expect(graph.nodes).toEqual([
+      expect.objectContaining({
+        id: "server:pending-1",
+        type: "server",
+        status: "pending",
+      }),
+    ]);
+  });
 });

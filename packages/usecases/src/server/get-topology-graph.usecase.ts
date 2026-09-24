@@ -252,8 +252,15 @@ export class GetTopologyGraphUseCase {
     const edges: TopologyEdge[] = [];
     const nodeIds = new Set(nodes.map((node) => node.id));
 
+    // A server that has not completed setup has no reachable Docker endpoint.
+    // Probing it anyway makes the whole graph wait on SSH connect timeouts, so
+    // it contributes its server node without an inventory instead.
+    const reachableServers = selectedServers.filter(
+      (server) => server.status === "ready",
+    );
+
     const inventories = new Map(
-      await mapWithConcurrency(selectedServers, 4, async (server) => {
+      await mapWithConcurrency(reachableServers, 4, async (server) => {
         const placement = (
           server.id === "local" ? "local" : "remote-server"
         ) as TopologyNodePlacement;

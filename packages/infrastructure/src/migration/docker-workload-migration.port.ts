@@ -8,6 +8,7 @@ import type {
   WorkloadMigrationPort,
   WorkloadMigrationPreflightResult,
 } from "@upstand/usecases";
+import { assertDeploymentServerSupportsResource } from "@upstand/usecases";
 import { resolveServicesForResource } from "@upstand/usecases/resource/docker-client";
 import { parseResourceCredentials } from "@upstand/usecases/resource/resource-credentials";
 import { parseResourceEnvironmentVariables } from "@upstand/usecases/resource/resource-environment";
@@ -61,6 +62,19 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
     const immutableRegistryArtifact = /^.+\/.+@sha256:[0-9a-f]{64}$/.test(
       artifactReference,
     );
+    // A migration queued before a server changed role must still fail closed
+    // instead of placing a workload on a build or database host.
+    let targetRoleFailure: string | null = null;
+    if (target) {
+      try {
+        assertDeploymentServerSupportsResource(target, resource.type);
+      } catch (error) {
+        targetRoleFailure =
+          error instanceof Error
+            ? error.message
+            : "Target server role does not accept this resource type";
+      }
+    }
 
     const checks = [
       {
@@ -80,6 +94,12 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
         code: "target_health",
         ok: migration.targetServerId === "local" || target?.status === "ready",
         message: "Target server must be ready",
+      },
+      {
+        code: "target_role",
+        ok: targetRoleFailure === null,
+        message:
+          targetRoleFailure ?? "Target server role accepts this resource type",
       },
       {
         code: "persistent_state",

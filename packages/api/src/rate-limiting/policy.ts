@@ -78,3 +78,20 @@ export function resolveRateLimitPolicy(
     ? rateLimitPolicy(path, hasSession)
     : RATE_LIMIT_PROFILES[profile];
 }
+
+/**
+ * Adjust a policy for a control plane that has no distributed limiter by
+ * design. Failing closed protects a multi-replica deployment from losing its
+ * shared counter during a Redis outage; a single-process deployment has no
+ * such counter to lose, so failing closed there would reject every sensitive
+ * and expensive request instead of rate limiting it.
+ */
+export function withoutDistributedLimiter(
+  policy: RateLimitPolicy,
+): RateLimitPolicy {
+  return {
+    ...policy,
+    fallbackLimit: Math.max(policy.limit, policy.fallbackLimit),
+    failClosedOnRedisFailure: false,
+  };
+}

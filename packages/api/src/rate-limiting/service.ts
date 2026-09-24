@@ -5,12 +5,27 @@ import {
 } from "@upstand/infrastructure/rate-limit";
 import { redis } from "@upstand/redis";
 import {
+  getConfiguredControlPlaneMode,
+  getPlatformCapabilities,
+} from "@upstand/usecases";
+import {
   type RateLimitPolicy,
   type RateLimitProfile,
   resolveRateLimitPolicy,
+  withoutDistributedLimiter,
 } from "./policy";
 
-const rateLimiter = new RateLimiter(redis);
+/**
+ * Desktop runs one control-plane process and ships no Redis, so its limiter is
+ * in-process. Every other mode shares a Redis counter across replicas.
+ */
+export function hasDistributedLimiter(): boolean {
+  return getPlatformCapabilities(getConfiguredControlPlaneMode()).redis;
+}
+
+const rateLimiter = new RateLimiter(redis, {
+  distributed: () => hasDistributedLimiter(),
+});
 
 export class RateLimiterUnavailableError extends Error {
   constructor() {
@@ -45,11 +60,15 @@ export type EnforceRequestRateLimitOptions = {
 export async function enforceRequestRateLimit(
   options: EnforceRequestRateLimitOptions,
 ) {
-  const policy = resolveRateLimitPolicy(
+  const resolvedPolicy = resolveRateLimitPolicy(
     options.profile ?? "default",
     options.path,
     options.hasSession,
   );
+  const distributed = hasDistributedLimiter();
+  const policy = distributed
+    ? resolvedPolicy
+    : withoutDistributedLimiter(resolvedPolicy);
   const result = await rateLimiter.check({
     key: `ratelimit:${options.path}:${options.identifier}`,
     limit: options.limit ?? policy.limit,

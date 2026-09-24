@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   assertRateLimitAvailability,
+  hasDistributedLimiter,
   RateLimiterUnavailableError,
 } from "./service";
 
@@ -20,4 +21,9 @@ test("allows bounded local fallback for non-critical traffic", () => {
       { failClosedOnRedisFailure: false },
     ),
   ).not.toThrow();
+});
+
+test("exports dynamic hasDistributedLimiter helper", () => {
+  expect(typeof hasDistributedLimiter).toBe("function");
+  expect(typeof hasDistributedLimiter()).toBe("boolean");
 });

@@ -11,6 +11,7 @@ import {
   getConfiguredControlPlaneMode,
   getPlatformCapabilities,
 } from "../platform/platform.types";
+import { assertDeploymentServerSupportsResource } from "./server-role";
 
 export const MigrateResourceInputSchema = z.object({
   organizationId: z.string().min(1, "Organization ID is required"),
@@ -90,6 +91,13 @@ export class MigrateResourceUseCase {
         ) {
           throw new Error("Resource not found");
         }
+      }
+
+      if (targetServer) {
+        // Migration is a placement change, so it must honour the same role
+        // boundary as creating or updating a resource: build hosts never run
+        // deployments and database hosts only run database resources.
+        assertDeploymentServerSupportsResource(targetServer, resource.type);
       }
 
       if (targetServer && targetServer.status !== "ready") {

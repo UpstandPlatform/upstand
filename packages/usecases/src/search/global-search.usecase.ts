@@ -21,9 +21,11 @@ export class GlobalSearchUseCase {
 
   async execute(input: z.infer<typeof GlobalSearchInputSchema>) {
     const query = input.query.toLowerCase();
-    const repositorySearch = this.uow.projectRepository.searchByOrganizationId;
-    if (repositorySearch) {
-      const matches = await repositorySearch(
+    const projectRepository = this.uow.projectRepository;
+    if (projectRepository.searchByOrganizationId) {
+      // Call through the repository so the Drizzle implementation keeps its
+      // receiver; a detached method reference loses `this.executor`.
+      const matches = await projectRepository.searchByOrganizationId(
         input.organizationId,
         query,
         input.limit,
