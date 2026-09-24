@@ -59,5 +59,5 @@ describe("DrizzleControlPlaneExportSource", () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 });

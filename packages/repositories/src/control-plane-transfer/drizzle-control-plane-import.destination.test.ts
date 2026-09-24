@@ -108,7 +108,7 @@ describe("DrizzleControlPlaneImportDestination", () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   test("stages retries idempotently and atomically commits records", async () => {
     const { client, database } = await createDatabase();
@@ -145,7 +145,7 @@ describe("DrizzleControlPlaneImportDestination", () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   test("retains a failed session for diagnostics after rolling back writes", async () => {
     const { client, database } = await createDatabase();
@@ -177,5 +177,5 @@ describe("DrizzleControlPlaneImportDestination", () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 });

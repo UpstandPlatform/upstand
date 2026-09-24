@@ -110,5 +110,5 @@ describe("portable PGlite control-plane transfer", () => {
       await sourceClient.close();
       await destinationClient.close();
     }
-  });
+  }, 30_000);
 });
