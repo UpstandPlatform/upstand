@@ -19,15 +19,15 @@
     "test": "bun test test"
   },
   "devDependencies": {
-    "@electron-forge/cli": "^7.11.1",
-    "@electron-forge/maker-deb": "^7.11.1",
-    "@electron-forge/maker-squirrel": "^7.11.1",
-    "@electron-forge/maker-zip": "^7.11.1",
-    "@electron-forge/shared-types": "^7.11.1",
+    "@electron-forge/cli": "^8.0.1",
+    "@electron-forge/maker-deb": "^8.0.1",
+    "@electron-forge/maker-squirrel": "^8.0.1",
+    "@electron-forge/maker-zip": "^8.0.1",
+    "@electron-forge/shared-types": "^8.0.1",
     "@types/bun": "catalog:",
     "@types/electron-squirrel-startup": "^1.0.2",
-    "@types/node": "^26.0.0",
-    "electron": "^41.10.3",
+    "@types/node": "^26.6.4",
+    "electron": "^44.5.1",
     "electron-squirrel-startup": "^1.0.1",
     "typescript": "catalog:"
   }
