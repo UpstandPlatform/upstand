@@ -134,6 +134,7 @@
     "changeset:status": "changeset status",
     "changeset:version": "bun scripts/version-release.ts",
     "release:desktop-version": "bun scripts/prepare-desktop-release.ts",
+    "release:promote": "bun scripts/promote-release.ts",
     "release:tag": "bun scripts/create-release-tag.ts"
   },
   "devDependencies": {

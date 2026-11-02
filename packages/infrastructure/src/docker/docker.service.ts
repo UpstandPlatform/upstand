@@ -2637,28 +2637,57 @@ export class DockerService implements DockerSwarmManagementPort {
     onLog: (log: string) => void,
     preserveForRollback: boolean,
   ): Promise<void> {
-    const buildPath = this.resolveBuildPath(
-      clonePath,
-      config.buildPath,
-      "Build path",
-    );
+    const buildPath =
+      config.buildPath &&
+      config.buildPath !== "." &&
+      fs.existsSync(path.resolve(clonePath, config.buildPath)) &&
+      path.resolve(clonePath, config.buildPath) !== path.resolve(clonePath)
+        ? this.resolveBuildPath(clonePath, config.buildPath, "Build path")
+        : clonePath;
     const shell = process.platform === "win32" ? "cmd.exe" : "sh";
     const shellArgs = (command: string) =>
       process.platform === "win32"
         ? ["/d", "/s", "/c", command]
         : ["-lc", command];
+    const language = config.language ?? "node";
     const run = async (command: string, label: string) => {
       onLog(`[Bare Build] ${label} command starting.\n`);
+      const extraBuildEnv: Record<string, string> =
+        language === "go"
+          ? {
+              GOOS: "linux",
+              CGO_ENABLED: "0",
+            }
+          : {};
       await this.runCommandAsync(
         shell,
         shellArgs(command),
         onLog,
-        this.getBuildEnvironment(envVars, resourceId),
+        {
+          ...this.getBuildEnvironment(envVars, resourceId),
+          ...extraBuildEnv,
+        },
         { cwd: buildPath, redactions: Object.values(envVars) },
       );
     };
-    const language = config.language ?? "node";
     const manager = config.packageManager ?? "npm";
+    const packageJsonPath = path.join(buildPath, "package.json");
+    let hasBuildScript = false;
+    let hasStartScript = false;
+    let mainFile: string | null = null;
+    if (language === "node" && fs.existsSync(packageJsonPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
+          scripts?: Record<string, string>;
+          main?: string;
+        };
+        hasBuildScript = Boolean(pkg.scripts?.build);
+        hasStartScript = Boolean(pkg.scripts?.start);
+        mainFile = typeof pkg.main === "string" ? pkg.main : null;
+      } catch {
+        // Fall back to defaults
+      }
+    }
     const hasLockfile =
       language !== "node" ||
       (manager === "bun"
@@ -2698,7 +2727,9 @@ export class DockerService implements DockerSwarmManagementPort {
     const build =
       config.buildCommand ??
       (language === "node"
-        ? `${manager} run build`
+        ? hasBuildScript
+          ? `${manager} run build`
+          : ""
         : language === "go"
           ? "go build -o .upstand-artifact ./..."
           : language === "rust"
@@ -2709,13 +2740,23 @@ export class DockerService implements DockerSwarmManagementPort {
     const start =
       config.startCommand ??
       (language === "node"
-        ? `${manager} run start`
+        ? hasStartScript
+          ? `${manager} run start`
+          : mainFile && fs.existsSync(path.join(buildPath, mainFile))
+            ? `${manager === "bun" ? "bun" : "node"} ${mainFile}`
+            : fs.existsSync(path.join(buildPath, "server.js"))
+              ? `${manager === "bun" ? "bun" : "node"} server.js`
+              : fs.existsSync(path.join(buildPath, "index.js"))
+                ? `${manager === "bun" ? "bun" : "node"} index.js`
+                : `${manager} run start`
         : language === "go"
           ? "./.upstand-artifact"
           : language === "rust"
             ? `./target/release/${this.resolveRustBinaryName(buildPath)}`
             : language === "python"
-              ? "python app.py"
+              ? fs.existsSync(path.join(buildPath, "main.py"))
+                ? "python main.py"
+                : "python app.py"
               : "");
     if (!start)
       throw new Error(
