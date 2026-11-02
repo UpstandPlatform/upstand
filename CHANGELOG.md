@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.12 - 2026-11-02
+
+Resolve dependency security advisories, tune host resource minimums to 1 vCPU and 2 GiB virtual memory with automated swapfile provisioning, add Docker broker architecture documentation, and flatten Zod 4 schemas in OpenAPI route generation.
+
+
 ## 0.14.11 - 2026-09-23
 
 Fix control-plane defects found while exercising the desktop, self-hosted, cloud, and database-server modes against a running instance.

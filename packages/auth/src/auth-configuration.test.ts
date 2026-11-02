@@ -52,7 +52,7 @@ describe("authentication origin configuration", () => {
       required: true,
       defaultValue: "local:credential",
     });
-    expect(auth.options.account?.indexes).toContainEqual({
+    expect((auth.options.account as any)?.indexes).toContainEqual({
       fields: ["issuer", "accountId"],
       unique: true,
     });
