@@ -3,7 +3,6 @@
 "schedules": patch
 "web": patch
 "fumadocs": patch
-"@upstand/infrastructure": patch
 "@upstand/cli": patch
 ---
 
