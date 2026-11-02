@@ -1,5 +1,11 @@
 # server
 
+## 0.14.12
+
+### Patch Changes
+
+- [#586](https://github.com/UpstandPlatform/upstand/pull/586) [`c39856b`](https://github.com/UpstandPlatform/upstand/commit/c39856bc89925c8e4a1a1fe1a18833aa085f8c10) Thanks [@mhbdev](https://github.com/mhbdev)! - Resolve dependency security advisories, tune host resource minimums to 1 vCPU and 2 GiB virtual memory with automated swapfile provisioning, add Docker broker architecture documentation, and flatten Zod 4 schemas in OpenAPI route generation.
+
 ## 0.14.11
 
 ### Patch Changes
