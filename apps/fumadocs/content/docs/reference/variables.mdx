@@ -127,7 +127,7 @@ The expansion engine supports dynamic references like `${{env.API_URL}}` or `${{
 | `UPSTAND_REF` | Git branch or tag used for a source build. |
 | `UPSTAND_ALLOW_DOCKER_INSTALL` | Explicitly allows the installer to invoke the upstream Docker installation script when Docker is absent. |
 | `UPSTAND_ALLOW_SINGLE_REPLICA` | Required acknowledgement for the bundled single-replica control plane and data services. |
-| `UPSTAND_ALLOW_UNDERSIZED_HOST` | Recovery/test-only override for hosts below the recommended 2 vCPU, 4 GiB RAM, or 30 GiB storage. |
+| `UPSTAND_ALLOW_UNDERSIZED_HOST` | Override for micro-hosts below the minimum 1 vCPU, 2 GiB RAM (or 1 GiB with swap), or 10 GiB storage. |
 | `SWARM_ADVERTISE_ADDR` | Explicit IPv4/IPv6 address used by `docker swarm init`; otherwise the installer discovers a routable address. |
 | `UPSTAND_SECRET_PROVIDER_ALLOWED_HOSTS` | Optional comma-separated provider host allowlist for private Vault, Infisical, and other provider endpoints. URL and DNS safety checks still apply. |
 | `UPSTAND_DOCKER_CONTROL_NETWORK` | Internal encrypted control-network name used by the Docker broker. |

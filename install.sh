@@ -11,6 +11,9 @@ readonly SOURCE_DIR="$INSTALL_DIR/source"
 readonly BACKUP_DIR="$INSTALL_DIR/backups"
 readonly NETWORK_NAME="${DOCKER_NETWORK:-upstand-network}"
 readonly CONTROL_NETWORK_NAME="${UPSTAND_DOCKER_CONTROL_NETWORK:-upstand-docker-control}"
+readonly MINIMUM_CPU_CORES=1
+readonly MINIMUM_MEMORY_BYTES=$((2 * 1024 * 1024 * 1024))
+readonly MINIMUM_DISK_BYTES=$((10 * 1024 * 1024 * 1024))
 readonly RECOMMENDED_CPU_CORES=2
 readonly RECOMMENDED_MEMORY_BYTES=$((4 * 1024 * 1024 * 1024))
 readonly RECOMMENDED_DISK_BYTES=$((30 * 1024 * 1024 * 1024))
@@ -50,10 +53,10 @@ for the control-plane Docker API and require an explicit acknowledgement for sin
 UPSTAND_ALLOW_SINGLE_REPLICA=true. Configure
 OTLP_ENDPOINT, or set UPSTAND_ALLOW_UNOBSERVED_PRODUCTION=true only when an
 approved external telemetry path is unavailable.
-The installer also requires the recommended host capacity (2 vCPUs, 4 GiB RAM,
-and 30 GiB free Docker storage). Set UPSTAND_ALLOW_UNDERSIZED_HOST=true only
-for a non-production test or recovery attempt; this does not make the host
-production-ready and may leave Swarm services unschedulable.
+Upstand minimum host requirements are 1 vCPU, 2 GiB RAM (or 1 GiB RAM with swap),
+and 10 GiB free Docker storage (recommended: 2 vCPUs, 4 GiB RAM, 30 GiB disk). Set
+UPSTAND_ALLOW_UNDERSIZED_HOST=true only for non-production tests or recovery attempts
+on smaller micro hosts.
 For a durable HA data plane, provide DATABASE_URL and REDIS_URL (or the
 UPSTAND_DATABASE_URL and UPSTAND_REDIS_URL aliases). The URLs are stored as
 Docker secrets and the bundled PostgreSQL and Redis services are disabled.
@@ -536,25 +539,50 @@ check_host_resources() {
   fi
 
   if [[ -z "$cpu_cores" ]]; then
-    warn "could not determine CPU count; recommended minimum is ${RECOMMENDED_CPU_CORES} vCPUs"
-  elif ((cpu_cores < RECOMMENDED_CPU_CORES)); then
-    warn "host has ${cpu_cores} vCPU(s); Upstand recommends at least ${RECOMMENDED_CPU_CORES}"
+    warn "could not determine CPU count; minimum is ${MINIMUM_CPU_CORES} vCPU (recommended: ${RECOMMENDED_CPU_CORES})"
+  elif ((cpu_cores < MINIMUM_CPU_CORES)); then
+    warn "host has ${cpu_cores} vCPU(s); Upstand requires at least ${MINIMUM_CPU_CORES}"
   fi
 
-  memory_bytes="$(awk '/^MemTotal:/ { print $2 * 1024; exit }' /proc/meminfo 2>/dev/null || true)"
-  if [[ ! "$memory_bytes" =~ ^[0-9]+$ ]]; then
-    warn "could not determine host memory; Upstand recommends at least 4 GiB of RAM"
-  elif ((memory_bytes < RECOMMENDED_MEMORY_BYTES)); then
-    warn "host has less than the recommended 4 GiB of RAM; source builds or service startup may be slow"
+  local mem_total_kib swap_total_kib
+  mem_total_kib="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null || true)"
+  swap_total_kib="$(awk '/^SwapTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null || true)"
+  if [[ ! "$mem_total_kib" =~ ^[0-9]+$ ]]; then
+    memory_bytes=""
+    warn "could not determine host memory; Upstand requires at least 2 GiB of RAM (or 1 GiB with swap)"
+  else
+    memory_bytes=$((mem_total_kib * 1024))
+    if ((memory_bytes < MINIMUM_MEMORY_BYTES)); then
+      local swap_bytes=0
+      if [[ "$swap_total_kib" =~ ^[0-9]+$ ]]; then
+        swap_bytes=$((swap_total_kib * 1024))
+      fi
+      if ((memory_bytes + swap_bytes >= MINIMUM_MEMORY_BYTES)); then
+        memory_bytes=$((memory_bytes + swap_bytes))
+        log "host RAM is $((mem_total_kib / 1024)) MiB with $((swap_total_kib / 1024)) MiB swap (combined virtual memory meets 2 GiB minimum)"
+      elif [[ "${EUID:-$(id -u 2>/dev/null || echo 1)}" -eq 0 ]] && ! swapon --show 2>/dev/null | grep -q '/swapfile'; then
+        log "host RAM is $((mem_total_kib / 1024)) MiB; configuring 2 GiB swapfile to prevent OOM during builds..."
+        if fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null; then
+          chmod 600 /swapfile
+          mkswap /swapfile >/dev/null 2>&1 || true
+          swapon /swapfile >/dev/null 2>&1 || true
+          if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+          log "2 GiB swapfile configured successfully"
+          memory_bytes=$((memory_bytes + 2 * 1024 * 1024 * 1024))
+        fi
+      fi
+    fi
   fi
 
   docker_root_dir="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
   docker_root_dir="${docker_root_dir:-/var/lib/docker}"
   disk_available_kib="$(df -Pk "$docker_root_dir" 2>/dev/null | awk 'NR == 2 { print $4 }')"
   if [[ ! "$disk_available_kib" =~ ^[0-9]+$ ]]; then
-    warn "could not determine free disk space for Docker data at ${docker_root_dir}; Upstand recommends at least 30 GiB free"
-  elif ((disk_available_kib * 1024 < RECOMMENDED_DISK_BYTES)); then
-    warn "Docker data path ${docker_root_dir} has less than the recommended 30 GiB free"
+    warn "could not determine free disk space for Docker data at ${docker_root_dir}; Upstand requires at least 10 GiB free (30 GiB recommended)"
+  elif ((disk_available_kib * 1024 < MINIMUM_DISK_BYTES)); then
+    warn "Docker data path ${docker_root_dir} has less than the minimum 10 GiB free"
   fi
 
   local disk_available_bytes=""
@@ -563,7 +591,7 @@ check_host_resources() {
   fi
   validate_host_resource_thresholds "$cpu_cores" "$memory_bytes" "$disk_available_bytes"
 
-  echo "Host resource check complete (recommendation: ${RECOMMENDED_CPU_CORES} vCPUs, 4 GiB RAM, 30 GiB free Docker disk)." >&2
+  echo "Host resource check complete (minimum: ${MINIMUM_CPU_CORES} vCPU, 2 GiB RAM, 10 GiB disk; recommended: ${RECOMMENDED_CPU_CORES} vCPUs, 4 GiB RAM, 30 GiB disk)." >&2
 }
 
 validate_host_resource_thresholds() {
@@ -576,34 +604,47 @@ validate_host_resource_thresholds() {
   [[ "$undersized" == true || "$undersized" == false ]] \
     || fail "UPSTAND_ALLOW_UNDERSIZED_HOST must be true or false"
 
+  if [[ "$cpu_cores" =~ ^[0-9]+$ ]] && ((cpu_cores < MINIMUM_CPU_CORES)); then
+    deficits+=("${cpu_cores} vCPU(s), need at least ${MINIMUM_CPU_CORES}")
+  fi
+  if [[ "$memory_bytes" =~ ^[0-9]+$ ]] && ((memory_bytes < MINIMUM_MEMORY_BYTES)); then
+    deficits+=("less than 2 GiB RAM (need at least 2 GiB physical RAM or 1 GiB with swap)")
+  fi
+  if [[ "$disk_available_bytes" =~ ^[0-9]+$ ]] && ((disk_available_bytes < MINIMUM_DISK_BYTES)); then
+    deficits+=("less than 10 GiB free Docker storage")
+  fi
+
+  if ((${#deficits[@]} > 0)); then
+    local deficit_summary=""
+    local deficit
+    for deficit in "${deficits[@]}"; do
+      if [[ -n "$deficit_summary" ]]; then
+        deficit_summary+="; "
+      fi
+      deficit_summary+="$deficit"
+    done
+    if [[ "$undersized" == true ]]; then
+      warn "host capacity is below the Upstand recommended sizing (${deficit_summary}); proceeding with lightweight host configuration"
+      return 0
+    fi
+
+    fail "host capacity is below the Upstand production minimum: ${deficit_summary}; upgrade the host or set UPSTAND_ALLOW_UNDERSIZED_HOST=true only for a non-production test/recovery attempt"
+  fi
+
+  local advisories=()
   if [[ "$cpu_cores" =~ ^[0-9]+$ ]] && ((cpu_cores < RECOMMENDED_CPU_CORES)); then
-    deficits+=("${cpu_cores} vCPU(s), need ${RECOMMENDED_CPU_CORES}")
+    advisories+=("${cpu_cores} vCPU (recommend ${RECOMMENDED_CPU_CORES})")
   fi
   if [[ "$memory_bytes" =~ ^[0-9]+$ ]] && ((memory_bytes < RECOMMENDED_MEMORY_BYTES)); then
-    deficits+=("less than 4 GiB RAM")
+    advisories+=("RAM < 4 GiB (recommend 4 GiB)")
   fi
   if [[ "$disk_available_bytes" =~ ^[0-9]+$ ]] && ((disk_available_bytes < RECOMMENDED_DISK_BYTES)); then
-    deficits+=("less than 30 GiB free Docker storage")
+    advisories+=("storage < 30 GiB (recommend 30 GiB)")
   fi
-
-  if ((${#deficits[@]} == 0)); then
-    return 0
+  if ((${#advisories[@]} > 0)); then
+    log "host capacity meets minimum requirements (1 vCPU, 2 GiB RAM, 10 GiB disk). For heavy concurrent builds, 2+ vCPUs and 4+ GiB RAM are recommended."
   fi
-
-  local deficit_summary=""
-  local deficit
-  for deficit in "${deficits[@]}"; do
-    if [[ -n "$deficit_summary" ]]; then
-      deficit_summary+="; "
-    fi
-    deficit_summary+="$deficit"
-  done
-  if [[ "$undersized" == true ]]; then
-    warn "host capacity is below the Upstand recommended sizing (${deficit_summary}); proceeding with lightweight host configuration"
-    return 0
-  fi
-
-  fail "host capacity is below the Upstand production minimum: ${deficit_summary}; upgrade the host or set UPSTAND_ALLOW_UNDERSIZED_HOST=true only for a non-production test/recovery attempt"
+  return 0
 }
 
 ensure_git() {
