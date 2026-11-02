@@ -34,13 +34,36 @@ type OpenApiResolverInput = {
 const emptyInput = z.object({}) as MergableZodObject;
 const fallbackOutput = z.unknown();
 
-function getInputParser(procedure: ProcedureLike) {
+function extractShape(schema: any): Record<string, z.ZodTypeAny> {
+  if (!schema) return {};
+  if (
+    schema._zod?.def?.type === "intersection" ||
+    schema.def?.type === "intersection"
+  ) {
+    const left = schema._zod?.def?.left || schema.def?.left;
+    const right = schema._zod?.def?.right || schema.def?.right;
+    return { ...extractShape(left), ...extractShape(right) };
+  }
+  if (schema._zod?.def?.innerType) {
+    return extractShape(schema._zod.def.innerType);
+  }
+  if (schema._def?.schema) {
+    return extractShape(schema._def.schema);
+  }
+  if (typeof schema.shape === "object" && schema.shape !== null) {
+    return schema.shape;
+  }
+  return {};
+}
+
+function getInputParser(procedure: ProcedureLike): z.ZodTypeAny {
   if (procedure._def.inputs.length === 0) return emptyInput;
 
-  return procedure._def.inputs.reduce<z.ZodTypeAny>(
-    (merged, input) => (merged as MergableZodObject).merge(input),
-    emptyInput,
-  );
+  const combinedShape: Record<string, z.ZodTypeAny> = {};
+  for (const input of procedure._def.inputs) {
+    Object.assign(combinedShape, extractShape(input));
+  }
+  return z.object(combinedShape);
 }
 
 function createOpenApiRouter() {
