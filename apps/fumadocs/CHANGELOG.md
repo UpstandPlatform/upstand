@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.14.13
+
+### Patch Changes
+
+- [#590](https://github.com/UpstandPlatform/upstand/pull/590) [`f31fb32`](https://github.com/UpstandPlatform/upstand/commit/f31fb327eeefcd97312dff6ba675a2754eb4552b) Thanks [@mhbdev](https://github.com/mhbdev)! - Harden bare application building across subdirectories and languages, ensure portable Linux ELF binaries for Go bare builds, support Node applications without build scripts, replace restricted MinIO rehearsal image with Chainguard MinIO in pre-release acceptance tests, and streamline the release pipeline with zero-conflict canary promotion and automated Docker and CLI workflow dispatches.
+
 ## 0.14.12
 
 ### Patch Changes
