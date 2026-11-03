@@ -139,9 +139,30 @@ while (($# > 0)); do
   esac
 done
 
+wait_for_container_healthy() {
+  local container_id="$1"
+  local description="$2"
+  local max_attempts="${3:-45}"
+  local attempts=0 health
+
+  while true; do
+    health="$(docker_cmd inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")" \
+      || fail "$description health could not be inspected"
+    if [[ "$health" == "healthy" ]]; then
+      break
+    fi
+    if [[ "$health" == "starting" && "$attempts" -lt "$max_attempts" ]]; then
+      ((attempts += 1))
+      sleep 1
+      continue
+    fi
+    fail "$description is $health"
+  done
+}
+
 assert_node_local_container() {
   local container_id="$1"
-  local service_name image health runtime_user capabilities readonly_rootfs
+  local service_name image runtime_user capabilities readonly_rootfs
 
   service_name="$(docker_cmd inspect --format '{{index .Config.Labels "com.docker.swarm.service.name"}}' "$container_id")" \
     || fail "node-local container '$container_id' service label could not be inspected"
@@ -152,10 +173,9 @@ assert_node_local_container() {
   [[ "$image" =~ @sha256:[0-9a-fA-F]{64}$ ]] \
     || fail "node-local service '$service_name' is not pinned to an immutable image: $image"
 
-  health="$(docker_cmd inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")" \
-    || fail "node-local container '$container_id' health could not be inspected"
-  [[ "$health" == "healthy" ]] \
-    || fail "node-local service '$service_name' container '$container_id' is $health"
+  wait_for_container_healthy \
+    "$container_id" \
+    "node-local service '$service_name' container '$container_id'"
 
   runtime_user="$(docker_cmd inspect --format '{{.Config.User}}' "$container_id")" \
     || fail "node-local container '$container_id' runtime user could not be inspected"
@@ -219,11 +239,10 @@ run_node_local_acceptance() {
       || fail "node-local monitoring agent '$container_id' image could not be inspected"
     [[ "$monitoring_image" == "$expected_monitoring_image" ]] \
       || fail "node-local monitoring agent '$container_id' image does not match the server configuration: $monitoring_image"
-    local health runtime_user capabilities readonly_rootfs
-    health="$(docker_cmd inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")" \
-      || fail "node-local monitoring agent '$container_id' health could not be inspected"
-    [[ "$health" == "healthy" ]] \
-      || fail "node-local monitoring agent '$container_id' is $health"
+    local runtime_user capabilities readonly_rootfs
+    wait_for_container_healthy \
+      "$container_id" \
+      "node-local monitoring agent '$container_id'"
     runtime_user="$(docker_cmd inspect --format '{{.Config.User}}' "$container_id")" \
       || fail "node-local monitoring agent '$container_id' runtime user could not be inspected"
     [[ -n "$runtime_user" && "$runtime_user" != "0" && "$runtime_user" != "root" ]] \
@@ -396,9 +415,9 @@ if [[ "$service_name" == *_migrate || "$service_name" == *_server || "$service_n
   while IFS= read -r container_id; do
     [[ -n "$container_id" ]] || continue
     ((container_count += 1))
-    health="$(docker_cmd inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")"
-    [[ "$health" == "healthy" ]] \
-      || fail "service '$service_name' container '$container_id' is $health"
+    wait_for_container_healthy \
+      "$container_id" \
+      "service '$service_name' container '$container_id'"
     runtime_user="$(docker_cmd inspect --format '{{.Config.User}}' "$container_id")"
     if [[ "$service_name" == "${STACK_NAME}_redis" ]]; then
       assert_no_root_runtime_process \
@@ -619,10 +638,9 @@ assert_monitoring_agent() {
       || fail "monitoring agent '$container_id' image could not be inspected"
     [[ "$image" == "$expected_image" ]] \
       || fail "monitoring agent '$container_id' image does not match the pinned server configuration: $image"
-    health="$(docker_cmd inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")" \
-      || fail "monitoring agent '$container_id' health could not be inspected"
-    [[ "$health" == "healthy" ]] \
-      || fail "monitoring agent '$container_id' is $health"
+    wait_for_container_healthy \
+      "$container_id" \
+      "monitoring agent '$container_id'"
     runtime_user="$(docker_cmd inspect --format '{{.Config.User}}' "$container_id")" \
       || fail "monitoring agent '$container_id' runtime user could not be inspected"
     [[ -n "$runtime_user" && "$runtime_user" != "0" && "$runtime_user" != "root" ]] \
