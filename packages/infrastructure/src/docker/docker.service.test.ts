@@ -1345,6 +1345,78 @@ volumes:
     expect(logs.join(" ")).not.toContain("build-secret");
   });
 
+  test("packages bare builds with buildPath subdirectory and node/go defaults", async () => {
+    const service = new DockerService(
+      {} as never,
+      {},
+      null as never,
+    ) as unknown as {
+      buildBareApplicationImage: (
+        resourceId: string,
+        clonePath: string,
+        imageName: string,
+        config: unknown,
+        envVars: Record<string, string>,
+        onLog: (message: string) => void,
+        preserveForRollback: boolean,
+      ) => Promise<void>;
+      runCommandAsync: (
+        command: string,
+        args: string[],
+        onLog: (message: string) => void,
+        env?: NodeJS.ProcessEnv,
+        options?: { cwd?: string; redactions?: string[]; resourceId?: string },
+      ) => Promise<void>;
+    };
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), "upstand-bare-sub-"),
+    );
+    const subDir = path.join(workspace, "backend");
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(subDir, "package.json"),
+      JSON.stringify({ name: "backend", scripts: { start: "node server.js" } }),
+    );
+    const capturedEnvs: NodeJS.ProcessEnv[] = [];
+    const calls: string[] = [];
+    service.runCommandAsync = async (command, _args, _log, env) => {
+      calls.push(command);
+      if (env) capturedEnvs.push(env);
+    };
+    try {
+      await service.buildBareApplicationImage(
+        "resource-sub",
+        subDir,
+        "upstand-app-sub:latest",
+        {
+          buildPath: "backend",
+          language: "node",
+          packageManager: "npm",
+        },
+        {},
+        () => {},
+        false,
+      );
+      await service.buildBareApplicationImage(
+        "resource-go",
+        workspace,
+        "upstand-app-go:latest",
+        {
+          language: "go",
+        },
+        {},
+        () => {},
+        false,
+      );
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+    expect(calls.filter((c) => c === "docker").length).toBe(2);
+    const goEnv = capturedEnvs.find((e) => e.GOOS === "linux");
+    expect(goEnv?.GOOS).toBe("linux");
+    expect(goEnv?.CGO_ENABLED).toBe("0");
+  });
+
   test("keeps resolved environment values out of Docker image history", async () => {
     const service = new DockerService(
       {} as never,

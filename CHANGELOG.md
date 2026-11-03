@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.13 - 2026-11-03
+
+Harden bare application building across subdirectories and languages, ensure portable Linux ELF binaries for Go bare builds, support Node applications without build scripts, replace restricted MinIO rehearsal image with Chainguard MinIO in pre-release acceptance tests, and streamline the release pipeline with zero-conflict canary promotion and automated Docker and CLI workflow dispatches.
+
+
 ## 0.14.12 - 2026-11-02
 
 Resolve dependency security advisories, tune host resource minimums to 1 vCPU and 2 GiB virtual memory with automated swapfile provisioning, add Docker broker architecture documentation, and flatten Zod 4 schemas in OpenAPI route generation.
