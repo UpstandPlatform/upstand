@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.14 - 2026-11-04
+
+Batch Docker topology inventory into one snapshot per server, retain successful inventory sections when another Docker query fails, and record the actual deployment build location in immutable plans.
+
+
 ## 0.14.13 - 2026-11-03
 
 Harden bare application building across subdirectories and languages, ensure portable Linux ELF binaries for Go bare builds, support Node applications without build scripts, replace restricted MinIO rehearsal image with Chainguard MinIO in pre-release acceptance tests, and streamline the release pipeline with zero-conflict canary promotion and automated Docker and CLI workflow dispatches.
