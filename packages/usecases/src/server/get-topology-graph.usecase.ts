@@ -1,14 +1,11 @@
 import type { Server } from "@upstand/domain";
+import { log } from "evlog";
 import { z } from "zod";
 import {
   getConfiguredControlPlaneMode,
   getPlatformCapabilities,
 } from "../platform/platform.types";
-import type {
-  DockerContainer,
-  DockerNetwork,
-  DockerVolume,
-} from "../ports/docker";
+import type { DockerContainer, DockerTopologySnapshot } from "../ports/docker";
 import type { GetDockerInventoryUseCase } from "./get-docker-inventory.usecase";
 import type { GetServersUseCase } from "./get-servers.usecase";
 
@@ -199,10 +196,6 @@ function classifyNetworks(
   return { primary, secondary: sorted.filter((name) => name !== primary) };
 }
 
-function asArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? value : [];
-}
-
 export class GetTopologyGraphUseCase {
   constructor(
     private readonly getServers: GetServersUseCase,
@@ -264,99 +257,42 @@ export class GetTopologyGraphUseCase {
         const placement = (
           server.id === "local" ? "local" : "remote-server"
         ) as TopologyNodePlacement;
-
-        const settleOne = async (
-          p: Promise<unknown>,
-        ): Promise<PromiseSettledResult<unknown>> => {
-          try {
-            return { status: "fulfilled", value: await p };
-          } catch (reason) {
-            return { status: "rejected", reason };
-          }
-        };
-
-        const fetches: Promise<PromiseSettledResult<unknown>>[] = [
-          settleOne(
-            this.getDockerInventory.execute(
-              {
-                organizationId: input.organizationId,
-                serverId: server.id,
-                kind: "containers",
-                tail: 1000,
-              },
-              { allowLocalInCloud: options.allowLocalInCloud },
-            ),
-          ),
-          settleOne(
-            this.getDockerInventory.execute(
-              {
-                organizationId: input.organizationId,
-                serverId: server.id,
-                kind: "networks",
-                tail: 1000,
-              },
-              { allowLocalInCloud: options.allowLocalInCloud },
-            ),
-          ),
-          settleOne(
-            this.getDockerInventory.execute(
-              {
-                organizationId: input.organizationId,
-                serverId: server.id,
-                kind: "volumes",
-                tail: 1000,
-              },
-              { allowLocalInCloud: options.allowLocalInCloud },
-            ),
-          ),
-        ];
-
-        // Swarm node inventory is only meaningful on self-hosted (manager) nodes
-        if (capabilities.swarmManagement) {
-          fetches.push(
-            settleOne(
-              this.getDockerInventory.execute(
-                {
-                  organizationId: input.organizationId,
-                  serverId: server.id,
-                  kind: "swarm_nodes",
-                  tail: 1000,
-                },
-                { allowLocalInCloud: options.allowLocalInCloud },
-              ),
-            ),
+        let snapshot: DockerTopologySnapshot | null = null;
+        try {
+          snapshot = await this.getDockerInventory.getTopologySnapshot(
+            {
+              organizationId: input.organizationId,
+              serverId: server.id,
+              includeSwarmNodes: capabilities.swarmManagement,
+            },
+            { allowLocalInCloud: options.allowLocalInCloud },
           );
+        } catch (error) {
+          log.warn({
+            message: "Failed to read Docker topology snapshot",
+            serverId: server.id,
+            errorName: error instanceof Error ? error.name : "unknown",
+          });
         }
-
-        const results = await Promise.all(fetches);
-        return [server.id, { results, placement }] as const;
+        if (snapshot?.errors?.length) {
+          log.warn({
+            message: "Docker topology snapshot is incomplete",
+            serverId: server.id,
+            unavailableInventories: snapshot.errors,
+          });
+        }
+        return [server.id, { snapshot, placement }] as const;
       }),
     );
 
     for (const server of selectedServers) {
       const serverNodeId = `server:${server.id}`;
       const entry = inventories.get(server.id);
-      if (!entry) continue;
-      const { results, placement } = entry;
-      const [containersResult, networksResult, volumesResult] = results;
-      // swarmResult only exists when capabilities.swarmManagement is true
-      const swarmResult = results[3] ?? null;
-      if (!containersResult || !networksResult || !volumesResult) {
-        continue;
-      }
-
-      const containers =
-        containersResult.status === "fulfilled"
-          ? asArray<DockerContainer>(containersResult.value)
-          : [];
-      const networks =
-        networksResult.status === "fulfilled"
-          ? asArray<DockerNetwork>(networksResult.value)
-          : [];
-      const volumes =
-        volumesResult.status === "fulfilled"
-          ? asArray<DockerVolume>(volumesResult.value)
-          : [];
+      if (!entry?.snapshot) continue;
+      const { snapshot, placement } = entry;
+      const containers = snapshot.containers ?? [];
+      const networks = snapshot.networks ?? [];
+      const volumes = snapshot.volumes ?? [];
 
       const networkIdByName = new Map<string, string>();
       const networkProjectByName = new Map<string, string>();
@@ -540,15 +476,8 @@ export class GetTopologyGraphUseCase {
         }
       }
 
-      if (swarmResult && swarmResult.status === "fulfilled") {
-        for (const swarmNode of asArray<{
-          id: string;
-          hostname: string;
-          ip: string;
-          isLeader: boolean;
-          role?: string;
-          status?: string;
-        }>(swarmResult.value)) {
+      if (snapshot.swarmNodes) {
+        for (const swarmNode of snapshot.swarmNodes) {
           const swarmNodeId = `swarm:${server.id}:${swarmNode.id}`;
           if (nodeIds.has(swarmNodeId)) continue;
           nodeIds.add(swarmNodeId);

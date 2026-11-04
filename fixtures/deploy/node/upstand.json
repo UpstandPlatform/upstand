@@ -1,0 +1,25 @@
+{
+  "$schema": "https://upstand.dev/upstand.schema.json",
+  "build": {
+    "strategy": "auto",
+    "language": "node",
+    "packageManager": "npm",
+    "buildPath": "."
+  },
+  "runtime": {
+    "cpuLimit": 0.5,
+    "memoryLimitMb": 256,
+    "replicas": 2,
+    "restartPolicy": {
+      "condition": "on-failure",
+      "maxAttempts": 3
+    }
+  },
+  "crons": [
+    {
+      "name": "Fixture health check",
+      "path": "/health",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

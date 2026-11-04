@@ -5,8 +5,7 @@ import {
   ValidationError,
 } from "@upstand/domain";
 import { z } from "zod";
-import type { DockerRegistryAuth } from "../ports/docker";
-import type { DockerResourceControlService as DockerService } from "./docker-client";
+import type { DockerRegistryAuth, DockerRollbackPort } from "../ports/docker";
 import { resolveDockerServiceForServer } from "./docker-client";
 
 export const RollbackResourceInputSchema = z.object({
@@ -16,11 +15,21 @@ export const RollbackResourceInputSchema = z.object({
 
 export type RollbackResourceInput = z.infer<typeof RollbackResourceInputSchema>;
 
+type ResolveRollbackDockerService = (
+  serverId: string | null | undefined,
+  uow: IUnitOfWork,
+  defaultDockerService: DockerRollbackPort,
+) => Promise<{
+  dockerService: DockerRollbackPort;
+  cleanup: () => void;
+}>;
+
 /** Roll back a Swarm service and persist the action in deployment history. */
 export class RollbackResourceUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
-    private readonly defaultDockerService: DockerService,
+    private readonly defaultDockerService: DockerRollbackPort,
+    private readonly resolveDockerService: ResolveRollbackDockerService = resolveDockerServiceForServer,
   ) {}
 
   async execute(input: RollbackResourceInput): Promise<Resource> {
@@ -75,7 +84,7 @@ export class RollbackResourceUseCase {
         };
       }
 
-      const { dockerService, cleanup } = await resolveDockerServiceForServer(
+      const { dockerService, cleanup } = await this.resolveDockerService(
         resource.serverId,
         this.uow,
         this.defaultDockerService,

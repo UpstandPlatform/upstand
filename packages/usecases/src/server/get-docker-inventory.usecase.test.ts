@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { DockerInspectionTarget } from "../ports/docker";
 import { GetDockerInventoryUseCase } from "./get-docker-inventory.usecase";
 
 function createUploadUseCase() {
@@ -124,5 +125,90 @@ describe("GetDockerInventoryUseCase upload authorization", () => {
       "Docker target is not assigned to the requested resource",
     );
     expect(uploads).toEqual([]);
+  });
+});
+
+describe("GetDockerInventoryUseCase topology snapshots", () => {
+  test("uses a batched inventory reader after resolving the target once", async () => {
+    const snapshots: string[] = [];
+    const useCase = new GetDockerInventoryUseCase(
+      {} as never,
+      {
+        getTopologySnapshot: async (
+          target: DockerInspectionTarget,
+          options?: { includeSwarmNodes?: boolean },
+        ) => {
+          snapshots.push(`${target.kind}:${options?.includeSwarmNodes}`);
+          return {
+            containers: [],
+            networks: [],
+            volumes: [],
+            swarmNodes: [],
+          };
+        },
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const snapshot = await useCase.getTopologySnapshot(
+      {
+        organizationId: "organization-a",
+        serverId: "local",
+        includeSwarmNodes: true,
+      },
+      { allowLocalInCloud: true },
+    );
+
+    expect(snapshots).toEqual(["local:true"]);
+    expect(snapshot).toEqual({
+      containers: [],
+      networks: [],
+      volumes: [],
+      swarmNodes: [],
+    });
+  });
+
+  test("keeps successful inventories when one fallback query fails", async () => {
+    const calls: string[] = [];
+    const useCase = new GetDockerInventoryUseCase(
+      {} as never,
+      {
+        listContainers: async () => {
+          calls.push("containers");
+          return [];
+        },
+        listNetworks: async () => {
+          calls.push("networks");
+          throw new Error("Docker network inventory unavailable");
+        },
+        listVolumes: async () => {
+          calls.push("volumes");
+          return [];
+        },
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const snapshot = await useCase.getTopologySnapshot(
+      {
+        organizationId: "organization-a",
+        serverId: "local",
+        includeSwarmNodes: false,
+      },
+      { allowLocalInCloud: true },
+    );
+
+    expect(calls.sort()).toEqual(["containers", "networks", "volumes"]);
+    expect(snapshot).toEqual({
+      containers: [],
+      networks: null,
+      volumes: [],
+      swarmNodes: null,
+      errors: ["networks"],
+    });
   });
 });

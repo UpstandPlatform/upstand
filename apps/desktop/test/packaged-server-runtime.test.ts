@@ -57,6 +57,17 @@ describe("packaged Desktop server runtime", () => {
     expect(services).toContain("serviceStartupTimeoutMs = 60_000");
   });
 
+  test("verifies the packaged local runtime on the host platform", () => {
+    expect(packagedRuntimeVerifier).toContain(
+      '["upstand", process.platform, process.arch].join("-")',
+    );
+    expect(packagedRuntimeVerifier).toContain('endsWith(".app")');
+    expect(packagedRuntimeVerifier).toContain('"Contents", "Resources"');
+    expect(packagedRuntimeVerifier).toContain("/health/ready");
+    expect(packagedRuntimeVerifier).not.toContain("/health/live");
+    expect(packagedRuntimeVerifier).not.toContain("must run on Windows");
+  });
+
   test("statically imports Docker context packaging dependencies", () => {
     expect(dockerBrokerClient).toContain('from "tar-fs"');
     expect(dockerBrokerClient).not.toContain('from "node:module"');

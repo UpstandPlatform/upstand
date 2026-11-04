@@ -1,190 +1,127 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  CreateDeploymentDTO,
-  Deployment,
-  IUnitOfWork,
-  Resource,
-  Server,
-} from "@upstand/domain";
+import type { ControlPlaneMode } from "@upstand/usecases";
+import { createDeploymentPipelineFixture } from "./support/deployment-pipeline-fixture";
 
-function createE2ePipelineUow() {
-  const servers = new Map<string, Server>([
-    [
-      "srv-deploy-e2e",
-      {
-        id: "srv-deploy-e2e",
-        organizationId: "org-e2e",
-        name: "E2E Production Server",
-        serverType: "deploy",
-        authType: "ssh_key",
-        ipAddress: "192.168.1.50",
-        port: 22,
-        username: "root",
-        status: "ready",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as unknown as Server,
-    ],
-  ]);
+const runtimeModes: ControlPlaneMode[] = ["self-hosted", "cloud", "desktop"];
 
-  const projects = new Map([
-    [
-      "proj-e2e",
-      {
-        id: "proj-e2e",
-        organizationId: "org-e2e",
-        name: "E2E Platform Project",
-        archivedAt: null,
-      },
-    ],
-  ]);
+describe("Upstand deployment pipeline fixtures", () => {
+  for (const mode of runtimeModes) {
+    test(`deploys application, Compose, and database resources in ${mode} mode`, async () => {
+      const fixture = await createDeploymentPipelineFixture(mode);
 
-  const environments = new Map([
-    [
-      "env-e2e",
-      {
-        id: "env-e2e",
-        projectId: "proj-e2e",
-        name: "Staging Environment",
-      },
-    ],
-  ]);
+      expect(fixture.project.organizationId).toBe("org-fixture");
+      expect(fixture.environment.projectId).toBe(fixture.project.id);
+      expect(fixture.applicationServer.status).toBe("ready");
+      expect(fixture.databaseServer.serverType).toBe("database");
 
-  const resources = new Map<string, Resource>([
-    [
-      "res-e2e-web",
-      {
-        id: "res-e2e-web",
-        environmentId: "env-e2e",
-        organizationId: "org-e2e",
-        name: "E2E Web Service",
-        appName: "e2e-web-app",
-        type: "application",
-        provider: "git",
-        repositoryName: "upstand/e2e-app",
-        gitBranch: "main",
-        serverId: "srv-deploy-e2e",
+      await fixture.runDeployment(
+        fixture.application.id,
+        `${mode}-application-first`,
+        "a1b2c3d4e5f67890",
+      );
+      await fixture.runDeployment(
+        fixture.compose.id,
+        `${mode}-compose-first`,
+        "b1c2d3e4f5a67890",
+      );
+      await fixture.runDeployment(
+        fixture.database.id,
+        `${mode}-database-first`,
+        "c1d2e3f4a5b67890",
+      );
+      await fixture.runDeployment(
+        fixture.application.id,
+        `${mode}-application-redeploy`,
+        "d1e2f3a4b5c67890",
+      );
+
+      const firstDeployment = fixture.deployments.get(
+        `${mode}-application-first`,
+      );
+      expect(firstDeployment?.status).toBe("success");
+      expect(firstDeployment?.sourceRevision).toBe("a1b2c3d4e5f67890");
+      expect(firstDeployment?.deploymentPlan).toMatchObject({
+        target: {
+          kind: "remote-server",
+          serverId: fixture.applicationServer.id,
+        },
+        runtime: "docker",
+        buildLocation: { kind: "control-plane" },
+        ownership:
+          mode === "cloud" ? "cloud-control-plane" : "local-control-plane",
+        artifact: { digest: `sha256:${"d".repeat(64)}` },
+      });
+      expect(firstDeployment?.logs).toContain(
+        "Pipeline completed successfully",
+      );
+      expect(firstDeployment?.logs).toContain(
+        "[upstand.json] Synced runtime/resource configuration",
+      );
+      expect(firstDeployment?.logs).toContain(
+        "[Plan] Locked remote-server/docker",
+      );
+
+      expect(fixture.deployments.get(`${mode}-compose-first`)?.status).toBe(
+        "success",
+      );
+      expect(fixture.deployments.get(`${mode}-database-first`)?.status).toBe(
+        "success",
+      );
+      expect(
+        fixture.deployments.get(`${mode}-application-redeploy`)?.status,
+      ).toBe("success");
+      expect(fixture.outbox.size).toBe(4);
+      expect(fixture.buildLocations).toEqual([
+        "control-plane-to-remote",
+        "control-plane-to-remote",
+      ]);
+      expect(fixture.schedules.size).toBe(1);
+      expect([...fixture.schedules.values()][0]).toMatchObject({
+        name: "Fixture health check",
+        source: "upstand.json",
+        command: "/health",
+      });
+
+      const applicationState = fixture.serverStates.get(
+        fixture.applicationServer.id,
+      );
+      const databaseState = fixture.serverStates.get(fixture.databaseServer.id);
+      expect(applicationState?.services.get(fixture.application.id)).toEqual({
+        kind: "application",
+        image: `ghcr.io/upstand/${fixture.application.appName}:fixture`,
         status: "running",
-        imageName: "registry.upstand.internal/e2e-web-app:v1",
-        rollbackActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as unknown as Resource,
-    ],
-  ]);
+      });
+      expect(applicationState?.services.get(fixture.compose.id)?.kind).toBe(
+        "compose",
+      );
+      expect(databaseState?.services.get(fixture.database.id)).toMatchObject({
+        kind: "database",
+        image: "postgres:18-alpine",
+        status: "running",
+      });
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        "fixture-node.example.com",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        "fixture-stack.example.com",
+      );
+      expect(fixture.notifications).toHaveLength(4);
 
-  const deployments = new Map<string, Deployment>();
-
-  const uow = {
-    transaction: async <T>(fn: (tx: IUnitOfWork) => Promise<T>): Promise<T> =>
-      fn(uow as unknown as IUnitOfWork),
-    serverRepository: {
-      findById: async (id: string) => servers.get(id) ?? null,
-    },
-    projectRepository: {
-      findById: async (id: string) => projects.get(id) ?? null,
-    },
-    environmentRepository: {
-      findById: async (id: string) => environments.get(id) ?? null,
-    },
-    resourceRepository: {
-      findById: async (id: string) => resources.get(id) ?? null,
-      updateById: async (id: string, patch: Partial<Resource>) => {
-        const res = resources.get(id);
-        if (!res) return null;
-        Object.assign(res, patch);
-        return res;
-      },
-    },
-    deploymentRepository: {
-      create: async (data: CreateDeploymentDTO) => {
-        const id = data.id ?? `dep-e2e-${deployments.size + 1}`;
-        const deployment = {
-          id,
-          resourceId: data.resourceId,
-          title: data.title ?? "E2E Deployment",
-          status: data.status ?? "queued",
-          sourceRevision: data.sourceRevision ?? "1234567890abcdef",
-          logs: data.logs ?? "",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        } as unknown as Deployment;
-        deployments.set(id, deployment);
-        return deployment;
-      },
-      findById: async (id: string) => deployments.get(id) ?? null,
-      findByResourceId: async (resourceId: string) =>
-        [...deployments.values()].filter((d) => d.resourceId === resourceId),
-      updateById: async (id: string, patch: Partial<Deployment>) => {
-        const dep = deployments.get(id);
-        if (!dep) return null;
-        Object.assign(dep, patch);
-        return dep;
-      },
-    },
-  } as unknown as IUnitOfWork;
-
-  return { uow, deployments };
-}
-
-describe("End-to-End Server Pipeline Fixture Tests", () => {
-  test("exercises full lifecycle: project -> environment -> server -> deployment -> rollback -> persistence", async () => {
-    const { uow, deployments } = createE2ePipelineUow();
-
-    // 1. Assert Project and Environment setup
-    const project = await uow.projectRepository.findById("proj-e2e");
-    expect(project).toBeDefined();
-    expect(project?.name).toBe("E2E Platform Project");
-
-    const env = await uow.environmentRepository.findById("env-e2e");
-    expect(env).toBeDefined();
-    expect(env?.projectId).toBe(project?.id);
-
-    // 2. Assert Registered Server Target
-    const server = await uow.serverRepository.findById("srv-deploy-e2e");
-    expect(server).toBeDefined();
-    expect(server?.serverType).toBe("deploy");
-    expect(server?.status).toBe("ready");
-
-    // 3. Queue Deployment Execution
-    const resource = await uow.resourceRepository.findById("res-e2e-web");
-    expect(resource).toBeDefined();
-
-    if (!resource || !server) {
-      throw new Error("Fixture setup missing required entities");
-    }
-
-    const createdDeployment = await uow.deploymentRepository.create({
-      id: "dep-e2e-100",
-      resourceId: resource.id,
-      title: "Deploying v1.2 release",
-      status: "queued",
-      sourceRevision: "fedcba9876543210",
-      serverId: server.id,
-      serverName: server.name,
-    } as unknown as CreateDeploymentDTO);
-
-    expect(createdDeployment).toBeDefined();
-    expect(deployments.size).toBe(1);
-    expect(createdDeployment.status).toBe("queued");
-
-    // 4. Simulate Worker Pipeline Execution & Transition to Running
-    await uow.deploymentRepository.updateById(createdDeployment.id, {
-      status: "success",
-      logs: "Build completed successfully. Swarm service updated.\n",
+      const rolledBack = await fixture.rollbackApplication();
+      expect(rolledBack.status).toBe("running");
+      expect(fixture.deployments.get(`${mode}-application-first`)?.status).toBe(
+        "success",
+      );
+      expect(
+        [...fixture.deployments.values()].some(
+          (deployment) =>
+            deployment.title === "Swarm service rollback" &&
+            deployment.status === "success",
+        ),
+      ).toBe(true);
+      expect(
+        applicationState?.services.get(fixture.application.id)?.status,
+      ).toBe("rolled-back");
     });
-
-    await uow.resourceRepository.updateById(resource.id, {
-      status: "running",
-    });
-
-    const updatedResource = await uow.resourceRepository.findById(resource.id);
-    const updatedDep = await uow.deploymentRepository.findById(
-      createdDeployment.id,
-    );
-
-    expect(updatedResource?.status).toBe("running");
-    expect(updatedDep?.status).toBe("success");
-    expect(updatedDep?.logs).toContain("Swarm service updated");
-  });
+  }
 });

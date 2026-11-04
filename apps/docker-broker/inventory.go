@@ -11,10 +11,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-var typedInventoryOperationPattern = regexp.MustCompile(`^(info|host_time|containers|images|volumes|networks|services|swarm_nodes|logs|stats|control_container|control_resource|prune)$`)
+var typedInventoryOperationPattern = regexp.MustCompile(`^(info|host_time|containers|images|volumes|networks|services|swarm_nodes|topology_snapshot|logs|stats|control_container|control_resource|prune)$`)
 
 type typedInventoryRequest struct {
 	Operation              string   `json:"operation"`
@@ -31,6 +32,7 @@ type typedInventoryRequest struct {
 	Type                   string   `json:"type,omitempty"`
 	PreserveRollbackImages *bool    `json:"preserve_rollback_images,omitempty"`
 	PruneNetworks          bool     `json:"prune_networks,omitempty"`
+	IncludeSwarmNodes      bool     `json:"include_swarm_nodes,omitempty"`
 }
 
 type typedInventoryContainerResponse struct {
@@ -86,6 +88,14 @@ type typedInventorySwarmNodeResponse struct {
 	ServerType  string `json:"serverType,omitempty"`
 	Role        string `json:"role,omitempty"`
 	IsLocalNode bool   `json:"isLocalNode,omitempty"`
+}
+
+type typedInventoryTopologySnapshotResponse struct {
+	Containers []typedInventoryContainerResponse `json:"containers"`
+	Networks   []typedInventoryNetworkResponse   `json:"networks"`
+	Volumes    []typedInventoryVolumeResponse    `json:"volumes"`
+	SwarmNodes []typedInventorySwarmNodeResponse `json:"swarmNodes"`
+	Errors     []string                          `json:"errors,omitempty"`
 }
 
 type typedInventoryStatsResponse struct {
@@ -222,7 +232,7 @@ func validateTypedInventoryFieldSet(body []byte, operation string) error {
 	allowed := map[string]struct{}{`operation`: {}}
 	for _, field := range []string{
 		`container_id`, `service_name`, `search`, `state`, `since`, `search_logs`,
-		`log_levels`, `tail`, `command`, `resource_id`, `type`,
+		`log_levels`, `tail`, `command`, `resource_id`, `type`, `include_swarm_nodes`,
 		`preserve_rollback_images`, `prune_networks`,
 	} {
 		switch operation {
@@ -248,6 +258,10 @@ func validateTypedInventoryFieldSet(body []byte, operation string) error {
 			}
 		case `prune`:
 			if field == `type` || field == `preserve_rollback_images` || field == `prune_networks` {
+				allowed[field] = struct{}{}
+			}
+		case `topology_snapshot`:
+			if field == `include_swarm_nodes` {
 				allowed[field] = struct{}{}
 			}
 		}
@@ -283,6 +297,8 @@ func (engine *dockerEngineClient) inventoryOperation(ctx context.Context, body [
 		return engine.inventoryServices(ctx)
 	case `swarm_nodes`:
 		return engine.inventorySwarmNodes(ctx)
+	case `topology_snapshot`:
+		return engine.inventoryTopologySnapshot(ctx, input.IncludeSwarmNodes)
 	case `logs`:
 		return engine.inventoryLogs(ctx, input)
 	case `stats`:
@@ -296,6 +312,60 @@ func (engine *dockerEngineClient) inventoryOperation(ctx context.Context, body [
 	default:
 		return nil, errors.New(`typed inventory operation was not mapped`)
 	}
+}
+
+func (engine *dockerEngineClient) inventoryTopologySnapshot(ctx context.Context, includeSwarmNodes bool) (typedInventoryTopologySnapshotResponse, error) {
+	var result typedInventoryTopologySnapshotResponse
+	var waitGroup sync.WaitGroup
+	var errorMutex sync.Mutex
+	appendError := func(inventory string) {
+		errorMutex.Lock()
+		result.Errors = append(result.Errors, inventory)
+		errorMutex.Unlock()
+	}
+	waitGroup.Add(3)
+	go func() {
+		defer waitGroup.Done()
+		value, err := engine.inventoryContainers(ctx, typedInventoryRequest{})
+		if err != nil {
+			appendError("containers")
+			return
+		}
+		result.Containers = value
+	}()
+	go func() {
+		defer waitGroup.Done()
+		value, err := engine.inventoryNetworks(ctx)
+		if err != nil {
+			appendError("networks")
+			return
+		}
+		result.Networks = value
+	}()
+	go func() {
+		defer waitGroup.Done()
+		value, err := engine.inventoryVolumes(ctx)
+		if err != nil {
+			appendError("volumes")
+			return
+		}
+		result.Volumes = value
+	}()
+	if includeSwarmNodes {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			value, err := engine.inventorySwarmNodes(ctx)
+			if err != nil {
+				appendError("swarm_nodes")
+				return
+			}
+			result.SwarmNodes = value
+		}()
+	}
+	waitGroup.Wait()
+	sort.Strings(result.Errors)
+	return result, nil
 }
 
 func (engine *dockerEngineClient) inventoryInfo(ctx context.Context) (typedInventoryInfoResponse, error) {

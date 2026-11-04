@@ -502,6 +502,22 @@ func TestAuthorizeTypedDockerRequestRequiresServerAndNarrowOperations(t *testing
 			allow:  true,
 		},
 		{
+			name:   "typed topology snapshot is bounded",
+			caller: "server",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/inventory",
+			body:   `{"operation":"topology_snapshot","include_swarm_nodes":true}`,
+			allow:  true,
+		},
+		{
+			name:   "typed topology snapshot rejects arbitrary fields",
+			caller: "server",
+			method: http.MethodPost,
+			path:   "/upstand/v1/server/inventory",
+			body:   `{"operation":"topology_snapshot","command":"docker ps"}`,
+			allow:  false,
+		},
+		{
 			name:   "typed inventory rejects arbitrary fields",
 			caller: "server",
 			method: http.MethodPost,

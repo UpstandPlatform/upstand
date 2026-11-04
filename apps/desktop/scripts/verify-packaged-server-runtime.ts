@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, rm } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -78,41 +78,60 @@ async function waitForHealth(
   );
 }
 
-if (process.platform !== "win32") {
-  throw new Error(
-    "The packaged server verification must run on Windows, where the release artifact is produced.",
-  );
-}
-
-const executable = resolve(appRoot, "out", "upstand-win32-x64", "upstand.exe");
-const apiEntry = resolve(
+const packageDirectory = resolve(
   appRoot,
   "out",
-  "upstand-win32-x64",
-  "resources",
+  ["upstand", process.platform, process.arch].join("-"),
+);
+let applicationDirectory = packageDirectory;
+if (process.platform === "darwin") {
+  const entries = await readdir(packageDirectory, { withFileTypes: true });
+  const appBundle = entries.find(
+    (entry) => entry.isDirectory() && entry.name.toLowerCase().endsWith(".app"),
+  );
+  if (!appBundle) {
+    throw new Error("Packaged macOS app bundle was not found.");
+  }
+  applicationDirectory = resolve(packageDirectory, appBundle.name);
+}
+const resourcesDirectory =
+  process.platform === "darwin"
+    ? resolve(applicationDirectory, "Contents", "Resources")
+    : resolve(packageDirectory, "resources");
+const executable =
+  process.platform === "darwin"
+    ? resolve(applicationDirectory, "Contents", "MacOS", "upstand")
+    : resolve(
+        packageDirectory,
+        process.platform === "win32" ? "upstand.exe" : "upstand",
+      );
+const apiEntry = resolve(
+  resourcesDirectory,
   "local",
   "server",
-  "upstand-local-server.exe",
+  process.platform === "win32"
+    ? "upstand-local-server.exe"
+    : "upstand-local-server",
 );
-const migrations = resolve(
-  appRoot,
-  "out",
-  "upstand-win32-x64",
-  "resources",
-  "local",
-  "migrations",
-);
+const migrations = resolve(resourcesDirectory, "local", "migrations");
+const pgliteAssets = resolve(resourcesDirectory, "local", "pglite");
+const swaggerAssets = resolve(resourcesDirectory, "local", "swagger");
 const dashboardEntry = resolve(
-  appRoot,
-  "out",
-  "upstand-win32-x64",
-  "resources",
+  resourcesDirectory,
   "local",
   "dashboard",
   "apps",
   "web",
   "server.js",
 );
+await Promise.all([
+  access(executable),
+  access(apiEntry),
+  access(migrations),
+  access(pgliteAssets),
+  access(swaggerAssets),
+  access(dashboardEntry),
+]);
 const temporaryDirectory = await mkdtemp(
   join(tmpdir(), "upstand-desktop-runtime-"),
 );
@@ -126,10 +145,11 @@ let output = "";
 function startService(
   command: string,
   args: string[],
+  cwd: string,
   environment: NodeJS.ProcessEnv,
 ) {
   const child = spawn(command, args, {
-    cwd: resolve(command, ".."),
+    cwd,
     env: environment,
     stdio: "pipe",
     windowsHide: true,
@@ -148,22 +168,8 @@ const baseEnvironment: NodeJS.ProcessEnv = {
   NODE_ENV: "production",
   UPSTAND_PLATFORM: "desktop",
   PGLITE_DATA_DIR: join(temporaryDirectory, "data"),
-  PGLITE_ASSETS_DIR: resolve(
-    appRoot,
-    "out",
-    "upstand-win32-x64",
-    "resources",
-    "local",
-    "pglite",
-  ),
-  SWAGGER_UI_ASSETS_DIR: resolve(
-    appRoot,
-    "out",
-    "upstand-win32-x64",
-    "resources",
-    "local",
-    "swagger",
-  ),
+  PGLITE_ASSETS_DIR: pgliteAssets,
+  SWAGGER_UI_ASSETS_DIR: swaggerAssets,
   UPSTAND_NODE_RUNTIME_PATH: executable,
   DB_MIGRATIONS_PATH: migrations,
   // Disposable values for this isolated runtime check. They are never logged.
@@ -175,7 +181,7 @@ const baseEnvironment: NodeJS.ProcessEnv = {
   REDIS_URL: "",
 };
 
-const apiProcess = startService(apiEntry, [], {
+const apiProcess = startService(apiEntry, [], resolve(apiEntry, ".."), {
   ...baseEnvironment,
   ELECTRON_RUN_AS_NODE: undefined,
   PORT: String(apiPort),
@@ -183,21 +189,28 @@ const apiProcess = startService(apiEntry, [], {
   BETTER_AUTH_URL: apiOrigin,
   CORS_ORIGIN: dashboardOrigin,
 });
-const dashboardProcess = startService(executable, [dashboardEntry], {
-  ...baseEnvironment,
-  PORT: String(dashboardPort),
-  HOSTNAME: "127.0.0.1",
-  NEXT_PUBLIC_SERVER_URL: apiOrigin,
-  UPSTAND_SERVER_INTERNAL_URL: apiOrigin,
-});
+const dashboardProcess = startService(
+  executable,
+  [dashboardEntry],
+  resolve(dashboardEntry, ".."),
+  {
+    ...baseEnvironment,
+    PORT: String(dashboardPort),
+    HOSTNAME: "127.0.0.1",
+    NEXT_PUBLIC_SERVER_URL: apiOrigin,
+    UPSTAND_SERVER_INTERNAL_URL: apiOrigin,
+  },
+);
 
 try {
   await Promise.all([
-    waitForHealth(`${apiOrigin}/health/live`, apiProcess, () => output),
+    waitForHealth(`${apiOrigin}/health/ready`, apiProcess, () => output),
     waitForHealth(dashboardOrigin, dashboardProcess, () => output),
   ]);
   process.stdout.write(
-    "Packaged local control plane and dashboard passed their health checks.\n",
+    "Packaged local control plane and dashboard passed their " +
+      process.platform +
+      " health checks.\n",
   );
 } finally {
   const services = [apiProcess, dashboardProcess];
