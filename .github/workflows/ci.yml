@@ -438,7 +438,8 @@ jobs:
           flags="$(bun scripts/ci-image-matrix.ts "$BASE_SHA" "$HEAD_SHA")"
           for image in server web fumadocs schedules monitoring docker-broker; do
             value="$(jq -r --arg image "$image" '.[$image]' <<< "$flags")"
-            printf 'build_%s=%s\n' "$image" "$value" >> "$GITHUB_OUTPUT"
+            output_name="${image//-/_}"
+            printf 'build_%s=%s\n' "$output_name" "$value" >> "$GITHUB_OUTPUT"
           done
           deployment_worker="$(jq -r '."deployment-worker"' <<< "$flags")"
           printf 'build_deployment_worker=%s\n' "$deployment_worker" >> "$GITHUB_OUTPUT"
