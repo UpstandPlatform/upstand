@@ -75,6 +75,23 @@ Open the pull request against `canary`. Keep it small and describe the tests,
 migrations, deployment impact, and rollback plan. CI is the source of truth;
 local hooks provide fast feedback but should not be bypassed to hide a failure.
 
+### Maintainers: owner-authored pull requests
+
+GitHub does not let an account approve its own pull request. The active
+`canary-integration` and `master-release` rulesets grant Organization Admins a
+pull-request-only bypass for cases where an independent maintainer cannot
+review an owner-authored change. After every required CI check passes and all
+review conversations are resolved, use the normal squash merge with the admin
+bypass:
+
+```bash
+gh pr merge <number> --admin --squash
+```
+
+Use this bypass only when needed, and still wait for the required checks to
+pass before merging. Other pull requests should receive an independent
+maintainer approval and can use GitHub auto-merge.
+
 The CI lanes are intentionally split to avoid rebuilding the same artifact at
 every branch boundary. Pull requests run formatting, migration checks, type
 checks, and affected package tests. After a merge to `canary`, one full

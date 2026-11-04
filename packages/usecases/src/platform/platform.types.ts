@@ -335,14 +335,11 @@ export function getPlatformCapabilities(
           {
             target: "local",
             runtime: "docker",
-            supported: runtimeAvailability.docker,
-            buildLocations: runtimeAvailability.docker
-              ? ["control-plane", "target"]
-              : [],
-            zeroDowntimeReplacement: true,
-            reason: runtimeAvailability.docker
-              ? null
-              : "Docker execution is unavailable because no local Docker runtime was detected",
+            supported: false,
+            buildLocations: [],
+            zeroDowntimeReplacement: false,
+            reason:
+              "Desktop can use local Docker as a build host but cannot deploy workloads to its local control plane",
           },
           ...createDesktopRuntimeMatrix(runtimeAvailability).filter(
             (entry) => entry.target !== "local",
