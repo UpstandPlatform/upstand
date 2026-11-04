@@ -83,7 +83,7 @@ export function getAffectedProductionImages(changedFiles: readonly string[]) {
 
   for (const changedFile of changedFiles) {
     const path = normalizePath(changedFile);
-    if (path.startsWith(".github/actions/")) {
+    if (path === ".github/workflows/build-pruned-image.yml") {
       addAllImages(affectedNames);
       continue;
     }

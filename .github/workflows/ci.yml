@@ -447,111 +447,90 @@ jobs:
     name: Build pruned server image
     needs: [image-matrix]
     if: needs.image-matrix.outputs.build_server == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
-    steps:
-      - uses: ./.github/actions/build-pruned-image
-        with:
-          name: server
-          file: apps/server/Dockerfile
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: server
+      file: apps/server/Dockerfile
 
   build-web-image:
     name: Build pruned web image
     needs: [image-matrix]
     if: needs.image-matrix.outputs.build_web == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
-    steps:
-      - uses: ./.github/actions/build-pruned-image
-        with:
-          name: web
-          file: apps/web/Dockerfile
-          build_args: |
-            NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
-            NEXT_PUBLIC_UPSTAND_VERSION=ci
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: web
+      file: apps/web/Dockerfile
+      build_args: |
+        NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
+        NEXT_PUBLIC_UPSTAND_VERSION=ci
 
   build-fumadocs-image:
     name: Build pruned fumadocs image
     needs: [image-matrix]
     if: needs.image-matrix.outputs.build_fumadocs == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
-    steps:
-      - uses: ./.github/actions/build-pruned-image
-        with:
-          name: fumadocs
-          file: apps/fumadocs/Dockerfile
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: fumadocs
+      file: apps/fumadocs/Dockerfile
 
   build-schedules-image:
     name: Build pruned schedules image
     needs: [image-matrix]
     if: needs.image-matrix.outputs.build_schedules == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
-    steps:
-      - uses: ./.github/actions/build-pruned-image
-        with:
-          name: schedules
-          file: apps/schedules/Dockerfile
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: schedules
+      file: apps/schedules/Dockerfile
 
   build-deployment-worker-image:
     name: Build pruned deployment-worker image
     needs: [image-matrix]
     if: needs.image-matrix.outputs.build_deployment_worker == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
-    steps:
-      - uses: ./.github/actions/build-pruned-image
-        with:
-          name: deployment-worker
-          file: apps/schedules/Dockerfile.worker
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: deployment-worker
+      file: apps/schedules/Dockerfile.worker
 
   build-monitoring-image:
     name: Build pruned monitoring image
     needs: [image-matrix]
     if: needs.image-matrix.outputs.build_monitoring == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
-    steps:
-      - uses: ./.github/actions/build-pruned-image
-        with:
-          name: monitoring
-          context: apps/monitoring
-          file: apps/monitoring/Dockerfile
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: monitoring
+      context: apps/monitoring
+      file: apps/monitoring/Dockerfile
 
   build-docker-broker-image:
     name: Build pruned docker-broker image
     needs: [image-matrix]
     if: needs.image-matrix.outputs.build_docker_broker == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
-    steps:
-      - uses: ./.github/actions/build-pruned-image
-        with:
-          name: docker-broker
-          context: apps/docker-broker
-          file: apps/docker-broker/Dockerfile
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: docker-broker
+      context: apps/docker-broker
+      file: apps/docker-broker/Dockerfile
 
   merge-gate:
     name: Merge gate

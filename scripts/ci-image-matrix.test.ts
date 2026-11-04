@@ -55,8 +55,8 @@ describe("CI production image selection", () => {
     expect(names(["bun.lock"])).toEqual(nodeImages);
   });
 
-  test("rebuilds all images when the shared build action changes", () => {
-    expect(names([".github/actions/build-pruned-image/action.yml"])).toEqual([
+  test("rebuilds all images when the shared build workflow changes", () => {
+    expect(names([".github/workflows/build-pruned-image.yml"])).toEqual([
       "server",
       "web",
       "fumadocs",
