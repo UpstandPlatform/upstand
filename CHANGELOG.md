@@ -4,6 +4,14 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.15 - 2026-11-04
+
+Correct the routing guide to use supported Caddy filters and document rate-limit and GeoIP module requirements.
+
+Keep runtime capability responses accurate for desktop-local Docker and reduce
+topology polling load by refreshing live snapshots every 30 seconds.
+
+
 ## 0.14.14 - 2026-11-04
 
 Batch Docker topology inventory into one snapshot per server, retain successful inventory sections when another Docker query fails, and record the actual deployment build location in immutable plans.

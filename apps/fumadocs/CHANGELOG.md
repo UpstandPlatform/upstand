@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.14.15
+
+### Patch Changes
+
+- [#602](https://github.com/UpstandPlatform/upstand/pull/602) [`5888dfa`](https://github.com/UpstandPlatform/upstand/commit/5888dfaebd1e033f87f18b592f41da0e385be831) Thanks [@mhbdev](https://github.com/mhbdev)! - Correct the routing guide to use supported Caddy filters and document rate-limit and GeoIP module requirements.
+
 ## 0.14.14
 
 No changes in this release.

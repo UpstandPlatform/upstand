@@ -406,75 +406,170 @@ jobs:
           print("compose-topology-contract: passed")
           PY
 
-  docker-builds:
-    name: Build pruned ${{ matrix.name }} image
-    # Build every production image on pull requests and manual runs. Publishing
-    # remains isolated to the release/canary workflows.
+  image-matrix:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: server
-            file: apps/server/Dockerfile
-            build_args: ""
-          - name: web
-            file: apps/web/Dockerfile
-            build_args: |
-              NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
-              NEXT_PUBLIC_UPSTAND_VERSION=ci
-          - name: fumadocs
-            file: apps/fumadocs/Dockerfile
-            build_args: ""
-          - name: schedules
-            file: apps/schedules/Dockerfile
-            build_args: ""
-          - name: deployment-worker
-            file: apps/schedules/Dockerfile.worker
-            build_args: ""
-          - name: monitoring
-            context: apps/monitoring
-            file: apps/monitoring/Dockerfile
-            build_args: ""
-          - name: docker-broker
-            context: apps/docker-broker
-            file: apps/docker-broker/Dockerfile
-            build_args: ""
+    timeout-minutes: 10
+    outputs:
+      build_server: ${{ steps.select.outputs.build_server }}
+      build_web: ${{ steps.select.outputs.build_web }}
+      build_fumadocs: ${{ steps.select.outputs.build_fumadocs }}
+      build_schedules: ${{ steps.select.outputs.build_schedules }}
+      build_deployment_worker: ${{ steps.select.outputs.build_deployment_worker }}
+      build_monitoring: ${{ steps.select.outputs.build_monitoring }}
+      build_docker_broker: ${{ steps.select.outputs.build_docker_broker }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
-      - name: Build ${{ matrix.name }} image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
-          context: ${{ matrix.context || '.' }}
-          file: ${{ matrix.file }}
-          push: false
-          tags: upstand-${{ matrix.name }}:${{ github.sha }}
-          build-args: ${{ matrix.build_args }}
-          cache-from: type=gha,scope=ci-${{ github.event_name }}-${{ matrix.name }}
-          cache-to: type=gha,scope=ci-${{ github.event_name }}-${{ matrix.name }},mode=max,ignore-error=true
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - name: Test image selection and calculate matrix
+        id: select
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'all' }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'all' }}
+        run: |
+          set -euo pipefail
+          bun test scripts/ci-image-matrix.test.ts
+          flags="$(bun scripts/ci-image-matrix.ts "$BASE_SHA" "$HEAD_SHA")"
+          for image in server web fumadocs schedules monitoring docker-broker; do
+            value="$(jq -r --arg image "$image" '.[$image]' <<< "$flags")"
+            output_name="${image//-/_}"
+            printf 'build_%s=%s\n' "$output_name" "$value" >> "$GITHUB_OUTPUT"
+          done
+          deployment_worker="$(jq -r '."deployment-worker"' <<< "$flags")"
+          printf 'build_deployment_worker=%s\n' "$deployment_worker" >> "$GITHUB_OUTPUT"
+
+  build-server-image:
+    name: Build pruned server image
+    needs: [image-matrix]
+    if: needs.image-matrix.outputs.build_server == 'true'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: server
+      file: apps/server/Dockerfile
+
+  build-web-image:
+    name: Build pruned web image
+    needs: [image-matrix]
+    if: needs.image-matrix.outputs.build_web == 'true'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: web
+      file: apps/web/Dockerfile
+      build_args: |
+        NEXT_PUBLIC_SERVER_URL=https://api.example.invalid
+        NEXT_PUBLIC_UPSTAND_VERSION=ci
+
+  build-fumadocs-image:
+    name: Build pruned fumadocs image
+    needs: [image-matrix]
+    if: needs.image-matrix.outputs.build_fumadocs == 'true'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: fumadocs
+      file: apps/fumadocs/Dockerfile
+
+  build-schedules-image:
+    name: Build pruned schedules image
+    needs: [image-matrix]
+    if: needs.image-matrix.outputs.build_schedules == 'true'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: schedules
+      file: apps/schedules/Dockerfile
+
+  build-deployment-worker-image:
+    name: Build pruned deployment-worker image
+    needs: [image-matrix]
+    if: needs.image-matrix.outputs.build_deployment_worker == 'true'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: deployment-worker
+      file: apps/schedules/Dockerfile.worker
+
+  build-monitoring-image:
+    name: Build pruned monitoring image
+    needs: [image-matrix]
+    if: needs.image-matrix.outputs.build_monitoring == 'true'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: monitoring
+      context: apps/monitoring
+      file: apps/monitoring/Dockerfile
+
+  build-docker-broker-image:
+    name: Build pruned docker-broker image
+    needs: [image-matrix]
+    if: needs.image-matrix.outputs.build_docker_broker == 'true'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-pruned-image.yml
+    with:
+      name: docker-broker
+      context: apps/docker-broker
+      file: apps/docker-broker/Dockerfile
 
   merge-gate:
     name: Merge gate
     if: always()
-    needs: [verify, docker-builds]
+    needs:
+      - verify
+      - image-matrix
+      - build-server-image
+      - build-web-image
+      - build-fumadocs-image
+      - build-schedules-image
+      - build-deployment-worker-image
+      - build-monitoring-image
+      - build-docker-broker-image
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require validation jobs to pass
         if: >-
           needs.verify.result != 'success' ||
-          (needs.docker-builds.result != 'success' && needs.docker-builds.result != 'skipped')
+          (needs.image-matrix.result != 'success' && needs.image-matrix.result != 'skipped') ||
+          (needs.build-server-image.result != 'success' && needs.build-server-image.result != 'skipped') ||
+          (needs.build-web-image.result != 'success' && needs.build-web-image.result != 'skipped') ||
+          (needs.build-fumadocs-image.result != 'success' && needs.build-fumadocs-image.result != 'skipped') ||
+          (needs.build-schedules-image.result != 'success' && needs.build-schedules-image.result != 'skipped') ||
+          (needs.build-deployment-worker-image.result != 'success' && needs.build-deployment-worker-image.result != 'skipped') ||
+          (needs.build-monitoring-image.result != 'success' && needs.build-monitoring-image.result != 'skipped') ||
+          (needs.build-docker-broker-image.result != 'success' && needs.build-docker-broker-image.result != 'skipped')
         run: |
           echo "verify=${{ needs.verify.result }}"
-          echo "docker-builds=${{ needs.docker-builds.result }}"
+          echo "image-matrix=${{ needs.image-matrix.result }}"
+          echo "server-image=${{ needs.build-server-image.result }}"
+          echo "web-image=${{ needs.build-web-image.result }}"
+          echo "fumadocs-image=${{ needs.build-fumadocs-image.result }}"
+          echo "schedules-image=${{ needs.build-schedules-image.result }}"
+          echo "deployment-worker-image=${{ needs.build-deployment-worker-image.result }}"
+          echo "monitoring-image=${{ needs.build-monitoring-image.result }}"
+          echo "docker-broker-image=${{ needs.build-docker-broker-image.result }}"
           exit 1
       - name: Report merge readiness
         run: echo "Required CI validation passed."

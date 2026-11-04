@@ -1,0 +1,43 @@
+name: Build pruned production image
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        type: string
+        required: true
+      context:
+        type: string
+        required: false
+        default: .
+      file:
+        type: string
+        required: true
+      build_args:
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+      - name: Build ${{ inputs.name }} image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file }}
+          push: false
+          tags: upstand-${{ inputs.name }}:${{ github.sha }}
+          build-args: ${{ inputs.build_args }}
+          cache-from: type=gha,scope=ci-${{ github.event_name }}-${{ inputs.name }}
+          cache-to: type=gha,scope=ci-${{ github.event_name }}-${{ inputs.name }},mode=max,ignore-error=true

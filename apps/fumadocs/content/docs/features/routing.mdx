@@ -60,31 +60,35 @@ Configure advanced proxy settings directly inside the domain mapping card:
 
 ---
 
-## 4. Web Application Firewall (WAF) & Rate-Limiting Snippets
+## 4. Caddy Request Filters and Rate-Limiting Boundaries
 
-Operators can define reusable Caddy configuration snippets under **Web Server → Caddy Snippets** to enforce ingress WAF protection:
+Operators can define reusable Caddy snippets under **Web Server → Caddy
+Snippets**. For example, this snippet allows requests only from the listed
+network ranges and sets common response security headers:
 
-```nginx
-# Definition: rate_limit_suite (Saved under Web Server Snippets)
-(rate_limit_suite) {
-    rate_limit {
-        zone dynamic_ip {
-            key {remote_host}
-            events 100
-            window 1m
-        }
-    }
+```text
+(office-network-only) {
+    @outside_office not remote_ip 203.0.113.0/24 2001:db8::/32
+    respond @outside_office "Forbidden" 403
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
-        X-XSS-Protection "1; mode=block"
     }
 }
 ```
 
-- **IP Allowlisting**: Caddy snippets can restrict access using client IP CIDRs and other Caddy-native request matchers.
-- **Snippet Import**: Import any defined snippet directly on domain mapping cards by selecting it from the **Caddy Snippets** dropdown menu.
+- Replace the example CIDRs with the ranges you trust. `remote_ip` matches
+  Caddy's immediate peer. If Caddy sits behind a trusted proxy, configure
+  Caddy's trusted proxies before using the `client_ip` matcher for visitor IPs.
+- Import a snippet on a domain mapping card by selecting it from the **Caddy
+  Snippets** dropdown.
+- The managed Caddy image uses Caddy's standard modules. The `rate_limit`
+  directive comes from a third-party module and is not included, so a snippet
+  using it fails Caddy validation. Apply rate limiting at an external CDN,
+  load balancer, or API gateway. Country-based filtering also requires an
+  external service or a custom Caddy build with a GeoIP module; Upstand does
+  not currently provision that module.
 
 ---
 
