@@ -34,6 +34,7 @@ import type {
   DockerResourceControllerPort,
   DockerSelfUpdateInput,
   DockerServiceSummary,
+  DockerTopologySnapshot,
   DockerVolume,
   DockerWebServerMaintenancePort,
 } from "@upstand/usecases/ports/docker";
@@ -396,6 +397,13 @@ const inventorySwarmNodeSchema = z.object({
   serverType: z.string().optional(),
   role: z.string().optional(),
   isLocalNode: z.boolean().optional(),
+});
+const inventoryTopologySnapshotSchema = z.object({
+  containers: z.array(inventoryContainerSchema).nullable(),
+  networks: z.array(inventoryNetworkSchema).nullable(),
+  volumes: z.array(inventoryVolumeSchema).nullable(),
+  swarmNodes: z.array(inventorySwarmNodeSchema).nullable(),
+  errors: z.array(z.string()).optional(),
 });
 const inventoryStatsSchema = z.object({
   containerId: z.string(),
@@ -1161,6 +1169,18 @@ export function createDockerInspectionBrokerClient():
       return z
         .array(inventorySwarmNodeSchema)
         .parse(await request("swarm_nodes"));
+    },
+
+    async getTopologySnapshot(
+      target: DockerInspectionTarget,
+      options?: { includeSwarmNodes?: boolean },
+    ): Promise<DockerTopologySnapshot> {
+      requireLocalTarget(target);
+      return inventoryTopologySnapshotSchema.parse(
+        await request("topology_snapshot", {
+          include_swarm_nodes: options?.includeSwarmNodes === true,
+        }),
+      );
     },
 
     async getLogs(

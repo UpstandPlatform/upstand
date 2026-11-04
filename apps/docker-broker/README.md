@@ -82,7 +82,7 @@ Mutating Docker operations (creating services, changing images, mounting volumes
 | Component | Responsibility & Policy Enforcement |
 | :--- | :--- |
 | **`caddy.go`** | Validates and dynamically reloads Caddy reverse-proxy routing. Blocks routes pointing to internal Docker control planes or unapproved external hosts. |
-| **`inventory.go`** | Safely lists containers, services, networks, and tasks. Masks internal infrastructure containers and secrets from tenant-scoped queries. |
+| **`inventory.go`** | Serves allowlisted typed Docker inventory and controls. Topology snapshots fetch containers, networks, volumes, and optional Swarm nodes in one broker request, preserve partial results, and report failed inventory kinds. |
 | **`monitoring.go`** | Collects real-time CPU, memory, network I/O, and disk usage for provisioned workloads without exposing host metrics. |
 | **`network.go`** | Ensures services attach only to tenant-approved overlay networks and the shared gateway. Prevents bridge-mode container attachments to the internal control network. |
 | **`resource_build.go`** | Safely controls image building, enforcing context limits and tag validation. |

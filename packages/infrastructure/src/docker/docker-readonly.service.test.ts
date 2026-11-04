@@ -9,6 +9,166 @@ import { DockerCleanupService } from "./docker-cleanup.service";
 import { DockerReadOnlyService } from "./docker-readonly.service";
 
 describe("Docker explorer image controls", () => {
+  test("collects remote topology with one SSH session and parses each inventory", async () => {
+    const service = Object.create(
+      DockerReadOnlyService.prototype,
+    ) as DockerReadOnlyService;
+    let commandCount = 0;
+    let remoteCommand = "";
+    Object.assign(service, {
+      executeRemote: async (_target: unknown, command: string) => {
+        commandCount += 1;
+        remoteCommand = command;
+        return [
+          `\0containers\n${JSON.stringify({
+            ID: "container-1",
+            Names: "web",
+            Image: "nginx:1.27",
+            State: "running",
+            Status: "Up",
+            Ports: "8080->80/tcp",
+            Mounts: "app-data:/var/lib/app",
+            Networks: "app-net",
+            Labels: "com.upstand.resource-id=resource-1",
+          })}\n`,
+          "\0containers_status_0\n",
+          `\0networks\n${JSON.stringify({
+            ID: "network-1",
+            Name: "app-net",
+            Driver: "overlay",
+            Scope: "swarm",
+          })}\n`,
+          "\0networks_status_0\n",
+          `\0volumes\n${JSON.stringify({
+            Name: "app-data",
+            Driver: "local",
+          })}\n`,
+          "\0volumes_status_0\n",
+          `\0swarm_nodes\n${JSON.stringify({
+            ID: "node-1",
+            Hostname: "manager-1",
+            Addr: "10.0.0.10",
+            ManagerStatus: "Leader",
+            Status: "Ready",
+            Self: "true",
+          })}\n`,
+          "\0swarm_nodes_status_0\n",
+        ].join("");
+      },
+    });
+
+    const snapshot = await service.getTopologySnapshot(
+      {
+        kind: "remote",
+        name: "Production",
+        host: "10.0.0.10",
+        port: 22,
+        username: "upstand",
+      },
+      { includeSwarmNodes: true },
+    );
+
+    expect(commandCount).toBe(1);
+    expect(
+      remoteCommand.match(/docker (?:ps|network ls|volume ls|node ls)/g),
+    ).toHaveLength(4);
+    expect(snapshot).toEqual({
+      containers: [
+        {
+          id: "container-1",
+          name: "web",
+          image: "nginx:1.27",
+          state: "running",
+          status: "Up",
+          ports: "8080->80/tcp",
+          mounts: ["app-data:/var/lib/app"],
+          networks: ["app-net"],
+          labels: ["com.upstand.resource-id=resource-1"],
+          createdAt: null,
+        },
+      ],
+      networks: [
+        {
+          id: "network-1",
+          name: "app-net",
+          driver: "overlay",
+          scope: "swarm",
+          internal: false,
+          attachable: false,
+        },
+      ],
+      volumes: [{ name: "app-data", driver: "local", mountpoint: "" }],
+      swarmNodes: [
+        {
+          id: "node-1",
+          hostname: "manager-1",
+          ip: "10.0.0.10",
+          isLeader: true,
+          role: "manager",
+          status: "Ready",
+          isLocalNode: true,
+        },
+      ],
+    });
+  });
+
+  test("uses one typed broker request for the local topology snapshot", async () => {
+    const snapshot = {
+      containers: [],
+      networks: [],
+      volumes: [],
+      swarmNodes: null,
+    };
+    const getTopologySnapshot = mock(() => Promise.resolve(snapshot));
+    const service = new DockerReadOnlyService(
+      {} as never,
+      { getTopologySnapshot } as never,
+    );
+
+    await expect(
+      service.getTopologySnapshot(
+        { kind: "local", name: "Local Docker" },
+        { includeSwarmNodes: false },
+      ),
+    ).resolves.toEqual(snapshot);
+
+    expect(getTopologySnapshot).toHaveBeenCalledTimes(1);
+    expect(getTopologySnapshot).toHaveBeenCalledWith(
+      { kind: "local", name: "Local Docker" },
+      { includeSwarmNodes: false },
+    );
+  });
+
+  test("reports failed remote inventory sections while keeping successful data", async () => {
+    const service = Object.create(
+      DockerReadOnlyService.prototype,
+    ) as DockerReadOnlyService;
+    Object.assign(service, {
+      executeRemote: async () =>
+        [
+          "\0containers\n\0containers_status_0\n",
+          "\0networks\n\0networks_status_1\n",
+          "\0volumes\n\0volumes_status_0\n",
+        ].join(""),
+    });
+
+    const snapshot = await service.getTopologySnapshot({
+      kind: "remote",
+      name: "Production",
+      host: "10.0.0.10",
+      port: 22,
+      username: "upstand",
+    });
+
+    expect(snapshot).toEqual({
+      containers: [],
+      networks: null,
+      volumes: [],
+      swarmNodes: null,
+      errors: ["networks"],
+    });
+  });
+
   test("returns only named-volume mount metadata from local inspection", async () => {
     const service = new DockerReadOnlyService({
       getContainer: () => ({

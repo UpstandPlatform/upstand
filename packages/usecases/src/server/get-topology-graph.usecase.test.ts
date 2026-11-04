@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import type { DockerTopologySnapshot } from "../ports/docker";
 import type {
   GetDockerInventoryInput,
   GetDockerInventoryUseCase,
+  GetDockerTopologySnapshotInput,
 } from "./get-docker-inventory.usecase";
 import type { GetServersUseCase } from "./get-servers.usecase";
 import { GetTopologyGraphUseCase } from "./get-topology-graph.usecase";
@@ -28,6 +30,36 @@ function makeUseCase(
         input: GetDockerInventoryInput,
         options?: { allowLocalInCloud?: boolean },
       ) => inventory(input, options),
+      getTopologySnapshot: async (
+        input: GetDockerTopologySnapshotInput,
+        options?: { allowLocalInCloud?: boolean },
+      ): Promise<DockerTopologySnapshot> => {
+        const read = async (kind: GetDockerInventoryInput["kind"]) => {
+          try {
+            return await inventory(
+              {
+                serverId: input.serverId,
+                kind,
+              },
+              options,
+            );
+          } catch {
+            return null;
+          }
+        };
+        const [containers, networks, volumes, swarmNodes] = await Promise.all([
+          read("containers"),
+          read("networks"),
+          read("volumes"),
+          input.includeSwarmNodes ? read("swarm_nodes") : null,
+        ]);
+        return {
+          containers: containers as DockerTopologySnapshot["containers"],
+          networks: networks as DockerTopologySnapshot["networks"],
+          volumes: volumes as DockerTopologySnapshot["volumes"],
+          swarmNodes: swarmNodes as DockerTopologySnapshot["swarmNodes"],
+        };
+      },
     } as unknown as GetDockerInventoryUseCase,
   );
 }
@@ -134,6 +166,37 @@ describe("GetTopologyGraphUseCase", () => {
     ).toBe(true);
   });
 
+  test("reads one topology snapshot per reachable server", async () => {
+    const snapshotServers: string[] = [];
+    const useCase = new GetTopologyGraphUseCase(
+      {
+        execute: async () => [
+          {
+            id: "remote-1",
+            name: "Production",
+            ipAddress: "10.0.0.10",
+            status: "ready",
+          },
+        ],
+      } as unknown as GetServersUseCase,
+      {
+        getTopologySnapshot: async (input: GetDockerTopologySnapshotInput) => {
+          snapshotServers.push(input.serverId ?? "local");
+          return {
+            containers: [],
+            networks: [],
+            volumes: [],
+            swarmNodes: [],
+          };
+        },
+      } as unknown as GetDockerInventoryUseCase,
+    );
+
+    await useCase.execute({ organizationId: "org-1" });
+
+    expect(snapshotServers.sort()).toEqual(["local", "remote-1"]);
+  });
+
   test("keeps a server visible when its Docker endpoint is unavailable", async () => {
     const useCase = makeUseCase(({ serverId, kind }) => {
       if (serverId === "remote-1") throw new Error("SSH unavailable");
@@ -197,9 +260,14 @@ describe("GetTopologyGraphUseCase", () => {
         ],
       } as unknown as GetServersUseCase,
       {
-        execute: async (input: GetDockerInventoryInput) => {
+        getTopologySnapshot: async (input: GetDockerTopologySnapshotInput) => {
           probed.push(input.serverId ?? "local");
-          return [];
+          return {
+            containers: [],
+            networks: [],
+            volumes: [],
+            swarmNodes: [],
+          };
         },
       } as unknown as GetDockerInventoryUseCase,
     );

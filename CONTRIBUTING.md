@@ -7,7 +7,7 @@ Thank you for helping improve Upstand. Small, reviewable pull requests are easie
 1. Search existing issues and pull requests before opening a duplicate.
 2. For a security concern, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
 3. For a substantial feature, open an issue first so the design, scope, and backwards-compatibility plan are agreed.
-4. Fork the repository or create a branch from `master`. Keep `master` release-ready; use `canary` only for explicitly experimental integration work.
+4. Fork the repository or create a branch from `canary`. Keep `master` release-ready; `canary` is the integration branch.
 
 ## Development setup
 
@@ -67,9 +67,7 @@ refactor, documentation change, or ordinary bug fix:
 git switch -c feat/short-description
 # edit files, then add a Changeset for user-visible behavior
 bun changeset
-bun run check:staged
-bun run check-types
-bun test packages
+bun run verify
 git push -u origin HEAD
 ```
 
@@ -132,17 +130,11 @@ and rollback procedure.
 
 ## Required checks
 
-Run the relevant focused checks while iterating, then all checks before requesting review:
-
-```bash
-bun run check-types
-bun run lint
-bun test packages
-bun run build
-git diff --check
-```
-
-If a check cannot run locally, say why in the pull request and provide the closest reproducible verification. Do not hide failures by weakening a script or deleting a test.
+Run `bun run verify` before requesting review. It runs type checks, lint,
+tests, production builds, and `git diff --check`. Use the focused commands in
+[TESTING.md](TESTING.md) while iterating. If a check cannot run locally, say
+why in the pull request and provide the closest reproducible verification.
+Do not hide failures by weakening a script or deleting a test.
 
 ## Pull requests
 
