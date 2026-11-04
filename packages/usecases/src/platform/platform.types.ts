@@ -290,6 +290,20 @@ export function requiresRemoteDeploymentServer(
   return mode === "cloud" || mode === "desktop";
 }
 
+/**
+ * Builds run on the deployment worker's control plane unless a distinct build
+ * server is explicitly selected. A remote deployment target alone does not
+ * move the build off the control plane.
+ */
+export function resolveBuildLocation(input: {
+  buildServerId?: string | null;
+  deploymentServerId?: string | null;
+}): BuildLocation {
+  return input.buildServerId && input.buildServerId !== input.deploymentServerId
+    ? "remote-builder"
+    : "control-plane";
+}
+
 export function getPlatformCapabilities(
   mode: ControlPlaneMode,
   runtimeAvailability: RuntimeAdapterAvailability = DEFAULT_RUNTIME_ADAPTER_AVAILABILITY,

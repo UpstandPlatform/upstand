@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -244,6 +245,77 @@ func TestInventoryOperationMapsAndControlsScopedResources(t *testing.T) {
 	}
 	if controlMethod != http.MethodPost || controlPath != "/containers/abc123/restart" {
 		t.Fatalf("unexpected typed container control request: %s %s", controlMethod, controlPath)
+	}
+}
+
+func TestTopologySnapshotCollectsDockerInventoryConcurrently(t *testing.T) {
+	var mu sync.Mutex
+	paths := make(map[string]int)
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			mu.Lock()
+			paths[request.URL.Path]++
+			mu.Unlock()
+			switch request.URL.Path {
+			case "/containers/json":
+				return dockerResponse(http.StatusOK, `[{"Id":"abc123","Names":["/web"],"Image":"nginx:1.27","State":"running","Status":"Up","Networks":{"app-net":{}},"Labels":{"com.upstand.resource-id":"resource-1"}}]`), nil
+			case "/networks":
+				return dockerResponse(http.StatusOK, `[{"Id":"network-1","Name":"app-net","Driver":"overlay","Scope":"swarm","Attachable":true}]`), nil
+			case "/volumes":
+				return dockerResponse(http.StatusOK, `{"Volumes":[{"Name":"app-data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/app-data"}]}`), nil
+			case "/info":
+				return dockerResponse(http.StatusOK, `{"Swarm":{"LocalNodeState":"active","NodeID":"node-1"}}`), nil
+			case "/nodes":
+				return dockerResponse(http.StatusOK, `[{"ID":"node-1","Description":{"Hostname":"manager-1"},"Status":{"Addr":"10.0.0.10","State":"ready"},"ManagerStatus":{"Leader":true},"Spec":{"Role":"manager"}}]`), nil
+			default:
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+		}),
+	}}
+
+	value, err := engine.inventoryOperation(context.Background(), []byte(`{"operation":"topology_snapshot","include_swarm_nodes":true}`))
+	if err != nil {
+		t.Fatalf("expected topology snapshot to succeed: %v", err)
+	}
+	snapshot, ok := value.(typedInventoryTopologySnapshotResponse)
+	if !ok || len(snapshot.Containers) != 1 || len(snapshot.Networks) != 1 || len(snapshot.Volumes) != 1 || len(snapshot.SwarmNodes) != 1 {
+		t.Fatalf("unexpected topology snapshot: %#v", value)
+	}
+	if snapshot.Containers[0].Name != "web" || snapshot.Networks[0].Name != "app-net" || snapshot.Volumes[0].Name != "app-data" || snapshot.SwarmNodes[0].Hostname != "manager-1" {
+		t.Fatalf("topology snapshot did not preserve the Docker inventory: %#v", snapshot)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if paths["/containers/json"] != 1 || paths["/networks"] != 1 || paths["/volumes"] != 1 || paths["/info"] != 1 || paths["/nodes"] != 1 {
+		t.Fatalf("expected one request per inventory, got %#v", paths)
+	}
+}
+
+func TestTopologySnapshotPreservesSuccessfulInventoriesOnPartialFailure(t *testing.T) {
+	engine := &dockerEngineClient{httpClient: &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			switch request.URL.Path {
+			case "/containers/json":
+				return dockerResponse(http.StatusOK, `[]`), nil
+			case "/networks":
+				return dockerResponse(http.StatusServiceUnavailable, `{}`), nil
+			case "/volumes":
+				return dockerResponse(http.StatusOK, `{"Volumes":[]}`), nil
+			default:
+				return dockerResponse(http.StatusNotFound, `{}`), nil
+			}
+		}),
+	}}
+
+	snapshot, err := engine.inventoryTopologySnapshot(context.Background(), false)
+	if err != nil {
+		t.Fatalf("expected partial topology inventory to succeed: %v", err)
+	}
+	if snapshot.Containers == nil || snapshot.Networks != nil || snapshot.Volumes == nil {
+		t.Fatalf("partial inventory results were not preserved: %#v", snapshot)
+	}
+	if len(snapshot.Errors) != 1 || snapshot.Errors[0] != "networks" {
+		t.Fatalf("expected the unavailable inventory to be reported, got %#v", snapshot.Errors)
 	}
 }
 

@@ -3,6 +3,10 @@
 The E2E tests are intentionally grouped by workflow so failures are easy to
 locate:
 
+- `e2e-pipeline.test.ts` runs the real project, environment, server, resource,
+  deployment queue, worker, persistence, notification, and rollback use-case
+  flow for self-hosted, cloud, and desktop modes. Its in-memory repositories and
+  remote Docker/SSH adapters keep the workflow deterministic and safe for CI.
 - `integration-contracts.e2e.test.ts` checks public health, OpenAPI, and auth
   boundaries.
 - `resource-lifecycle.e2e.test.ts` checks live container identity, state

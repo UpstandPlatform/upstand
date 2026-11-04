@@ -5,25 +5,21 @@ published only from the stable branch.
 
 ## Normal patch release
 
-1. Merge contributor pull requests and their Changesets into `canary`.
-2. Review the automated Changesets release pull request on `canary`.
-3. Merge the release pull request into `canary`.
-4. Automated promotion opens the `release/promote-vMAJOR.MINOR.PATCH` PR into
-   `master` (or run `bun run release:promote`). Because it branches directly
-   from `origin/master`, it has zero 3-way conflicts.
-5. Review and merge the promotion PR into `master`.
-6. The stable-tag workflow creates the immutable `vMAJOR.MINOR.PATCH` tag and
-   automatically dispatches both the Docker image release (`release.yml`) and
-   CLI package publication (`npm-cli.yml`).
-7. Confirm the release workflow builds, verifies, and publishes all
-   server, schedules, web, Fumadocs, and monitoring images.
-8. Confirm the CLI publication workflow publishes `@upstand/cli` with npm
-   provenance, or verifies that the immutable version is already published
-   with identical contents. Product releases publish from the stable tag;
-   CLI-only Changesets publish from the version-bump commit on `master`.
-9. Confirm the GitHub Release contains the release manifest and immutable image
-   digests.
-10. For a Desktop release, install the Windows Squirrel artifact in a disposable
+1. Merge contributor pull requests and their Changesets into `canary`. The
+   Changesets workflow opens a version and changelog PR; review and merge it.
+2. The promotion workflow opens a PR from `canary` to `master`; review and
+   merge it (or run `bun run release:promote` to retry the automation).
+3. The stable-tag workflow creates the immutable `vMAJOR.MINOR.PATCH` tag and
+   dispatches the Docker/Desktop release and CLI publication workflows for that
+   exact tag. The explicit dispatch is required because GitHub does not start a
+   second workflow from a tag push made with `GITHUB_TOKEN`.
+4. Confirm the release workflow passes its full production acceptance gate and
+   publishes all service images, Desktop assets, the release manifest, and
+   immutable image digests. Confirm the CLI workflow publishes
+   `@upstand/cli` with npm provenance, or verifies the immutable version already
+   has identical contents. CLI-only Changesets publish from the version-bump
+   commit on `master`.
+5. For a Desktop release, install the Windows Squirrel artifact in a disposable
    user profile, confirm it appears as **Upstand** in Start and Installed apps,
    launch it through the loopback readiness check, then uninstall it and
    confirm its registration, shortcuts, app payload, processes, and local

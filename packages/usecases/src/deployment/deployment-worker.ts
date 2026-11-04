@@ -24,9 +24,11 @@ import { withJobTelemetry } from "../observability/job-telemetry";
 import type { DeployOutboxPayload } from "../outbox/outbox-commands";
 import {
   assertRuntimeCapability,
+  type ControlPlaneMode,
   getConfiguredControlPlaneMode,
   getPlatformCapabilities,
   requiresRemoteDeploymentServer,
+  resolveBuildLocation,
 } from "../platform/platform.types";
 import type { CaddyResource } from "../ports/caddy";
 import type { DockerApiTarget, DockerRegistryAuth } from "../ports/docker";
@@ -83,6 +85,8 @@ export interface DeploymentWorkerScope {
 export interface DeploymentWorkerDependencies {
   getBuildSettings: () => Promise<{ concurrency: number } | null>;
   createScope: () => Promise<DeploymentWorkerScope>;
+  controlPlaneMode?: ControlPlaneMode;
+  createRemoteServices?: typeof createRemoteServices;
 }
 
 interface RegistryInfo {
@@ -808,7 +812,8 @@ export class DeploymentWorker {
         );
       }
       const deployedResource = { ...resource };
-      const controlPlaneMode = getConfiguredControlPlaneMode();
+      const controlPlaneMode =
+        this.dependencies.controlPlaneMode ?? getConfiguredControlPlaneMode();
       if (
         requiresRemoteDeploymentServer(controlPlaneMode) &&
         (!deployedResource.serverId ||
@@ -924,7 +929,9 @@ export class DeploymentWorker {
             password,
             hostKeyFingerprint: server.sshHostKeyFingerprint ?? undefined,
           };
-          const remote = createRemoteServices(connection);
+          const remote = (
+            this.dependencies.createRemoteServices ?? createRemoteServices
+          )(connection);
           remoteCliCleanup = remote.cli.cleanup;
           dockerService = remote.dockerService;
           dockerService.setCancellationKey(cancellationKey);
@@ -995,7 +1002,9 @@ export class DeploymentWorker {
           password: buildPassword,
           hostKeyFingerprint: buildServer.sshHostKeyFingerprint ?? undefined,
         };
-        const remoteBuild = createRemoteServices(connection);
+        const remoteBuild = (
+          this.dependencies.createRemoteServices ?? createRemoteServices
+        )(connection);
         buildCliCleanup = remoteBuild.cli.cleanup;
         buildDockerService = remoteBuild.dockerService;
         buildDockerService.setCancellationKey(cancellationKey);
@@ -1386,7 +1395,7 @@ export class DeploymentWorker {
           } else if (resource.provider === "drop") {
             // Bypasses git setup, cloneUrl remains empty
           } else if (resource.provider === "local") {
-            if (getConfiguredControlPlaneMode() !== "desktop") {
+            if (controlPlaneMode !== "desktop") {
               throw new Error(
                 "Local project folders are only supported by the desktop runtime",
               );
@@ -1466,27 +1475,21 @@ export class DeploymentWorker {
                       serverId: deployedResource.serverId,
                     } as const)
                   : ({ kind: "local" as const } as const);
-              const buildLocation =
-                deployedResource.buildServerId &&
-                deployedResource.buildServerId !== deployedResource.serverId
-                  ? ({
-                      kind: "remote-builder" as const,
-                      serverId: deployedResource.buildServerId,
-                    } as const)
-                  : target.kind === "local"
-                    ? ({ kind: "control-plane" as const } as const)
-                    : ({ kind: "target" as const } as const);
+              const buildLocation = resolveBuildLocation({
+                buildServerId: deployedResource.buildServerId,
+                deploymentServerId: deployedResource.serverId,
+              });
               assertRuntimeCapability({
                 mode,
                 target: target.kind,
                 runtime: "docker",
-                buildLocation: buildLocation.kind,
+                buildLocation,
               });
               const plan = DeploymentPlanSchema.parse({
                 version: 1,
                 target,
                 runtime: "docker",
-                buildLocation,
+                buildLocation: { kind: buildLocation },
                 ownership: capabilities.dataOwnership,
                 sourceRevision: artifact.sourceRevision,
                 configurationVersion: artifact.configurationVersion,
