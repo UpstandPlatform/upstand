@@ -23,6 +23,7 @@ import type {
   DockerPruneType,
   DockerResourceCommand,
   DockerServiceSummary,
+  DockerTopologySnapshot,
   DockerVolume,
 } from "@upstand/usecases/ports/docker";
 import {
@@ -132,6 +133,21 @@ function parseJsonLines(output: string): Record<string, unknown>[] {
     });
 }
 
+function parseTopologySection(
+  output: string,
+  section: string,
+): Record<string, unknown>[] | null {
+  const chunks = output.split("\0");
+  const header = `${section}\n`;
+  for (let index = 0; index < chunks.length - 1; index += 1) {
+    const content = chunks[index];
+    if (!content?.startsWith(header)) continue;
+    if (chunks[index + 1]?.trim() !== `${section}_status_0`) return null;
+    return parseJsonLines(content.slice(header.length));
+  }
+  return null;
+}
+
 function dockerInfo(raw: unknown): DockerInfo {
   const value = asRecord(raw);
   const swarm = asRecord(value.Swarm);
@@ -221,6 +237,133 @@ export class DockerReadOnlyService
       | DockerResourceCommandBrokerPort
       | undefined = createDockerResourceCommandBrokerClient(),
   ) {}
+
+  async getTopologySnapshot(
+    target: DockerInspectionTarget,
+    options: { includeSwarmNodes?: boolean } = {},
+  ): Promise<DockerTopologySnapshot> {
+    const includeSwarmNodes = options.includeSwarmNodes === true;
+    if (target.kind === "remote") {
+      const queries: Array<[string, string]> = [
+        ["containers", "docker ps --all --format '{{json .}}'"],
+        ["networks", "docker network ls --format '{{json .}}'"],
+        ["volumes", "docker volume ls --format '{{json .}}'"],
+      ];
+      if (includeSwarmNodes) {
+        queries.push(["swarm_nodes", "docker node ls --format '{{json .}}'"]);
+      }
+
+      const command = queries
+        .map(
+          ([section, query]) =>
+            `printf '\\000${section}\\n'\n${query}\nstatus=$?\nprintf '\\000${section}_status_%s\\n' "$status"`,
+        )
+        .join("\n");
+      const output = await this.executeRemote(target, command);
+      const rows = (section: string) => parseTopologySection(output, section);
+      const inventoryRows = new Map(
+        queries.map(([section]) => [section, rows(section)]),
+      );
+      const containerRows = inventoryRows.get("containers") ?? null;
+      const networkRows = inventoryRows.get("networks") ?? null;
+      const volumeRows = inventoryRows.get("volumes") ?? null;
+      const swarmNodeRows = inventoryRows.get("swarm_nodes") ?? null;
+      const errors = [...inventoryRows]
+        .filter(([, result]) => result === null)
+        .map(([section]) => section);
+
+      return {
+        containers:
+          containerRows?.map((row) => ({
+            id: asString(row.ID),
+            name: asString(row.Names),
+            image: asString(row.Image),
+            state: asString(row.State),
+            status: asString(row.Status),
+            ports: asString(row.Ports, ""),
+            mounts: asString(row.Mounts, "")
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+            networks: asString(row.Networks, "")
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+            labels: asString(row.Labels, "")
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+            createdAt: null,
+          })) ?? null,
+        networks:
+          networkRows?.map((row) => ({
+            id: asString(row.ID),
+            name: asString(row.Name),
+            driver: asString(row.Driver),
+            scope: asString(row.Scope),
+            internal: false,
+            attachable: false,
+          })) ?? null,
+        volumes:
+          volumeRows?.map((row) => ({
+            name: asString(row.Name),
+            driver: asString(row.Driver),
+            mountpoint: "",
+          })) ?? null,
+        swarmNodes:
+          swarmNodeRows?.map((row) => {
+            const managerStatus = asString(row.ManagerStatus, "");
+            return {
+              id: asString(row.ID),
+              hostname: asString(
+                row.Hostname,
+                asString(row.Name, asString(row.ID)),
+              ),
+              ip: asString(row.Addr),
+              isLeader: managerStatus.toLowerCase().includes("leader"),
+              role: managerStatus.trim() ? "manager" : "worker",
+              status: asString(row.Status, "unknown"),
+              isLocalNode: asString(row.Self).toLowerCase() === "true",
+            };
+          }) ?? null,
+        ...(errors.length ? { errors } : {}),
+      };
+    }
+
+    if (this.broker?.getTopologySnapshot) {
+      return this.broker.getTopologySnapshot(target, { includeSwarmNodes });
+    }
+
+    const settle = async <T>(promise: Promise<T>) => {
+      try {
+        return { value: await promise, failed: false } as const;
+      } catch {
+        return { value: null, failed: true } as const;
+      }
+    };
+    const [containersResult, networksResult, volumesResult, swarmNodesResult] =
+      await Promise.all([
+        settle(this.listContainers(target)),
+        settle(this.listNetworks(target)),
+        settle(this.listVolumes(target)),
+        includeSwarmNodes
+          ? settle(this.listSwarmNodes(target))
+          : Promise.resolve({ value: null, failed: false } as const),
+      ]);
+    const errors = [
+      containersResult.failed ? "containers" : null,
+      networksResult.failed ? "networks" : null,
+      volumesResult.failed ? "volumes" : null,
+      swarmNodesResult.failed ? "swarm_nodes" : null,
+    ].filter((value): value is string => value !== null);
+    return {
+      containers: containersResult.value,
+      networks: networksResult.value,
+      volumes: volumesResult.value,
+      swarmNodes: swarmNodesResult.value,
+      ...(errors.length ? { errors } : {}),
+    };
+  }
 
   async getContainerMounts(
     target: DockerInspectionTarget,

@@ -10,6 +10,7 @@ import type {
   DockerContainerControllerPort,
   DockerInventoryReaderPort,
   DockerResourceControllerPort,
+  DockerTopologySnapshot,
 } from "../ports/docker";
 import { dockerLogLevels } from "../resource/docker-log-filter";
 import {
@@ -108,6 +109,12 @@ export type DockerInventoryExecutionOptions = {
   allowLocalInCloud?: boolean;
 };
 
+export type GetDockerTopologySnapshotInput = {
+  organizationId: string;
+  serverId?: string;
+  includeSwarmNodes: boolean;
+};
+
 export class GetDockerInventoryUseCase {
   constructor(
     private readonly uow: IUnitOfWork,
@@ -163,6 +170,49 @@ export class GetDockerInventoryUseCase {
         }
         return this.inventory.getContainerStats(target, input.containerId);
     }
+  }
+
+  async getTopologySnapshot(
+    input: GetDockerTopologySnapshotInput,
+    options: DockerInventoryExecutionOptions = {},
+  ): Promise<DockerTopologySnapshot> {
+    const target = await resolveDockerInspectionTarget(this.uow, input, {
+      allowLocalInCloud: options.allowLocalInCloud,
+    });
+    if (this.inventory.getTopologySnapshot) {
+      return this.inventory.getTopologySnapshot(target, {
+        includeSwarmNodes: input.includeSwarmNodes,
+      });
+    }
+
+    const reads = await Promise.allSettled([
+      this.inventory.listContainers(target),
+      this.inventory.listNetworks(target),
+      this.inventory.listVolumes(target),
+      ...(input.includeSwarmNodes
+        ? [this.inventory.listSwarmNodes(target)]
+        : []),
+    ]);
+    const valueAt = <T>(index: number): T | null => {
+      const result = reads[index];
+      return result?.status === "fulfilled" ? (result.value as T) : null;
+    };
+    const errors = [
+      reads[0]?.status === "rejected" ? "containers" : null,
+      reads[1]?.status === "rejected" ? "networks" : null,
+      reads[2]?.status === "rejected" ? "volumes" : null,
+      input.includeSwarmNodes && reads[3]?.status === "rejected"
+        ? "swarm_nodes"
+        : null,
+    ].filter((value): value is string => value !== null);
+
+    return {
+      containers: valueAt(0),
+      networks: valueAt(1),
+      volumes: valueAt(2),
+      swarmNodes: input.includeSwarmNodes ? valueAt(3) : null,
+      ...(errors.length ? { errors } : {}),
+    };
   }
 
   async controlContainer(

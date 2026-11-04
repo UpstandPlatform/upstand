@@ -158,19 +158,22 @@ function isTestFile(relativePath: string): boolean {
 }
 
 async function sourceFiles(): Promise<SourceFile[]> {
-  const files: SourceFile[] = [];
+  const relativePaths: string[] = [];
   for await (const relativePath of sourceGlob.scan({
     cwd: workspaceRoot,
     onlyFiles: true,
   })) {
     const normalizedPath = relativePath.replaceAll("\\", "/");
     if (normalizedPath === "packages/config/src/architecture.test.ts") continue;
-    files.push({
-      relativePath: normalizedPath,
-      source: await Bun.file(path.join(workspaceRoot, relativePath)).text(),
-    });
+    relativePaths.push(normalizedPath);
   }
-  return files;
+
+  return Promise.all(
+    relativePaths.map(async (relativePath) => ({
+      relativePath,
+      source: await Bun.file(path.join(workspaceRoot, relativePath)).text(),
+    })),
+  );
 }
 
 async function workspacePackages(): Promise<WorkspacePackage[]> {

@@ -8,6 +8,7 @@ import {
   getPlatformCapabilities,
   PlatformCapabilityError,
   requiresRemoteDeploymentServer,
+  resolveBuildLocation,
   resolveControlPlaneMode,
 } from "./platform.types";
 
@@ -28,6 +29,27 @@ describe("platform types", () => {
     expect(requiresRemoteDeploymentServer("desktop")).toBe(true);
     expect(requiresRemoteDeploymentServer("cloud")).toBe(true);
     expect(requiresRemoteDeploymentServer("self-hosted")).toBe(false);
+  });
+
+  test("matches build metadata to the build worker that actually runs", () => {
+    expect(resolveBuildLocation({ deploymentServerId: "local" })).toBe(
+      "control-plane",
+    );
+    expect(
+      resolveBuildLocation({ deploymentServerId: "deployment-server" }),
+    ).toBe("control-plane");
+    expect(
+      resolveBuildLocation({
+        deploymentServerId: "deployment-server",
+        buildServerId: "deployment-server",
+      }),
+    ).toBe("control-plane");
+    expect(
+      resolveBuildLocation({
+        deploymentServerId: "deployment-server",
+        buildServerId: "build-server",
+      }),
+    ).toBe("remote-builder");
   });
 
   test("keeps cloud control planes remote-only", () => {

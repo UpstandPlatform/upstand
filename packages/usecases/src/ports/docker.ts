@@ -369,6 +369,7 @@ export type DockerResourceControlPort = Pick<
   DockerServicePort,
   "controlService" | "rollbackService" | "removeResource" | "removeDatabase"
 >;
+export type DockerRollbackPort = Pick<DockerServicePort, "rollbackService">;
 export type DockerDatabaseDeploymentPort = Pick<
   DockerServicePort,
   "removeDatabase" | "deployDatabase"
@@ -559,6 +560,10 @@ export interface DockerInventoryReaderPort {
   listVolumes(target: DockerInspectionTarget): Promise<DockerVolume[]>;
   listNetworks(target: DockerInspectionTarget): Promise<DockerNetwork[]>;
   listServices(target: DockerInspectionTarget): Promise<DockerServiceSummary[]>;
+  getTopologySnapshot?(
+    target: DockerInspectionTarget,
+    options?: { includeSwarmNodes?: boolean },
+  ): Promise<DockerTopologySnapshot>;
   getLogs(
     target: DockerInspectionTarget,
     request: DockerLogRequest,
@@ -568,6 +573,25 @@ export interface DockerInventoryReaderPort {
     containerId: string,
   ): Promise<DockerContainerStats>;
 }
+
+export type DockerSwarmNode = {
+  id: string;
+  hostname: string;
+  ip: string;
+  isLeader: boolean;
+  status?: string;
+  serverType?: string;
+  role?: string;
+  isLocalNode?: boolean;
+};
+
+export type DockerTopologySnapshot = {
+  containers: DockerContainer[] | null;
+  networks: DockerNetwork[] | null;
+  volumes: DockerVolume[] | null;
+  swarmNodes: DockerSwarmNode[] | null;
+  errors?: string[];
+};
 
 export interface DockerContainerControllerPort {
   controlContainer(
