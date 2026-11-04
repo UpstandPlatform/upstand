@@ -1,5 +1,11 @@
 # web
 
+## 0.14.14
+
+### Patch Changes
+
+- [#595](https://github.com/UpstandPlatform/upstand/pull/595) [`317adee`](https://github.com/UpstandPlatform/upstand/commit/317adee563f052d44cd58468da1b9c3d964aa7f8) Thanks [@mhbdev](https://github.com/mhbdev)! - Batch Docker topology inventory into one snapshot per server, retain successful inventory sections when another Docker query fails, and record the actual deployment build location in immutable plans.
+
 ## 0.14.13
 
 ### Patch Changes
