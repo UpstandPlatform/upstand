@@ -1,5 +1,12 @@
 # web
 
+## 0.14.15
+
+### Patch Changes
+
+- [#598](https://github.com/UpstandPlatform/upstand/pull/598) [`77eb208`](https://github.com/UpstandPlatform/upstand/commit/77eb2084bc54a05d95d8ccad04ebc653d891780f) Thanks [@mhbdev](https://github.com/mhbdev)! - Keep runtime capability responses accurate for desktop-local Docker and reduce
+  topology polling load by refreshing live snapshots every 30 seconds.
+
 ## 0.14.14
 
 ### Patch Changes
