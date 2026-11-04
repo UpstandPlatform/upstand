@@ -83,9 +83,33 @@ describe("platform types", () => {
         (entry) => entry.target === "local" && entry.runtime === "docker",
       ),
     ).toMatchObject({
-      supported: true,
-      buildLocations: ["control-plane", "target"],
+      supported: false,
+      buildLocations: [],
+      zeroDowntimeReplacement: false,
+      reason:
+        "Desktop can use local Docker as a build host but cannot deploy workloads to its local control plane",
     });
+  });
+
+  test("does not advertise local workload targets in desktop or cloud mode", () => {
+    for (const mode of ["desktop", "cloud"] as const) {
+      const localDocker = getPlatformCapabilities(mode).runtimeMatrix.find(
+        (entry) => entry.target === "local" && entry.runtime === "docker",
+      );
+
+      expect(localDocker).toMatchObject({
+        supported: false,
+        buildLocations: [],
+      });
+      expect(() =>
+        assertRuntimeCapability({
+          mode,
+          target: "local",
+          runtime: "docker",
+          buildLocation: "control-plane",
+        }),
+      ).toThrow(PlatformCapabilityError);
+    }
   });
 
   test("defines self-hosted control plane capabilities", () => {
