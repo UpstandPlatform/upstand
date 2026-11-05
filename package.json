@@ -1,6 +1,6 @@
 {
   "name": "upstand",
-  "version": "0.14.15",
+  "version": "0.14.16",
   "private": true,
   "workspaces": {
     "packages": [

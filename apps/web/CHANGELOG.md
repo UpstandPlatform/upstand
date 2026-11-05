@@ -1,5 +1,11 @@
 # web
 
+## 0.14.16
+
+### Patch Changes
+
+- [#604](https://github.com/UpstandPlatform/upstand/pull/604) [`a3009b0`](https://github.com/UpstandPlatform/upstand/commit/a3009b0c920e417e442dbe59bdc5c7643ca82ad4) Thanks [@mhbdev](https://github.com/mhbdev)! - chore(deps): declare the patched Electron and Nodemailer release lines and update the monitoring compression dependency.
+
 ## 0.14.15
 
 ### Patch Changes
