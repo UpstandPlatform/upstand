@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "0.14.16",
+  "version": "0.14.17",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack --port 3001",
