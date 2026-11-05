@@ -31,6 +31,23 @@ The active `master-release` ruleset also grants Organization Admins a
 pull-request-only bypass for owner-authored changes; retain all required status
 checks when using it.
 
+### Owner-authored pull requests
+
+GitHub does not allow a pull request author to approve their own pull request,
+so auto-merge will continue waiting for another reviewer on owner-authored
+pull requests. After required checks pass and review conversations are
+resolved, an Organization Admin can merge through the pull-request-only
+bypass:
+
+```bash
+gh pr checks <number> --repo UpstandPlatform/upstand
+gh pr merge <number> --repo UpstandPlatform/upstand --admin --squash
+```
+
+The merge remains on the pull request and in the audit trail. Because `--admin`
+can override branch rules, verify all required checks and resolve conversations
+before using it.
+
 ## `release-tags`
 
 Target `v*` tags. Restrict creation, updates, and deletions, and block force
