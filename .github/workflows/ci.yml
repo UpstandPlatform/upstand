@@ -194,6 +194,11 @@ jobs:
           cp -R apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
           rm -rf apps/web/.next/standalone/apps/web/public
           cp -R apps/web/public apps/web/.next/standalone/apps/web/public
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock', 'apps/web/package.json') }}
       - name: Install browsers for web production smoke
         working-directory: apps/web
         run: bunx playwright install --with-deps chromium firefox webkit
