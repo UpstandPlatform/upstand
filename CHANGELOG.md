@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.16 - 2026-11-05
+
+chore(deps): declare the patched Electron and Nodemailer release lines and update the monitoring compression dependency.
+
+
 ## 0.14.15 - 2026-11-04
 
 Correct the routing guide to use supported Caddy filters and document rate-limit and GeoIP module requirements.
