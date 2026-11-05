@@ -60,9 +60,20 @@ Configure advanced proxy settings directly inside the domain mapping card:
 
 ---
 
-## 4. Caddy Request Filters and Rate-Limiting Boundaries
+## 4. Route Access Filters and Rate-Limiting Boundaries
 
-Operators can define reusable Caddy snippets under **Web Server → Caddy
+Each domain mapping can block visitor IP addresses or CIDR ranges and
+case-insensitive user-agent text. These filters use Caddy's built-in
+`client_ip` and `header_regexp` matchers and take effect when the managed route
+configuration is applied. No extra edge service or proxy module is needed.
+
+The IP filter uses the address Caddy resolves as the visitor. If traffic passes
+through a trusted load balancer or CDN, configure trusted proxies in the Caddy
+settings first; otherwise Caddy cannot safely distinguish the visitor from its
+immediate peer. Review the active address ranges before saving to avoid
+blocking your own access.
+
+Operators can also define reusable Caddy snippets under **Web Server → Caddy
 Snippets**. For example, this snippet allows requests only from the listed
 network ranges and sets common response security headers:
 
@@ -86,9 +97,8 @@ network ranges and sets common response security headers:
 - The managed Caddy image uses Caddy's standard modules. The `rate_limit`
   directive comes from a third-party module and is not included, so a snippet
   using it fails Caddy validation. Apply rate limiting at an external CDN,
-  load balancer, or API gateway. Country-based filtering also requires an
-  external service or a custom Caddy build with a GeoIP module; Upstand does
-  not currently provision that module.
+  load balancer, or API gateway. Country-based filtering and referrer-based
+  hotlink protection are not currently available as managed route controls.
 
 ---
 

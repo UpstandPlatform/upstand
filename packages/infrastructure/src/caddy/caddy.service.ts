@@ -469,8 +469,13 @@ function getRoutes(
   return routes;
 }
 
+function escapeRegularExpressionLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function routeBlock(route: CaddyRoute, index: number): string[] {
   const matcher = `@upstand_route_${index}`;
+  const filterSuffix = `${route.resourceId.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 24) || "resource"}_${index}`;
   const isRoot = route.path === "/";
   const lines = isRoot
     ? ["\thandle {"]
@@ -480,6 +485,23 @@ function routeBlock(route: CaddyRoute, index: number): string[] {
       ];
 
   lines.push("\t\troute {");
+  if (route.requestFilters.blockedIpRanges.length > 0) {
+    const blockedIpMatcher = `@upstand_blocked_ip_${filterSuffix}`;
+    lines.push(
+      `\t\t\t${blockedIpMatcher} client_ip ${route.requestFilters.blockedIpRanges.join(" ")}`,
+    );
+    lines.push(`\t\t\trespond ${blockedIpMatcher} "Forbidden" 403`);
+  }
+  if (route.requestFilters.blockedUserAgents.length > 0) {
+    const blockedUserAgentMatcher = `@upstand_blocked_user_agent_${filterSuffix}`;
+    const pattern = `(?i)(${route.requestFilters.blockedUserAgents
+      .map(escapeRegularExpressionLiteral)
+      .join("|")})`;
+    lines.push(
+      `\t\t\t${blockedUserAgentMatcher} header_regexp User-Agent ${JSON.stringify(pattern)}`,
+    );
+    lines.push(`\t\t\trespond ${blockedUserAgentMatcher} "Forbidden" 403`);
+  }
   for (const middleware of route.middlewares) {
     lines.push(`\t\t\timport ${middleware}`);
   }

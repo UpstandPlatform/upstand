@@ -8,6 +8,7 @@ import type {
   Server,
 } from "@upstand/domain";
 import { parseDomainMappings } from "@upstand/domain";
+import { generateCaddyfileContent } from "@upstand/infrastructure/caddy/caddy.service";
 import { encryptSecret } from "@upstand/platform/crypto/secret-box";
 import {
   type CaddyResource,
@@ -288,7 +289,7 @@ function createCaddyService(state: FixtureServerState): CaddyServicePort {
             `${mapping.host} -> ${mapping.serviceName ?? resource.appName}:${mapping.port}`,
         ),
       );
-      state.generatedCaddyConfig = routes.join("\n");
+      state.generatedCaddyConfig = generateCaddyfileContent({}, resources);
       return { success: true, domains: routes, changed: true };
     },
     reloadCaddy: async () => ({ success: true }),
@@ -507,6 +508,10 @@ export async function createDeploymentPipelineFixture(
         https: false,
         certificateType: "letsencrypt",
         middlewares: [],
+        requestFilters: {
+          blockedIpRanges: ["198.51.100.9/32"],
+          blockedUserAgents: ["ExampleBot"],
+        },
       },
     ],
     buildConfig: {
@@ -556,6 +561,7 @@ export async function createDeploymentPipelineFixture(
         serviceName: "web",
         certificateType: "letsencrypt",
         middlewares: [],
+        requestFilters: { blockedIpRanges: [], blockedUserAgents: [] },
       },
     ],
   });
