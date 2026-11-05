@@ -9,6 +9,10 @@ import type {
   WorkloadMigrationPreflightResult,
 } from "@upstand/usecases";
 import { assertDeploymentServerSupportsResource } from "@upstand/usecases";
+import type {
+  CaddyResource,
+  CaddyServicePort,
+} from "@upstand/usecases/ports/caddy";
 import { resolveServicesForResource } from "@upstand/usecases/resource/docker-client";
 import { parseResourceCredentials } from "@upstand/usecases/resource/resource-credentials";
 import { parseResourceEnvironmentVariables } from "@upstand/usecases/resource/resource-environment";
@@ -16,6 +20,44 @@ import type { CaddyService } from "@upstand/usecases/web-server/caddy.service";
 
 const ARTIFACT_REFERENCE_KEY = "artifactReference";
 const ARTIFACT_DIGEST_KEY = "artifactDigest";
+
+type MigrationServicesResolver = (
+  resource: Resource,
+  uow: IUnitOfWork,
+  defaultDockerService: DockerWorkloadMigrationServicePort,
+  defaultCaddyService: CaddyService,
+) => Promise<{
+  dockerService: DockerWorkloadMigrationServicePort;
+  caddyService: CaddyServicePort;
+  cleanup: () => void;
+}>;
+
+const resolveMigrationServices: MigrationServicesResolver = (
+  resource,
+  uow,
+  defaultDockerService,
+  defaultCaddyService,
+) =>
+  resolveServicesForResource(
+    resource,
+    uow,
+    defaultDockerService,
+    defaultCaddyService,
+  );
+
+function resourceMatchesServer(
+  resource: { serverId?: string | null },
+  serverId: string,
+): boolean {
+  if (serverId !== "local" && serverId !== "manager") {
+    return resource.serverId === serverId;
+  }
+  return (
+    !resource.serverId ||
+    resource.serverId === "local" ||
+    resource.serverId === "manager"
+  );
+}
 
 function artifactFrom(context: WorkloadMigrationContext): {
   reference: string;
@@ -34,6 +76,7 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
     private readonly uow: IUnitOfWork,
     private readonly defaultDockerService: DockerWorkloadMigrationServicePort,
     private readonly defaultCaddyService: CaddyService,
+    private readonly resolveServices: MigrationServicesResolver = resolveMigrationServices,
   ) {}
 
   async preflight(
@@ -238,22 +281,10 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
         context,
         reference,
       );
-      const [resources, settings, certificates] = await Promise.all([
-        this.uow.resourceRepository.findForCaddyByDeploymentServerId
-          ? this.uow.resourceRepository.findForCaddyByDeploymentServerId(
-              context.migration.targetServerId,
-            )
-          : this.uow.resourceRepository.findMany(),
-        this.uow.webServerSettingsRepository.findGlobal(),
-        this.uow.certificateRepository.findAll?.() ?? Promise.resolve([]),
-      ]);
-      const withoutMigratingResource = resources.filter(
-        (candidate) => candidate.id !== resource.id,
-      );
-      await services.caddyService.syncResourceConfigs(
-        [...withoutMigratingResource, resource],
-        settings ?? {},
-        certificates,
+      await this.syncCaddyRoutes(
+        services.caddyService,
+        context.migration.targetServerId,
+        { resourceToInclude: resource },
       );
       await context.onProgress(90);
     } finally {
@@ -266,26 +297,27 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
   }
 
   async cleanupSource(context: WorkloadMigrationContext): Promise<void> {
-    const services = await resolveServicesForResource(
+    const sourceServerId =
+      context.migration.sourceServerId === "local"
+        ? "local"
+        : context.migration.sourceServerId;
+    const services = await this.resolveServices(
       {
         ...context.resource,
-        serverId:
-          context.migration.sourceServerId === "local"
-            ? "local"
-            : context.migration.sourceServerId,
+        serverId: sourceServerId,
       },
       this.uow,
       this.defaultDockerService,
       this.defaultCaddyService,
     );
     try {
+      await this.syncCaddyRoutes(services.caddyService, sourceServerId, {
+        resourceToExcludeId: context.resource.id,
+      });
       await services.dockerService.removeResource(
         {
           ...context.resource,
-          serverId:
-            context.migration.sourceServerId === "local"
-              ? "local"
-              : context.migration.sourceServerId,
+          serverId: sourceServerId,
         },
         false,
       );
@@ -298,6 +330,17 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
     if (context.checkpoint.shadowDeployed !== true) return;
     const services = await this.targetServices(context);
     try {
+      if (
+        ["cutting-over", "awaiting-confirmation", "rolling-back"].includes(
+          context.migration.status,
+        )
+      ) {
+        await this.syncCaddyRoutes(
+          services.caddyService,
+          context.migration.targetServerId,
+          { resourceToExcludeId: context.resource.id },
+        );
+      }
       await services.dockerService.removeResource(
         {
           ...context.resource,
@@ -324,7 +367,7 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
   }
 
   private targetServices(context: WorkloadMigrationContext) {
-    return resolveServicesForResource(
+    return this.resolveServices(
       {
         ...context.resource,
         serverId: context.migration.targetServerId,
@@ -332,6 +375,38 @@ export class DockerWorkloadMigrationPort implements WorkloadMigrationPort {
       this.uow,
       this.defaultDockerService,
       this.defaultCaddyService,
+    );
+  }
+
+  private async syncCaddyRoutes(
+    caddyService: CaddyService,
+    serverId: string,
+    options: {
+      resourceToInclude?: CaddyResource;
+      resourceToExcludeId?: string;
+    } = {},
+  ): Promise<void> {
+    const [resources, settings, certificates] = await Promise.all([
+      this.uow.resourceRepository.findForCaddyByDeploymentServerId
+        ? this.uow.resourceRepository.findForCaddyByDeploymentServerId(serverId)
+        : this.uow.resourceRepository.findMany(),
+      this.uow.webServerSettingsRepository.findGlobal(),
+      this.uow.certificateRepository.findAll?.() ?? Promise.resolve([]),
+    ]);
+    const routes: CaddyResource[] = resources
+      .filter((resource) => resourceMatchesServer(resource, serverId))
+      .filter(
+        (resource) =>
+          resource.id !== options.resourceToExcludeId &&
+          resource.id !== options.resourceToInclude?.id,
+      );
+    if (options.resourceToInclude) {
+      routes.push(options.resourceToInclude);
+    }
+    await caddyService.syncResourceConfigs(
+      routes,
+      settings ?? {},
+      certificates,
     );
   }
 
