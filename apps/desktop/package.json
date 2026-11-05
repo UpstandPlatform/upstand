@@ -27,7 +27,7 @@
     "@types/bun": "catalog:",
     "@types/electron-squirrel-startup": "^1.0.2",
     "@types/node": "^26.0.0",
-    "electron": "^41.10.3",
+    "electron": "^42.11.18",
     "electron-squirrel-startup": "^1.0.1",
     "typescript": "catalog:"
   }
