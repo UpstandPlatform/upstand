@@ -1,5 +1,11 @@
 # web
 
+## 0.14.17
+
+### Patch Changes
+
+- [#608](https://github.com/UpstandPlatform/upstand/pull/608) [`2ccd893`](https://github.com/UpstandPlatform/upstand/commit/2ccd893fec3ad206612c7d9637e2d90eba4d9b16) Thanks [@mhbdev](https://github.com/mhbdev)! - Reconcile server-scoped Caddy routes when workload migrations cut over, roll back, or remove the retained source service.
+
 ## 0.14.16
 
 ### Patch Changes
