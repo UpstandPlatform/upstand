@@ -199,6 +199,8 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock', 'apps/web/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
       - name: Install browsers for web production smoke
         working-directory: apps/web
         run: bunx playwright install --with-deps chromium firefox webkit
