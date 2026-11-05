@@ -103,6 +103,18 @@ describe("Upstand deployment pipeline fixtures", () => {
         "fixture-node.example.com",
       );
       expect(applicationState?.generatedCaddyConfig).toContain(
+        "client_ip 198.51.100.9/32",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        "respond @upstand_blocked_ip_",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        "header_regexp User-Agent",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        "respond @upstand_blocked_user_agent_",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
         "fixture-stack.example.com",
       );
       expect(fixture.notifications).toHaveLength(4);

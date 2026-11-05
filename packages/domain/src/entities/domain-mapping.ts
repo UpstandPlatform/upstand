@@ -7,6 +7,106 @@ const HOSTNAME_PATTERN =
 const SAFE_PATH_PATTERN = /^\/[A-Za-z0-9._~!$&'()+,;=:@%/-]*$/;
 const SAFE_REDIRECT_TARGET_PATTERN = /^(?:https?:\/\/[^\r\n\s]+|\/[^\r\n]*)$/i;
 
+function isIpv4Address(value: string): boolean {
+  const octets = value.split(".");
+  return (
+    octets.length === 4 &&
+    octets.every(
+      (octet) => /^(?:0|[1-9]\d{0,2})$/.test(octet) && Number(octet) <= 255,
+    )
+  );
+}
+
+function isIpv6Address(value: string): boolean {
+  if (!value.includes(":")) return false;
+
+  let address = value;
+  if (address.includes(".")) {
+    const separator = address.lastIndexOf(":");
+    if (separator < 0) return false;
+    const ipv4Tail = address.slice(separator + 1);
+    if (!isIpv4Address(ipv4Tail)) return false;
+    const octets = ipv4Tail.split(".").map(Number);
+    const firstGroup = ((octets[0] ?? 0) << 8) | (octets[1] ?? 0);
+    const secondGroup = ((octets[2] ?? 0) << 8) | (octets[3] ?? 0);
+    address = `${address.slice(0, separator)}:${firstGroup.toString(16)}:${secondGroup.toString(16)}`;
+  }
+
+  if (!/^[a-fA-F0-9:]+$/.test(address)) return false;
+  const compressionIndex = address.indexOf("::");
+  if (
+    address.includes(":::") ||
+    (compressionIndex !== -1 && compressionIndex !== address.lastIndexOf("::"))
+  ) {
+    return false;
+  }
+
+  const groups = address.split(":").filter(Boolean);
+  if (groups.some((group) => !/^[a-fA-F0-9]{1,4}$/.test(group))) {
+    return false;
+  }
+  return compressionIndex === -1 ? groups.length === 8 : groups.length < 8;
+}
+
+/** Validate an IPv4/IPv6 address or CIDR range without runtime-specific APIs. */
+export function isValidIpRange(value: string): boolean {
+  const parts = value.trim().split("/");
+  if (parts.length > 2 || !parts[0]) return false;
+
+  const address = parts[0];
+  const isIpv4 = isIpv4Address(address);
+  const isIpv6 = !isIpv4 && isIpv6Address(address);
+  if (!isIpv4 && !isIpv6) return false;
+  if (parts.length === 1) return true;
+
+  const prefix = parts[1];
+  if (!prefix || !/^\d{1,3}$/.test(prefix)) return false;
+  const prefixLength = Number(prefix);
+  return prefixLength <= (isIpv4 ? 32 : 128);
+}
+
+const IpRangeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine(isValidIpRange, "Use a valid IPv4 or IPv6 address or CIDR range");
+
+function uniqueCaseInsensitive(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const normalized = value.toLowerCase();
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+const BlockedUserAgentSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .refine(
+    (value) =>
+      ![...value].some((character) => {
+        const code = character.charCodeAt(0);
+        return code < 32 || code === 127;
+      }),
+    "User-agent filters cannot contain control characters",
+  );
+
+export const DomainRequestFiltersInputSchema = z.object({
+  blockedIpRanges: z.array(IpRangeSchema).max(64),
+  blockedUserAgents: z.array(BlockedUserAgentSchema).max(32),
+});
+
+export const DomainRequestFiltersSchema =
+  DomainRequestFiltersInputSchema.default({
+    blockedIpRanges: [],
+    blockedUserAgents: [],
+  });
+
 export function normalizeDomainHost(value: string): string {
   const suppliedHost = value.trim().replace(/\.$/, "");
 
@@ -111,6 +211,11 @@ const DomainMappingInputSchema = z.object({
     .max(16)
     .optional()
     .default([]),
+  /** Native Caddy filters applied before route middleware and proxying. */
+  requestFilters: DomainRequestFiltersSchema.optional().default({
+    blockedIpRanges: [],
+    blockedUserAgents: [],
+  }),
   /** Optional terminal redirect instead of proxying to the service. */
   redirectTo: z
     .string()
@@ -217,6 +322,12 @@ export const DomainMappingSchema = DomainMappingInputSchema.transform(
           ? mapping.certificateType
           : "letsencrypt",
         middlewares: [...new Set(mapping.middlewares)],
+        requestFilters: {
+          blockedIpRanges: [...new Set(mapping.requestFilters.blockedIpRanges)],
+          blockedUserAgents: uniqueCaseInsensitive(
+            mapping.requestFilters.blockedUserAgents,
+          ),
+        },
       };
     } catch (error) {
       ctx.addIssue({
@@ -246,6 +357,10 @@ export type DomainMapping = {
     | "cloudflare";
   certificateId?: string;
   middlewares: string[];
+  requestFilters: {
+    blockedIpRanges: string[];
+    blockedUserAgents: string[];
+  };
   redirectTo?: string;
   redirectStatus?: "301" | "302" | "307" | "308";
   forwardAuth?: {
