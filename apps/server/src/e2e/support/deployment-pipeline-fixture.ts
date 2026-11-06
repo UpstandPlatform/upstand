@@ -511,6 +511,8 @@ export async function createDeploymentPipelineFixture(
         requestFilters: {
           blockedIpRanges: ["198.51.100.9/32"],
           blockedUserAgents: ["ExampleBot"],
+          allowedMethods: ["GET", "HEAD", "POST"],
+          denyEmptyUserAgent: true,
           hotlinkProtection: true,
         },
       },
@@ -565,6 +567,8 @@ export async function createDeploymentPipelineFixture(
         requestFilters: {
           blockedIpRanges: [],
           blockedUserAgents: [],
+          allowedMethods: [],
+          denyEmptyUserAgent: false,
           hotlinkProtection: false,
         },
       },

@@ -4,7 +4,10 @@ import { PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { DomainHttpMethod } from "@upstand/domain";
 import {
+  DOMAIN_HTTP_METHODS,
+  DomainHttpMethodSchema,
   DomainRequestFiltersInputSchema,
   parseResourceAdvancedConfig,
 } from "@upstand/domain";
@@ -17,6 +20,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@upstand/ui/components/card";
+import { Checkbox } from "@upstand/ui/components/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -87,6 +91,8 @@ type DomainMapping = {
   requestFilters: {
     blockedIpRanges: string[];
     blockedUserAgents: string[];
+    allowedMethods: DomainHttpMethod[];
+    denyEmptyUserAgent: boolean;
     hotlinkProtection: boolean;
   };
   redirectTo?: string;
@@ -136,6 +142,8 @@ const emptyDomainMapping = (): DomainMapping => ({
   requestFilters: {
     blockedIpRanges: [],
     blockedUserAgents: [],
+    allowedMethods: [],
+    denyEmptyUserAgent: false,
     hotlinkProtection: false,
   },
   redirectTo: "",
@@ -156,6 +164,9 @@ const emptyDomainMapping = (): DomainMapping => ({
     referrerPolicy: "strict-origin-when-cross-origin",
   },
 });
+
+const isDomainHttpMethod = (value: unknown): value is DomainHttpMethod =>
+  DomainHttpMethodSchema.safeParse(value).success;
 
 function isPublicIpv4(value: string | undefined): value is string {
   if (!value) return false;
@@ -236,6 +247,13 @@ const parseDomainMappings = (
                   (agent): agent is string => typeof agent === "string",
                 )
               : [],
+            allowedMethods: Array.isArray(
+              mapping.requestFilters?.allowedMethods,
+            )
+              ? mapping.requestFilters.allowedMethods.filter(isDomainHttpMethod)
+              : [],
+            denyEmptyUserAgent:
+              mapping.requestFilters?.denyEmptyUserAgent === true,
             hotlinkProtection:
               mapping.requestFilters?.hotlinkProtection === true,
           },
@@ -467,6 +485,8 @@ export function DomainsTab({
                 .filter(Boolean),
             ),
           ],
+          allowedMethods: [...new Set(value.requestFilters.allowedMethods)],
+          denyEmptyUserAgent: value.requestFilters.denyEmptyUserAgent,
           hotlinkProtection: value.requestFilters.hotlinkProtection,
         },
         redirectTo: value.redirectTo?.trim() || undefined,
@@ -536,6 +556,10 @@ export function DomainsTab({
         certificateId: z.string().optional(),
         middlewares: z.array(z.string()),
         requestFilters: DomainRequestFiltersInputSchema.extend({
+          allowedMethods: z
+            .array(DomainHttpMethodSchema)
+            .max(DOMAIN_HTTP_METHODS.length),
+          denyEmptyUserAgent: z.boolean(),
           hotlinkProtection: z.boolean(),
         }),
         redirectTo: z
@@ -869,6 +893,20 @@ export function DomainsTab({
                           )}
                           {item.requestFilters.hotlinkProtection && (
                             <Badge variant="outline">Hotlink protection</Badge>
+                          )}
+                          {item.requestFilters.allowedMethods.length > 0 && (
+                            <Badge variant="outline">
+                              {item.requestFilters.allowedMethods.length} method
+                              {item.requestFilters.allowedMethods.length === 1
+                                ? ""
+                                : "s"}{" "}
+                              allowed
+                            </Badge>
+                          )}
+                          {item.requestFilters.denyEmptyUserAgent && (
+                            <Badge variant="outline">
+                              Empty user-agent blocked
+                            </Badge>
                           )}
                         </div>
                       </TableCell>
@@ -1532,6 +1570,70 @@ export function DomainsTab({
                             <p className="text-muted-foreground text-xs">
                               Matches case-insensitive text anywhere in the
                               User-Agent header.
+                            </p>
+                            <FieldError errors={field.state.meta.errors} />
+                          </Field>
+                        )}
+                      </form.Field>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <form.Field name="requestFilters.allowedMethods">
+                        {(field) => (
+                          <Field>
+                            <FieldLabel>
+                              Allowed HTTP methods (optional)
+                            </FieldLabel>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {DOMAIN_HTTP_METHODS.map((method) => {
+                                const id = `${field.name}-${method.toLowerCase()}`;
+                                return (
+                                  <Label
+                                    key={method}
+                                    htmlFor={id}
+                                    className="flex items-center gap-2 text-xs"
+                                  >
+                                    <Checkbox
+                                      id={id}
+                                      checked={field.state.value.includes(
+                                        method,
+                                      )}
+                                      onCheckedChange={(checked) =>
+                                        field.handleChange(
+                                          checked
+                                            ? [...field.state.value, method]
+                                            : field.state.value.filter(
+                                                (value) => value !== method,
+                                              ),
+                                        )
+                                      }
+                                    />
+                                    {method}
+                                  </Label>
+                                );
+                              })}
+                            </div>
+                            <p className="text-muted-foreground text-xs">
+                              When selected, all other methods receive HTTP 405
+                              with an Allow header.
+                            </p>
+                            <FieldError errors={field.state.meta.errors} />
+                          </Field>
+                        )}
+                      </form.Field>
+                      <form.Field name="requestFilters.denyEmptyUserAgent">
+                        {(field) => (
+                          <Field>
+                            <Label className="flex items-center gap-2 text-sm">
+                              <Switch
+                                checked={field.state.value}
+                                onCheckedChange={field.handleChange}
+                              />
+                              Block requests without a User-Agent
+                            </Label>
+                            <p className="text-muted-foreground text-xs">
+                              Rejects requests with a missing or empty
+                              User-Agent header. Some legitimate clients omit
+                              this header.
                             </p>
                             <FieldError errors={field.state.meta.errors} />
                           </Field>

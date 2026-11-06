@@ -96,9 +96,29 @@ const BlockedUserAgentSchema = z
     "User-agent filters cannot contain control characters",
   );
 
+export const DOMAIN_HTTP_METHODS = [
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+] as const;
+
+export const DomainHttpMethodSchema = z.enum(DOMAIN_HTTP_METHODS);
+
+export type DomainHttpMethod = z.infer<typeof DomainHttpMethodSchema>;
+
 export const DomainRequestFiltersInputSchema = z.object({
   blockedIpRanges: z.array(IpRangeSchema).max(64),
   blockedUserAgents: z.array(BlockedUserAgentSchema).max(32),
+  allowedMethods: z
+    .array(DomainHttpMethodSchema)
+    .max(DOMAIN_HTTP_METHODS.length)
+    .optional()
+    .default([]),
+  denyEmptyUserAgent: z.boolean().optional().default(false),
   /** Reject requests that carry a Referer from another hostname. */
   hotlinkProtection: z.boolean().optional().default(false),
 });
@@ -107,6 +127,8 @@ export const DomainRequestFiltersSchema =
   DomainRequestFiltersInputSchema.default({
     blockedIpRanges: [],
     blockedUserAgents: [],
+    allowedMethods: [],
+    denyEmptyUserAgent: false,
     hotlinkProtection: false,
   });
 
@@ -218,6 +240,8 @@ const DomainMappingInputSchema = z.object({
   requestFilters: DomainRequestFiltersSchema.optional().default({
     blockedIpRanges: [],
     blockedUserAgents: [],
+    allowedMethods: [],
+    denyEmptyUserAgent: false,
     hotlinkProtection: false,
   }),
   /** Optional terminal redirect instead of proxying to the service. */
@@ -331,6 +355,8 @@ export const DomainMappingSchema = DomainMappingInputSchema.transform(
           blockedUserAgents: uniqueCaseInsensitive(
             mapping.requestFilters.blockedUserAgents,
           ),
+          allowedMethods: [...new Set(mapping.requestFilters.allowedMethods)],
+          denyEmptyUserAgent: mapping.requestFilters.denyEmptyUserAgent,
           hotlinkProtection: mapping.requestFilters.hotlinkProtection,
         },
       };
@@ -365,6 +391,8 @@ export type DomainMapping = {
   requestFilters: {
     blockedIpRanges: string[];
     blockedUserAgents: string[];
+    allowedMethods: DomainHttpMethod[];
+    denyEmptyUserAgent: boolean;
     hotlinkProtection: boolean;
   };
   redirectTo?: string;

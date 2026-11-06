@@ -498,6 +498,19 @@ function routeBlock(route: CaddyRoute, index: number): string[] {
     );
     lines.push(`\t\t\trespond ${blockedIpMatcher} "Forbidden" 403`);
   }
+  if (route.requestFilters.allowedMethods.length > 0) {
+    const disallowedMethodMatcher = `@upstand_disallowed_method_${filterSuffix}`;
+    const allowedMethods = route.requestFilters.allowedMethods;
+    lines.push(`\t\t\t${disallowedMethodMatcher} {`);
+    lines.push(`\t\t\t\tnot method ${allowedMethods.join(" ")}`);
+    lines.push("\t\t\t}");
+    lines.push(
+      `\t\t\theader ${disallowedMethodMatcher} Allow ${JSON.stringify(allowedMethods.join(", "))}`,
+    );
+    lines.push(
+      `\t\t\trespond ${disallowedMethodMatcher} "Method Not Allowed" 405`,
+    );
+  }
   if (route.requestFilters.blockedUserAgents.length > 0) {
     const blockedUserAgentMatcher = `@upstand_blocked_user_agent_${filterSuffix}`;
     const pattern = `(?i)(${route.requestFilters.blockedUserAgents
@@ -507,6 +520,16 @@ function routeBlock(route: CaddyRoute, index: number): string[] {
       `\t\t\t${blockedUserAgentMatcher} header_regexp User-Agent ${caddyfileRawToken(pattern)}`,
     );
     lines.push(`\t\t\trespond ${blockedUserAgentMatcher} "Forbidden" 403`);
+  }
+  if (route.requestFilters.denyEmptyUserAgent) {
+    const missingUserAgentMatcher = `@upstand_missing_user_agent_${filterSuffix}`;
+    lines.push(`\t\t\t${missingUserAgentMatcher} not header User-Agent *`);
+    lines.push(`\t\t\trespond ${missingUserAgentMatcher} "Forbidden" 403`);
+    const emptyUserAgentMatcher = `@upstand_empty_user_agent_${filterSuffix}`;
+    lines.push(
+      `\t\t\t${emptyUserAgentMatcher} header User-Agent ${JSON.stringify("")}`,
+    );
+    lines.push(`\t\t\trespond ${emptyUserAgentMatcher} "Forbidden" 403`);
   }
   if (route.requestFilters.hotlinkProtection) {
     const externalRefererMatcher = `@upstand_external_referer_${filterSuffix}`;

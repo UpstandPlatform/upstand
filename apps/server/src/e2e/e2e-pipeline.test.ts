@@ -115,6 +115,27 @@ describe("Upstand deployment pipeline fixtures", () => {
         "respond @upstand_blocked_user_agent_",
       );
       expect(applicationState?.generatedCaddyConfig).toContain(
+        "not method GET HEAD POST",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        'Allow "GET, HEAD, POST"',
+      );
+      expect(applicationState?.generatedCaddyConfig).toMatch(
+        /respond @upstand_disallowed_method_[\w]+ "Method Not Allowed" 405/,
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        "not header User-Agent *",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        'header User-Agent ""',
+      );
+      expect(applicationState?.generatedCaddyConfig).toMatch(
+        /respond @upstand_missing_user_agent_[\w]+ "Forbidden" 403/,
+      );
+      expect(applicationState?.generatedCaddyConfig).toMatch(
+        /respond @upstand_empty_user_agent_[\w]+ "Forbidden" 403/,
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
         "@upstand_external_referer_",
       );
       expect(applicationState?.generatedCaddyConfig).toContain(
