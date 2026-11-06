@@ -379,6 +379,7 @@ jobs:
     permissions:
       contents: write
       packages: read
+      actions: write
     steps:
       - name: Download desktop release assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -481,6 +482,17 @@ jobs:
               "$MANIFEST_FILE#upstand-release-manifest.json" \
               "${assets[@]}"
           fi
+
+      - name: Dispatch CLI publication after successful release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh workflow run "Publish CLI Package" \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref master \
+            -f "release_ref=${RELEASE_REF}"
 
   pre-release-acceptance:
     if: always() && needs.verify.result == 'success' && (needs.build-and-publish.result == 'success' || inputs.build_images == false) && (startsWith(inputs.release_ref || github.ref_name, 'v') || startsWith(inputs.release_ref || github.ref_name, 'refs/tags/v')) && (github.event_name == 'push' || inputs.acceptance_profile != 'verify-only')

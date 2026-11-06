@@ -1,10 +1,15 @@
 import { TRPCError } from "@trpc/server";
 import { env } from "@upstand/env/server";
 import {
+  ACCESS_LOG_RANGE_ERROR,
   AccessLogCleanupCronSchema,
+  AccessLogQueryFieldsSchema,
   AccessLogQuerySchema,
+  AccessLogRangeFieldsSchema,
+  AccessLogRangeSchema,
   aggregateAccessLogStats,
-  queryAccessLogEntries,
+  isValidAccessLogRange,
+  queryAccessLogDashboard,
   resolveCaddyServiceForServer,
   TriggerUpdateInputSchema,
   UpdateWebServerSettingsInputSchema,
@@ -277,16 +282,29 @@ export const webServerRouter = router({
       const uow = ctx.scope.resolve(UnitOfWorkToken);
       const settings = await uow.webServerSettingsRepository.findGlobal();
       if (!settings?.accessLogsEnabled) {
-        return { entries: [], total: 0, pageCount: 1, page: input.page };
+        return {
+          entries: [],
+          total: 0,
+          pageCount: 1,
+          page: input.page,
+          stats: [],
+          summary: {
+            requestCount: 0,
+            averageDurationMs: 0,
+            totalBytes: 0,
+            errorRequestCount: 0,
+            topRoutes: [],
+          },
+        };
       }
       const content = await ctx.scope
         .resolve(CaddyServiceToken)
         .getAccessLogs();
-      return { ...queryAccessLogEntries(content, input), page: input.page };
+      return { ...queryAccessLogDashboard(content, input), page: input.page };
     }),
 
   accessLogStats: twoFactorVerifiedProcedure
-    .input(z.object({ from: z.coerce.date(), to: z.coerce.date() }))
+    .input(AccessLogRangeSchema)
     .query(async ({ ctx, input }) => {
       await requireWebServerOwner(ctx);
       const uow = ctx.scope.resolve(UnitOfWorkToken);
@@ -300,9 +318,12 @@ export const webServerRouter = router({
 
   remoteAccessLogs: twoFactorVerifiedProcedure
     .input(
-      AccessLogQuerySchema.extend({
+      AccessLogQueryFieldsSchema.extend({
         organizationId: z.string().min(1),
         serverId: z.string().min(1),
+      }).refine(isValidAccessLogRange, {
+        message: ACCESS_LOG_RANGE_ERROR,
+        path: ["to"],
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -322,7 +343,7 @@ export const webServerRouter = router({
       );
       try {
         const content = await caddyService.getAccessLogs();
-        return { ...queryAccessLogEntries(content, input), page: input.page };
+        return { ...queryAccessLogDashboard(content, input), page: input.page };
       } finally {
         cleanup();
       }
@@ -330,11 +351,12 @@ export const webServerRouter = router({
 
   remoteAccessLogStats: twoFactorVerifiedProcedure
     .input(
-      z.object({
+      AccessLogRangeFieldsSchema.extend({
         organizationId: z.string().min(1),
         serverId: z.string().min(1),
-        from: z.coerce.date(),
-        to: z.coerce.date(),
+      }).refine(isValidAccessLogRange, {
+        message: ACCESS_LOG_RANGE_ERROR,
+        path: ["to"],
       }),
     )
     .query(async ({ ctx, input }) => {

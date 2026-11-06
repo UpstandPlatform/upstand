@@ -10,14 +10,15 @@ published only from the stable branch.
 2. The promotion workflow opens a PR from `canary` to `master`; review and
    merge it (or run `bun run release:promote` to retry the automation).
 3. The stable-tag workflow creates the immutable `vMAJOR.MINOR.PATCH` tag and
-   dispatches the Docker/Desktop release and CLI publication workflows for that
-   exact tag. The explicit dispatch is required because GitHub does not start a
-   second workflow from a tag push made with `GITHUB_TOKEN`.
+   dispatches the Docker/Desktop release workflow. The explicit dispatch is
+   required because GitHub does not start a second workflow from a tag push made
+   with `GITHUB_TOKEN`.
 4. Confirm the release workflow passes its full production acceptance gate and
    publishes all service images, Desktop assets, the release manifest, and
-   immutable image digests. Confirm the CLI workflow publishes
-   `@upstand/cli` with npm provenance, or verifies the immutable version already
-   has identical contents. CLI-only Changesets publish from the version-bump
+   immutable image digests. Only after creating the GitHub Release does it
+   dispatch the CLI workflow. Confirm `npm-cli.yml` publishes `@upstand/cli`
+   with npm provenance, or verifies the immutable version already has
+   identical contents. CLI-only Changesets publish from the version-bump
    commit on `master`.
 5. For a Desktop release, install the Windows Squirrel artifact in a disposable
    user profile, confirm it appears as **Upstand** in Start and Installed apps,
