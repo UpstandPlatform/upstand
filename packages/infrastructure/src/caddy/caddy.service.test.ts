@@ -128,6 +128,8 @@ describe("Caddy domain configuration", () => {
         requestFilters: {
           blockedIpRanges: [],
           blockedUserAgents: [],
+          allowedMethods: [],
+          denyEmptyUserAgent: false,
           hotlinkProtection: false,
         },
       },
@@ -269,6 +271,51 @@ describe("Caddy domain configuration", () => {
     );
     expect(caddyfile.indexOf("respond @upstand_blocked_ip")).toBeLessThan(
       caddyfile.indexOf("reverse_proxy filtered:80"),
+    );
+  });
+
+  test("compiles allowed HTTP methods and empty user-agent blocking", () => {
+    const caddyfile = generateCaddyfileContent({}, [
+      {
+        id: "resource-method-policy",
+        name: "Restricted application",
+        type: "application",
+        appName: "restricted",
+        domains: JSON.stringify([
+          {
+            host: "restricted.example.com",
+            requestFilters: {
+              blockedIpRanges: [],
+              blockedUserAgents: [],
+              allowedMethods: ["GET", "HEAD", "POST"],
+              denyEmptyUserAgent: true,
+              hotlinkProtection: false,
+            },
+          },
+        ]),
+      },
+    ]);
+
+    expect(caddyfile).toContain(
+      "@upstand_disallowed_method_resource_method_policy_0 {\n\t\t\t\tnot method GET HEAD POST\n\t\t\t}",
+    );
+    expect(caddyfile).toContain(
+      '@upstand_disallowed_method_resource_method_policy_0 Allow "GET, HEAD, POST"',
+    );
+    expect(caddyfile).toContain(
+      'respond @upstand_disallowed_method_resource_method_policy_0 "Method Not Allowed" 405',
+    );
+    expect(caddyfile).toContain(
+      "@upstand_missing_user_agent_resource_method_policy_0 not header User-Agent *",
+    );
+    expect(caddyfile).toContain(
+      'respond @upstand_missing_user_agent_resource_method_policy_0 "Forbidden" 403',
+    );
+    expect(caddyfile).toContain(
+      '@upstand_empty_user_agent_resource_method_policy_0 header User-Agent ""',
+    );
+    expect(caddyfile).toContain(
+      'respond @upstand_empty_user_agent_resource_method_policy_0 "Forbidden" 403',
     );
   });
 
