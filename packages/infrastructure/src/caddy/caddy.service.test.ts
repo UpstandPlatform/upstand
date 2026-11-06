@@ -125,6 +125,7 @@ describe("Caddy domain configuration", () => {
         certificateType: "letsencrypt",
         https: true,
         middlewares: [],
+        requestFilters: { blockedIpRanges: [], blockedUserAgents: [] },
       },
     ]);
 
@@ -229,6 +230,41 @@ describe("Caddy domain configuration", () => {
     expect(caddyfile).toContain('respond "Not found" 404');
     expect(caddyfile.indexOf("/assets")).toBeLessThan(
       caddyfile.indexOf("/api"),
+    );
+  });
+
+  test("compiles native client IP and user-agent route filters", () => {
+    const caddyfile = generateCaddyfileContent({}, [
+      {
+        id: "resource-filtered",
+        name: "Filtered application",
+        type: "application",
+        appName: "filtered",
+        domains: JSON.stringify([
+          {
+            host: "filtered.example.com",
+            path: "/api",
+            requestFilters: {
+              blockedIpRanges: ["203.0.113.7", "2001:db8::/48"],
+              blockedUserAgents: ["ExampleBot", "bad.*agent"],
+            },
+          },
+        ]),
+      },
+    ]);
+
+    expect(caddyfile).toContain(
+      "@upstand_blocked_ip_resource_filtered_0 client_ip 203.0.113.7 2001:db8::/48",
+    );
+    expect(caddyfile).toContain(
+      'respond @upstand_blocked_ip_resource_filtered_0 "Forbidden" 403',
+    );
+    const userAgentPattern = JSON.stringify("(?i)(ExampleBot|bad\\.\\*agent)");
+    expect(caddyfile).toContain(
+      `@upstand_blocked_user_agent_resource_filtered_0 header_regexp User-Agent ${userAgentPattern}`,
+    );
+    expect(caddyfile.indexOf("respond @upstand_blocked_ip")).toBeLessThan(
+      caddyfile.indexOf("reverse_proxy filtered:80"),
     );
   });
 

@@ -64,6 +64,55 @@ describe("Domain Mapping Wildcard & Cloudflare Support", () => {
     ).toThrow("A custom certificate must be selected");
   });
 
+  test("validates and normalizes route request filters", () => {
+    const mappings = parseDomainMappings(
+      JSON.stringify([
+        {
+          host: "filters.example.com",
+          requestFilters: {
+            blockedIpRanges: ["203.0.113.4", "2001:db8::/48", "203.0.113.4"],
+            blockedUserAgents: ["ExampleBot", "examplebot", "curl"],
+          },
+        },
+      ]),
+    );
+
+    expect(mappings[0]?.requestFilters).toEqual({
+      blockedIpRanges: ["203.0.113.4", "2001:db8::/48"],
+      blockedUserAgents: ["ExampleBot", "curl"],
+    });
+  });
+
+  test.each([
+    "256.1.1.1",
+    "192.0.2.1/33",
+    "2001:db8::/129",
+    "2001:::1",
+    "192.0.2.1/24/1",
+  ])("rejects invalid IP range %s", (blockedIpRange) => {
+    expect(() =>
+      parseDomainMappings(
+        JSON.stringify([
+          {
+            host: "filters.example.com",
+            requestFilters: { blockedIpRanges: [blockedIpRange] },
+          },
+        ]),
+      ),
+    ).toThrow("valid IPv4 or IPv6 address or CIDR range");
+  });
+
+  test("defaults request filters for routes saved before the feature", () => {
+    const mappings = parseDomainMappings(
+      JSON.stringify([{ host: "legacy.example.com" }]),
+    );
+
+    expect(mappings[0]?.requestFilters).toEqual({
+      blockedIpRanges: [],
+      blockedUserAgents: [],
+    });
+  });
+
   test("does not require a certificate id for HTTP routes", () => {
     const mappings = parseDomainMappings(
       JSON.stringify([

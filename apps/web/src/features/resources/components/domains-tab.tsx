@@ -4,7 +4,10 @@ import { PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { parseResourceAdvancedConfig } from "@upstand/domain";
+import {
+  DomainRequestFiltersInputSchema,
+  parseResourceAdvancedConfig,
+} from "@upstand/domain";
 import { Badge } from "@upstand/ui/components/badge";
 import { Button } from "@upstand/ui/components/button";
 import {
@@ -81,6 +84,10 @@ type DomainMapping = {
     | "cloudflare";
   certificateId?: string;
   middlewares: string[];
+  requestFilters: {
+    blockedIpRanges: string[];
+    blockedUserAgents: string[];
+  };
   redirectTo?: string;
   redirectStatus: "301" | "302" | "307" | "308";
   forwardAuth?: {
@@ -125,6 +132,7 @@ const emptyDomainMapping = (): DomainMapping => ({
   https: true,
   certificateType: "letsencrypt",
   middlewares: [],
+  requestFilters: { blockedIpRanges: [], blockedUserAgents: [] },
   redirectTo: "",
   redirectStatus: "302",
   forwardAuth: {
@@ -208,6 +216,22 @@ const parseDomainMappings = (
           middlewares: Array.isArray(mapping.middlewares)
             ? mapping.middlewares
             : [],
+          requestFilters: {
+            blockedIpRanges: Array.isArray(
+              mapping.requestFilters?.blockedIpRanges,
+            )
+              ? mapping.requestFilters.blockedIpRanges.filter(
+                  (range): range is string => typeof range === "string",
+                )
+              : [],
+            blockedUserAgents: Array.isArray(
+              mapping.requestFilters?.blockedUserAgents,
+            )
+              ? mapping.requestFilters.blockedUserAgents.filter(
+                  (agent): agent is string => typeof agent === "string",
+                )
+              : [],
+          },
           redirectTo:
             typeof mapping.redirectTo === "string" ? mapping.redirectTo : "",
           redirectStatus:
@@ -421,6 +445,22 @@ export function DomainsTab({
         certificateId:
           value.certificateType === "custom" ? value.certificateId : undefined,
         middlewares: value.middlewares,
+        requestFilters: {
+          blockedIpRanges: [
+            ...new Set(
+              value.requestFilters.blockedIpRanges
+                .map((range) => range.trim())
+                .filter(Boolean),
+            ),
+          ],
+          blockedUserAgents: [
+            ...new Set(
+              value.requestFilters.blockedUserAgents
+                .map((agent) => agent.trim())
+                .filter(Boolean),
+            ),
+          ],
+        },
         redirectTo: value.redirectTo?.trim() || undefined,
         redirectStatus: value.redirectStatus,
         forwardAuth: value.forwardAuth?.address.trim()
@@ -487,6 +527,7 @@ export function DomainsTab({
         ]),
         certificateId: z.string().optional(),
         middlewares: z.array(z.string()),
+        requestFilters: DomainRequestFiltersInputSchema,
         redirectTo: z
           .string()
           .refine(
@@ -586,6 +627,10 @@ export function DomainsTab({
         ...defaults.securityHeaders,
         ...(domain.securityHeaders ?? {}),
       },
+      requestFilters: {
+        ...defaults.requestFilters,
+        ...(domain.requestFilters ?? {}),
+      },
     };
     form.reset(merged);
     setDomainDialogOpen(true);
@@ -671,6 +716,7 @@ export function DomainsTab({
       middlewares: [],
       redirectStatus: "302",
       securityHeaders: emptyDomainMapping().securityHeaders,
+      requestFilters: emptyDomainMapping().requestFilters,
     };
     updateResource(
       { id: resource.id, domains: JSON.stringify([...domainList, mapping]) },
@@ -778,19 +824,40 @@ export function DomainsTab({
                           : item.port}
                       </TableCell>
                       <TableCell className="min-w-32">
-                        <Badge variant={item.https ? "default" : "secondary"}>
-                          {item.https
-                            ? item.certificateType === "internal"
-                              ? "HTTPS / Internal CA"
-                              : item.certificateType === "zerossl"
-                                ? "HTTPS / ZeroSSL"
-                                : item.certificateType === "cloudflare"
-                                  ? "HTTPS / Cloudflare DNS-01"
-                                  : item.certificateType === "custom"
-                                    ? "HTTPS / Custom SSL"
-                                    : "HTTPS / Let’s Encrypt"
-                            : "HTTP only"}
-                        </Badge>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge variant={item.https ? "default" : "secondary"}>
+                            {item.https
+                              ? item.certificateType === "internal"
+                                ? "HTTPS / Internal CA"
+                                : item.certificateType === "zerossl"
+                                  ? "HTTPS / ZeroSSL"
+                                  : item.certificateType === "cloudflare"
+                                    ? "HTTPS / Cloudflare DNS-01"
+                                    : item.certificateType === "custom"
+                                      ? "HTTPS / Custom SSL"
+                                      : "HTTPS / Let’s Encrypt"
+                              : "HTTP only"}
+                          </Badge>
+                          {item.requestFilters.blockedIpRanges.length > 0 && (
+                            <Badge variant="destructive">
+                              {item.requestFilters.blockedIpRanges.length} IP
+                              block
+                              {item.requestFilters.blockedIpRanges.length === 1
+                                ? ""
+                                : "s"}
+                            </Badge>
+                          )}
+                          {item.requestFilters.blockedUserAgents.length > 0 && (
+                            <Badge variant="outline">
+                              {item.requestFilters.blockedUserAgents.length}{" "}
+                              user-agent block
+                              {item.requestFilters.blockedUserAgents.length ===
+                              1
+                                ? ""
+                                : "s"}
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="min-w-44">
                         {(() => {
@@ -1392,6 +1459,67 @@ export function DomainsTab({
                                 field.handleChange(e.target.value)
                               }
                             />
+                            <FieldError errors={field.state.meta.errors} />
+                          </Field>
+                        )}
+                      </form.Field>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <form.Field name="requestFilters.blockedIpRanges">
+                        {(field) => (
+                          <Field>
+                            <FieldLabel htmlFor={field.name}>
+                              Blocked client IPs or CIDR ranges
+                            </FieldLabel>
+                            <Input
+                              id={field.name}
+                              name={field.name}
+                              placeholder="203.0.113.4, 2001:db8::/48"
+                              value={field.state.value.join(", ")}
+                              onBlur={field.handleBlur}
+                              onChange={(e) =>
+                                field.handleChange(
+                                  e.target.value
+                                    .split(",")
+                                    .map((value) => value.trim())
+                                    .filter(Boolean),
+                                )
+                              }
+                            />
+                            <p className="text-muted-foreground text-xs">
+                              Uses Caddy's client IP matcher. When Caddy sits
+                              behind a proxy, configure trusted proxies so it
+                              can identify visitors correctly.
+                            </p>
+                            <FieldError errors={field.state.meta.errors} />
+                          </Field>
+                        )}
+                      </form.Field>
+                      <form.Field name="requestFilters.blockedUserAgents">
+                        {(field) => (
+                          <Field>
+                            <FieldLabel htmlFor={field.name}>
+                              Blocked user-agent text
+                            </FieldLabel>
+                            <Input
+                              id={field.name}
+                              name={field.name}
+                              placeholder="ExampleBot, scraper"
+                              value={field.state.value.join(", ")}
+                              onBlur={field.handleBlur}
+                              onChange={(e) =>
+                                field.handleChange(
+                                  e.target.value
+                                    .split(",")
+                                    .map((value) => value.trim())
+                                    .filter(Boolean),
+                                )
+                              }
+                            />
+                            <p className="text-muted-foreground text-xs">
+                              Matches case-insensitive text anywhere in the
+                              User-Agent header.
+                            </p>
                             <FieldError errors={field.state.meta.errors} />
                           </Field>
                         )}
