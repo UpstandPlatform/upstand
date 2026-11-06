@@ -203,7 +203,7 @@ jobs:
             ${{ runner.os }}-playwright-
       - name: Install browsers for web production smoke
         working-directory: apps/web
-        run: bunx playwright install --with-deps chromium firefox webkit
+        run: bunx playwright install chromium firefox webkit
       - name: Run web production browser smoke matrix
         working-directory: apps/web
         run: |
