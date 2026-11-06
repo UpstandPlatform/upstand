@@ -115,6 +115,15 @@ describe("Upstand deployment pipeline fixtures", () => {
         "respond @upstand_blocked_user_agent_",
       );
       expect(applicationState?.generatedCaddyConfig).toContain(
+        "@upstand_external_referer_",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        "not header_regexp upstand_referer_",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
+        "respond @upstand_external_referer_",
+      );
+      expect(applicationState?.generatedCaddyConfig).toContain(
         "fixture-stack.example.com",
       );
       expect(fixture.notifications).toHaveLength(4);

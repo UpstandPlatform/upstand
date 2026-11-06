@@ -99,12 +99,15 @@ const BlockedUserAgentSchema = z
 export const DomainRequestFiltersInputSchema = z.object({
   blockedIpRanges: z.array(IpRangeSchema).max(64),
   blockedUserAgents: z.array(BlockedUserAgentSchema).max(32),
+  /** Reject requests that carry a Referer from another hostname. */
+  hotlinkProtection: z.boolean().optional().default(false),
 });
 
 export const DomainRequestFiltersSchema =
   DomainRequestFiltersInputSchema.default({
     blockedIpRanges: [],
     blockedUserAgents: [],
+    hotlinkProtection: false,
   });
 
 export function normalizeDomainHost(value: string): string {
@@ -215,6 +218,7 @@ const DomainMappingInputSchema = z.object({
   requestFilters: DomainRequestFiltersSchema.optional().default({
     blockedIpRanges: [],
     blockedUserAgents: [],
+    hotlinkProtection: false,
   }),
   /** Optional terminal redirect instead of proxying to the service. */
   redirectTo: z
@@ -327,6 +331,7 @@ export const DomainMappingSchema = DomainMappingInputSchema.transform(
           blockedUserAgents: uniqueCaseInsensitive(
             mapping.requestFilters.blockedUserAgents,
           ),
+          hotlinkProtection: mapping.requestFilters.hotlinkProtection,
         },
       };
     } catch (error) {
@@ -360,6 +365,7 @@ export type DomainMapping = {
   requestFilters: {
     blockedIpRanges: string[];
     blockedUserAgents: string[];
+    hotlinkProtection: boolean;
   };
   redirectTo?: string;
   redirectStatus?: "301" | "302" | "307" | "308";

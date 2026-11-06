@@ -80,7 +80,31 @@ describe("Domain Mapping Wildcard & Cloudflare Support", () => {
     expect(mappings[0]?.requestFilters).toEqual({
       blockedIpRanges: ["203.0.113.4", "2001:db8::/48"],
       blockedUserAgents: ["ExampleBot", "curl"],
+      hotlinkProtection: false,
     });
+  });
+
+  test("preserves hotlink protection for a route and defaults it for older filters", () => {
+    const mappings = parseDomainMappings(
+      JSON.stringify([
+        {
+          host: "assets.example.com",
+          requestFilters: {
+            blockedIpRanges: [],
+            blockedUserAgents: [],
+            hotlinkProtection: true,
+          },
+        },
+        {
+          host: "legacy.example.com",
+          requestFilters: { blockedIpRanges: [], blockedUserAgents: [] },
+        },
+      ]),
+    );
+
+    expect(
+      mappings.map((mapping) => mapping.requestFilters.hotlinkProtection),
+    ).toEqual([true, false]);
   });
 
   test.each([
@@ -110,6 +134,7 @@ describe("Domain Mapping Wildcard & Cloudflare Support", () => {
     expect(mappings[0]?.requestFilters).toEqual({
       blockedIpRanges: [],
       blockedUserAgents: [],
+      hotlinkProtection: false,
     });
   });
 
