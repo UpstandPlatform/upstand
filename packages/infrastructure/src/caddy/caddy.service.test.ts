@@ -67,6 +67,21 @@ test("uses the typed broker for local Caddy configuration sync", async () => {
   expect(configurationInput?.certificates).toEqual([]);
 });
 
+test("surfaces Caddy access-log read failures instead of returning empty logs", async () => {
+  const service = new CaddyService({
+    getContainer: () => ({
+      inspect: async () => ({}),
+      exec: async () => {
+        throw new Error("Docker daemon unavailable");
+      },
+    }),
+  } as never);
+
+  await expect(service.getAccessLogs()).rejects.toThrow(
+    "Unable to read Caddy access logs",
+  );
+});
+
 test("keeps every control-plane recovery port published", async () => {
   type Port = {
     Protocol?: string;

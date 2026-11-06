@@ -115,8 +115,9 @@ automated release PR is created after Changesets land on `canary`. Review and
 merge it into `canary`. The automated promotion workflow opens a zero-conflict
 PR to `master` (or run `bun run release:promote`). Once merged into `master`,
 the stable-tag workflow creates the immutable `vMAJOR.MINOR.PATCH` tag and
-automatically dispatches both Docker/desktop image publication (`release.yml`)
-and CLI package publication (`npm-cli.yml`).
+automatically dispatches Docker/desktop image publication (`release.yml`). The
+CLI package publication (`npm-cli.yml`) is dispatched only after the release
+workflow passes production acceptance and creates the GitHub Release.
 
 Production dependency updates need a patch release just like product changes.
 Dependabot adds that Changeset automatically; development-only dependency and

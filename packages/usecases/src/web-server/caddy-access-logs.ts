@@ -9,9 +9,19 @@ export const AccessLogStatusGroupSchema = z.enum([
   "5xx",
 ]);
 
-export const AccessLogQuerySchema = z.object({
+export const ACCESS_LOG_RANGE_ERROR = "Choose a date range of 31 days or less.";
+const MAX_ACCESS_LOG_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
+
+/**
+ * Keep the date range bounded because the request chart emits one data point
+ * per hour, even when the underlying Caddy log read is capped.
+ */
+export const AccessLogRangeFieldsSchema = z.object({
   from: z.coerce.date(),
   to: z.coerce.date(),
+});
+
+export const AccessLogQueryFieldsSchema = AccessLogRangeFieldsSchema.extend({
   page: z.number().int().min(1).default(1),
   pageSize: z.number().int().min(10).max(100).default(25),
   sortBy: z
@@ -20,6 +30,36 @@ export const AccessLogQuerySchema = z.object({
   sortDirection: z.enum(["asc", "desc"]).default("desc"),
   statusGroup: AccessLogStatusGroupSchema.default("all"),
 });
+
+export function isValidAccessLogRange(input: {
+  from: Date;
+  to: Date;
+}): boolean {
+  const rangeMs = input.to.getTime() - input.from.getTime();
+  return rangeMs >= 0 && rangeMs <= MAX_ACCESS_LOG_RANGE_MS;
+}
+
+function assertValidAccessLogRange(from: Date, to: Date): void {
+  if (!isValidAccessLogRange({ from, to })) {
+    throw new RangeError(ACCESS_LOG_RANGE_ERROR);
+  }
+}
+
+export const AccessLogRangeSchema = AccessLogRangeFieldsSchema.refine(
+  isValidAccessLogRange,
+  {
+    message: ACCESS_LOG_RANGE_ERROR,
+    path: ["to"],
+  },
+);
+
+export const AccessLogQuerySchema = AccessLogQueryFieldsSchema.refine(
+  isValidAccessLogRange,
+  {
+    message: ACCESS_LOG_RANGE_ERROR,
+    path: ["to"],
+  },
+);
 
 export type AccessLogQuery = z.infer<typeof AccessLogQuerySchema>;
 
@@ -38,6 +78,20 @@ export type AccessLogEntry = {
 };
 
 export type AccessLogStatsPoint = { timestamp: string; count: number };
+
+export type AccessLogTrafficSummary = {
+  requestCount: number;
+  averageDurationMs: number;
+  totalBytes: number;
+  errorRequestCount: number;
+  topRoutes: {
+    host: string;
+    path: string;
+    requestCount: number;
+    averageDurationMs: number;
+    totalBytes: number;
+  }[];
+};
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -121,17 +175,46 @@ function inStatusGroup(
 }
 
 export function queryAccessLogEntries(content: string, query: AccessLogQuery) {
+  assertValidAccessLogRange(query.from, query.to);
   const from = query.from.getTime();
   const to = query.to.getTime();
-  const filtered = parseAccessLogEntries(content).filter((entry) => {
+  const rangedEntries = parseAccessLogEntries(content).filter((entry) => {
     const time = Date.parse(entry.timestamp);
-    return (
-      time >= from &&
-      time <= to &&
-      inStatusGroup(entry.status, query.statusGroup)
-    );
+    return time >= from && time <= to;
+  });
+  return queryAccessLogEntriesFromEntries(rangedEntries, query);
+}
+
+export function queryAccessLogDashboard(
+  content: string,
+  query: AccessLogQuery,
+) {
+  assertValidAccessLogRange(query.from, query.to);
+  const from = query.from.getTime();
+  const to = query.to.getTime();
+  const rangedEntries = parseAccessLogEntries(content).filter((entry) => {
+    const time = Date.parse(entry.timestamp);
+    return time >= from && time <= to;
   });
 
+  return {
+    ...queryAccessLogEntriesFromEntries(rangedEntries, query),
+    stats: aggregateAccessLogStatsFromEntries(
+      rangedEntries,
+      query.from,
+      query.to,
+    ),
+    summary: summarizeAccessLogTraffic(rangedEntries),
+  };
+}
+
+function queryAccessLogEntriesFromEntries(
+  entries: AccessLogEntry[],
+  query: AccessLogQuery,
+) {
+  const filtered = entries.filter((entry) =>
+    inStatusGroup(entry.status, query.statusGroup),
+  );
   const direction = query.sortDirection === "asc" ? 1 : -1;
   filtered.sort((left, right) => {
     const values: Record<
@@ -162,10 +245,24 @@ export function aggregateAccessLogStats(
   from: Date,
   to: Date,
 ): AccessLogStatsPoint[] {
-  const counts = new Map<number, number>();
-  for (const entry of parseAccessLogEntries(content)) {
+  assertValidAccessLogRange(from, to);
+  const startTime = from.getTime();
+  const endTime = to.getTime();
+  const rangedEntries = parseAccessLogEntries(content).filter((entry) => {
     const time = Date.parse(entry.timestamp);
-    if (time < from.getTime() || time > to.getTime()) continue;
+    return time >= startTime && time <= endTime;
+  });
+  return aggregateAccessLogStatsFromEntries(rangedEntries, from, to);
+}
+
+function aggregateAccessLogStatsFromEntries(
+  entries: AccessLogEntry[],
+  from: Date,
+  to: Date,
+): AccessLogStatsPoint[] {
+  const counts = new Map<number, number>();
+  for (const entry of entries) {
+    const time = Date.parse(entry.timestamp);
     const hour = Math.floor(time / 3_600_000) * 3_600_000;
     counts.set(hour, (counts.get(hour) ?? 0) + 1);
   }
@@ -179,4 +276,75 @@ export function aggregateAccessLogStats(
     });
   }
   return points;
+}
+
+function summarizeAccessLogTraffic(
+  entries: AccessLogEntry[],
+): AccessLogTrafficSummary {
+  const routes = new Map<
+    string,
+    {
+      host: string;
+      path: string;
+      requestCount: number;
+      durationTotal: number;
+      totalBytes: number;
+    }
+  >();
+  let totalDuration = 0;
+  let totalBytes = 0;
+  let errorRequestCount = 0;
+
+  for (const entry of entries) {
+    const path = normalizeRequestPath(entry.uri);
+    const key = `${entry.host}\u0000${path}`;
+    const route = routes.get(key) ?? {
+      host: entry.host,
+      path,
+      requestCount: 0,
+      durationTotal: 0,
+      totalBytes: 0,
+    };
+    route.requestCount += 1;
+    route.durationTotal += entry.durationMs;
+    route.totalBytes += Math.max(0, entry.size);
+    routes.set(key, route);
+
+    totalDuration += entry.durationMs;
+    totalBytes += Math.max(0, entry.size);
+    if (entry.status >= 400) errorRequestCount += 1;
+  }
+
+  const topRoutes = [...routes.values()]
+    .sort(
+      (left, right) =>
+        right.requestCount - left.requestCount ||
+        left.host.localeCompare(right.host) ||
+        left.path.localeCompare(right.path),
+    )
+    .slice(0, 10)
+    .map(({ durationTotal, ...route }) => ({
+      ...route,
+      averageDurationMs:
+        Math.round((durationTotal / route.requestCount) * 100) / 100,
+    }));
+
+  return {
+    requestCount: entries.length,
+    averageDurationMs:
+      entries.length > 0
+        ? Math.round((totalDuration / entries.length) * 100) / 100
+        : 0,
+    totalBytes,
+    errorRequestCount,
+    topRoutes,
+  };
+}
+
+function normalizeRequestPath(uri: string): string {
+  try {
+    return new URL(uri, "http://upstand.invalid").pathname || "/";
+  } catch {
+    return uri.split("?", 1)[0] || "/";
+  }
 }
