@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AccessLogQuerySchema,
   aggregateAccessLogStats,
   parseAccessLogEntries,
+  queryAccessLogDashboard,
   queryAccessLogEntries,
 } from "./caddy-access-logs";
 
@@ -24,7 +26,7 @@ const logs = [
     request: {
       method: "POST",
       host: "app.example.com",
-      uri: "/login",
+      uri: "/login?email=private@example.com",
       client_ip: "203.0.113.11",
       proto: "HTTP/2.0",
     },
@@ -35,6 +37,41 @@ const logs = [
 ].join("\n");
 
 describe("Caddy access log parsing", () => {
+  test("rejects reversed and unbounded request windows", () => {
+    const query = {
+      page: 1,
+      pageSize: 25,
+      sortBy: "timestamp" as const,
+      sortDirection: "desc" as const,
+      statusGroup: "all" as const,
+    };
+
+    expect(
+      AccessLogQuerySchema.safeParse({
+        ...query,
+        from: new Date("2023-01-01T00:00:00Z"),
+        to: new Date("2023-02-02T00:00:00Z"),
+      }).success,
+    ).toBe(false);
+    expect(
+      AccessLogQuerySchema.safeParse({
+        ...query,
+        from: new Date("2023-02-02T00:00:00Z"),
+        to: new Date("2023-01-01T00:00:00Z"),
+      }).success,
+    ).toBe(false);
+  });
+
+  test("bounds direct hourly aggregation callers to the supported range", () => {
+    expect(() =>
+      aggregateAccessLogStats(
+        "",
+        new Date("2023-01-01T00:00:00Z"),
+        new Date("2023-02-02T00:00:00Z"),
+      ),
+    ).toThrow("Choose a date range of 31 days or less.");
+  });
+
   test("normalizes Caddy JSON entries", () => {
     const entries = parseAccessLogEntries(logs);
     expect(entries).toHaveLength(2);
@@ -68,6 +105,45 @@ describe("Caddy access log parsing", () => {
     );
     expect(stats).toHaveLength(3);
     expect(stats.reduce((sum, point) => sum + point.count, 0)).toBe(2);
+  });
+
+  test("builds the request page and hourly chart from one selected range", () => {
+    const result = queryAccessLogDashboard(logs, {
+      from: new Date("2023-11-14T22:00:00Z"),
+      to: new Date("2023-11-15T00:00:00Z"),
+      page: 1,
+      pageSize: 10,
+      sortBy: "timestamp",
+      sortDirection: "desc",
+      statusGroup: "2xx",
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.entries[0]?.status).toBe(200);
+    expect(result.stats).toHaveLength(3);
+    expect(result.stats.reduce((sum, point) => sum + point.count, 0)).toBe(2);
+    expect(result.summary).toEqual({
+      requestCount: 2,
+      averageDurationMs: 107.5,
+      totalBytes: 1264,
+      errorRequestCount: 1,
+      topRoutes: [
+        {
+          host: "app.example.com",
+          path: "/",
+          requestCount: 1,
+          averageDurationMs: 15,
+          totalBytes: 1200,
+        },
+        {
+          host: "app.example.com",
+          path: "/login",
+          requestCount: 1,
+          averageDurationMs: 200,
+          totalBytes: 64,
+        },
+      ],
+    });
   });
 
   test("resolves Caddy status 0 handled request to 200", () => {

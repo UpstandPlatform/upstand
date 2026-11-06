@@ -1,5 +1,11 @@
 # server
 
+## 0.14.21
+
+### Patch Changes
+
+- [#620](https://github.com/UpstandPlatform/upstand/pull/620) [`ca37414`](https://github.com/UpstandPlatform/upstand/commit/ca374146d181e6d4f1b8def0b6d92b27eff85921) Thanks [@mhbdev](https://github.com/mhbdev)! - Request monitoring now derives the log page, hourly chart, and route summaries from one Caddy log read.
+
 ## 0.14.20
 
 ### Patch Changes
