@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.21 - 2026-11-06
+
+Request monitoring now derives the log page, hourly chart, and route summaries from one Caddy log read.
+
+
 ## 0.14.20 - 2026-11-06
 
 Add route-level HTTP method allowlists and controls for missing or empty User-Agent headers.
