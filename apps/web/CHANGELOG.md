@@ -1,5 +1,11 @@
 # web
 
+## 0.14.18
+
+### Patch Changes
+
+- [#611](https://github.com/UpstandPlatform/upstand/pull/611) [`2f1b634`](https://github.com/UpstandPlatform/upstand/commit/2f1b634d1d764f8c1c1e73ecad57440c88a79c8f) Thanks [@mhbdev](https://github.com/mhbdev)! - Add per-route client IP range and user-agent blocking using the managed Caddy server's built-in request matchers.
+
 ## 0.14.17
 
 ### Patch Changes
