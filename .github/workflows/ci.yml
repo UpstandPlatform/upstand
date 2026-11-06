@@ -207,6 +207,7 @@ jobs:
               --env CI \
               --env PLAYWRIGHT_BROWSER="$browser" \
               --env PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+              --env HOSTNAME=0.0.0.0 \
               --env NEXT_PUBLIC_SERVER_URL \
               --env ENCRYPTION_KEY_V1 \
               "mcr.microsoft.com/playwright:v${playwright_version}-noble" \
