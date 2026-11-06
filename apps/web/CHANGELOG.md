@@ -1,5 +1,12 @@
 # web
 
+## 0.14.19
+
+### Patch Changes
+
+- [#614](https://github.com/UpstandPlatform/upstand/pull/614) [`54c9b20`](https://github.com/UpstandPlatform/upstand/commit/54c9b201f6dfc6ef4b88ee7ceb0a21a1495f6565) Thanks [@mhbdev](https://github.com/mhbdev)! - Add optional per-route hotlink protection to reject browser requests that send
+  a referrer from an unrelated hostname, and fix relative Caddy redirect targets.
+
 ## 0.14.18
 
 ### Patch Changes
