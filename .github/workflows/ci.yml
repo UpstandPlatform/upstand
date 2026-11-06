@@ -194,23 +194,24 @@ jobs:
           cp -R apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
           rm -rf apps/web/.next/standalone/apps/web/public
           cp -R apps/web/public apps/web/.next/standalone/apps/web/public
-      - name: Cache Playwright browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock', 'apps/web/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-      - name: Install browsers for web production smoke
-        working-directory: apps/web
-        run: bunx playwright install --with-deps chromium firefox webkit
       - name: Run web production browser smoke matrix
         working-directory: apps/web
         run: |
           set -euo pipefail
+          playwright_version="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
           for browser in chromium firefox webkit; do
             echo "Running production browser smoke for $browser"
-            PLAYWRIGHT_BROWSER="$browser" bun run test:browser
+            docker run --rm --init --ipc=host \
+              --volume "$GITHUB_WORKSPACE:/workspace" \
+              --workdir /workspace/apps/web \
+              --env CI \
+              --env PLAYWRIGHT_BROWSER="$browser" \
+              --env PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+              --env HOSTNAME=0.0.0.0 \
+              --env NEXT_PUBLIC_SERVER_URL \
+              --env ENCRYPTION_KEY_V1 \
+              "mcr.microsoft.com/playwright:v${playwright_version}-noble" \
+              node ./node_modules/@playwright/test/cli.js test
           done
       - name: Validate production Compose contract
         env:

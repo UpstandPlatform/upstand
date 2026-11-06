@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.18 - 2026-11-05
+
+Add per-route client IP range and user-agent blocking using the managed Caddy server's built-in request matchers.
+
+
 ## 0.14.17 - 2026-11-05
 
 Reconcile server-scoped Caddy routes when workload migrations cut over, roll back, or remove the retained source service.
