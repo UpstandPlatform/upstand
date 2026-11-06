@@ -511,6 +511,7 @@ export async function createDeploymentPipelineFixture(
         requestFilters: {
           blockedIpRanges: ["198.51.100.9/32"],
           blockedUserAgents: ["ExampleBot"],
+          hotlinkProtection: true,
         },
       },
     ],
@@ -561,7 +562,11 @@ export async function createDeploymentPipelineFixture(
         serviceName: "web",
         certificateType: "letsencrypt",
         middlewares: [],
-        requestFilters: { blockedIpRanges: [], blockedUserAgents: [] },
+        requestFilters: {
+          blockedIpRanges: [],
+          blockedUserAgents: [],
+          hotlinkProtection: false,
+        },
       },
     ],
   });

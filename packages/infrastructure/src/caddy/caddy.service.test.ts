@@ -125,7 +125,11 @@ describe("Caddy domain configuration", () => {
         certificateType: "letsencrypt",
         https: true,
         middlewares: [],
-        requestFilters: { blockedIpRanges: [], blockedUserAgents: [] },
+        requestFilters: {
+          blockedIpRanges: [],
+          blockedUserAgents: [],
+          hotlinkProtection: false,
+        },
       },
     ]);
 
@@ -259,12 +263,73 @@ describe("Caddy domain configuration", () => {
     expect(caddyfile).toContain(
       'respond @upstand_blocked_ip_resource_filtered_0 "Forbidden" 403',
     );
-    const userAgentPattern = JSON.stringify("(?i)(ExampleBot|bad\\.\\*agent)");
+    const userAgentPattern = "`(?i)(ExampleBot|bad\\.\\*agent)`";
     expect(caddyfile).toContain(
       `@upstand_blocked_user_agent_resource_filtered_0 header_regexp User-Agent ${userAgentPattern}`,
     );
     expect(caddyfile.indexOf("respond @upstand_blocked_ip")).toBeLessThan(
       caddyfile.indexOf("reverse_proxy filtered:80"),
+    );
+  });
+
+  test("preserves special characters in blocked user-agent Caddy regexes", () => {
+    const caddyfile = generateCaddyfileContent({}, [
+      {
+        id: "resource-filtered-user-agent",
+        name: "Filtered user agents",
+        type: "application",
+        appName: "filtered-user-agent",
+        domains: JSON.stringify([
+          {
+            host: "filtered.example.com",
+            requestFilters: {
+              blockedIpRanges: [],
+              blockedUserAgents: ["bad bot", "a`b", "{$UPSTAND_TEST}"],
+            },
+          },
+        ]),
+      },
+    ]);
+
+    expect(caddyfile).toContain(
+      "@upstand_blocked_user_agent_resource_filtered_user_a_0 header_regexp User-Agent `(?i)(bad bot|a\\x60b|\\{\\$UPSTAND_TEST\\})`",
+    );
+  });
+
+  test("compiles Caddy-native hotlink protection and allows absent Referer headers", () => {
+    const caddyfile = generateCaddyfileContent({}, [
+      {
+        id: "resource-hotlink",
+        name: "Static assets",
+        type: "application",
+        appName: "assets",
+        domains: JSON.stringify([
+          {
+            host: "assets.example.com",
+            requestFilters: {
+              blockedIpRanges: [],
+              blockedUserAgents: [],
+              hotlinkProtection: true,
+            },
+          },
+        ]),
+      },
+    ]);
+    const allowedRefererPattern =
+      "(?i)^https?://(?:[a-z0-9-]+\\.)*assets\\.example\\.com(?::[0-9]+)?(?:[/?#]|$)";
+
+    expect(caddyfile).toContain(
+      "@upstand_external_referer_resource_hotlink_0 {",
+    );
+    expect(caddyfile).toContain("\t\t\t\theader Referer *");
+    expect(caddyfile).toContain(
+      `not header_regexp upstand_referer_resource_hotlink_0 Referer \`${allowedRefererPattern}\``,
+    );
+    expect(caddyfile).toContain(
+      'respond @upstand_external_referer_resource_hotlink_0 "Forbidden" 403',
+    );
+    expect(caddyfile.indexOf("respond @upstand_external_referer")).toBeLessThan(
+      caddyfile.indexOf("reverse_proxy assets:80"),
     );
   });
 
@@ -554,9 +619,31 @@ describe("Caddy domain configuration", () => {
       },
     ]);
 
-    expect(caddyfile).toContain('redir "https://example.com{uri}" 308');
+    expect(caddyfile).toContain('redir * "https://example.com{uri}" 308');
     expect(caddyfile).toContain("Strict-Transport-Security");
     expect(caddyfile).toContain('X-Frame-Options "DENY"');
+  });
+
+  test("treats relative redirect targets as destinations instead of path matchers", () => {
+    const caddyfile = generateCaddyfileContent({}, [
+      {
+        id: "resource-relative-redirect",
+        name: "Moved route",
+        type: "application",
+        appName: "moved-route",
+        domains: JSON.stringify([
+          {
+            host: "redirect.example.com",
+            path: "/old",
+            https: false,
+            redirectTo: "/new",
+            redirectStatus: "301",
+          },
+        ]),
+      },
+    ]);
+
+    expect(caddyfile).toContain('redir * "/new" 301');
   });
 
   test("emits forward-auth middleware with only validated header names", () => {
