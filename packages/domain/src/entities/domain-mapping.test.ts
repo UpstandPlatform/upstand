@@ -72,6 +72,8 @@ describe("Domain Mapping Wildcard & Cloudflare Support", () => {
           requestFilters: {
             blockedIpRanges: ["203.0.113.4", "2001:db8::/48", "203.0.113.4"],
             blockedUserAgents: ["ExampleBot", "examplebot", "curl"],
+            allowedMethods: ["GET", "POST", "GET"],
+            denyEmptyUserAgent: true,
           },
         },
       ]),
@@ -80,6 +82,8 @@ describe("Domain Mapping Wildcard & Cloudflare Support", () => {
     expect(mappings[0]?.requestFilters).toEqual({
       blockedIpRanges: ["203.0.113.4", "2001:db8::/48"],
       blockedUserAgents: ["ExampleBot", "curl"],
+      allowedMethods: ["GET", "POST"],
+      denyEmptyUserAgent: true,
       hotlinkProtection: false,
     });
   });
@@ -92,6 +96,8 @@ describe("Domain Mapping Wildcard & Cloudflare Support", () => {
           requestFilters: {
             blockedIpRanges: [],
             blockedUserAgents: [],
+            allowedMethods: [],
+            denyEmptyUserAgent: false,
             hotlinkProtection: true,
           },
         },
@@ -105,6 +111,23 @@ describe("Domain Mapping Wildcard & Cloudflare Support", () => {
     expect(
       mappings.map((mapping) => mapping.requestFilters.hotlinkProtection),
     ).toEqual([true, false]);
+  });
+
+  test("rejects unsupported HTTP methods in route allowlists", () => {
+    expect(() =>
+      parseDomainMappings(
+        JSON.stringify([
+          {
+            host: "methods.example.com",
+            requestFilters: {
+              blockedIpRanges: [],
+              blockedUserAgents: [],
+              allowedMethods: ["BREW"],
+            },
+          },
+        ]),
+      ),
+    ).toThrow();
   });
 
   test.each([
@@ -134,6 +157,8 @@ describe("Domain Mapping Wildcard & Cloudflare Support", () => {
     expect(mappings[0]?.requestFilters).toEqual({
       blockedIpRanges: [],
       blockedUserAgents: [],
+      allowedMethods: [],
+      denyEmptyUserAgent: false,
       hotlinkProtection: false,
     });
   });
