@@ -126,25 +126,16 @@ function useAccessLogs(
         },
   );
 
-  const stats = useQuery(
-    remoteServerId
-      ? {
-          ...trpc.webServer.remoteAccessLogStats.queryOptions({
-            ...range,
-            organizationId,
-            serverId: remoteServerId,
-          }),
-          enabled,
-        }
-      : {
-          ...trpc.webServer.accessLogStats.queryOptions(range),
-          enabled,
-        },
-  );
+  const stats = {
+    data: query.data?.stats,
+    isPending: query.isPending,
+  };
+  const summary = query.data?.summary;
 
   return {
     ...query,
     stats,
+    summary,
     from,
     setFrom,
     to,
@@ -174,6 +165,33 @@ function formatDate(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatBytes(value: number) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = Math.max(0, value);
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: unitIndex === 0 ? 0 : 1,
+  }).format(size)} ${units[unitIndex]}`;
+}
+
+function formatDurationMs(value: number) {
+  if (value >= 1000) {
+    return `${new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 2,
+    }).format(value / 1000)} s`;
+  }
+
+  return `${new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 0,
+  }).format(value)} ms`;
 }
 
 function AccessLogDetail({
@@ -675,7 +693,7 @@ export function RequestsSubpage() {
             <CardHeader>
               <CardTitle>Request distribution</CardTitle>
               <CardDescription>
-                Requests grouped by hour in the selected date range.
+                Requests grouped by hour in a range of up to 31 days.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -705,6 +723,42 @@ export function RequestsSubpage() {
                   />
                 </div>
               </div>
+              <dl className="mb-4 grid gap-x-6 gap-y-3 border-y py-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1">
+                  <dt className="text-muted-foreground text-xs">Requests</dt>
+                  <dd className="font-medium text-sm tabular-nums">
+                    {logs.isPending
+                      ? "Loading…"
+                      : (logs.summary?.requestCount.toLocaleString() ?? "—")}
+                  </dd>
+                </div>
+                <div className="space-y-1">
+                  <dt className="text-muted-foreground text-xs">
+                    Average latency
+                  </dt>
+                  <dd className="font-medium text-sm tabular-nums">
+                    {logs.summary && logs.summary.requestCount > 0
+                      ? formatDurationMs(logs.summary.averageDurationMs)
+                      : "—"}
+                  </dd>
+                </div>
+                <div className="space-y-1">
+                  <dt className="text-muted-foreground text-xs">
+                    Response data
+                  </dt>
+                  <dd className="font-medium text-sm tabular-nums">
+                    {logs.summary ? formatBytes(logs.summary.totalBytes) : "—"}
+                  </dd>
+                </div>
+                <div className="space-y-1">
+                  <dt className="text-muted-foreground text-xs">
+                    Errors (4xx+)
+                  </dt>
+                  <dd className="font-medium text-sm tabular-nums">
+                    {logs.summary?.errorRequestCount.toLocaleString() ?? "—"}
+                  </dd>
+                </div>
+              </dl>
               <div className="h-64 w-full">
                 {logs.stats.isPending ? (
                   <div className="flex h-full items-center justify-center">
@@ -766,6 +820,63 @@ export function RequestsSubpage() {
                       />
                     </AreaChart>
                   </ResponsiveContainer>
+                )}
+              </div>
+              <div className="mt-6 space-y-2">
+                <h3 className="font-medium text-sm">Top routes</h3>
+                {logs.isPending ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : logs.isError ? (
+                  <p className="text-destructive text-sm" role="alert">
+                    {logs.error instanceof Error
+                      ? logs.error.message
+                      : "Unable to load request analytics."}
+                  </p>
+                ) : logs.summary?.topRoutes.length ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Route</TableHead>
+                          <TableHead className="text-right">Requests</TableHead>
+                          <TableHead className="text-right">
+                            Avg. latency
+                          </TableHead>
+                          <TableHead className="text-right">Data</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {logs.summary.topRoutes.map((route) => {
+                          const routeLabel = `${route.host}${route.path}`;
+                          return (
+                            <TableRow key={routeLabel}>
+                              <TableCell>
+                                <span
+                                  className="block max-w-[28rem] truncate font-mono text-xs"
+                                  title={routeLabel}
+                                >
+                                  {routeLabel}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {route.requestCount.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {formatDurationMs(route.averageDurationMs)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {formatBytes(route.totalBytes)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">
+                    No request data in this date range.
+                  </p>
                 )}
               </div>
             </CardContent>

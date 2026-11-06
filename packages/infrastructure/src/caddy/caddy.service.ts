@@ -1608,7 +1608,7 @@ export class CaddyService {
         message: "Unable to read Caddy access logs",
         err: error instanceof Error ? error.message : error,
       });
-      return "";
+      throw new Error("Unable to read Caddy access logs", { cause: error });
     }
   }
 

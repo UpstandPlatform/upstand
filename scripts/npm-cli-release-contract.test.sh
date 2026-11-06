@@ -18,8 +18,6 @@ require_text() {
 
 require_text "$WORKFLOW" 'branches:'
 require_text "$WORKFLOW" '- master'
-require_text "$WORKFLOW" 'tags:'
-require_text "$WORKFLOW" '- "v*"'
 require_text "$WORKFLOW" 'id-token: write'
 require_text "$WORKFLOW" 'fetch-depth: 0'
 require_text "$WORKFLOW" 'git merge-base --is-ancestor'
@@ -37,6 +35,10 @@ require_text "$WORKFLOW" 'dist.integrity'
 require_text "$WORKFLOW" 'refusing to overwrite it'
 require_text "$WORKFLOW" 'npm >= 11.5'
 require_text "$WORKFLOW" 'npm install --global npm@11.5.2'
+if grep -Eq '^[[:space:]]+tags:' "$WORKFLOW"; then
+  echo "CLI publication must not run from a stable tag before production acceptance" >&2
+  exit 1
+fi
 
 if grep -Eq 'NPM_TOKEN|NODE_AUTH_TOKEN|//registry\.npmjs\.org/.*_authToken' "$WORKFLOW"; then
   echo "npm publication must not use a long-lived npm token" >&2

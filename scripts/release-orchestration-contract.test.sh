@@ -23,8 +23,22 @@ require_text "$STABLE_WORKFLOW" 'actions: write'
 require_text "$STABLE_WORKFLOW" 'gh workflow run "Dispatch Release and Publish Docker Images"'
 require_text "$STABLE_WORKFLOW" '--ref master'
 require_text "$STABLE_WORKFLOW" '-f "release_ref=v${release_version}"'
-require_text "$STABLE_WORKFLOW" 'gh workflow run "Publish CLI Package"'
 require_text "$STABLE_WORKFLOW" "github.ref == 'refs/heads/master'"
+require_text "$RELEASE_WORKFLOW" 'actions: write'
+require_text "$RELEASE_WORKFLOW" 'needs: [build-and-publish, build-desktop, pre-release-acceptance]'
+require_text "$RELEASE_WORKFLOW" 'name: Dispatch CLI publication after successful release'
+require_text "$RELEASE_WORKFLOW" 'gh workflow run "Publish CLI Package"'
+require_text "$RELEASE_WORKFLOW" '-f "release_ref=${RELEASE_REF}"'
+release_created_line="$(grep -nF 'name: Create GitHub Release' "$RELEASE_WORKFLOW" | cut -d: -f1 || true)"
+cli_dispatch_line="$(grep -nF 'name: Dispatch CLI publication after successful release' "$RELEASE_WORKFLOW" | cut -d: -f1 || true)"
+if [[ -z "$release_created_line" || -z "$cli_dispatch_line" || "$cli_dispatch_line" -le "$release_created_line" ]]; then
+  echo "CLI publication must be dispatched after the GitHub Release is created" >&2
+  exit 1
+fi
+if grep -Fq 'gh workflow run "Publish CLI Package"' "$STABLE_WORKFLOW"; then
+  echo "stable tag creation must not publish the CLI before production acceptance" >&2
+  exit 1
+fi
 
 require_text "$RELEASE_WORKFLOW" "release:desktop-version"
 require_text "$RELEASE_WORKFLOW" 'release:desktop-version -- "${{ inputs.release_ref || github.ref }}"'
