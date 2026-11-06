@@ -204,6 +204,10 @@ jobs:
       - name: Install browsers for web production smoke
         working-directory: apps/web
         run: bunx playwright install chromium firefox webkit
+      - name: Install WebKit runtime dependency
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y libevent-2.1-7t64
       - name: Run web production browser smoke matrix
         working-directory: apps/web
         run: |
