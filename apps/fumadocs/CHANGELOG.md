@@ -1,5 +1,11 @@
 # fumadocs
 
+## 0.14.20
+
+### Patch Changes
+
+- [#617](https://github.com/UpstandPlatform/upstand/pull/617) [`a230574`](https://github.com/UpstandPlatform/upstand/commit/a2305743e42749d730c70faa8c6023469bbd0d97) Thanks [@mhbdev](https://github.com/mhbdev)! - Add route-level HTTP method allowlists and controls for missing or empty User-Agent headers.
+
 ## 0.14.19
 
 No changes in this release.

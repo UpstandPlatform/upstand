@@ -60,15 +60,17 @@ Configure advanced proxy settings directly inside the domain mapping card:
 
 ---
 
-## 4. Route Access Filters and Rate-Limiting Boundaries
+## 4. Route Access Filters
 
 Each domain mapping can block visitor IP addresses or CIDR ranges and
-case-insensitive user-agent text. Routes can also enable hotlink protection to
-reject requests whose `Referer` points to another hostname. Requests without a
-`Referer` remain available for direct links. These filters use Caddy's built-in
-`client_ip`, `header_regexp`, and header matchers and take effect when the
-managed route configuration is applied. No extra edge service or proxy module
-is needed.
+case-insensitive user-agent text, allow selected HTTP methods, and reject
+requests with a missing or empty `User-Agent` header. Routes can also enable
+hotlink protection to reject requests whose `Referer` points to another
+hostname. Requests without a `Referer` remain available for direct links. An
+empty method allowlist leaves all methods available; when configured, other
+methods receive HTTP 405 and the route's `Allow` header. These filters use
+Caddy's built-in matchers and take effect when the managed route configuration
+is applied. No extra edge service or proxy module is needed.
 
 Hotlink protection is a browser embed control, not authentication: clients can
 omit or forge the `Referer` header. Use Basic Authentication or Forward Auth
