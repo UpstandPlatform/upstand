@@ -87,6 +87,7 @@ type DomainMapping = {
   requestFilters: {
     blockedIpRanges: string[];
     blockedUserAgents: string[];
+    hotlinkProtection: boolean;
   };
   redirectTo?: string;
   redirectStatus: "301" | "302" | "307" | "308";
@@ -132,7 +133,11 @@ const emptyDomainMapping = (): DomainMapping => ({
   https: true,
   certificateType: "letsencrypt",
   middlewares: [],
-  requestFilters: { blockedIpRanges: [], blockedUserAgents: [] },
+  requestFilters: {
+    blockedIpRanges: [],
+    blockedUserAgents: [],
+    hotlinkProtection: false,
+  },
   redirectTo: "",
   redirectStatus: "302",
   forwardAuth: {
@@ -231,6 +236,8 @@ const parseDomainMappings = (
                   (agent): agent is string => typeof agent === "string",
                 )
               : [],
+            hotlinkProtection:
+              mapping.requestFilters?.hotlinkProtection === true,
           },
           redirectTo:
             typeof mapping.redirectTo === "string" ? mapping.redirectTo : "",
@@ -460,6 +467,7 @@ export function DomainsTab({
                 .filter(Boolean),
             ),
           ],
+          hotlinkProtection: value.requestFilters.hotlinkProtection,
         },
         redirectTo: value.redirectTo?.trim() || undefined,
         redirectStatus: value.redirectStatus,
@@ -527,7 +535,9 @@ export function DomainsTab({
         ]),
         certificateId: z.string().optional(),
         middlewares: z.array(z.string()),
-        requestFilters: DomainRequestFiltersInputSchema,
+        requestFilters: DomainRequestFiltersInputSchema.extend({
+          hotlinkProtection: z.boolean(),
+        }),
         redirectTo: z
           .string()
           .refine(
@@ -856,6 +866,9 @@ export function DomainsTab({
                                 ? ""
                                 : "s"}
                             </Badge>
+                          )}
+                          {item.requestFilters.hotlinkProtection && (
+                            <Badge variant="outline">Hotlink protection</Badge>
                           )}
                         </div>
                       </TableCell>
@@ -1525,6 +1538,25 @@ export function DomainsTab({
                         )}
                       </form.Field>
                     </div>
+                    <form.Field name="requestFilters.hotlinkProtection">
+                      {(field) => (
+                        <Field>
+                          <Label className="flex items-center gap-2 text-sm">
+                            <Switch
+                              checked={field.state.value}
+                              onCheckedChange={field.handleChange}
+                            />
+                            Hotlink protection
+                          </Label>
+                          <p className="text-muted-foreground text-xs">
+                            Blocks requests that send a Referer from another
+                            hostname. Requests without a Referer remain
+                            available for direct links.
+                          </p>
+                          <FieldError errors={field.state.meta.errors} />
+                        </Field>
+                      )}
+                    </form.Field>
                     <div className="grid gap-2 sm:grid-cols-3">
                       <form.Field name="securityHeaders.hsts">
                         {(field) => (

@@ -470,7 +470,13 @@ function getRoutes(
 }
 
 function escapeRegularExpressionLiteral(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return value.replace(/[.*+?^${}()|[\]\\`]/g, (character) =>
+    character === "`" ? "\\x60" : `\\${character}`,
+  );
+}
+
+function caddyfileRawToken(value: string): string {
+  return `\`${value}\``;
 }
 
 function routeBlock(route: CaddyRoute, index: number): string[] {
@@ -498,9 +504,21 @@ function routeBlock(route: CaddyRoute, index: number): string[] {
       .map(escapeRegularExpressionLiteral)
       .join("|")})`;
     lines.push(
-      `\t\t\t${blockedUserAgentMatcher} header_regexp User-Agent ${JSON.stringify(pattern)}`,
+      `\t\t\t${blockedUserAgentMatcher} header_regexp User-Agent ${caddyfileRawToken(pattern)}`,
     );
     lines.push(`\t\t\trespond ${blockedUserAgentMatcher} "Forbidden" 403`);
+  }
+  if (route.requestFilters.hotlinkProtection) {
+    const externalRefererMatcher = `@upstand_external_referer_${filterSuffix}`;
+    const siteHost = route.host.replace(/^\*\./, "");
+    const allowedRefererPattern = `(?i)^https?://(?:[a-z0-9-]+\\.)*${escapeRegularExpressionLiteral(siteHost)}(?::[0-9]+)?(?:[/?#]|$)`;
+    lines.push(`\t\t\t${externalRefererMatcher} {`);
+    lines.push("\t\t\t\theader Referer *");
+    lines.push(
+      `\t\t\t\tnot header_regexp upstand_referer_${filterSuffix} Referer ${caddyfileRawToken(allowedRefererPattern)}`,
+    );
+    lines.push("\t\t\t}");
+    lines.push(`\t\t\trespond ${externalRefererMatcher} "Forbidden" 403`);
   }
   for (const middleware of route.middlewares) {
     lines.push(`\t\t\timport ${middleware}`);
@@ -556,7 +574,7 @@ function routeBlock(route: CaddyRoute, index: number): string[] {
 
   if (route.redirectTo) {
     lines.push(
-      `\t\t\tredir ${JSON.stringify(route.redirectTo)} ${route.redirectStatus ?? "302"}`,
+      `\t\t\tredir * ${JSON.stringify(route.redirectTo)} ${route.redirectStatus ?? "302"}`,
     );
     lines.push("\t\t}");
     lines.push("\t}");

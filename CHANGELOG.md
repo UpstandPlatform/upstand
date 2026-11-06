@@ -4,6 +4,12 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.14.19 - 2026-11-06
+
+Add optional per-route hotlink protection to reject browser requests that send
+a referrer from an unrelated hostname, and fix relative Caddy redirect targets.
+
+
 ## 0.14.18 - 2026-11-05
 
 Add per-route client IP range and user-agent blocking using the managed Caddy server's built-in request matchers.
