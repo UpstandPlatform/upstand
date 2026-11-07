@@ -1,5 +1,11 @@
 # web
 
+## 0.15.1
+
+### Patch Changes
+
+- [#627](https://github.com/UpstandPlatform/upstand/pull/627) [`494c5a7`](https://github.com/UpstandPlatform/upstand/commit/494c5a747e976b7ca82464617412e21638503fd8) Thanks [@mhbdev](https://github.com/mhbdev)! - Prevent UpGal's first conversation setup from remaining in a loading state when the server does not respond, and remove the status badge from the chat header.
+
 ## 0.15.0
 
 ### Minor Changes

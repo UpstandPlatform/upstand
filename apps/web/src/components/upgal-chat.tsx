@@ -19,7 +19,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@upstand/ui/components/alert-dialog";
-import { Badge } from "@upstand/ui/components/badge";
 import { Button } from "@upstand/ui/components/button";
 import {
   Marker,
@@ -80,7 +79,7 @@ import {
   storeUpGalPlan,
   upGalPlanUrl,
 } from "@/lib/upgal-ui-actions";
-import { trpc } from "@/utils/trpc";
+import { trpc, trpcClient } from "@/utils/trpc";
 
 function UpGalDraftHandler({
   onOpen,
@@ -248,9 +247,25 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
     },
     [pathname, router],
   );
-  const createConversation = useMutation(
-    trpc.ai.createConversation.mutationOptions(),
-  );
+  const createConversation = useMutation({
+    ...trpc.ai.createConversation.mutationOptions(),
+    mutationFn: async (variables) => {
+      const signal = AbortSignal.timeout(15_000);
+      try {
+        return await trpcClient.ai.createConversation.mutate(variables, {
+          signal,
+        });
+      } catch (error) {
+        if (signal.aborted) {
+          throw new Error(
+            "UpGal could not start a conversation because the server did not respond. Check your connection and try again.",
+            { cause: error },
+          );
+        }
+        throw error;
+      }
+    },
+  });
   const deleteConversation = useMutation({
     ...trpc.ai.deleteConversation.mutationOptions(),
     onSuccess: (_, variables) => {
@@ -547,16 +562,6 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
                 Your Upstand operations assistant
               </p>
             </div>
-            <Badge
-              className="hidden shrink-0 font-normal sm:inline-flex"
-              variant={hasAiProvider ? "secondary" : "outline"}
-            >
-              {aiProviders.isPending
-                ? "Checking setup"
-                : hasAiProvider
-                  ? "Ready"
-                  : "Setup needed"}
-            </Badge>
             <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
               <PopoverTrigger
                 render={
