@@ -1,5 +1,13 @@
 # fumadocs
 
+## 0.15.0
+
+### Patch Changes
+
+- [#624](https://github.com/UpstandPlatform/upstand/pull/624) [`be98356`](https://github.com/UpstandPlatform/upstand/commit/be98356efe53d763c44e1951c0b4c2f6e41d74e5) Thanks [@mhbdev](https://github.com/mhbdev)! - Upgrade UpGal to the current AI SDK releases and improve tool traces, conversation loading, attachment visibility, and composer draft recovery.
+
+- [#623](https://github.com/UpstandPlatform/upstand/pull/623) [`5b567a1`](https://github.com/UpstandPlatform/upstand/commit/5b567a16aa671e0ed8d694fd20f2e27ef713f62e) Thanks [@mhbdev](https://github.com/mhbdev)! - Add one-click desktop application updates from Settings. The desktop checks stable releases, verifies release assets, and installs through the platform-native update flow.
+
 ## 0.14.21
 
 No changes in this release.
