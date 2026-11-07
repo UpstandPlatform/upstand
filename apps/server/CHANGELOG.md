@@ -1,5 +1,11 @@
 # server
 
+## 0.15.0
+
+### Patch Changes
+
+- [#624](https://github.com/UpstandPlatform/upstand/pull/624) [`be98356`](https://github.com/UpstandPlatform/upstand/commit/be98356efe53d763c44e1951c0b4c2f6e41d74e5) Thanks [@mhbdev](https://github.com/mhbdev)! - Upgrade UpGal to the current AI SDK releases and improve tool traces, conversation loading, attachment visibility, and composer draft recovery.
+
 ## 0.14.21
 
 ### Patch Changes

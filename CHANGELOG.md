@@ -4,6 +4,13 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.15.0 - 2026-11-07
+
+Upgrade UpGal to the current AI SDK releases and improve tool traces, conversation loading, attachment visibility, and composer draft recovery.
+
+Add one-click desktop application updates from Settings. The desktop checks stable releases, verifies release assets, and installs through the platform-native update flow.
+
+
 ## 0.14.21 - 2026-11-06
 
 Request monitoring now derives the log page, hourly chart, and route summaries from one Caddy log read.
