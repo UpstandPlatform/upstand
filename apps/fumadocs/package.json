@@ -1,6 +1,6 @@
 {
   "name": "fumadocs",
-  "version": "0.14.21",
+  "version": "0.15.0",
   "private": true,
   "scripts": {
     "build": "next build",
@@ -15,11 +15,11 @@
     "format": "biome format --write"
   },
   "dependencies": {
-    "@ai-sdk/react": "^4.0.44",
-    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@ai-sdk/react": "^4.0.168",
+    "@openrouter/ai-sdk-provider": "^3.1.0",
     "@upstand/env": "workspace:*",
     "@upstand/redis": "workspace:*",
-    "ai": "7.0.48",
+    "ai": "7.0.164",
     "class-variance-authority": "^0.7.1",
     "cnfast": "^0.1.0",
     "evlog": "catalog:",

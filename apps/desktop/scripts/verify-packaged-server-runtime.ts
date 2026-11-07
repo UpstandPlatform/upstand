@@ -131,6 +131,8 @@ await Promise.all([
   access(pgliteAssets),
   access(swaggerAssets),
   access(dashboardEntry),
+  access(resolve(resourcesDirectory, "install-linux-update.sh")),
+  access(resolve(resourcesDirectory, "install-macos-update.sh")),
 ]);
 const temporaryDirectory = await mkdtemp(
   join(tmpdir(), "upstand-desktop-runtime-"),

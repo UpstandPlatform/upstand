@@ -1,37 +1,42 @@
 "use client";
 
 import { Button } from "@upstand/ui/components/button";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@upstand/ui/components/message-scroller";
 import { cn } from "@upstand/ui/lib/utils";
 import type { UIMessage } from "ai";
 import type { ComponentProps } from "react";
 import { useCallback } from "react";
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import { ArrowDownIcon, DownloadIcon } from "@/components/huge-icons";
+import { DownloadIcon } from "@/components/huge-icons";
 
-export type ConversationProps = ComponentProps<typeof StickToBottom>;
+export type ConversationProps = ComponentProps<typeof MessageScroller>;
 
 export const Conversation = ({ className, ...props }: ConversationProps) => (
-  <StickToBottom
-    className={cn("relative flex-1 overflow-y-hidden", className)}
-    initial="smooth"
-    resize="smooth"
-    role="log"
-    {...props}
-  />
+  <MessageScrollerProvider autoScroll>
+    <MessageScroller
+      className={cn("relative flex-1", className)}
+      role="log"
+      {...props}
+    />
+  </MessageScrollerProvider>
 );
 
 export type ConversationContentProps = ComponentProps<
-  typeof StickToBottom.Content
+  typeof MessageScrollerContent
 >;
 
 export const ConversationContent = ({
   className,
   ...props
 }: ConversationContentProps) => (
-  <StickToBottom.Content
-    className={cn("flex flex-col gap-8 p-4", className)}
-    {...props}
-  />
+  <MessageScrollerViewport className="min-h-0 flex-1">
+    <MessageScrollerContent className={cn("gap-6 p-4", className)} {...props} />
+  </MessageScrollerViewport>
 );
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
@@ -58,7 +63,7 @@ export const ConversationEmptyState = ({
     {children ?? (
       <>
         {icon && <div className="text-muted-foreground">{icon}</div>}
-        <div className="space-y-1">
+        <div className="flex flex-col gap-1">
           <h3 className="font-medium text-sm">{title}</h3>
           {description && (
             <p className="text-muted-foreground text-sm">{description}</p>
@@ -69,36 +74,19 @@ export const ConversationEmptyState = ({
   </div>
 );
 
-export type ConversationScrollButtonProps = ComponentProps<typeof Button>;
+export type ConversationScrollButtonProps = {
+  className?: string;
+};
 
 export const ConversationScrollButton = ({
   className,
-  ...props
-}: ConversationScrollButtonProps) => {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
-
-  const handleScrollToBottom = useCallback(() => {
-    scrollToBottom();
-  }, [scrollToBottom]);
-
-  return (
-    !isAtBottom && (
-      <Button
-        className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
-          className,
-        )}
-        onClick={handleScrollToBottom}
-        size="icon"
-        type="button"
-        variant="outline"
-        {...props}
-      >
-        <ArrowDownIcon className="size-4" />
-      </Button>
-    )
-  );
-};
+}: ConversationScrollButtonProps) => (
+  <MessageScrollerButton
+    className={cn("bottom-4", className)}
+    size="icon"
+    variant="outline"
+  />
+);
 
 const getMessageText = (message: UIMessage): string =>
   message.parts

@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ConnectionMode } from "../main/connection-profiles";
 import type {
+  DesktopUpdateInfo,
+  DesktopUpdateProgress,
+} from "../main/desktop-updates";
+import type {
   DesktopConnectionProfile,
   DesktopRuntime,
 } from "../shared/connection";
@@ -18,15 +22,17 @@ const desktopBridge = {
     openExternal: (url: string) =>
       ipcRenderer.invoke("app:open-external", url) as Promise<void>,
     checkForUpdates: () =>
-      ipcRenderer.invoke("app:check-for-updates") as Promise<{
-        currentVersion: string;
-        latestVersion: string | null;
-        updateAvailable: boolean;
-        releaseUrl: string | null;
-        downloadUrl: string | null;
-      }>,
-    installUpdate: (downloadUrl: string) =>
-      ipcRenderer.invoke("app:install-update", downloadUrl) as Promise<void>,
+      ipcRenderer.invoke("app:check-for-updates") as Promise<DesktopUpdateInfo>,
+    installUpdate: () =>
+      ipcRenderer.invoke("app:install-update") as Promise<void>,
+    onUpdateProgress: (callback: (progress: DesktopUpdateProgress) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        progress: DesktopUpdateProgress,
+      ) => callback(progress);
+      ipcRenderer.on("app:update-progress", listener);
+      return () => ipcRenderer.removeListener("app:update-progress", listener);
+    },
   },
   projectFolder: {
     select: () =>
