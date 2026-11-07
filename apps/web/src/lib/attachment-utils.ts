@@ -77,6 +77,9 @@ export const UPGAL_ACCEPT_PATTERNS = ATTACHMENT_CATEGORIES.text.extensions
   .concat(ATTACHMENT_CATEGORIES.text.mimeTypes)
   .join(",");
 
+export const UPGAL_MAX_ATTACHMENT_COUNT = 2;
+export const UPGAL_MAX_ATTACHMENT_SIZE_BYTES = 64 * 1024;
+
 /**
  * Infer the media (MIME) type of a file based on its name and browser-reported type.
  * Useful when the OS/browser leaves `file.type` as empty string (e.g., .md on Windows).

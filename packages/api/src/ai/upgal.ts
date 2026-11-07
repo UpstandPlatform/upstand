@@ -2416,9 +2416,28 @@ export async function createUpGalResponse(
     },
   });
 
-  let agentStream: Awaited<ReturnType<typeof createAgentUIStream>>;
+  type UpGalAgentStream = Awaited<
+    ReturnType<
+      typeof createAgentUIStream<
+        never,
+        typeof agentTools,
+        typeof context,
+        never,
+        unknown,
+        UpGalUIMessage
+      >
+    >
+  >;
+  let agentStream: UpGalAgentStream;
   try {
-    agentStream = await createAgentUIStream({
+    agentStream = await createAgentUIStream<
+      never,
+      typeof agentTools,
+      typeof context,
+      never,
+      unknown,
+      UpGalUIMessage
+    >({
       agent,
       uiMessages,
       sendReasoning: provider.reasoningEnabled,
