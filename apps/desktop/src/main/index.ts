@@ -1,16 +1,24 @@
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
+import {
+  copyFile,
   mkdir,
-  mkdtemp,
   readFile,
   rename,
   rm,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -38,6 +46,16 @@ import {
   setActiveConnectionProfile,
 } from "./connection-profiles";
 import {
+  downloadVerifiedDesktopUpdate,
+  removePreparedDesktopUpdate,
+} from "./desktop-update-installer";
+import {
+  type DesktopUpdateInfo,
+  type DesktopUpdateProgress,
+  fetchLatestDesktopRelease,
+  getDesktopUpdateInfo,
+} from "./desktop-updates";
+import {
   getLocalApiOrigin,
   getLocalDashboardOrigin,
   startLocalServices,
@@ -59,15 +77,7 @@ let activeDocsOrigin = "";
 
 const OFFICIAL_CLOUD_ORIGIN = "https://upstand.dev";
 const OFFICIAL_DOCS_ORIGIN = "https://docs.upstand.dev";
-const UPSTAND_GITHUB_REPOSITORY = "UpstandPlatform/upstand";
-
-type DesktopUpdateInfo = {
-  currentVersion: string;
-  latestVersion: string | null;
-  updateAvailable: boolean;
-  releaseUrl: string | null;
-  downloadUrl: string | null;
-};
+const DESKTOP_UPDATE_RESULT_FILE = "desktop-update-result.json";
 
 interface WindowConfig {
   windowBounds?: { x: number; y: number; width: number; height: number };
@@ -158,101 +168,312 @@ async function isDocsOrigin(origin: string): Promise<boolean> {
   }
 }
 
-function comparableVersion(version: string): number[] {
-  const normalized = version.replace(/^v/i, "").split("-")[0] ?? "0";
-  return normalized
-    .split(".")
-    .map((part) => Number.parseInt(part, 10))
-    .map((part) => (Number.isFinite(part) ? part : 0));
-}
+function getDesktopUpdateTarget() {
+  const target = {
+    platform: process.platform,
+    architecture: process.arch,
+  } as const;
+  if (process.platform !== "linux") return target;
 
-function isNewerVersion(latest: string, current: string): boolean {
-  const left = comparableVersion(latest);
-  const right = comparableVersion(current);
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference > 0;
+  let linuxInstallKind: "deb" | "portable" = "portable";
+  try {
+    const executablePaths = new Set([
+      process.execPath,
+      realpathSync(process.execPath),
+    ]);
+    for (const executablePath of executablePaths) {
+      const packageOwner = spawnSync(
+        "dpkg-query",
+        ["--search", executablePath],
+        { stdio: "ignore" },
+      );
+      if (packageOwner.status === 0) {
+        linuxInstallKind = "deb";
+        break;
+      }
+    }
+  } catch {
+    // Portable Linux builds do not require dpkg-query.
   }
-  return false;
+  return { ...target, linuxInstallKind };
 }
 
-function desktopAssetMatchesPlatform(name: string): boolean {
-  const lowerName = name.toLowerCase();
-  if (process.platform === "win32") return lowerName.endsWith(".exe");
-  if (process.platform === "darwin") return lowerName.endsWith(".zip");
-  return lowerName.endsWith(".deb") || lowerName.endsWith(".zip");
+function getMacAppBundlePath(executablePath: string): string {
+  let currentPath = dirname(realpathSync(executablePath));
+  while (currentPath !== dirname(currentPath)) {
+    if (currentPath.toLowerCase().endsWith(".app")) return currentPath;
+    currentPath = dirname(currentPath);
+  }
+  throw new Error("Could not locate the installed Upstand app bundle");
 }
 
 async function checkForDesktopUpdates(): Promise<DesktopUpdateInfo> {
-  const currentVersion = app.getVersion();
-  const response = await fetch(
-    `https://api.github.com/repos/${UPSTAND_GITHUB_REPOSITORY}/releases/latest`,
-    {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "Upstand-Desktop",
+  const release = await fetchLatestDesktopRelease();
+  return getDesktopUpdateInfo({
+    currentVersion: app.getVersion(),
+    release,
+    target: getDesktopUpdateTarget(),
+    isPackaged: app.isPackaged,
+  }).info;
+}
+
+let activeWindowsUpdate: Promise<void> | null = null;
+
+function installWindowsDesktopUpdate(
+  releaseTag: string,
+  onProgress: (progress: DesktopUpdateProgress) => void,
+): Promise<void> {
+  if (activeWindowsUpdate) return activeWindowsUpdate;
+
+  const operation = new Promise<void>((resolveOperation, rejectOperation) => {
+    let settled = false;
+    const timeout = setTimeout(
+      () => {
+        finish(
+          new Error(
+            "The desktop update timed out. Check your connection and try again.",
+          ),
+        );
       },
-      signal: AbortSignal.timeout(10_000),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`GitHub returned HTTP ${response.status}`);
-  }
-  const release = (await response.json()) as {
-    tag_name?: unknown;
-    html_url?: unknown;
-    draft?: unknown;
-    prerelease?: unknown;
-    assets?: Array<{ name?: unknown; browser_download_url?: unknown }>;
-  };
-  const latestVersion =
-    typeof release.tag_name === "string" ? release.tag_name : null;
-  const asset = release.assets?.find(
-    (candidate) =>
-      typeof candidate.name === "string" &&
-      typeof candidate.browser_download_url === "string" &&
-      desktopAssetMatchesPlatform(candidate.name),
-  );
-  const releaseUrl =
-    typeof release.html_url === "string" ? release.html_url : null;
-  const updateAvailable =
-    latestVersion !== null &&
-    release.draft !== true &&
-    release.prerelease !== true &&
-    isNewerVersion(latestVersion, currentVersion);
-  return {
-    currentVersion,
-    latestVersion,
-    updateAvailable,
-    releaseUrl,
-    downloadUrl:
-      updateAvailable && asset && typeof asset.browser_download_url === "string"
-        ? asset.browser_download_url
-        : null,
-  };
-}
+      30 * 60 * 1000,
+    );
+    timeout.unref();
 
-async function installDesktopUpdate(downloadUrl: string): Promise<void> {
-  const parsed = new URL(downloadUrl);
-  if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") {
-    throw new Error("Desktop updates must be downloaded from GitHub");
-  }
-  const response = await fetch(parsed, {
-    headers: { "User-Agent": "Upstand-Desktop" },
-    signal: AbortSignal.timeout(120_000),
+    const cleanup = () => {
+      clearTimeout(timeout);
+      autoUpdater.removeListener("error", handleError);
+      autoUpdater.removeListener("update-not-available", handleUnavailable);
+      autoUpdater.removeListener("update-downloaded", handleDownloaded);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) rejectOperation(error);
+      else resolveOperation();
+    };
+    const handleError = (error: Error) =>
+      finish(
+        new Error(`Upstand could not download the update: ${error.message}`),
+      );
+    const handleUnavailable = () =>
+      finish(
+        new Error(
+          "The update is no longer available. Check for updates again.",
+        ),
+      );
+    const handleDownloaded = () => {
+      onProgress({
+        phase: "installing",
+        downloadedBytes: null,
+        totalBytes: null,
+        percent: null,
+      });
+      try {
+        autoUpdater.quitAndInstall();
+        finish();
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+
+    autoUpdater.once("error", handleError);
+    autoUpdater.once("update-not-available", handleUnavailable);
+    autoUpdater.once("update-downloaded", handleDownloaded);
+    onProgress({
+      phase: "downloading",
+      downloadedBytes: null,
+      totalBytes: null,
+      percent: null,
+    });
+    try {
+      autoUpdater.setFeedURL({
+        url: `https://github.com/UpstandPlatform/upstand/releases/download/${releaseTag}/`,
+      });
+      autoUpdater.checkForUpdates();
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)));
+    }
   });
-  if (!response.ok) throw new Error(`GitHub returned HTTP ${response.status}`);
-  const fileName = decodeURIComponent(parsed.pathname.split("/").pop() || "");
-  if (!/\.(exe|deb|zip)$/i.test(fileName)) {
-    throw new Error("GitHub release does not contain a supported installer");
-  }
-  const directory = await mkdtemp(join(app.getPath("temp"), "upstand-update-"));
-  const filePath = join(directory, fileName);
-  await writeFile(filePath, Buffer.from(await response.arrayBuffer()));
-  const openResult = await shell.openPath(filePath);
-  if (openResult) throw new Error(openResult);
+
+  const trackedOperation = operation.finally(() => {
+    activeWindowsUpdate = null;
+  });
+  activeWindowsUpdate = trackedOperation;
+  return trackedOperation;
 }
 
+function runLinuxPackageInstaller(packagePath: string): Promise<void> {
+  return new Promise((resolveOperation, rejectOperation) => {
+    const installer = spawn(
+      "pkexec",
+      ["apt-get", "install", "--yes", packagePath],
+      { stdio: "ignore", windowsHide: true },
+    );
+    const timeout = setTimeout(
+      () => {
+        installer.kill("SIGTERM");
+        rejectOperation(new Error("The system package installer timed out."));
+      },
+      30 * 60 * 1000,
+    );
+    timeout.unref();
+
+    installer.once("error", (error) => {
+      clearTimeout(timeout);
+      rejectOperation(
+        new Error(
+          `Could not start the Linux package installer: ${error.message}`,
+        ),
+      );
+    });
+    installer.once("close", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolveOperation();
+      } else if (code === 126 || code === 127) {
+        rejectOperation(
+          new Error("The update was canceled; Upstand was not changed."),
+        );
+      } else {
+        rejectOperation(
+          new Error(
+            "The Linux package installer failed. Upstand was not updated.",
+          ),
+        );
+      }
+    });
+  });
+}
+
+async function launchDesktopUpdateHelper(
+  command: string,
+  args: string[],
+): Promise<void> {
+  await new Promise<void>((resolveSpawn, rejectSpawn) => {
+    const helper = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    helper.once("error", rejectSpawn);
+    helper.once("spawn", () => {
+      helper.unref();
+      setTimeout(() => app.quit(), 350);
+      resolveSpawn();
+    });
+  });
+}
+
+async function installDesktopUpdate(
+  onProgress: (progress: DesktopUpdateProgress) => void,
+): Promise<void> {
+  if (!app.isPackaged) {
+    throw new Error("Desktop updates are available in the installed app only.");
+  }
+
+  const release = await fetchLatestDesktopRelease();
+  const target = getDesktopUpdateTarget();
+  const { info, plan } = getDesktopUpdateInfo({
+    currentVersion: app.getVersion(),
+    release,
+    target,
+    isPackaged: app.isPackaged,
+  });
+  if (!info.updateAvailable) {
+    throw new Error("Upstand is already up to date.");
+  }
+  if (!info.canUpdate || !plan) {
+    throw new Error(
+      info.unavailableReason ??
+        "An installer for this operating system and architecture is not available.",
+    );
+  }
+
+  if (plan.format === "squirrel") {
+    return installWindowsDesktopUpdate(release.tagName, onProgress);
+  }
+
+  const asset = plan.assets[0];
+  if (!asset)
+    throw new Error("The release does not contain a desktop installer.");
+  const preparedUpdate = await downloadVerifiedDesktopUpdate(asset, {
+    onProgress,
+    temporaryDirectory: app.getPath("temp"),
+  });
+  let helperOwnsUpdate = false;
+
+  try {
+    onProgress({
+      phase: "installing",
+      downloadedBytes: null,
+      totalBytes: null,
+      percent: null,
+    });
+
+    if (plan.format === "linux-deb") {
+      await runLinuxPackageInstaller(preparedUpdate.filePath);
+      await removePreparedDesktopUpdate(preparedUpdate);
+      app.relaunch();
+      setTimeout(() => app.quit(), 350);
+      return;
+    }
+
+    const helperName =
+      plan.format === "mac-zip"
+        ? "install-macos-update.sh"
+        : "install-linux-update.sh";
+    const helperPath = join(preparedUpdate.directory, helperName);
+    await copyFile(join(process.resourcesPath, helperName), helperPath);
+    const resultFile = join(
+      app.getPath("userData"),
+      DESKTOP_UPDATE_RESULT_FILE,
+    );
+
+    if (plan.format === "mac-zip") {
+      await launchDesktopUpdateHelper("/bin/bash", [
+        helperPath,
+        getMacAppBundlePath(process.execPath),
+        preparedUpdate.filePath,
+        release.version,
+        String(process.pid),
+        resultFile,
+      ]);
+    } else {
+      const executablePath = realpathSync(process.execPath);
+      await launchDesktopUpdateHelper("/bin/sh", [
+        helperPath,
+        dirname(executablePath),
+        preparedUpdate.filePath,
+        basename(executablePath),
+        release.version,
+        String(process.pid),
+        resultFile,
+      ]);
+    }
+    helperOwnsUpdate = true;
+  } finally {
+    if (!helperOwnsUpdate) await removePreparedDesktopUpdate(preparedUpdate);
+  }
+}
+
+async function consumeDesktopUpdateFailure(): Promise<string | null> {
+  const resultFile = join(app.getPath("userData"), DESKTOP_UPDATE_RESULT_FILE);
+  try {
+    const result = JSON.parse(await readFile(resultFile, "utf8")) as {
+      status?: unknown;
+      version?: unknown;
+    };
+    await rm(resultFile, { force: true });
+    return result.status === "failed" &&
+      typeof result.version === "string" &&
+      /^\d+\.\d+\.\d+$/.test(result.version)
+      ? result.version
+      : null;
+  } catch {
+    return null;
+  }
+}
 async function resolveRuntimeOrigins(
   dashboardOrigin: string,
   mode: DesktopRuntime["mode"],
@@ -871,9 +1092,13 @@ function registerIpcHandlers(): void {
     validateIpcSender(event);
     return checkForDesktopUpdates();
   });
-  ipcMain.handle("app:install-update", async (event, downloadUrl: string) => {
+  ipcMain.handle("app:install-update", async (event) => {
     validateIpcSender(event);
-    await installDesktopUpdate(downloadUrl);
+    await installDesktopUpdate((progress) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send("app:update-progress", progress);
+      }
+    });
   });
   ipcMain.handle("project-folder:select", async (event) => {
     validateIpcSender(event);
@@ -969,6 +1194,16 @@ if (squirrelStartup) {
     installMenu();
     registerIpcHandlers();
     await showLoadingScreen();
+
+    const failedUpdateVersion = await consumeDesktopUpdateFailure();
+    if (failedUpdateVersion) {
+      await dialog.showMessageBox({
+        type: "warning",
+        title: "Upstand update could not be completed",
+        message: `Upstand restored the previous version after the update to ${failedUpdateVersion} failed.`,
+        detail: "You can retry the update from Settings.",
+      });
+    }
 
     if (app.isPackaged && activeMode === "desktop") {
       try {
