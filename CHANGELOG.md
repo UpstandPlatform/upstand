@@ -4,6 +4,11 @@ All notable releases of Upstand are recorded here. Release tags use semantic ver
 
 ## Unreleased
 
+## 0.15.1 - 2026-11-07
+
+Prevent UpGal's first conversation setup from remaining in a loading state when the server does not respond, and remove the status badge from the chat header.
+
+
 ## 0.15.0 - 2026-11-07
 
 Upgrade UpGal to the current AI SDK releases and improve tool traces, conversation loading, attachment visibility, and composer draft recovery.
