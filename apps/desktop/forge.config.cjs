@@ -18,7 +18,11 @@ module.exports = {
     // Allows an air-gapped verification host to provide a pre-verified Electron
     // archive while CI continues to use Electron Packager's normal download.
     electronZipDir: process.env.UPSTAND_ELECTRON_ZIP_DIR,
-    extraResource: [resolve(__dirname, "dist/resources/local")],
+    extraResource: [
+      resolve(__dirname, "dist/resources/local"),
+      resolve(__dirname, "scripts/install-linux-update.sh"),
+      resolve(__dirname, "scripts/install-macos-update.sh"),
+    ],
     // The main and preload bundles have no runtime npm dependencies. Excluding
     // Bun's workspace symlinks prevents Electron Packager from treating Forge's
     // own dev-only modules as application modules during its dependency walk.
