@@ -463,7 +463,7 @@ jobs:
           release_version="${RELEASE_REF##*/}"
           mapfile -d '' assets < <(
             find "$RUNNER_TEMP/desktop-assets" -type f \
-              \( -name '*.deb' -o -name '*.dmg' -o -name '*.exe' -o -name '*.nupkg' -o -name '*.zip' \) \
+              \( -name '*.deb' -o -name '*.dmg' -o -name '*.exe' -o -name '*.nupkg' -o -name '*.zip' -o -name 'RELEASES' \) \
               -print0
           )
           if [[ "${#assets[@]}" -eq 0 ]]; then

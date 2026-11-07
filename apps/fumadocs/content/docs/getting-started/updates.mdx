@@ -89,6 +89,13 @@ Automatic updates are opt-in and check for new tags every 30 minutes:
 
 ## Checking Update Status
 
+The Electron desktop client checks the latest stable release in **Settings →
+Upstand Platform**. Choose **Update & Restart** to download and verify the
+platform installer, apply it, and relaunch Upstand. Windows uses its Squirrel
+update feed, macOS replaces the app bundle, Debian-based Linux installs the
+`.deb` package, and portable Linux installs the release archive. macOS and
+portable Linux may ask for permission when the app is installed in a protected
+system directory.
 You can trigger a manual check for updates from:
 - **Web Server → Check for updates**
 - **Settings → Check for updates**
@@ -107,7 +114,7 @@ recreates the monitoring agent, and preserves the server's Docker workloads.
 This explicit action avoids taking remote application traffic down as a side
 effect of a platform update.
 
-Both interfaces read from a cached state that queries the GitHub releases API. Clicking either forces a fresh HTTP request to GitHub, bypassing the 30-minute cache.
+The web control-plane interfaces use a cached update status that queries GitHub. Clicking either forces a fresh HTTP request, bypassing the 30-minute cache. The desktop client checks GitHub directly when its Settings update section opens or the user requests a refresh.
 
 ---
 
