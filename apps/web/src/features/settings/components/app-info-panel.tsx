@@ -8,20 +8,33 @@ import {
   CardHeader,
   CardTitle,
 } from "@upstand/ui/components/card";
+import { Progress } from "@upstand/ui/components/progress";
 import { Spinner } from "@upstand/ui/components/spinner";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SelfUpdateDialog } from "@/components/self-update-dialog";
-import { type DesktopUpdateInfo, getDesktopBridge } from "@/lib/desktop-bridge";
+import {
+  type DesktopUpdateInfo,
+  type DesktopUpdateProgress,
+  getDesktopBridge,
+} from "@/lib/desktop-bridge";
 import { trpc } from "@/utils/trpc";
 
 export function AppInfoPanel() {
   const queryClient = useQueryClient();
+  const [desktopBridge, setDesktopBridge] =
+    useState<ReturnType<typeof getDesktopBridge>>(null);
   const [updateDialogVersion, setUpdateDialogVersion] = useState<string>();
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | null>(
     null,
   );
   const [isDesktopChecking, setIsDesktopChecking] = useState(false);
+  const [isDesktopInstalling, setIsDesktopInstalling] = useState(false);
+  const [desktopProgress, setDesktopProgress] =
+    useState<DesktopUpdateProgress | null>(null);
+  const [desktopCheckError, setDesktopCheckError] = useState<string | null>(
+    null,
+  );
 
   const { data, isFetching, refetch } = useQuery({
     ...trpc.webServer.getUpdateData.queryOptions(),
@@ -31,6 +44,40 @@ export function AppInfoPanel() {
     ...trpc.webServer.getSystemStatus.queryOptions(),
     refetchInterval: 10000,
   });
+
+  useEffect(() => {
+    setDesktopBridge(getDesktopBridge());
+  }, []);
+
+  useEffect(() => {
+    if (!desktopBridge) return;
+    let mounted = true;
+    const unsubscribe = desktopBridge.app.onUpdateProgress(setDesktopProgress);
+    setIsDesktopChecking(true);
+    void desktopBridge.app
+      .checkForUpdates()
+      .then((result) => {
+        if (mounted) {
+          setDesktopUpdate(result);
+          setDesktopCheckError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (mounted) {
+          setDesktopCheckError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      })
+      .finally(() => {
+        if (mounted) setIsDesktopChecking(false);
+      });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [desktopBridge]);
 
   const [serverTimeOffset, setServerTimeOffset] = useState<number | null>(null);
   const [timeStr, setTimeStr] = useState<string>("Loading…");
@@ -101,19 +148,21 @@ export function AppInfoPanel() {
   });
 
   const handleCheck = async () => {
-    const desktopBridge = getDesktopBridge();
     if (desktopBridge) {
       setIsDesktopChecking(true);
       try {
         const result = await desktopBridge.app.checkForUpdates();
         setDesktopUpdate(result);
+        setDesktopCheckError(null);
         if (result.updateAvailable) {
           toast.info(`Upstand ${result.latestVersion} is available.`);
         } else {
           toast.success(`Upstand is up to date (${result.currentVersion}).`);
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        setDesktopCheckError(message);
+        toast.error(message);
       } finally {
         setIsDesktopChecking(false);
       }
@@ -141,9 +190,28 @@ export function AppInfoPanel() {
     }
   };
 
-  const desktopBridge = getDesktopBridge();
   const displayedVersion =
     desktopUpdate?.currentVersion ?? data?.currentVersion;
+
+  const installDesktopUpdate = async () => {
+    if (!desktopBridge || isDesktopInstalling) return;
+    setDesktopProgress(null);
+    setIsDesktopInstalling(true);
+    try {
+      await desktopBridge.app.installUpdate();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+      setIsDesktopInstalling(false);
+    }
+  };
+
+  const desktopProgressLabel = desktopProgress
+    ? desktopProgress.phase === "installing"
+      ? "Applying update and restarting…"
+      : desktopProgress.percent === null
+        ? "Downloading update…"
+        : `Downloading update… ${desktopProgress.percent}%`
+    : "Preparing update…";
 
   return (
     <>
@@ -278,22 +346,16 @@ export function AppInfoPanel() {
                 ? "Checking…"
                 : "Check for Updates"}
             </Button>
-            {desktopUpdate?.updateAvailable && desktopUpdate.downloadUrl ? (
+            {desktopUpdate?.updateAvailable && desktopUpdate.canUpdate ? (
               <Button
                 size="sm"
-                onClick={async () => {
-                  try {
-                    await desktopBridge?.app.installUpdate(
-                      desktopUpdate.downloadUrl as string,
-                    );
-                  } catch (error) {
-                    toast.error(
-                      error instanceof Error ? error.message : String(error),
-                    );
-                  }
-                }}
+                disabled={isDesktopInstalling}
+                onClick={() => void installDesktopUpdate()}
               >
-                Update to {desktopUpdate.latestVersion}
+                {isDesktopInstalling && <Spinner data-icon="inline-start" />}
+                {isDesktopInstalling
+                  ? "Updating…"
+                  : `Update & Restart to ${desktopUpdate.latestVersion}`}
               </Button>
             ) : !desktopBridge && data?.updateAvailable && data.canUpdate ? (
               <Button
@@ -313,6 +375,54 @@ export function AppInfoPanel() {
               </Button>
             ) : null}
           </div>
+          {desktopBridge && desktopUpdate?.updateAvailable ? (
+            desktopUpdate.canUpdate ? (
+              <p className="text-muted-foreground text-xs">
+                The verified desktop update will be installed and Upstand will
+                restart automatically.
+              </p>
+            ) : (
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <p className="text-muted-foreground">
+                  {desktopUpdate.unavailableReason ??
+                    "This desktop build cannot install updates automatically."}
+                </p>
+                {desktopUpdate.releaseUrl ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void desktopBridge.app.openExternal(
+                        desktopUpdate.releaseUrl as string,
+                      )
+                    }
+                  >
+                    Release details
+                  </Button>
+                ) : null}
+              </div>
+            )
+          ) : null}
+          {desktopBridge && desktopCheckError ? (
+            <p className="text-destructive text-xs" role="status">
+              Could not check for desktop updates: {desktopCheckError}
+            </p>
+          ) : null}
+          {desktopBridge && isDesktopInstalling ? (
+            <div
+              className="flex flex-col gap-2"
+              role="status"
+              aria-live="polite"
+            >
+              <Progress
+                value={desktopProgress?.percent ?? null}
+                aria-label="Desktop update progress"
+              />
+              <p className="text-muted-foreground text-xs">
+                {desktopProgressLabel}
+              </p>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
       {updateDialogVersion ? (

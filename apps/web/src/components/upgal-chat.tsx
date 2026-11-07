@@ -19,7 +19,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@upstand/ui/components/alert-dialog";
+import { Badge } from "@upstand/ui/components/badge";
 import { Button } from "@upstand/ui/components/button";
+import {
+  Marker,
+  MarkerContent,
+  MarkerIcon,
+} from "@upstand/ui/components/marker";
+import { MessageScrollerItem } from "@upstand/ui/components/message-scroller";
 import {
   Popover,
   PopoverContent,
@@ -29,8 +36,6 @@ import { ScrollArea } from "@upstand/ui/components/scroll-area";
 import type { FileUIPart } from "ai";
 import {
   DefaultChatTransport,
-  getToolName,
-  isTextUIPart,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
@@ -44,28 +49,46 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message";
-import {
-  PromptInput,
-  PromptInputAttachments,
-  PromptInputBody,
-  PromptInputButton,
-  PromptInputFooter,
-  PromptInputHeader,
   PromptInputProvider,
-  PromptInputSubmit,
-  PromptInputTextarea,
-  PromptInputTools,
-  usePromptInputAttachments,
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
-import { UPGAL_ACCEPT_PATTERNS } from "@/lib/attachment-utils";
+import {
+  Bot,
+  CircleAlert,
+  History,
+  Loader2,
+  MessageCircle,
+  Plus,
+  Trash2,
+  X,
+} from "@/components/huge-icons";
+import { UpGalComposer } from "@/components/upgal-composer";
+import { UpGalMessage } from "@/components/upgal-message";
+import {
+  matchesAcceptPattern,
+  UPGAL_ACCEPT_PATTERNS,
+  UPGAL_MAX_ATTACHMENT_COUNT,
+  UPGAL_MAX_ATTACHMENT_SIZE_BYTES,
+} from "@/lib/attachment-utils";
+import { getServerApiUrl } from "@/lib/server-url";
 import type { UpGalDraftEventDetail } from "@/lib/upgal-events";
+import {
+  collectUpGalUiTargets,
+  consumeUpGalAction,
+  removeUpGalPlan,
+  replayUpGalPlan,
+  storeUpGalPlan,
+  upGalPlanUrl,
+} from "@/lib/upgal-ui-actions";
+import { trpc } from "@/utils/trpc";
 
-function UpGalDraftHandler({ onOpen }: { onOpen: () => void }) {
+function UpGalDraftHandler({
+  onOpen,
+  onError,
+}: {
+  onOpen: () => void;
+  onError: (message: string) => void;
+}) {
   const controller = usePromptInputController();
 
   useEffect(() => {
@@ -81,7 +104,21 @@ function UpGalDraftHandler({ onOpen }: { onOpen: () => void }) {
         const content = detail.content || "";
         const mediaType = detail.mediaType || "text/plain";
         const file = new File([content], filename, { type: mediaType });
-        controller.attachments.add([file]);
+        if (!matchesAcceptPattern(file, UPGAL_ACCEPT_PATTERNS)) {
+          onError(
+            "Attach a supported text, Markdown, log, JSON, YAML, or CSV file.",
+          );
+        } else if (file.size > UPGAL_MAX_ATTACHMENT_SIZE_BYTES) {
+          onError(
+            `Each text attachment must be no larger than ${Math.floor(UPGAL_MAX_ATTACHMENT_SIZE_BYTES / 1024)} KB.`,
+          );
+        } else if (
+          controller.attachments.files.length >= UPGAL_MAX_ATTACHMENT_COUNT
+        ) {
+          onError(`You can attach up to ${UPGAL_MAX_ATTACHMENT_COUNT} files.`);
+        } else {
+          controller.attachments.add([file]);
+        }
       }
 
       if (detail.prompt) {
@@ -91,44 +128,10 @@ function UpGalDraftHandler({ onOpen }: { onOpen: () => void }) {
 
     window.addEventListener("upgal:draft", handleDraft);
     return () => window.removeEventListener("upgal:draft", handleDraft);
-  }, [controller, onOpen]);
+  }, [controller, onError, onOpen]);
 
   return null;
 }
-
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-} from "@/components/ai-elements/tool";
-import {
-  Bot,
-  Check,
-  CircleAlert,
-  History,
-  Loader2,
-  MessageCircle,
-  PaperclipIcon,
-  Plus,
-  ShieldAlert,
-  ShieldCheck,
-  Trash2,
-  X,
-} from "@/components/huge-icons";
-import { UpGalToolOutput } from "@/components/upgal-tool-output";
-import { getServerApiUrl } from "@/lib/server-url";
-import {
-  collectUpGalUiTargets,
-  consumeUpGalAction,
-  isUpGalUIAction,
-  removeUpGalPlan,
-  replayUpGalPlan,
-  storeUpGalPlan,
-  upGalPlanUrl,
-} from "@/lib/upgal-ui-actions";
-import { trpc } from "@/utils/trpc";
 
 type UpGalChatProps = {
   organizationId?: string;
@@ -139,24 +142,6 @@ const conversationDateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
-
-const toolTitles: Record<string, string> = {
-  create_environment: "Create environment",
-  create_project: "Create project",
-  control_resource: "Change resource state",
-  delete_project: "Delete project",
-  delete_resource: "Delete resource",
-  deploy_resource: "Deploy resource",
-  create_tag: "Create tag",
-  update_tag: "Update tag",
-  delete_tag: "Delete tag",
-  assign_resource_tag: "Assign resource tag",
-  detach_resource_tag: "Detach resource tag",
-  list_tags: "List tags",
-  get_resource_tags: "Resource tags",
-  search_web: "Web search",
-  guide_upstand: "Open Upstand guidance",
-};
 
 function displayChatError(error: Error): {
   message: string;
@@ -200,180 +185,6 @@ async function upGalFetch(input: RequestInfo | URL, init?: RequestInit) {
   throw error;
 }
 
-function toolTitle(name: string) {
-  return toolTitles[name] ?? name.replaceAll("_", " ");
-}
-
-function approvalDescription(name: string, input: unknown): string {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return `${toolTitle(name)} will change your Upstand organization.`;
-  }
-  const values = Object.entries(input)
-    .filter(([, value]) => value !== undefined && value !== "")
-    .map(
-      ([key, value]) =>
-        `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`,
-    )
-    .join(" · ");
-  return values
-    ? `${toolTitle(name)} will run with ${values}.`
-    : `${toolTitle(name)} will change your Upstand organization.`;
-}
-
-function Part({
-  part,
-  approve,
-  approvalPendingId,
-  onReplay,
-  onUiAction,
-}: {
-  part: UpGalUIMessage["parts"][number];
-  approve: (id: string, approved: boolean) => void;
-  approvalPendingId?: string;
-  onReplay?: (action: UpGalUIAction) => void;
-  onUiAction?: (actionId: string, action: UpGalUIAction) => void;
-}) {
-  const isTool = isToolUIPart(part);
-  const toolState = isToolUIPart(part) ? part.state : undefined;
-  const [open, setOpen] = useState(() => toolState !== "output-available");
-  const [userInteracted, setUserInteracted] = useState(false);
-
-  useEffect(() => {
-    if (!isToolUIPart(part) || part.state !== "output-available") return;
-    const candidate = part as typeof part & {
-      output?: unknown;
-      toolCallId?: string;
-    };
-    if (!candidate.toolCallId || !isUpGalUIAction(candidate.output)) return;
-    onUiAction?.(candidate.toolCallId, candidate.output);
-  }, [onUiAction, part]);
-
-  useEffect(() => {
-    if (isTool && toolState !== undefined && !userInteracted) {
-      setOpen(toolState !== "output-available");
-    }
-  }, [isTool, toolState, userInteracted]);
-
-  if (isTextUIPart(part)) return <MessageResponse>{part.text}</MessageResponse>;
-  if (isToolUIPart(part)) {
-    const toolName = getToolName(part);
-    const approval = part.approval;
-    const hasInput =
-      part.input !== undefined &&
-      (typeof part.input !== "object" ||
-        part.input === null ||
-        Object.keys(part.input).length > 0);
-    return (
-      <Tool
-        open={open}
-        onOpenChange={(nextOpen) => {
-          setUserInteracted(true);
-          setOpen(nextOpen);
-        }}
-        className="my-2 w-full"
-      >
-        {part.type === "dynamic-tool" ? (
-          <ToolHeader
-            type="dynamic-tool"
-            toolName={toolName}
-            state={part.state}
-          />
-        ) : (
-          <ToolHeader type={part.type} state={part.state} />
-        )}
-        <ToolContent>
-          {hasInput ? <ToolInput input={part.input} /> : null}
-          {approval &&
-          part.state === "approval-requested" &&
-          !approval.isAutomatic ? (
-            <Alert
-              className="border-primary/30 bg-primary/5"
-              role="status"
-              aria-live="polite"
-            >
-              <ShieldAlert aria-hidden="true" />
-              <AlertTitle>Approval required</AlertTitle>
-              <AlertDescription>
-                <p>{approvalDescription(toolName, part.input)}</p>
-                <p className="mt-1 text-xs">
-                  Review the parameters above before allowing this operation.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    disabled={approvalPendingId === approval.id}
-                    onClick={() => approve(approval.id, false)}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <X data-icon="inline-start" />
-                    Reject
-                  </Button>
-                  <Button
-                    disabled={approvalPendingId === approval.id}
-                    onClick={() => approve(approval.id, true)}
-                    size="sm"
-                  >
-                    {approvalPendingId === approval.id ? (
-                      <Loader2
-                        aria-hidden="true"
-                        className="animate-spin"
-                        data-icon="inline-start"
-                      />
-                    ) : (
-                      <Check data-icon="inline-start" />
-                    )}
-                    Approve
-                  </Button>
-                </div>
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          {approval &&
-          part.state === "approval-requested" &&
-          approval.isAutomatic ? (
-            <div className="flex items-center gap-2 rounded-md border border-muted bg-muted/30 p-3 text-muted-foreground text-xs">
-              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-              Applying the approval decision…
-            </div>
-          ) : null}
-          {part.state === "output-available" ? (
-            <UpGalToolOutput
-              input={part.input}
-              name={toolName}
-              onReplay={onReplay}
-              output={part.output}
-            />
-          ) : part.state === "output-error" ? (
-            <ToolOutput output={undefined} errorText={part.errorText} />
-          ) : part.state === "output-denied" ? (
-            <div className="flex items-start gap-2 rounded-md border border-muted bg-muted/30 p-3 text-muted-foreground text-xs">
-              <ShieldCheck aria-hidden="true" className="mt-0.5 size-4" />
-              <span>
-                {approval?.reason ||
-                  "This operation was not approved and was not run."}
-              </span>
-            </div>
-          ) : null}
-        </ToolContent>
-      </Tool>
-    );
-  }
-  return null;
-}
-
-function PromptInputDirectAttachButton() {
-  const { openFileDialog } = usePromptInputAttachments();
-  return (
-    <PromptInputButton
-      aria-label="Attach text or markdown file"
-      tooltip="Attach text or markdown file"
-      onClick={() => openFileDialog()}
-    >
-      <PaperclipIcon className="size-4" />
-    </PromptInputButton>
-  );
-}
-
 export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -381,11 +192,18 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
   const [loadError, setLoadError] = useState<string>();
+  const [composerError, setComposerError] = useState<string>();
+  const [isPreparingMessage, setIsPreparingMessage] = useState(false);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
+  const [composerScopeRevision, setComposerScopeRevision] = useState(0);
   const [approvalPendingId, setApprovalPendingId] = useState<string>();
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
     title: string;
   }>();
+  const openAssistant = useCallback(() => setOpen(true), []);
+  const assistantLauncherRef = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
   const queryClient = useQueryClient();
   const loadedConversationId = useRef<{ value?: string }>({});
   const loadRequestId = useRef(0);
@@ -477,6 +295,18 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
     [pageContext],
   );
 
+  useEffect(() => {
+    if (open) {
+      const targetId = isLoadingConversation
+        ? "upgal-close"
+        : "upgal-composer-input";
+      document.getElementById(targetId)?.focus({ preventScroll: true });
+    } else if (wasOpen.current) {
+      assistantLauncherRef.current?.focus({ preventScroll: true });
+    }
+    wasOpen.current = open;
+  }, [isLoadingConversation, open]);
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport<UpGalUIMessage>({
@@ -498,6 +328,19 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
       if (process.env.NODE_ENV !== "production") console.error(error);
     },
   });
+  const hasActiveToolCall = chat.messages.some((message) =>
+    message.parts.some(
+      (part) =>
+        isToolUIPart(part) &&
+        (part.state === "input-streaming" ||
+          part.state === "input-available" ||
+          part.state === "approval-responded"),
+    ),
+  );
+  const showThinkingStatus =
+    isPreparingMessage ||
+    ((chat.status === "submitted" || chat.status === "streaming") &&
+      !hasActiveToolCall);
 
   async function ensureConversation() {
     if (conversationId || !organizationId) return conversationId;
@@ -516,6 +359,7 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
       const requestId = ++loadRequestId.current;
       try {
         chat.stop();
+        setIsLoadingConversation(true);
         setLoadError(undefined);
         const result = await queryClient.fetchQuery(
           trpc.ai.getConversation.queryOptions({
@@ -530,6 +374,7 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
         }
         if (requestId !== loadRequestId.current) return;
         setConversationId(id);
+        setComposerScopeRevision((revision) => revision + 1);
         manualNewConversation.current = false;
         loadedConversationId.current.value = id;
         chat.setMessages(
@@ -547,6 +392,10 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
             ? error.message
             : "Unable to load this conversation.",
         );
+      } finally {
+        if (requestId === loadRequestId.current) {
+          setIsLoadingConversation(false);
+        }
       }
     },
     [chat, organizationId, queryClient],
@@ -561,6 +410,9 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
       manualNewConversation.current = false;
       chat.setMessages([]);
       setLoadError(undefined);
+      setComposerError(undefined);
+      setIsPreparingMessage(false);
+      setIsLoadingConversation(false);
       setApprovalPendingId(undefined);
       chat.clearError();
     }
@@ -584,15 +436,30 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
     organizationId,
   ]);
 
-  async function send(text: string, files?: FileUIPart[]) {
+  async function send(text: string, files: FileUIPart[] = []) {
     const trimmedText = text.trim();
     if (
-      (!trimmedText && (!files || files.length === 0)) ||
+      (!trimmedText && files.length === 0) ||
       !organizationId ||
       !hasAiProvider
     )
       return;
-    const id = await ensureConversation();
+    setComposerError(undefined);
+    setIsPreparingMessage(true);
+    let id: string | undefined;
+    try {
+      id = await ensureConversation();
+    } catch (error) {
+      setComposerError(
+        error instanceof Error
+          ? error.message
+          : "UpGal could not start a conversation. Please try again.",
+      );
+      throw error;
+    } finally {
+      setIsPreparingMessage(false);
+    }
+    if (!id) return;
     await chat.sendMessage(
       { text: trimmedText, files },
       {
@@ -608,11 +475,14 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
   function newConversation() {
     loadRequestId.current += 1;
     chat.stop();
+    setIsLoadingConversation(false);
     setConversationId(undefined);
+    setComposerScopeRevision((revision) => revision + 1);
     loadedConversationId.current.value = undefined;
     manualNewConversation.current = true;
     chat.setMessages([]);
     setLoadError(undefined);
+    setComposerError(undefined);
     chat.clearError();
     setApprovalPendingId(undefined);
     setHistoryOpen(false);
@@ -640,28 +510,53 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
   }
 
   return (
-    <PromptInputProvider>
-      <UpGalDraftHandler onOpen={() => setOpen(true)} />
+    <PromptInputProvider
+      key={`${organizationId ?? "no-organization"}:${composerScopeRevision}`}
+    >
+      <UpGalDraftHandler onError={setComposerError} onOpen={openAssistant} />
       {!open ? (
         <Button
           aria-label="Open UpGal assistant"
-          className="fixed right-5 bottom-5 z-40 size-14 rounded-full shadow-lg"
-          onClick={() => setOpen(true)}
+          aria-controls="upgal-chat-panel"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          className="fixed right-5 bottom-5 z-40 size-14 rounded-2xl shadow-lg transition-[transform,box-shadow] duration-200 hover:scale-105 hover:shadow-xl focus-visible:ring-4 focus-visible:ring-ring/30 active:scale-95 motion-reduce:transition-none"
+          onClick={openAssistant}
+          ref={assistantLauncherRef}
         >
           <MessageCircle className="size-6" />
         </Button>
       ) : (
-        <section className="fixed inset-x-3 bottom-3 z-40 flex h-[min(720px,calc(100svh-24px))] flex-col overflow-hidden rounded-xl border bg-background shadow-2xl sm:inset-x-auto sm:right-5 sm:w-110">
-          <header className="flex items-center gap-3 border-b px-4 py-3">
-            <div className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground">
+        <section
+          id="upgal-chat-panel"
+          aria-label="UpGal assistant"
+          aria-labelledby="upgal-title"
+          aria-modal="false"
+          className="fade-in slide-in-from-bottom-3 zoom-in-95 sm:slide-in-from-right-3 fixed inset-x-3 bottom-3 z-40 flex h-[min(720px,calc(100dvh-24px))] animate-in flex-col overflow-hidden rounded-2xl border border-border/70 bg-background shadow-2xl duration-200 motion-reduce:animate-none sm:inset-x-auto sm:right-5 sm:w-[min(28rem,calc(100vw-2.5rem))]"
+          role="dialog"
+        >
+          <header className="flex shrink-0 items-center gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur">
+            <div className="flex size-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
               <Bot className="size-5" />
             </div>
             <div className="mr-auto flex-1">
-              <p className="font-semibold">UpGal</p>
+              <p className="font-semibold leading-tight" id="upgal-title">
+                UpGal
+              </p>
               <p className="text-muted-foreground text-xs">
                 Your Upstand operations assistant
               </p>
             </div>
+            <Badge
+              className="hidden shrink-0 font-normal sm:inline-flex"
+              variant={hasAiProvider ? "secondary" : "outline"}
+            >
+              {aiProviders.isPending
+                ? "Checking setup"
+                : hasAiProvider
+                  ? "Ready"
+                  : "Setup needed"}
+            </Badge>
             <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
               <PopoverTrigger
                 render={
@@ -750,6 +645,7 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
             </Button>
             <Button
               aria-label="Close UpGal"
+              id="upgal-close"
               size="icon"
               variant="ghost"
               onClick={() => setOpen(false)}
@@ -759,13 +655,13 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
           </header>
           <Conversation className="min-h-0 flex-1">
             <ConversationContent className="gap-4 p-4">
-              {chat.messages.length === 0 ? (
+              {chat.messages.length === 0 && !isLoadingConversation ? (
                 <ConversationEmptyState>
                   <div className="text-muted-foreground">
                     <Bot className="size-8" />
                   </div>
-                  <div className="space-y-1">
-                    <h3 className="font-medium text-sm">
+                  <div className="flex max-w-sm flex-col gap-2">
+                    <h3 className="font-medium text-base">
                       What should I inspect?
                     </h3>
                     <p className="text-muted-foreground text-sm">
@@ -773,6 +669,28 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
                       logs, or check Docker. Any change requires your approval.
                     </p>
                   </div>
+                  {hasAiProvider ? (
+                    <div className="flex max-w-sm flex-wrap justify-center gap-2 pt-1">
+                      {[
+                        "Check recent deployments",
+                        "Inspect Docker health",
+                        "Find recent errors",
+                      ].map((prompt) => (
+                        <Button
+                          key={prompt}
+                          className="rounded-full text-xs"
+                          disabled={isPreparingMessage}
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void send(prompt).catch(() => undefined)
+                          }
+                        >
+                          {prompt}
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
                   {!hasAiProvider && !aiProviders.isPending ? (
                     <Button
                       title="Add Provider"
@@ -794,26 +712,33 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
                 </ConversationEmptyState>
               ) : null}
               {chat.messages.map((message) => (
-                <Message key={message.id} from={message.role}>
-                  <MessageContent>
-                    {message.parts.map((part, index) => (
-                      <Part
-                        key={`${message.id}-${index}`}
-                        part={part}
-                        approve={respondToApproval}
-                        approvalPendingId={approvalPendingId}
-                        onReplay={replayUiAction}
-                        onUiAction={executeUiAction}
-                      />
-                    ))}
-                  </MessageContent>
-                </Message>
+                <MessageScrollerItem
+                  key={message.id}
+                  messageId={message.id}
+                  scrollAnchor={message.role === "user"}
+                >
+                  <UpGalMessage
+                    message={message}
+                    approve={respondToApproval}
+                    approvalPendingId={approvalPendingId}
+                    onReplay={replayUiAction}
+                    onUiAction={executeUiAction}
+                  />
+                </MessageScrollerItem>
               ))}
-              {chat.status === "submitted" || chat.status === "streaming" ? (
-                <div className="flex items-center gap-2 text-muted-foreground text-xs">
-                  <Loader2 aria-hidden="true" className="size-3 animate-spin" />
-                  UpGal is inspecting your infrastructure…
-                </div>
+              {isLoadingConversation || showThinkingStatus ? (
+                <Marker aria-live="polite" className="px-1" role="status">
+                  <MarkerIcon>
+                    <Loader2 className="animate-spin" />
+                  </MarkerIcon>
+                  <MarkerContent>
+                    {isLoadingConversation
+                      ? "Loading conversation…"
+                      : isPreparingMessage
+                        ? "Preparing your conversation…"
+                        : "UpGal is reviewing your request…"}
+                  </MarkerContent>
+                </Marker>
               ) : null}
               {loadError ? (
                 <Alert variant="destructive">
@@ -866,35 +791,17 @@ export function UpGalChat({ organizationId, pageTitle }: UpGalChatProps) {
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>
-          <PromptInput
-            accept={UPGAL_ACCEPT_PATTERNS}
-            className="border-t p-3"
-            onSubmit={({ text, files }) => send(text, files)}
-          >
-            <PromptInputHeader>
-              <PromptInputAttachments />
-            </PromptInputHeader>
-            <PromptInputBody>
-              <PromptInputTextarea
-                placeholder="Ask UpGal anything…"
-                className="min-h-12 resize-none"
-                aria-label="Message UpGal"
-              />
-            </PromptInputBody>
-            <PromptInputFooter>
-              <PromptInputTools>
-                <PromptInputDirectAttachButton />
-              </PromptInputTools>
-              <span className="px-2 text-[11px] text-muted-foreground">
-                Shift + Enter for a new line
-              </span>
-              <PromptInputSubmit
-                disabled={!hasAiProvider}
-                status={chat.status}
-                onStop={() => chat.stop()}
-              />
-            </PromptInputFooter>
-          </PromptInput>
+          <UpGalComposer
+            error={composerError}
+            hasProvider={hasAiProvider}
+            isPreparing={isPreparingMessage}
+            isLoadingConversation={isLoadingConversation}
+            status={chat.status}
+            onClearError={() => setComposerError(undefined)}
+            onError={setComposerError}
+            onSubmit={send}
+            onStop={() => chat.stop()}
+          />
         </section>
       )}
       <AlertDialog

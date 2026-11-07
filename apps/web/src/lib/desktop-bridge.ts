@@ -2,15 +2,27 @@ export type DesktopUpdateInfo = {
   currentVersion: string;
   latestVersion: string | null;
   updateAvailable: boolean;
+  canUpdate: boolean;
   releaseUrl: string | null;
-  downloadUrl: string | null;
+  unavailableReason: string | null;
+};
+
+export type DesktopUpdateProgress = {
+  phase: "downloading" | "installing";
+  downloadedBytes: number | null;
+  totalBytes: number | null;
+  percent: number | null;
 };
 
 type DesktopBridge = {
   isDesktop?: boolean;
   app: {
+    openExternal: (url: string) => Promise<void>;
     checkForUpdates: () => Promise<DesktopUpdateInfo>;
-    installUpdate: (downloadUrl: string) => Promise<void>;
+    installUpdate: () => Promise<void>;
+    onUpdateProgress: (
+      callback: (progress: DesktopUpdateProgress) => void,
+    ) => () => void;
   };
 };
 

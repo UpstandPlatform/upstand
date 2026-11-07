@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "0.14.21",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -28,7 +28,7 @@
     "@upstand/redis": "workspace:*",
     "@upstand/repositories": "workspace:*",
     "@upstand/usecases": "workspace:*",
-    "ai": "7.0.48",
+    "ai": "7.0.164",
     "evlog": "catalog:",
     "hono": "catalog:",
     "ssh2": "^1.17.0",
