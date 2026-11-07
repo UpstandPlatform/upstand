@@ -40,7 +40,7 @@ if grep -Fq 'gh workflow run "Publish CLI Package"' "$STABLE_WORKFLOW"; then
   exit 1
 fi
 
-require_text "$RELEASE_WORKFLOW" "-o -name 'RELEASES'"
+require_text "$RELEASE_WORKFLOW" "-o -name 'RELEASES' \\)"
 require_text "$RELEASE_WORKFLOW" "release:desktop-version"
 require_text "$RELEASE_WORKFLOW" 'release:desktop-version -- "${{ inputs.release_ref || github.ref }}"'
 require_text "$RECOVERY_WORKFLOW" 'cron: "17 3 * * 1"'
