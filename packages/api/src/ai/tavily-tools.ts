@@ -1,9 +1,4 @@
-import {
-  tavilyCrawl,
-  tavilyExtract,
-  tavilyMap,
-  tavilySearch,
-} from "@tavily/ai-sdk";
+import { tavily } from "@tavily/core";
 import type { AITavilySettingsRecord, IAIRepository } from "@upstand/domain";
 import { decryptSecret } from "@upstand/platform/crypto/secret-box";
 import {
@@ -162,14 +157,24 @@ export async function createTavilyToolsForOrg(
   }
 
   const tools: Record<string, unknown> = {};
+  const client = tavily({ apiKey, clientSource: "ai-sdk" });
 
   if (settings.enableSearch) {
-    const search = tavilySearch({
-      apiKey,
-      searchDepth: settings.searchDepth,
-      includeAnswer: settings.includeAnswer,
-      maxResults: settings.maxResults,
-    });
+    const search = {
+      execute: (input: {
+        query: string;
+        searchDepth?: "basic" | "advanced" | "fast" | "ultra-fast";
+        timeRange?: "year" | "month" | "week" | "day" | "y" | "m" | "w" | "d";
+        exactMatch?: boolean;
+      }) =>
+        client.search(input.query, {
+          searchDepth: input.searchDepth ?? settings.searchDepth,
+          maxResults: settings.maxResults,
+          includeAnswer: settings.includeAnswer,
+          timeRange: input.timeRange,
+          exactMatch: input.exactMatch,
+        }),
+    };
     const boundedSearch = createBoundedTavilyTool(
       search,
       "tavily-search",
@@ -180,9 +185,17 @@ export async function createTavilyToolsForOrg(
   }
 
   if (settings.enableExtract) {
-    const extract = tavilyExtract({
-      apiKey,
-    });
+    const extract = {
+      execute: (input: {
+        urls: string[];
+        extractDepth?: "basic" | "advanced";
+        query?: string;
+      }) =>
+        client.extract(input.urls, {
+          extractDepth: input.extractDepth,
+          query: input.query,
+        }),
+    };
     const boundedExtract = createBoundedTavilyTool(
       extract,
       "tavily-extract",
@@ -194,9 +207,15 @@ export async function createTavilyToolsForOrg(
   }
 
   if (settings.enableCrawl) {
-    const crawl = tavilyCrawl({
-      apiKey,
-    });
+    const crawl = {
+      execute: (input: {
+        url: string;
+        maxDepth?: number;
+        extractDepth?: "basic" | "advanced";
+        instructions?: string;
+        allowExternal?: false;
+      }) => client.crawl(input.url, input),
+    };
     const boundedCrawl = createBoundedTavilyTool(
       crawl,
       "tavily-crawl",
@@ -208,9 +227,14 @@ export async function createTavilyToolsForOrg(
   }
 
   if (settings.enableMap) {
-    const map = tavilyMap({
-      apiKey,
-    });
+    const map = {
+      execute: (input: {
+        url: string;
+        maxDepth?: number;
+        instructions?: string;
+        allowExternal?: false;
+      }) => client.map(input.url, input),
+    };
     const boundedMap = createBoundedTavilyTool(
       map,
       "tavily-map",
