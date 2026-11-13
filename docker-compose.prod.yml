@@ -16,7 +16,7 @@ x-broker-logging: &broker-logging
 
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873}
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -82,7 +82,7 @@ services:
     logging: *default-logging
 
   redis:
-    image: ${REDIS_IMAGE:-redis:8.8-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb}
+    image: ${REDIS_IMAGE:-redis:8.10-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0}
     security_opt:
       - no-new-privileges:true
     cap_drop:
