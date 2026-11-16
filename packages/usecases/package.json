@@ -20,13 +20,13 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@circulo-ai/di": "^3.1.0",
+    "@circulo-ai/di": "^3.5.2",
     "@upstand/domain": "workspace:*",
     "@upstand/env": "workspace:*",
     "@upstand/platform": "workspace:*",
     "@upstand/redis": "workspace:*",
     "bullmq": "catalog:",
-    "croner": "^10.0.1",
+    "croner": "^11.0.0",
     "evlog": "catalog:",
     "yaml": "^2.9.0",
     "zod": "catalog:"
